@@ -8,8 +8,7 @@
              xmlns:converters="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
              mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
              x:Class="SLSKDONET.Views.Avalonia.Controls.LibraryPlaylistTrackSurface"
-             x:DataType="vm:Library.TrackListViewModel"
-             Background="#1E1E1E">
+             x:DataType="vm:Library.TrackListViewModel">
 
     <UserControl.Resources>
         <converters:NumericIsZeroConverter x:Key="NumericIsZeroConverter"/>
@@ -19,40 +18,48 @@
     <UserControl.Styles>
         <Style Selector="Border.track-row">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderBrush" Value="#2A2A2E"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder0}"/>
             <Setter Property="BorderThickness" Value="0,0,0,1"/>
         </Style>
         <Style Selector="Border.track-row:pointerover">
-            <Setter Property="Background" Value="#252A30"/>
+            <Setter Property="Background" Value="{StaticResource BrushHover}"/>
         </Style>
         <Style Selector="Border.track-row.selected">
-            <Setter Property="Background" Value="#3300BFFF"/>
-            <Setter Property="BorderBrush" Value="#3B6FA1"/>
+            <Setter Property="Background" Value="{StaticResource BrushSelected}"/>
         </Style>
         <Style Selector="Border.track-row.focused">
-            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}"/>
         </Style>
         <Style Selector="Grid:focus-within Border.track-row.selected">
-            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}"/>
         </Style>
-        <!-- MixedInKey-style harmonic mixing highlight -->
+        <!-- Harmonic-mixing highlight -->
         <Style Selector="Border.track-row.harmonic-match:not(.selected)">
-            <Setter Property="Background" Value="#124EC9B0"/>
+            <Setter Property="Background" Value="{StaticResource BrushAccentSubtle}"/>
         </Style>
         <Style Selector="Border.key-badge">
-            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}"/>
+            <Setter Property="Padding" Value="4,1"/>
+            <Setter Property="MinWidth" Value="32"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
         </Style>
         <Style Selector="Border.key-badge.harmonic-match">
-            <Setter Property="BorderBrush" Value="#4EC9B0"/>
-            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
         </Style>
         <Style Selector="Border.key-badge.exact-match">
-            <Setter Property="BorderBrush" Value="White"/>
-            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushText0}"/>
+        </Style>
+        <Style Selector="TextBlock.col">
+            <Setter Property="FontSize" Value="{StaticResource TextSizeCaption}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="LetterSpacing" Value="0.6"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText2}"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
         </Style>
     </UserControl.Styles>
 
@@ -60,26 +67,26 @@
         <!-- Column headers — matches the track-row Grid's ColumnDefinitions exactly so labels line up.
              Static (non-sortable) for now: this surface is still behind the UseNewPlaylistSurface
              config gate (default off), so real click-to-sort is left for when it graduates out of that gate. -->
-        <Border Grid.Row="0" Background="#1A1A1D" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="16,8">
+        <Border Grid.Row="0" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1" Padding="16,8">
             <Grid ColumnDefinitions="Auto,Auto,160,*,90,120,110,120,80,84">
-                <TextBlock Grid.Column="2" Text="ARTIST" Margin="0,0,10,0" FontSize="10" FontWeight="SemiBold" Foreground="#666" LetterSpacing="0.5"/>
-                <TextBlock Grid.Column="3" Text="TITLE" Margin="0,0,10,0" FontSize="10" FontWeight="SemiBold" Foreground="#666" LetterSpacing="0.5"/>
-                <TextBlock Grid.Column="4" Text="ENERGY" Margin="0,0,10,0" FontSize="10" FontWeight="SemiBold" Foreground="#666" LetterSpacing="0.5"/>
-                <TextBlock Grid.Column="5" Text="BPM / KEY" Margin="0,0,10,0" FontSize="10" FontWeight="SemiBold" Foreground="#666" LetterSpacing="0.5"/>
-                <TextBlock Grid.Column="6" Text="FORMAT" Margin="0,0,10,0" FontSize="10" FontWeight="SemiBold" Foreground="#666" LetterSpacing="0.5"/>
-                <TextBlock Grid.Column="7" Text="INTEGRITY" Margin="0,0,10,0" FontSize="10" FontWeight="SemiBold" Foreground="#666" LetterSpacing="0.5"/>
-                <TextBlock Grid.Column="8" Text="{Binding FilteredTracks.Count, StringFormat='{}{0} TRACKS'}" HorizontalAlignment="Right" FontSize="10" FontWeight="SemiBold" Foreground="#666" LetterSpacing="0.5"/>
+                <TextBlock Grid.Column="2" Classes="col" Text="ARTIST"/>
+                <TextBlock Grid.Column="3" Classes="col" Text="TITLE"/>
+                <TextBlock Grid.Column="4" Classes="col" Text="ENERGY"/>
+                <TextBlock Grid.Column="5" Classes="col" Text="BPM / KEY"/>
+                <TextBlock Grid.Column="6" Classes="col" Text="FORMAT"/>
+                <TextBlock Grid.Column="7" Classes="col" Text="INTEGRITY"/>
+                <TextBlock Grid.Column="8" Classes="mono muted" Text="{Binding FilteredTracks.Count, StringFormat='{}{0} tracks'}" HorizontalAlignment="Right"/>
             </Grid>
         </Border>
 
         <!-- Empty state — the ItemsRepeater below rendered nothing but blank space when the playlist
              had zero (filtered) tracks. -->
-        <StackPanel Grid.Row="1"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Spacing="8"
+        <StackPanel Grid.Row="1" Classes="empty-state"
                     IsVisible="{Binding FilteredTracks.Count, Converter={StaticResource NumericIsZeroConverter}}">
-            <TextBlock Text="No tracks match the current filters." FontSize="13" Foreground="#666" HorizontalAlignment="Center"/>
+            <PathIcon Data="{StaticResource icon_filter}"/>
+            <TextBlock Classes="h3" Text="No tracks to show"/>
+            <TextBlock Classes="caption" Text="This playlist is empty, or nothing matches the current filters."/>
+            <Button Classes="secondary" Content="Clear filters" Command="{Binding ClearFiltersCommand}" IsVisible="{Binding HasActiveFilters}"/>
         </StackPanel>
 
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" ScrollChanged="OnTrackScrollChanged">
@@ -93,54 +100,48 @@
                             <Border Classes="track-row"
                                     Classes.selected="{Binding IsSelected}"
                                     Classes.harmonic-match="{Binding IsHarmonicMatch}"
-                                    Padding="16,8"
+                                    Padding="16,4"
+                                    MinHeight="40"
                                     Focusable="True"
                                     PointerPressed="OnTrackRowPointerPressed"
                                     PointerEntered="OnTrackRowPointerEntered"
                                     PointerMoved="OnTrackRowPointerMoved"
                                     PointerExited="OnTrackRowPointerExited">
                                 <Grid ColumnDefinitions="Auto,Auto,160,*,90,120,110,120,80,84">
-                                    <Border Grid.Column="0"
-                                            Width="8"
-                                            Height="8"
-                                            CornerRadius="4"
-                                            VerticalAlignment="Center"
-                                            Background="{Binding State, Converter={StaticResource TrackStateToColorConverter}}"/>
+                                    <Ellipse Grid.Column="0" Width="8" Height="8" VerticalAlignment="Center"
+                                             Fill="{Binding State, Converter={StaticResource TrackStateToColorConverter}}"
+                                             ToolTip.Tip="{Binding StatusText}"/>
 
                                     <Button Grid.Column="1"
                                             Command="{Binding $parent[views:LibraryPage].DataContext.Operations.AddToQueueCommand}"
                                             CommandParameter="{Binding}"
-                                            Width="24"
-                                            Height="24"
-                                            Margin="10,0,10,0"
-                                            Padding="0"
-                                            Background="Transparent"
-                                            BorderThickness="0"
-                                            ToolTip.Tip="Queue track">
-                                        <TextBlock Text="＋" FontSize="11" Foreground="#6F8192" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            Classes="icon small"
+                                            Margin="8,0"
+                                            ToolTip.Tip="Add to queue">
+                                        <PathIcon Data="{StaticResource icon_add}" Width="14" Height="14"/>
                                     </Button>
 
                                     <TextBlock Grid.Column="2"
                                                Text="{Binding Artist}"
                                                Margin="0,0,10,0"
                                                VerticalAlignment="Center"
-                                               Foreground="{DynamicResource TextSecondaryBrush}"
-                                               FontSize="12"
+                                               Classes="body-sm"
+                                               Foreground="{StaticResource BrushText1}"
                                                TextTrimming="CharacterEllipsis"/>
 
                                     <TextBlock Grid.Column="3"
                                                Text="{Binding Title}"
                                                Margin="0,0,10,0"
                                                VerticalAlignment="Center"
-                                               Foreground="White"
-                                               FontWeight="SemiBold"
-                                               FontSize="12"
+                                               Classes="body"
+                                               Foreground="{StaticResource BrushText0}"
+                                               FontWeight="Medium"
                                                TextTrimming="CharacterEllipsis"/>
 
                                     <controls:SparklineControl Grid.Column="4"
                                                                Points="{Binding EnergyCurvePoints}"
-                                                               LineBrush="#4EC9B0"
-                                                               FillBrush="#224EC9B0"
+                                                               LineBrush="{StaticResource BrushAccent}"
+                                                               FillBrush="{StaticResource BrushAccentSubtle}"
                                                                LineThickness="1.2"
                                                                Height="22"
                                                                Margin="0,0,10,0"
@@ -149,55 +150,41 @@
                                                                ToolTip.Tip="Energy contour — analysed audio"/>
 
                                     <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,0,10,0" IsVisible="{Binding HasBpm}">
-                                        <TextBlock Text="{Binding BpmDisplay}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Width="26" TextAlignment="Right" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding BpmDisplay}" Classes="mono" Width="28" TextAlignment="Right" VerticalAlignment="Center"/>
                                         <Border Classes="key-badge"
                                                 Classes.harmonic-match="{Binding IsHarmonicMatch}"
                                                 Classes.exact-match="{Binding IsExactKeyMatch}"
                                                 Background="{Binding ColorBrush}"
-                                                CornerRadius="4"
-                                                Padding="5,2"
-                                                MinWidth="30"
                                                 VerticalAlignment="Center"
                                                 ToolTip.Tip="{Binding KeyDisplay}">
-                                            <TextBlock Text="{Binding CamelotDisplay}" Foreground="White" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="{Binding CamelotDisplay}" Classes="mono" FontSize="{StaticResource TextSizeCaption}" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource BrushText0}" HorizontalAlignment="Center"/>
                                         </Border>
                                     </StackPanel>
 
                                     <Border Grid.Column="6"
-                                            Background="#1A1F2C"
-                                            BorderBrush="#3300BFFF"
+                                            Background="{StaticResource BrushBg3}"
+                                            BorderBrush="{StaticResource BrushBorder1}"
                                             BorderThickness="1"
-                                            CornerRadius="4"
-                                            Padding="6,2"
+                                            CornerRadius="{StaticResource RadiusSm}"
+                                            Padding="6,1"
                                             HorizontalAlignment="Left"
                                             VerticalAlignment="Center"
-                                            Margin="0,0,10,0">
-                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <TextBlock Text="{Binding Format}" FontSize="9" FontWeight="Bold" Foreground="#00BFFF" Opacity="0.8"/>
-                                            <TextBlock Text="{Binding Bitrate, StringFormat='{}{0}k'}" FontSize="9" Foreground="#00BFFF"/>
-                                        </StackPanel>
+                                            Margin="0,0,8,0">
+                                        <TextBlock Text="{Binding QualityBadgeText}" Classes="mono" FontSize="{StaticResource TextSizeCaption}"/>
                                     </Border>
 
-                                    <Border Grid.Column="7"
-                                            Background="{Binding IntegrityColor}"
-                                            CornerRadius="10"
-                                            Padding="8,3"
-                                            HorizontalAlignment="Left"
-                                            VerticalAlignment="Center"
-                                            Margin="0,0,10,0"
-                                            ToolTip.Tip="{Binding ForensicHudText}">
-                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <TextBlock Text="{Binding IntegrityBadge}" FontSize="10"/>
-                                            <TextBlock Text="{Binding ForensicVerdictText}" FontSize="10" FontWeight="SemiBold" Foreground="Black"/>
-                                        </StackPanel>
-                                    </Border>
+                                    <StackPanel Grid.Column="7" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,0,8,0"
+                                                Background="Transparent" ToolTip.Tip="{Binding ForensicHudText}">
+                                        <Ellipse Classes="status-dot" Classes.success="{Binding IsIntegrityTrusted}" Classes.warning="{Binding IsIntegritySuspicious}"/>
+                                        <TextBlock Text="{Binding ForensicVerdictText}" Classes="caption" VerticalAlignment="Center"/>
+                                    </StackPanel>
 
                                     <TextBlock Grid.Column="8"
                                                Text="{Binding DurationDisplay}"
+                                               Classes="mono"
                                                VerticalAlignment="Center"
-                                               HorizontalAlignment="Right"
-                                               Foreground="#A0A0A0"
-                                               FontSize="10"/>
+                                               HorizontalAlignment="Right"/>
 
                                     <StackPanel Grid.Column="9" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="10,0,0,0">
                                         <controls:StarRatingControl Rating="{Binding Rating, Mode=TwoWay}" StarSize="11"/>
@@ -205,8 +192,8 @@
                                                       Background="Transparent" BorderThickness="0" Padding="0"
                                                       Cursor="Hand" ToolTip.Tip="Like">
                                             <Panel>
-                                                <TextBlock Text="🤍" FontSize="11" Opacity="0.5" IsVisible="{Binding !IsLiked}"/>
-                                                <TextBlock Text="❤️" FontSize="11" IsVisible="{Binding IsLiked}"/>
+                                                <PathIcon Data="{StaticResource icon_heart_outline}" Width="12" Height="12" Foreground="{StaticResource BrushText3}" IsVisible="{Binding !IsLiked}"/>
+                                                <PathIcon Data="{StaticResource icon_heart}" Width="12" Height="12" Foreground="{StaticResource BrushError}" IsVisible="{Binding IsLiked}"/>
                                             </Panel>
                                         </ToggleButton>
                                     </StackPanel>
