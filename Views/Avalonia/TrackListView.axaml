@@ -307,30 +307,30 @@
                     <MenuItem Header="Hard retry download" Command="{Binding Operations.HardRetryCommand}" IsEnabled="{Binding Operations.AreDependenciesHealthy}"/>
                     <Separator/>
                     <MenuItem Header="Set colour">
-                        <!-- Rekordbox colour palette: the hex values are the tag data written to the track. -->
-                        <MenuItem Header="Pink" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="#F870AC">
-                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#F870AC"/></MenuItem.Icon>
+                        <!-- Rekordbox colour palette: TagHex*/BrushTag* tokens (Themes/DesignTokens.axaml) are the tag data and its swatch. -->
+                        <MenuItem Header="Pink" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="{StaticResource TagHexPink}">
+                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="{StaticResource BrushTagPink}"/></MenuItem.Icon>
                         </MenuItem>
-                        <MenuItem Header="Red" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="#FF0000">
-                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#FF0000"/></MenuItem.Icon>
+                        <MenuItem Header="Red" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="{StaticResource TagHexRed}">
+                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="{StaticResource BrushTagRed}"/></MenuItem.Icon>
                         </MenuItem>
-                        <MenuItem Header="Orange" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="#FFA500">
-                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#FFA500"/></MenuItem.Icon>
+                        <MenuItem Header="Orange" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="{StaticResource TagHexOrange}">
+                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="{StaticResource BrushTagOrange}"/></MenuItem.Icon>
                         </MenuItem>
-                        <MenuItem Header="Yellow" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="#FFFF00">
-                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#FFFF00"/></MenuItem.Icon>
+                        <MenuItem Header="Yellow" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="{StaticResource TagHexYellow}">
+                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="{StaticResource BrushTagYellow}"/></MenuItem.Icon>
                         </MenuItem>
-                        <MenuItem Header="Green" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="#00FF00">
-                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#00FF00"/></MenuItem.Icon>
+                        <MenuItem Header="Green" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="{StaticResource TagHexGreen}">
+                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="{StaticResource BrushTagGreen}"/></MenuItem.Icon>
                         </MenuItem>
-                        <MenuItem Header="Aqua" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="#25FDE9">
-                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#25FDE9"/></MenuItem.Icon>
+                        <MenuItem Header="Aqua" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="{StaticResource TagHexAqua}">
+                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="{StaticResource BrushTagAqua}"/></MenuItem.Icon>
                         </MenuItem>
-                        <MenuItem Header="Blue" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="#0000FF">
-                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#0000FF"/></MenuItem.Icon>
+                        <MenuItem Header="Blue" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="{StaticResource TagHexBlue}">
+                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="{StaticResource BrushTagBlue}"/></MenuItem.Icon>
                         </MenuItem>
-                        <MenuItem Header="Purple" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="#660099">
-                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#660099"/></MenuItem.Icon>
+                        <MenuItem Header="Purple" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="{StaticResource TagHexPurple}">
+                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="{StaticResource BrushTagPurple}"/></MenuItem.Icon>
                         </MenuItem>
                         <Separator/>
                         <MenuItem Header="Clear colour" Command="{Binding Operations.SetColorTagCommand}" CommandParameter=""/>

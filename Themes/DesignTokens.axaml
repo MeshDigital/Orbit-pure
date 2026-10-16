@@ -169,6 +169,25 @@
       <SolidColorBrush x:Key="BrushOnHotCue"      Color="#FFFFFF"/>   <!-- pad label on a saturated pad -->
       <SolidColorBrush x:Key="BrushOnHotCueLight" Color="#111111"/>   <!-- pad label on the light (lime) pad -->
 
+      <!-- Track colour tags: the Rekordbox palette. TagHex* is the tag DATA written to the track
+           (SetColorTagCommand parameter); BrushTag* is its swatch. Data identity, not UI chrome. -->
+      <x:String x:Key="TagHexPink">#F870AC</x:String>
+      <x:String x:Key="TagHexRed">#FF0000</x:String>
+      <x:String x:Key="TagHexOrange">#FFA500</x:String>
+      <x:String x:Key="TagHexYellow">#FFFF00</x:String>
+      <x:String x:Key="TagHexGreen">#00FF00</x:String>
+      <x:String x:Key="TagHexAqua">#25FDE9</x:String>
+      <x:String x:Key="TagHexBlue">#0000FF</x:String>
+      <x:String x:Key="TagHexPurple">#660099</x:String>
+      <SolidColorBrush x:Key="BrushTagPink" Color="#F870AC"/>
+      <SolidColorBrush x:Key="BrushTagRed" Color="#FF0000"/>
+      <SolidColorBrush x:Key="BrushTagOrange" Color="#FFA500"/>
+      <SolidColorBrush x:Key="BrushTagYellow" Color="#FFFF00"/>
+      <SolidColorBrush x:Key="BrushTagGreen" Color="#00FF00"/>
+      <SolidColorBrush x:Key="BrushTagAqua" Color="#25FDE9"/>
+      <SolidColorBrush x:Key="BrushTagBlue" Color="#0000FF"/>
+      <SolidColorBrush x:Key="BrushTagPurple" Color="#660099"/>
+
       <!-- ================================================================
            3. LEGACY ALIASES — referenced by existing Views. Do not use in new
               code; prefer the §2 name in the trailing comment.

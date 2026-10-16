@@ -120,7 +120,8 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Cue generation failed for {Hash}", hash);
-            StatusText = "✗ Couldn't generate cues";
+            StatusText = "Couldn't generate cues";
+            IsStatusError = true;
         }
         finally { IsGenerating = false; }
     }
@@ -395,7 +396,19 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
     public bool CanRedo { get => _canRedo; private set => this.RaiseAndSetIfChanged(ref _canRedo, value); }
 
     private string _statusText = string.Empty;
-    public string StatusText { get => _statusText; private set => this.RaiseAndSetIfChanged(ref _statusText, value); }
+    public string StatusText
+    {
+        get => _statusText;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _statusText, value);
+            IsStatusError = false; // failures set it back to true right after the message
+        }
+    }
+
+    private bool _isStatusError;
+    /// <summary>True when <see cref="StatusText"/> reports a failure (the strip shows it in the error colour).</summary>
+    public bool IsStatusError { get => _isStatusError; private set => this.RaiseAndSetIfChanged(ref _isStatusError, value); }
 
     // ── Commands ────────────────────────────────────────────────────────────────────────────
 
@@ -450,7 +463,7 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
             if (_cues.Count > 0)
                 await _cueService.CreateManyAsync(_cues.Select(c => c.ToEntity(hash)).ToList());
             IsDirty = false;
-            StatusText = $"✓ Saved {_cues.Count} cue{(_cues.Count == 1 ? "" : "s")}";
+            StatusText = $"Saved {_cues.Count} cue{(_cues.Count == 1 ? "" : "s")}";
             EndAudition(); // cue is set — the held mix carries on
             return true;
         }
@@ -458,7 +471,8 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
         {
             // The working set is untouched, so nothing is lost — the next save retries.
             _logger.LogError(ex, "Cue save failed for {Hash}", hash);
-            StatusText = "✗ Save failed — cues were not written";
+            StatusText = "Save failed: cues were not written";
+            IsStatusError = true;
             return false;
         }
     }
@@ -640,7 +654,7 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
         if (!_holdingMainPlayback && HoldMainPlayback?.Invoke() == true) _holdingMainPlayback = true;
         // startSeconds 0 means "hover preview" (debounced) to the preview player — use a hair above.
         _previewPlayer.RequestPreview(_filePath, _bpm > 0 ? _bpm : null, Math.Max(seconds, 0.001));
-        StatusText = $"▶ {TrackTitle} @ {TimeSpan.FromSeconds(seconds):m\\:ss\\.f}";
+        StatusText = $"Playing {TrackTitle} @ {TimeSpan.FromSeconds(seconds):m\\:ss\\.f}";
     }
 
     // ── Undo ────────────────────────────────────────────────────────────────────────────────

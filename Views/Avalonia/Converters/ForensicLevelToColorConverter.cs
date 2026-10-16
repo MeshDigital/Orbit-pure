@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
 using System;
@@ -6,42 +7,32 @@ using System.Globalization;
 namespace SLSKDONET.Views.Avalonia.Converters
 {
     /// <summary>
-    /// Value converter that maps log levels or symbols (e.g. ERROR, WARN, INFO) to custom forensic colors/brushes.
+    /// Maps log levels or legacy level symbols (ERROR, WARN, INFO, ...) to the semantic status
+    /// brushes in Themes/DesignTokens.axaml (<c>BrushError</c>, <c>BrushWarning</c>,
+    /// <c>BrushAccent</c>, <c>BrushInfo</c>; anything else <c>BrushText2</c>).
     /// </summary>
     public class ForensicLevelToColorConverter : IValueConverter
     {
         public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         {
-            if (value is string level)
-            {
-                switch (level.ToUpperInvariant())
-                {
-                    case "ERROR":
-                    case "FAIL":
-                    case "REJECTED":
-                    case "❌":
-                        return SolidColorBrush.Parse("#FF5252"); // Red
-                    case "WARN":
-                    case "STALL":
-                    case "STALLED":
-                    case "🚧":
-                    case "⚠️":
-                        return SolidColorBrush.Parse("#FFD740"); // Yellow
-                    case "INFO":
-                    case "ℹ️":
-                    case "SUCCESS":
-                    case "ACCEPTED":
-                    case "✅":
-                    case "📚":
-                        return SolidColorBrush.Parse("#4EC9B0"); // Mint/Teal
-                    case "SPECTRAL":
-                        return SolidColorBrush.Parse("#BD93F9"); // Purple
-                    default:
-                        return SolidColorBrush.Parse("#888888"); // Gray
-                }
-            }
-            return SolidColorBrush.Parse("#888888");
+            var key = value is string level ? KeyFor(level) : "BrushText2";
+
+            if (Application.Current is { } app
+                && app.TryGetResource(key, app.ActualThemeVariant, out var res)
+                && res is IBrush brush)
+                return brush;
+
+            return Brushes.Gray;
         }
+
+        private static string KeyFor(string level) => level.ToUpperInvariant() switch
+        {
+            "ERROR" or "FAIL" or "REJECTED" or "❌" => "BrushError",
+            "WARN" or "STALL" or "STALLED" or "🚧" or "⚠️" => "BrushWarning",
+            "INFO" or "ℹ️" or "SUCCESS" or "ACCEPTED" or "✅" or "📚" => "BrushAccent",
+            "SPECTRAL" => "BrushInfo",
+            _ => "BrushText2",
+        };
 
         public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         {

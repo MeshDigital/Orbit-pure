@@ -6,146 +6,154 @@
              x:CompileBindings="False">
 
     <!-- In-place cue editor for one deck of the transition editor (DataContext:
-         TrackCueEditorViewModel). Wrap panels throughout so it also fits the narrow Mix sidepanel. -->
+         TrackCueEditorViewModel). Wrap panels throughout so it also fits the narrow Mix sidepanel.
+         Shared with Flow Builder's "Edit cues" mode. Cue colours (chip dots, swatches) are data;
+         everything else is tokens/classes (DOCS/UI_DESIGN_SYSTEM.md). -->
     <UserControl.Styles>
-        <Style Selector="Button.ce">
-            <Setter Property="Background" Value="#171C22"/>
-            <Setter Property="Foreground" Value="#C7D6E2"/>
-            <Setter Property="BorderBrush" Value="#2A333D"/>
+        <!-- Wrapped rows: every child gets the same 4px gutter. -->
+        <Style Selector="WrapPanel > Button, WrapPanel > ComboBox, WrapPanel > TextBox">
+            <Setter Property="Margin" Value="0,0,4,4"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="TextBlock.lbl">
+            <Setter Property="FontSize" Value="{StaticResource TextSizeCaption}"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText2}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="4,0,4,4"/>
+        </Style>
+        <!-- Cue chip: neutral raised, colour dot carries the cue colour. -->
+        <Style Selector="Button.cue-chip">
+            <Setter Property="Background" Value="{StaticResource BrushBg3}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder1}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="5"/>
-            <Setter Property="Padding" Value="7,3"/>
-            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="FontSize" Value="{StaticResource TextSizeCaption}"/>
             <Setter Property="Margin" Value="0,0,4,4"/>
         </Style>
-        <Style Selector="Button.ce:pointerover">
-            <Setter Property="Background" Value="#20262D"/>
-            <Setter Property="BorderBrush" Value="#4EC9B0"/>
-        </Style>
-        <Style Selector="Button.ce.accent">
-            <Setter Property="Background" Value="#1D4E42"/>
-            <Setter Property="BorderBrush" Value="#2D8E7A"/>
-            <Setter Property="Foreground" Value="#DDFCF5"/>
-        </Style>
-        <Style Selector="Button.ce.danger">
-            <Setter Property="Foreground" Value="#FF8A80"/>
-        </Style>
-        <Style Selector="Button.chip">
-            <Setter Property="Background" Value="#171C22"/>
-            <Setter Property="BorderBrush" Value="#2A333D"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="999"/>
-            <Setter Property="Padding" Value="8,3"/>
-            <Setter Property="FontSize" Value="9"/>
-            <Setter Property="Margin" Value="0,0,4,4"/>
-        </Style>
-        <Style Selector="Button.chip:pointerover">
-            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+        <Style Selector="Button.cue-chip:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource BrushBg4}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder2}"/>
         </Style>
         <Style Selector="Button.swatch">
             <Setter Property="Width" Value="16"/>
             <Setter Property="Height" Value="16"/>
+            <Setter Property="MinWidth" Value="16"/>
+            <Setter Property="MinHeight" Value="16"/>
             <Setter Property="Padding" Value="0"/>
-            <Setter Property="CornerRadius" Value="8"/>
-            <Setter Property="BorderBrush" Value="#2A333D"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusFull}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder1}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Margin" Value="0,0,3,4"/>
-        </Style>
-        <Style Selector="TextBlock.lbl">
-            <Setter Property="FontSize" Value="9"/>
-            <Setter Property="Foreground" Value="#6E7A86"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Margin" Value="0,0,4,4"/>
+        </Style>
+        <Style Selector="Button.swatch:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushText0}"/>
         </Style>
     </UserControl.Styles>
 
-    <Border Background="#151A20" BorderBrush="#2A333D" BorderThickness="1" CornerRadius="6" Padding="8,6,8,2" Margin="0,4,0,0">
-        <StackPanel Spacing="2">
+    <Border Classes="inset" Padding="8,8,8,4" Margin="0,4,0,0">
+        <StackPanel Spacing="4">
 
             <!-- Toolbar -->
             <WrapPanel>
-                <Button Classes="ce accent" Command="{Binding SetDropHereCommand}"
-                        ToolTip.Tip="Drop where you're listening (click the waveform, listen, press this or D). Snapped to the bar; the build-in cues, pads (A–C Drop 1, D–F Drop 2), [OUT] on G and numbering are done for you, and the auto cues are removed. Keys 1 / 2 force Drop 1 / Drop 2. Right-click the waveform: Drop here.">
-                    <TextBlock Text="◆ Drop"/>
-                </Button>
-                <Button Classes="ce" Command="{Binding AddCueAtAuditionCommand}"
+                <Button Classes="primary small" Command="{Binding SetDropHereCommand}"
+                        ToolTip.Tip="Drop where you're listening (click the waveform, listen, press this or D). Snapped to the bar; the build-in cues, pads (A–C Drop 1, D–F Drop 2), [OUT] on G and numbering are done for you, and the auto cues are removed. Keys 1 / 2 force Drop 1 / Drop 2. Right-click the waveform: Drop here."
+                        Content="Drop here"/>
+                <Button Classes="secondary small" Command="{Binding AddCueAtAuditionCommand}"
                         ToolTip.Tip="Add a plain cue where you last auditioned. Right-click the waveform adds one at that exact spot. Placing your own cue removes the auto-generated ones.">
-                    <TextBlock Text="＋ Cue"/>
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <PathIcon Data="{StaticResource icon_add}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                        <TextBlock Text="Cue"/>
+                    </StackPanel>
                 </Button>
-                <Button Classes="ce" IsEnabled="{Binding !IsGenerating}"
-                        ToolTip.Tip="Regenerate this track's cues — same as the library's right-click 'Regenerate Cues'. Your own placed/edited cues are kept.">
-                    <TextBlock Text="⚡ Generate cues ▾"/>
+                <Button Classes="secondary small" IsEnabled="{Binding !IsGenerating}"
+                        ToolTip.Tip="Regenerate this track's cues, same as the library's right-click 'Regenerate Cues'. Your own placed/edited cues are kept.">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <PathIcon Data="{StaticResource icon_wand}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                        <TextBlock Text="Generate cues"/>
+                        <PathIcon Data="{StaticResource icon_chevron_down}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                    </StackPanel>
                     <Button.Flyout>
                         <MenuFlyout Placement="BottomEdgeAlignedLeft">
                             <MenuItem Header="ORBIT analysis" Command="{Binding GenerateCuesCommand}" CommandParameter="orbit"/>
                             <MenuItem Header="ORBIT + CUE-DETR (compare)" Command="{Binding GenerateCuesCommand}" CommandParameter="compare"
                                       ToolTip.Tip="ORBIT's cues, marked ✓AI where the CUE-DETR model agrees, plus its other points as cyan 'AI' cues"/>
                             <MenuItem Header="CUE-DETR only" Command="{Binding GenerateCuesCommand}" CommandParameter="ai"
-                                      ToolTip.Tip="Only the CUE-DETR model's points (cyan) — to judge it on its own"/>
+                                      ToolTip.Tip="Only the CUE-DETR model's points (cyan), to judge it on its own"/>
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>
                 <TextBlock Classes="lbl" Text="Snap"/>
-                <ComboBox ItemsSource="{Binding SnapModes}" SelectedItem="{Binding SnapMode}"
-                          FontSize="10" MinWidth="78" Margin="0,0,8,4" Padding="6,2"
+                <ComboBox Classes="small" ItemsSource="{Binding SnapModes}" SelectedItem="{Binding SnapMode}" MinWidth="80"
                           ToolTip.Tip="New and moved cues land on this grid (the track's analysed beats)"/>
                 <TextBlock Classes="lbl" Text="Cue template"/>
-                <ComboBox ItemsSource="{Binding DropCountdownModes}" SelectedItem="{Binding DropCountdownMode}"
-                          FontSize="10" MinWidth="84" Margin="0,0,4,4" Padding="6,2"
+                <ComboBox Classes="small" ItemsSource="{Binding DropCountdownModes}" SelectedItem="{Binding DropCountdownMode}" MinWidth="88"
                           ToolTip.Tip="Build-in cues placed before every drop: DnB / Bass −16 −8, Long Blend / House −32 −16, Quick Mix / Hip-Hop −8 −4, Custom, or Auto (picked from the genre). Also used by automatic cue generation. Shared with Cue Forge."/>
-                <TextBox Text="{Binding CustomCountdownBars, UpdateSourceTrigger=LostFocus}" IsVisible="{Binding IsCustomTemplate}"
-                         FontSize="10" Width="70" Padding="4,2" Margin="0,0,4,4" Watermark="32,16,8"
+                <TextBox Classes="small" Text="{Binding CustomCountdownBars, UpdateSourceTrigger=LostFocus}" IsVisible="{Binding IsCustomTemplate}"
+                         Width="72" FontFamily="{StaticResource FontMono}" Watermark="32,16,8"
                          ToolTip.Tip="Bars before the drop, comma-separated"/>
-                <TextBlock Classes="lbl" Text="{Binding TemplateHint}" Foreground="#4E6A7C" Margin="0,0,8,4"/>
-                <Button Classes="ce" Command="{Binding UndoCommand}" ToolTip.Tip="Undo"><TextBlock Text="↶"/></Button>
-                <Button Classes="ce" Command="{Binding RedoCommand}" ToolTip.Tip="Redo"><TextBlock Text="↷"/></Button>
-                <Button Classes="ce" Command="{Binding RevertCommand}" ToolTip.Tip="Throw away unsaved edits for this track"><TextBlock Text="Revert"/></Button>
-                <Button Classes="ce accent" Command="{Binding SaveCommand}"
-                        ToolTip.Tip="Save this track's cues now (they also save automatically when you move to another transition or close)">
-                    <TextBlock Text="💾 Save cues"/>
+                <TextBlock Classes="lbl" Text="{Binding TemplateHint}" Foreground="{StaticResource BrushText3}" Margin="0,0,8,4"/>
+                <Button Classes="icon small" Command="{Binding UndoCommand}" ToolTip.Tip="Undo" Margin="0,0,4,4">
+                    <PathIcon Data="{StaticResource icon_undo}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
                 </Button>
-                <TextBlock Text="{Binding StatusText}" FontSize="10" Foreground="#9BD7CA" VerticalAlignment="Center" Margin="4,0,0,4"
+                <Button Classes="icon small" Command="{Binding RedoCommand}" ToolTip.Tip="Redo" Margin="0,0,4,4">
+                    <PathIcon Data="{StaticResource icon_redo}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                </Button>
+                <Button Classes="ghost small" Command="{Binding RevertCommand}" ToolTip.Tip="Throw away unsaved edits for this track"
+                        Content="Revert"/>
+                <Button Classes="secondary small" Command="{Binding SaveCommand}"
+                        ToolTip.Tip="Save this track's cues now (they also save automatically when you move to another transition or close)">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <PathIcon Data="{StaticResource icon_check}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                        <TextBlock Text="Save cues"/>
+                    </StackPanel>
+                </Button>
+                <TextBlock Classes="caption" Classes.accent="{Binding !IsStatusError}" Classes.error="{Binding IsStatusError}" Text="{Binding StatusText}" VerticalAlignment="Center" Margin="4,0,0,4"
                            TextTrimming="CharacterEllipsis" MaxWidth="260"/>
             </WrapPanel>
 
-            <!-- Cues — click to select for editing -->
+            <!-- Cues: click to select for editing -->
             <ItemsControl ItemsSource="{Binding Cues}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Button Classes="chip"
+                        <Button Classes="cue-chip"
                                 Command="{Binding $parent[ItemsControl].DataContext.SelectCueCommand}"
                                 CommandParameter="{Binding}"
                                 ToolTip.Tip="{Binding WhyHereTooltip}">
                             <StackPanel Orientation="Horizontal" Spacing="4">
-                                <Border Width="7" Height="7" CornerRadius="4" Background="{Binding Color}" VerticalAlignment="Center"/>
-                                <TextBlock Text="{Binding SlotLabel}" Foreground="#FFD27A" FontWeight="Bold" IsVisible="{Binding HasSlot}"/>
-                                <TextBlock Text="{Binding Name}" Foreground="#C7D6E2"/>
-                                <TextBlock Text="{Binding TimestampDisplay}" Foreground="#6E7A86"/>
-                                <TextBlock Text="⟳" Foreground="#4EC9B0" IsVisible="{Binding IsLoop}"/>
+                                <Ellipse Width="8" Height="8" Fill="{Binding Color}" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding SlotLabel}" FontFamily="{StaticResource FontMono}" FontWeight="SemiBold"
+                                           Foreground="{StaticResource BrushText0}" IsVisible="{Binding HasSlot}"/>
+                                <TextBlock Text="{Binding Name}" Foreground="{StaticResource BrushText1}"/>
+                                <TextBlock Text="{Binding TimestampDisplay}" FontFamily="{StaticResource FontMono}" Foreground="{StaticResource BrushText2}"/>
+                                <PathIcon Data="{StaticResource icon_repeat}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"
+                                          Foreground="{StaticResource BrushAccent}" IsVisible="{Binding IsLoop}" ToolTip.Tip="Loop"/>
                             </StackPanel>
                         </Button>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <TextBlock Text="No cues yet — right-click the waveform or use ＋ to add one." FontSize="10" Foreground="#6E7A86"
+            <TextBlock Classes="caption" Text="No cues yet. Right-click the waveform or use Cue to add one."
                        IsVisible="{Binding !HasCues}" Margin="0,0,0,4"/>
 
             <!-- Inspector for the selected cue -->
-            <Border IsVisible="{Binding HasSelection}" Background="#1A2129" CornerRadius="5" Padding="8,6,8,2" Margin="0,2,0,4">
-                <StackPanel Spacing="2">
+            <Border IsVisible="{Binding HasSelection}" Background="{StaticResource BrushBg2}"
+                    BorderBrush="{StaticResource BrushBorder0}" BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusMd}" Padding="8,8,8,4" Margin="0,0,0,4">
+                <StackPanel Spacing="4">
                     <WrapPanel>
-                        <TextBlock Classes="lbl" Text="Name"/>
-                        <TextBox Text="{Binding SelectedName, UpdateSourceTrigger=LostFocus}" FontSize="11" MinWidth="130" MaxWidth="200"
-                                 Padding="6,2" Margin="0,0,8,4"/>
+                        <TextBlock Classes="lbl" Text="Name" Margin="0,0,4,4"/>
+                        <TextBox Classes="small" Text="{Binding SelectedName, UpdateSourceTrigger=LostFocus}" MinWidth="132" MaxWidth="200"
+                                 Margin="0,0,8,4"/>
                         <TextBlock Classes="lbl" Text="Role"/>
-                        <ComboBox ItemsSource="{Binding Roles}" SelectedItem="{Binding SelectedRole}" FontSize="10" MinWidth="96"
-                                  Padding="6,2" Margin="0,0,8,4" ToolTip.Tip="Setting a role also applies its Rekordbox colour"/>
+                        <ComboBox Classes="small" ItemsSource="{Binding Roles}" SelectedItem="{Binding SelectedRole}" MinWidth="96"
+                                  Margin="0,0,8,4" ToolTip.Tip="Setting a role also applies its Rekordbox colour"/>
                         <TextBlock Classes="lbl" Text="Pad"/>
-                        <ComboBox ItemsSource="{Binding SlotOptions}" SelectedItem="{Binding SelectedSlot}" FontSize="10" MinWidth="84"
-                                  Padding="6,2" Margin="0,0,8,4" ToolTip.Tip="Hot cue pad A–H, or a memory cue (no pad)">
+                        <ComboBox Classes="small" ItemsSource="{Binding SlotOptions}" SelectedItem="{Binding SelectedSlot}" MinWidth="84"
+                                  Margin="0,0,8,4" ToolTip.Tip="Hot cue pad A–H, or a memory cue (no pad)">
                             <ComboBox.ItemTemplate>
                                 <DataTemplate><TextBlock Text="{Binding Label}"/></DataTemplate>
                             </ComboBox.ItemTemplate>
@@ -164,29 +172,38 @@
                         </ItemsControl>
                     </WrapPanel>
                     <WrapPanel>
-                        <TextBlock Classes="lbl" Text="Move"/>
-                        <Button Classes="ce" Command="{Binding NudgeSelectedCommand}" CommandParameter="-bar" ToolTip.Tip="1 bar earlier"><TextBlock Text="⏪ bar"/></Button>
-                        <Button Classes="ce" Command="{Binding NudgeSelectedCommand}" CommandParameter="-beat" ToolTip.Tip="1 beat earlier"><TextBlock Text="◀ beat"/></Button>
-                        <Button Classes="ce" Command="{Binding NudgeSelectedCommand}" CommandParameter="+beat" ToolTip.Tip="1 beat later"><TextBlock Text="beat ▶"/></Button>
-                        <Button Classes="ce" Command="{Binding NudgeSelectedCommand}" CommandParameter="+bar" ToolTip.Tip="1 bar later"><TextBlock Text="bar ⏩"/></Button>
-                        <Button Classes="ce" Command="{Binding NudgeSelectedCommand}" CommandParameter="-fine" ToolTip.Tip="10 ms earlier (Ctrl+←)"><TextBlock Text="−10ms"/></Button>
-                        <Button Classes="ce" Command="{Binding NudgeSelectedCommand}" CommandParameter="+fine" ToolTip.Tip="10 ms later (Ctrl+→)"><TextBlock Text="+10ms"/></Button>
+                        <TextBlock Classes="lbl" Text="Move" Margin="0,0,4,4"/>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding NudgeSelectedCommand}" CommandParameter="-bar" ToolTip.Tip="1 bar earlier (Shift+←)" Content="−1 bar"/>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding NudgeSelectedCommand}" CommandParameter="-beat" ToolTip.Tip="1 beat earlier (←)" Content="−1 beat"/>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding NudgeSelectedCommand}" CommandParameter="+beat" ToolTip.Tip="1 beat later (→)" Content="+1 beat"/>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding NudgeSelectedCommand}" CommandParameter="+bar" ToolTip.Tip="1 bar later (Shift+→)" Content="+1 bar"/>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding NudgeSelectedCommand}" CommandParameter="-fine" ToolTip.Tip="10 ms earlier (Ctrl+←)" Content="−10ms"/>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding NudgeSelectedCommand}" CommandParameter="+fine" ToolTip.Tip="10 ms later (Ctrl+→)" Content="+10ms"/>
                         <TextBlock Classes="lbl" Text="Loop" Margin="8,0,4,4"/>
-                        <Button Classes="ce" Command="{Binding SetSelectedLoopBarsCommand}"><Button.CommandParameter><x:Int32>4</x:Int32></Button.CommandParameter><TextBlock Text="4"/></Button>
-                        <Button Classes="ce" Command="{Binding SetSelectedLoopBarsCommand}"><Button.CommandParameter><x:Int32>8</x:Int32></Button.CommandParameter><TextBlock Text="8"/></Button>
-                        <Button Classes="ce" Command="{Binding SetSelectedLoopBarsCommand}"><Button.CommandParameter><x:Int32>16</x:Int32></Button.CommandParameter><TextBlock Text="16"/></Button>
-                        <Button Classes="ce" Command="{Binding SetSelectedLoopBarsCommand}" ToolTip.Tip="Make it a plain cue again"><Button.CommandParameter><x:Int32>0</x:Int32></Button.CommandParameter><TextBlock Text="off"/></Button>
-                        <TextBlock Text="{Binding SelectedLoopLabel}" FontSize="9" Foreground="#6E7A86" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding SetSelectedLoopBarsCommand}" ToolTip.Tip="Loop 4 bars from the cue"><Button.CommandParameter><x:Int32>4</x:Int32></Button.CommandParameter><TextBlock Text="4"/></Button>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding SetSelectedLoopBarsCommand}" ToolTip.Tip="Loop 8 bars from the cue"><Button.CommandParameter><x:Int32>8</x:Int32></Button.CommandParameter><TextBlock Text="8"/></Button>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding SetSelectedLoopBarsCommand}" ToolTip.Tip="Loop 16 bars from the cue"><Button.CommandParameter><x:Int32>16</x:Int32></Button.CommandParameter><TextBlock Text="16"/></Button>
+                        <Button Classes="ghost small" Command="{Binding SetSelectedLoopBarsCommand}" ToolTip.Tip="Make it a plain cue again"><Button.CommandParameter><x:Int32>0</x:Int32></Button.CommandParameter><TextBlock Text="Off"/></Button>
+                        <TextBlock Classes="lbl" Text="{Binding SelectedLoopLabel}" Margin="0,0,8,4"/>
                     </WrapPanel>
-                    <TextBlock FontSize="9" Foreground="#6E7A86" Margin="0,0,0,4" TextWrapping="Wrap"
-                               Text="Keys: ← → move 1 beat · Shift+← → 1 bar · Ctrl+← → 10 ms — each press replays from the cue. Music that was playing waits until you save."/>
+                    <TextBlock Classes="caption" Foreground="{StaticResource BrushText3}" Margin="0,0,0,4" TextWrapping="Wrap"
+                               Text="Keys: ← → move 1 beat · Shift+← → 1 bar · Ctrl+← → 10 ms. Each press replays from the cue. Music that was playing waits until you save."/>
                     <WrapPanel>
-                        <Button Classes="ce" Command="{Binding AuditionSelectedCommand}" ToolTip.Tip="Play this track from the cue"><TextBlock Text="▶ Audition"/></Button>
-                        <Button Classes="ce accent" Command="{Binding UseSelectedAsTriggerCommand}"
-                                ToolTip.Tip="Make this cue the transition's mix point on this track (mix-out for the outgoing track, mix-in for the incoming one)">
-                            <TextBlock Text="⇥ Use as mix point"/>
+                        <Button Classes="secondary small" Command="{Binding AuditionSelectedCommand}" ToolTip.Tip="Play this track from the cue">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <PathIcon Data="{StaticResource icon_play}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                <TextBlock Text="Audition"/>
+                            </StackPanel>
                         </Button>
-                        <Button Classes="ce danger" Command="{Binding DeleteSelectedCommand}" ToolTip.Tip="Delete this cue (undo with ↶)"><TextBlock Text="🗑 Delete"/></Button>
+                        <Button Classes="primary small" Command="{Binding UseSelectedAsTriggerCommand}"
+                                ToolTip.Tip="Make this cue the transition's mix point on this track (mix-out for the outgoing track, mix-in for the incoming one)"
+                                Content="Use as mix point"/>
+                        <Button Classes="danger small" Command="{Binding DeleteSelectedCommand}" ToolTip.Tip="Delete this cue (Undo restores it)">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <PathIcon Data="{StaticResource icon_delete}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                <TextBlock Text="Delete"/>
+                            </StackPanel>
+                        </Button>
                     </WrapPanel>
                 </StackPanel>
             </Border>

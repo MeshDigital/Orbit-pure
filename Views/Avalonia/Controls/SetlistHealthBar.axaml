@@ -8,22 +8,22 @@
     <Grid RowDefinitions="Auto,*">
         <!-- Header with Status Message -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="12,0,12,4">
-            <TextBlock Text="Setlist Health:" FontSize="12" FontWeight="Bold" Foreground="#aaaaaa"/>
+            <TextBlock Text="Setlist Health:" FontSize="12" FontWeight="Bold" Foreground="{StaticResource BrushText1}"/>
             <ProgressBar Value="{Binding OverallHealthPercent}"
                          Width="120"
                          Height="14"
                          CornerRadius="2"/>
             <TextBlock Text="{Binding StatusMessage}"
                        FontSize="11"
-                       Foreground="#888888"
+                       Foreground="{StaticResource BrushText2}"
                        VerticalAlignment="Center"
                        TextWrapping="Wrap"/>
         </StackPanel>
 
         <!-- Health Bar Segments -->
         <Border Grid.Row="1"
-                Background="#0a0a0a"
-                BorderBrush="#333333"
+                Background="{StaticResource BrushBg0}"
+                BorderBrush="{StaticResource BrushBorder1}"
                 BorderThickness="1"
                 CornerRadius="3"
                 Padding="2">
@@ -44,7 +44,7 @@
                             <Rectangle Width="{Binding SegmentWidth}"
                                        Height="40"
                                        Fill="{Binding BackgroundColorBrush}"
-                                       Stroke="#222222"
+                                       Stroke="{StaticResource BrushBorder0}"
                                        StrokeThickness="1"
                                        Cursor="Hand"
                                        ToolTip.Tip="{Binding ToolTipText}"
@@ -74,16 +74,16 @@
                     Margin="12,4,12,0"
                     IsVisible="False">
             <StackPanel Orientation="Horizontal" Spacing="4">
-                <Rectangle Width="12" Height="12" Fill="#22dd22" RadiusX="2" RadiusY="2"/>
-                <TextBlock Text="Healthy" FontSize="10" Foreground="#aaaaaa"/>
+                <Rectangle Width="12" Height="12" Fill="{StaticResource BrushSuccess}" RadiusX="2" RadiusY="2"/>
+                <TextBlock Text="Healthy" FontSize="10" Foreground="{StaticResource BrushText1}"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="4">
-                <Rectangle Width="12" Height="12" Fill="#ffcc00" RadiusX="2" RadiusY="2"/>
-                <TextBlock Text="Warning" FontSize="10" Foreground="#aaaaaa"/>
+                <Rectangle Width="12" Height="12" Fill="{StaticResource BrushWarning}" RadiusX="2" RadiusY="2"/>
+                <TextBlock Text="Warning" FontSize="10" Foreground="{StaticResource BrushText1}"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="4">
-                <Rectangle Width="12" Height="12" Fill="#ff3333" RadiusX="2" RadiusY="2"/>
-                <TextBlock Text="Critical" FontSize="10" Foreground="#aaaaaa"/>
+                <Rectangle Width="12" Height="12" Fill="{StaticResource BrushError}" RadiusX="2" RadiusY="2"/>
+                <TextBlock Text="Critical" FontSize="10" Foreground="{StaticResource BrushText1}"/>
             </StackPanel>
         </StackPanel>
     </Grid>
