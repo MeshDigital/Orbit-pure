@@ -112,6 +112,7 @@ A checked chip is accent-tinted. Inside `segmented`, the checked segment is neut
 | `dialog` | Floating modal (RadiusXl, ShadowLg, 24 padding) |
 | `divider` / `divider vertical` | 1px hairline, horizontal / vertical (set Height on vertical) |
 | `badge` (+ `neutral`) | **Numeric counters only** (unread, queue). Wrap one TextBlock |
+| `fact` (+ `warning`, `error`) | Small mono data badge: BPM, Camelot key, duration, format/bitrate, quality tier, "File missing". Wrap one TextBlock. Not for AI labels |
 
 ### Text (TextBlock)
 | Class | Spec | Use |
