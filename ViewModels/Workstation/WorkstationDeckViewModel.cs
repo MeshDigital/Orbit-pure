@@ -698,6 +698,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         }
         catch (Exception ex)
         {
+            Serilog.Log.Warning(ex, "Workstation deck {Deck}: failed to load {Path}", DeckLabel, filePath);
             TrackLoadError = ex.InnerException?.Message ?? ex.Message;
             return;
         }
@@ -788,6 +789,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         }
         catch (Exception ex)
         {
+            Serilog.Log.Warning(ex, "Workstation deck {Deck}: failed to load {Path}", DeckLabel, track.ResolvedFilePath);
             TrackLoadError = ex.InnerException?.Message ?? ex.Message;
             return;
         }
