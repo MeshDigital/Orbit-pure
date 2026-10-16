@@ -41,23 +41,31 @@ public class DownloadCenterFilteringTests
         return vm;
     }
 
+    // Remote-queued / connecting / paused tracks are waiting, not transferring: they belong to
+    // the Queued segment, and must never vanish from every segment except All.
     [Theory]
-    [InlineData(PlaylistTrackState.Downloading)]
     [InlineData(PlaylistTrackState.Queued)]
     [InlineData(PlaylistTrackState.WaitingForConnection)]
-    public void MatchesRowStatusFilter_Downloading_IncludesQueuedAndWaitingForConnection(PlaylistTrackState state)
+    [InlineData(PlaylistTrackState.Paused)]
+    [InlineData(PlaylistTrackState.Pending)]
+    public void MatchesStatusFilter_Queued_IncludesEveryWaitingState(PlaylistTrackState state)
     {
         var track = CreateTrackViewModel(state);
 
-        Assert.True(DownloadCenterViewModel.MatchesRowStatusFilter(track, "Downloading"));
+        Assert.True(DownloadCenterViewModel.MatchesStatusFilter(track, DownloadStatusFilter.Queued));
+        Assert.False(DownloadCenterViewModel.MatchesStatusFilter(track, DownloadStatusFilter.Active));
     }
 
-    [Fact]
-    public void MatchesRowStatusFilter_Downloading_ExcludesSearching()
+    [Theory]
+    [InlineData(PlaylistTrackState.Searching)]
+    [InlineData(PlaylistTrackState.Downloading)]
+    [InlineData(PlaylistTrackState.Converting)]
+    public void MatchesStatusFilter_Active_IsInFlightOnly(PlaylistTrackState state)
     {
-        var track = CreateTrackViewModel(PlaylistTrackState.Searching);
+        var track = CreateTrackViewModel(state);
 
-        Assert.False(DownloadCenterViewModel.MatchesRowStatusFilter(track, "Downloading"));
+        Assert.True(DownloadCenterViewModel.MatchesStatusFilter(track, DownloadStatusFilter.Active));
+        Assert.False(DownloadCenterViewModel.MatchesStatusFilter(track, DownloadStatusFilter.Queued));
     }
 
     [Theory]

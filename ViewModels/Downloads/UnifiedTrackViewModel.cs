@@ -488,18 +488,6 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
              _downloadManager.BumpTrackToTop(GlobalId);
          }, this.WhenAnyValue(x => x.State, s => s == PlaylistTrackState.Pending || s == PlaylistTrackState.Paused || s == PlaylistTrackState.Stalled));
 
-        ViewLogCommand = ReactiveCommand.Create(() => 
-        {
-            // Phase 0.8: View Log Logic
-            var log = string.Join("\n", RejectionDetails?.Select(r => $"{r.Rank}. [{r.ShortReason}] {r.Filename} ({r.Bitrate}kbps) @{r.Username}") ?? Enumerable.Empty<string>());
-            System.Diagnostics.Debug.WriteLine($"[Diagnostic Log] {log}");
-            
-            if (Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
-            {
-                desktop.MainWindow?.Clipboard?.SetTextAsync(log);
-            }
-        }, this.WhenAnyValue(x => x.HasRejectionDetails));
-
         CopyLogCommand = ReactiveCommand.CreateFromTask(async () => 
         {
             if (Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
@@ -1614,7 +1602,6 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public ICommand FindSimilarAiCommand { get; }
     public ICommand ViewAllSearchResultsCommand { get; }
     public ICommand BumpToTopCommand { get; }
-    public ICommand ViewLogCommand { get; }
     public ICommand CopyLogCommand { get; }
     public ICommand ForceDownloadCandidateCommand { get; }
     public ICommand AcquireTrackCommand { get; }
