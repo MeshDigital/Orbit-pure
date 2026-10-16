@@ -3,7 +3,6 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reactive.Linq;
 using System.Windows.Input;
-using Avalonia.Media;
 using DynamicData;
 using DynamicData.Binding;
 using ReactiveUI;
@@ -105,20 +104,7 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
     public bool IsWaitingInQueue => !IsActive && Tracks.Any(t =>
         t.State == PlaylistTrackState.Pending || t.State == PlaylistTrackState.Stalled);
 
-    // #140: Aggregate speed sparkline — last 30 samples, computed from active track averages.
-    private readonly double[] _aggregateSpeedHistory = new double[30];
-    private int _aggregateSpeedIndex;
-    public IReadOnlyList<double> AggregateSpeedHistory => _aggregateSpeedHistory;
-
     // ── Playlist-level priority ───────────────────────────────────────────
-
-    private static readonly SolidColorBrush[] _priorityBrushes =
-    {
-        new(Color.Parse("#CCDD2222")), // Critical — red
-        new(Color.Parse("#CCBB7700")), // High — amber
-        new(Color.Parse("#22777777")), // Normal — muted (badge hidden anyway)
-        new(Color.Parse("#22555555")), // Low — dimmed
-    };
 
     private PlaylistPriority _jobPriority = PlaylistPriority.Normal;
     public PlaylistPriority JobPriority
@@ -128,7 +114,6 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
         {
             this.RaiseAndSetIfChanged(ref _jobPriority, value);
             this.RaisePropertyChanged(nameof(PriorityLabel));
-            this.RaisePropertyChanged(nameof(PriorityBrush));
             this.RaisePropertyChanged(nameof(IsPriorityBadgeVisible));
             this.RaisePropertyChanged(nameof(IsCritical));
             this.RaisePropertyChanged(nameof(IsHighPriority));
@@ -140,20 +125,25 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
     public bool IsFocused
     {
         get => _isFocused;
-        private set => this.RaiseAndSetIfChanged(ref _isFocused, value);
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _isFocused, value);
+            this.RaisePropertyChanged(nameof(IsPriorityBadgeVisible));
+            this.RaisePropertyChanged(nameof(FocusMenuLabel));
+        }
     }
+
+    public string FocusMenuLabel => _isFocused ? "Turn off focus mode" : "Focus this playlist";
 
     // Computed display helpers
     public string PriorityLabel => _jobPriority switch
     {
-        PlaylistPriority.Critical => "⚡ CRITICAL",
-        PlaylistPriority.High     => "↑ HIGH",
-        PlaylistPriority.Normal   => "· NORM",
-        PlaylistPriority.Low      => "↓ LOW",
-        _                         => "· NORM",
+        PlaylistPriority.Critical => "Critical",
+        PlaylistPriority.High     => "High",
+        PlaylistPriority.Normal   => "Normal",
+        PlaylistPriority.Low      => "Low",
+        _                         => "Normal",
     };
-
-    public IBrush PriorityBrush => _priorityBrushes[Math.Clamp((int)_jobPriority, 0, 3)];
 
     // Badge hidden for Normal to reduce visual noise
     public bool IsPriorityBadgeVisible => _jobPriority != PlaylistPriority.Normal || _isFocused;
@@ -180,7 +170,8 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
         DownloadManager downloadManager,
         ILibraryService libraryService,
         INotificationService? notificationService = null,
-        Action<DownloadRowViewModel>? onSelectRow = null)
+        Action<DownloadRowViewModel>? onSelectRow = null,
+        Func<DownloadRowViewModel, Task>? onRemoveRow = null)
     {
         GroupKey = group.Key;
         _downloadManager = downloadManager;
@@ -195,7 +186,7 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
         Tracks = tracks;
 
         var rowsLoader = group.Cache.Connect()
-            .Transform(x => new DownloadRowViewModel(x, onSelectRow))
+            .Transform(x => new DownloadRowViewModel(x, onSelectRow, onRemoveRow))
             .DisposeMany()
             .Bind(out var rows)
             .Subscribe();
@@ -254,7 +245,11 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
                         Avalonia.Threading.Dispatcher.UIThread.Post(() => Title = "Unknown Playlist");
                     }
                 }
-                catch { Avalonia.Threading.Dispatcher.UIThread.Post(() => Title = "Unknown Playlist"); }
+                catch (Exception ex)
+                {
+                    Serilog.Log.Warning(ex, "DownloadGroupViewModel: playlist title lookup failed for {JobId}", jobId);
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => Title = "Unknown Playlist");
+                }
             });
         }
 
@@ -422,10 +417,6 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
         // Sum Speed
         TotalSpeed = Tracks.Sum(t => t.DownloadSpeed);
 
-        // #140: Push aggregate speed into sparkline ring buffer
-        _aggregateSpeedHistory[_aggregateSpeedIndex % 30] = TotalSpeed;
-        _aggregateSpeedIndex++;
-        this.RaisePropertyChanged(nameof(AggregateSpeedHistory));
         this.RaisePropertyChanged(nameof(IsActive));
         this.RaisePropertyChanged(nameof(IsWaitingInQueue));
 
@@ -488,14 +479,6 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
     public void Dispose()
     {
         _cleanUp.Dispose();
-    }
-
-    private static void ExecuteIfAllowed(ICommand command)
-    {
-        if (command.CanExecute(null))
-        {
-            command.Execute(null);
-        }
     }
 
     /// <summary>

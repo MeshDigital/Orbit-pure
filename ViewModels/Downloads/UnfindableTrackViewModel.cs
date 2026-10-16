@@ -47,11 +47,13 @@ public sealed class UnfindableTrackViewModel : ReactiveObject, IHubRowDisplay
     // DownloadRowViewModel. Title is explicit-interface since this class's own `Title` already
     // means "track title only," while the shared row contract expects the full display title.
     string IHubRowDisplay.Title => DisplayName;
-    public string StatusBadgeText => "ON HOLD";
+    public string StatusLabel => "On hold";
+    public string StatusDetail => $"Background search gave up after {SearchRetryCount} attempt(s). Retry puts it back in the queue.";
     public string StatusText => $"{SearchRetryCount} attempt(s) — background search gave up in {PlaylistTitle}";
-    public string StatusAccent => "#9AA0A6";
+    public bool IsToneWarning => true;
+    public bool IsToneError => false;
     public ICommand? PrimaryAction => RetryCommand;
-    public string PrimaryActionLabel => "↻ Retry";
+    public string PrimaryActionLabel => "Retry";
     public double Progress => 0;
     public bool IsProgressVisible => false;
     public string PeerSummary => string.Empty;
