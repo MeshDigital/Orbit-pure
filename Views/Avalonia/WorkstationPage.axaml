@@ -12,350 +12,263 @@
              x:Name="PageRoot"
              Focusable="True"
              KeyDown="OnCockpitKeyDown"
-             Background="#141414">
+             Background="{DynamicResource BrushBg1}">
 
+    <!-- Workstation (DJ cockpit). Layout contract (WorkstationTimelineLayoutGuardTests):
+         row 0 header + toolbar · row 1 timeline + inspector · row 2 splitter · row 3 Flow Drawer.
+         Everything here uses Themes/ tokens and classes; the only page-local styles are the
+         CDJ hot-cue pads (data colours) and the overlay size presets driven by code-behind. -->
     <UserControl.Styles>
-        <Style Selector="ToggleButton.header-toggle">
-            <Setter Property="Background" Value="#1E1E1E"/>
-            <Setter Property="Foreground" Value="#C2CCD6"/>
-            <Setter Property="BorderBrush" Value="#3A3A3A"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="Padding" Value="{StaticResource WsPadHeaderToggle}"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="FontSize" Value="{StaticResource WsFontMd}"/>
-        </Style>
-        <Style Selector="ToggleButton.header-toggle:checked">
-            <Setter Property="Foreground" Value="#00D7FF"/>
-            <Setter Property="BorderBrush" Value="#00D7FF"/>
-        </Style>
-        <Style Selector="Border.ws-chip">
-            <Setter Property="Background" Value="#18222C"/>
-            <Setter Property="BorderBrush" Value="#2F3D4A"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="999"/>
-            <Setter Property="Padding" Value="{StaticResource WsPadChip}"/>
-            <Setter Property="Margin" Value="0,0,6,0"/>
-        </Style>
-        <Style Selector="Border.ws-lane">
-            <Setter Property="Background" Value="#161C23"/>
-            <Setter Property="BorderBrush" Value="#2D3945"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="8"/>
-            <Setter Property="Padding" Value="{StaticResource WsPadLane}"/>
-        </Style>
-        <Style Selector="Button.secondary">
-            <Setter Property="Background" Value="#1A2430"/>
-            <Setter Property="BorderBrush" Value="#314557"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="Foreground" Value="#DDE9F5"/>
-            <Setter Property="Padding" Value="{StaticResource WsPadSecondary}"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="FontSize" Value="{StaticResource WsFontMd}"/>
-        </Style>
-        <Style Selector="Button.icon">
-            <Setter Property="Width" Value="{StaticResource WsIconButtonSize}"/>
-            <Setter Property="Height" Value="{StaticResource WsIconButtonSize}"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="Background" Value="#1A2430"/>
-            <Setter Property="BorderBrush" Value="#314557"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="Foreground" Value="#DDE9F5"/>
-            <Setter Property="FontSize" Value="{StaticResource WsIconButtonFontSize}"/>
-        </Style>
-        <Style Selector="Button.drawer-header-action">
-            <Setter Property="Padding" Value="{StaticResource WsPadSecondary}"/>
-            <Setter Property="FontSize" Value="{StaticResource WsFontMd}"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="CornerRadius" Value="6"/>
-        </Style>
-        <Style Selector="Border.flow-status-busy">
-            <Setter Property="Padding" Value="{StaticResource WsPadDrawerStatusBusy}"/>
-        </Style>
-        <Style Selector="Border.flow-status-idle">
-            <Setter Property="Padding" Value="{StaticResource WsPadDrawerStatusIdle}"/>
-        </Style>
+        <!-- Track-list overlay size presets (toggled from code-behind) -->
         <Style Selector="Border.overlay-panel">
-            <Setter Property="Margin" Value="44"/>
-            <Setter Property="Padding" Value="{StaticResource WsPadOverlay}"/>
+            <Setter Property="Margin" Value="48"/>
+            <Setter Property="Padding" Value="{DynamicResource PaddingPanel}"/>
             <Setter Property="HorizontalAlignment" Value="Stretch"/>
             <Setter Property="VerticalAlignment" Value="Stretch"/>
         </Style>
         <Style Selector="Border.overlay-panel.size-compact">
-            <Setter Property="Margin" Value="120,72,120,72"/>
+            <Setter Property="Margin" Value="120,72"/>
         </Style>
         <Style Selector="Border.overlay-panel.size-comfort">
-            <Setter Property="Margin" Value="72,48,72,48"/>
+            <Setter Property="Margin" Value="72,48"/>
         </Style>
         <Style Selector="Border.overlay-panel.size-full">
-            <Setter Property="Margin" Value="18"/>
-        </Style>
-        <Style Selector="TabControl.drawer-tabs TabItem.drawer-tab">
-            <Setter Property="Foreground" Value="{StaticResource WsTextSecondaryReadable}"/>
-        </Style>
-        <Style Selector="TabControl.drawer-tabs TabItem.drawer-tab:selected">
-            <Setter Property="Foreground" Value="{StaticResource WsTextPrimaryReadable}"/>
-        </Style>
-        <Style Selector="DataGrid.drawer-grid">
-            <Setter Property="Foreground" Value="{StaticResource WsTextPrimaryReadable}"/>
-            <Setter Property="BorderBrush" Value="#304252"/>
-            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Margin" Value="16"/>
         </Style>
 
-        <!-- Stems, Phrase chips and Hot Cues styling for Workstation -->
-        <Style Selector="ToggleButton.stem-toggle">
-            <Setter Property="Background" Value="#202020"/>
-            <Setter Property="BorderBrush" Value="#404040"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Foreground" Value="#DDDDDD"/>
-            <Setter Property="Padding" Value="{StaticResource WsPadStemToggle}"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="FontSize" Value="{StaticResource WsFontXs}"/>
-            <Setter Property="MinWidth" Value="60"/>
-        </Style>
-        <Style Selector="Button.phrase-chip">
-            <Setter Property="Background" Value="#20242A"/>
-            <Setter Property="BorderBrush" Value="#3E4958"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Foreground" Value="#D9E2F2"/>
-            <Setter Property="Padding" Value="{StaticResource WsPadPhraseChip}"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="FontSize" Value="{StaticResource WsFontXs}"/>
-            <Setter Property="MinWidth" Value="52"/>
-        </Style>
-        <Style Selector="ToggleButton.stem-v:checked">
-            <Setter Property="Background" Value="#C2185B"/>
-            <Setter Property="BorderBrush" Value="#E91E63"/>
-            <Setter Property="Foreground" Value="White"/>
-        </Style>
-        <Style Selector="ToggleButton.stem-d:checked">
-            <Setter Property="Background" Value="#1B5E20"/>
-            <Setter Property="BorderBrush" Value="#4CAF50"/>
-            <Setter Property="Foreground" Value="White"/>
-        </Style>
-        <Style Selector="ToggleButton.stem-b:checked">
-            <Setter Property="Background" Value="#0D47A1"/>
-            <Setter Property="BorderBrush" Value="#2196F3"/>
-            <Setter Property="Foreground" Value="White"/>
-        </Style>
-        <Style Selector="ToggleButton.stem-o:checked">
-            <Setter Property="Background" Value="#E65100"/>
-            <Setter Property="BorderBrush" Value="#FF9800"/>
-            <Setter Property="Foreground" Value="White"/>
+        <!-- Inspector section rhythm -->
+        <Style Selector="StackPanel.ws-section">
+            <Setter Property="Spacing" Value="8"/>
         </Style>
 
+        <!-- CDJ hot-cue pads. Pad colour is data (slot identity), so it comes from BrushHotCue*.
+             Fluent paints hover/pressed on the template's ContentPresenter, so each pad colour
+             is re-applied there or it would flash grey on hover. -->
         <Style Selector="Button.hotcue">
-            <Setter Property="Width" Value="{StaticResource WsHotCueWidth}"/>
-            <Setter Property="Height" Value="{StaticResource WsHotCueHeight}"/>
+            <Setter Property="Height" Value="{DynamicResource ControlHeightSm}"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="Margin" Value="2"/>
             <Setter Property="Padding" Value="0"/>
-            <Setter Property="FontSize" Value="{StaticResource WsHotCueFontSize}"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="CornerRadius" Value="3"/>
+            <Setter Property="FontFamily" Value="{DynamicResource FontMono}"/>
+            <Setter Property="FontSize" Value="{DynamicResource TextSizeCaption}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}"/>
+            <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Opacity" Value="0.65"/>
+            <Setter Property="Foreground" Value="{DynamicResource BrushOnHotCue}"/>
+            <Setter Property="Opacity" Value="0.7"/>
         </Style>
-        <Style Selector="Button.hotcue:pointerover"><Setter Property="Opacity" Value="1.0"/></Style>
-        <Style Selector="Button.hotcue-1"><Setter Property="Background" Value="#E91E63"/></Style>
-        <Style Selector="Button.hotcue-2"><Setter Property="Background" Value="#FF9800"/></Style>
-        <Style Selector="Button.hotcue-3"><Setter Property="Background" Value="#CDDC39"/><Setter Property="Foreground" Value="#111"/></Style>
-        <Style Selector="Button.hotcue-4"><Setter Property="Background" Value="#4CAF50"/></Style>
-        <Style Selector="Button.hotcue-5"><Setter Property="Background" Value="#00BCD4"/></Style>
-        <Style Selector="Button.hotcue-6"><Setter Property="Background" Value="#2196F3"/></Style>
-        <Style Selector="Button.hotcue-7"><Setter Property="Background" Value="#9C27B0"/></Style>
-        <Style Selector="Button.hotcue-8"><Setter Property="Background" Value="#9E9E9E"/></Style>
-
+        <Style Selector="Button.hotcue:pointerover"><Setter Property="Opacity" Value="1"/></Style>
+        <Style Selector="Button.hotcue:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.hotcue:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="{DynamicResource BrushOnHotCue}"/>
+        </Style>
+        <Style Selector="Button.hotcue-1"><Setter Property="Background" Value="{DynamicResource BrushHotCue1}"/></Style>
+        <Style Selector="Button.hotcue-1:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.hotcue-1:pressed /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="{DynamicResource BrushHotCue1}"/></Style>
+        <Style Selector="Button.hotcue-2"><Setter Property="Background" Value="{DynamicResource BrushHotCue2}"/></Style>
+        <Style Selector="Button.hotcue-2:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.hotcue-2:pressed /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="{DynamicResource BrushHotCue2}"/></Style>
+        <Style Selector="Button.hotcue-3"><Setter Property="Background" Value="{DynamicResource BrushHotCue3}"/></Style>
+        <Style Selector="Button.hotcue-3:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.hotcue-3:pressed /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="{DynamicResource BrushHotCue3}"/></Style>
+        <Style Selector="Button.hotcue-3"><Setter Property="Foreground" Value="{DynamicResource BrushOnHotCueLight}"/></Style>
+        <Style Selector="Button.hotcue-3:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.hotcue-3:pressed /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource BrushOnHotCueLight}"/></Style>
+        <Style Selector="Button.hotcue-4"><Setter Property="Background" Value="{DynamicResource BrushHotCue4}"/></Style>
+        <Style Selector="Button.hotcue-4:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.hotcue-4:pressed /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="{DynamicResource BrushHotCue4}"/></Style>
+        <Style Selector="Button.hotcue-5"><Setter Property="Background" Value="{DynamicResource BrushHotCue5}"/></Style>
+        <Style Selector="Button.hotcue-5:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.hotcue-5:pressed /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="{DynamicResource BrushHotCue5}"/></Style>
+        <Style Selector="Button.hotcue-6"><Setter Property="Background" Value="{DynamicResource BrushHotCue6}"/></Style>
+        <Style Selector="Button.hotcue-6:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.hotcue-6:pressed /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="{DynamicResource BrushHotCue6}"/></Style>
+        <Style Selector="Button.hotcue-7"><Setter Property="Background" Value="{DynamicResource BrushHotCue7}"/></Style>
+        <Style Selector="Button.hotcue-7:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.hotcue-7:pressed /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="{DynamicResource BrushHotCue7}"/></Style>
+        <Style Selector="Button.hotcue-8"><Setter Property="Background" Value="{DynamicResource BrushHotCue8}"/></Style>
+        <Style Selector="Button.hotcue-8:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.hotcue-8:pressed /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="{DynamicResource BrushHotCue8}"/></Style>
         <Style Selector="UserControl.ws-density-compact Button.hotcue">
-            <Setter Property="Width" Value="{StaticResource WsHotCueWidthCompact}"/>
-            <Setter Property="Height" Value="{StaticResource WsHotCueHeightCompact}"/>
-            <Setter Property="FontSize" Value="{StaticResource WsHotCueFontSizeCompact}"/>
-        </Style>
-        <Style Selector="UserControl.ws-density-compact ToggleButton.stem-toggle">
-            <Setter Property="Padding" Value="{StaticResource WsPadStemToggleCompact}"/>
-            <Setter Property="FontSize" Value="{StaticResource WsFontXs}"/>
-            <Setter Property="MinWidth" Value="54"/>
-        </Style>
-        <Style Selector="UserControl.ws-density-compact Button.phrase-chip">
-            <Setter Property="Padding" Value="{StaticResource WsPadPhraseChipCompact}"/>
-            <Setter Property="FontSize" Value="{StaticResource WsFontXs}"/>
-            <Setter Property="MinWidth" Value="50"/>
+            <Setter Property="Height" Value="24"/>
         </Style>
     </UserControl.Styles>
 
     <Grid x:Name="CockpitGrid" RowDefinitions="Auto,*,Auto,280">
-        <Grid Grid.Row="0" RowDefinitions="Auto,Auto">
-            <Border Grid.RowSpan="2"
-                    Background="{DynamicResource RegionBrush}"
-                    BorderBrush="#2F2F2F"
-                    BorderThickness="0,0,0,1"/>
 
-            <Grid Grid.Row="0" Margin="{StaticResource WsMarginHeaderMain}" ColumnDefinitions="*,Auto,Auto,Auto">
-                <StackPanel Grid.Column="0" Spacing="6" VerticalAlignment="Center">
-                    <TextBlock Text="WORKSTATION"
-                               FontSize="15"
-                               FontWeight="Bold"
-                               Foreground="#F0F0F0"/>
-                    <ItemsControl ItemsSource="{Binding ToolOptions}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <StackPanel Orientation="Horizontal" Spacing="6"/>
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="vm:WorkstationToolOptionViewModel">
-                                <ToggleButton Classes="header-toggle"
-                                               IsChecked="{Binding IsSelected, Mode=OneWay}"
-                                               IsEnabled="{Binding IsAvailable}"
-                                               Command="{Binding #PageRoot.DataContext.SetModeCommand}"
-                                               CommandParameter="{Binding Mode}"
-                                               ToolTip.Tip="{Binding StatusText}">
-                                    <TextBlock Text="{Binding ShortLabel}"/>
-                                </ToggleButton>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
+        <!-- ═══ Row 0: header + the one toolbar row ═══ -->
+        <StackPanel Grid.Row="0">
+            <Border Background="{DynamicResource BrushBg1}"
+                    BorderBrush="{DynamicResource BrushBorder0}"
+                    BorderThickness="0,0,0,1"
+                    Padding="16,8">
+                <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                    <!-- Title + set context -->
+                    <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center" MaxWidth="520">
+                        <TextBlock Classes="h2" Text="Workstation"/>
+                        <TextBlock Classes="subtitle"
+                                   Text="{Binding ActivePlaylistFlowSummary}"
+                                   TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                    <Button Classes="icon"
-                            Command="{Binding UndoCommand}"
-                            ToolTip.Tip="Undo [Ctrl+Z]">
-                        <PathIcon Data="{StaticResource arrow_counterclockwise_regular}" Width="12" Height="12"/>
-                    </Button>
-                    <Button Classes="icon"
-                            Command="{Binding RedoCommand}"
-                            ToolTip.Tip="Redo [Ctrl+Y]">
-                        <PathIcon Data="{StaticResource ws_redo_regular}" Width="12" Height="12"/>
-                    </Button>
-                </StackPanel>
+                    <!-- Workspace switch: PREP / SET PLAN -->
+                    <Border Grid.Column="1" Classes="segmented" Margin="24,0,0,0" VerticalAlignment="Center">
+                        <ItemsControl ItemsSource="{Binding ToolOptions}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="2"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:WorkstationToolOptionViewModel">
+                                    <RadioButton Classes="chip"
+                                                 IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                                 IsEnabled="{Binding IsAvailable}"
+                                                 Command="{Binding #PageRoot.DataContext.SetModeCommand}"
+                                                 CommandParameter="{Binding Mode}"
+                                                 ToolTip.Tip="{Binding StatusText}"
+                                                 Content="{Binding ShortLabel}"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
 
-                <StackPanel Grid.Column="2" Spacing="8" Margin="{StaticResource WsMarginHeaderCenter}" VerticalAlignment="Center" Orientation="Horizontal">
-                    <!-- Transport, Master BPM/Tap, and Snap/Quantize/Metronome all live in MixerCenter
-                         (bottom bar) now — this header used to duplicate every one of those controls. -->
-
-                    <!-- Viewport Navigation (Zoom/Pan) -->
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                        <Button Classes="icon" Command="{Binding PanLeftCommand}" ToolTip.Tip="Pan timeline left">
-                            <PathIcon Data="{StaticResource ws_pan_left_regular}" Width="12" Height="12"/>
+                    <!-- Status + the one primary action -->
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Button Classes="ghost small"
+                                Foreground="{DynamicResource BrushWarning}"
+                                Command="{Binding ReanalyzeAllIncompleteCommand}"
+                                IsVisible="{Binding HasIncompleteAnalysisTracks}"
+                                ToolTip.Tip="{Binding IncompleteAnalysisSummary}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource icon_alert}" Width="14" Height="14"/>
+                                <TextBlock Text="Reanalyze incomplete"/>
+                            </StackPanel>
                         </Button>
-                        <Button Classes="icon" Command="{Binding PanRightCommand}" ToolTip.Tip="Pan timeline right">
-                            <PathIcon Data="{StaticResource ws_pan_right_regular}" Width="12" Height="12"/>
-                        </Button>
-                        <Button Classes="icon" Command="{Binding ZoomInCommand}" ToolTip.Tip="Zoom in">
-                            <PathIcon Data="{StaticResource ws_zoom_in_regular}" Width="12" Height="12"/>
-                        </Button>
-                        <Button Classes="icon" Command="{Binding ZoomOutCommand}" ToolTip.Tip="Zoom out">
-                            <PathIcon Data="{StaticResource ws_zoom_out_regular}" Width="12" Height="12"/>
+                        <Button Classes="primary small" ToolTip.Tip="Export the prepared set">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource icon_export}" Width="14" Height="14"/>
+                                <TextBlock Text="Export"/>
+                                <PathIcon Data="{StaticResource icon_chevron_down}" Width="12" Height="12"/>
+                            </StackPanel>
+                            <Button.Flyout>
+                                <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                    <MenuItem Header="Rekordbox XML"
+                                              Command="{Binding ExportRekordboxCommand}"
+                                              ToolTip.Tip="Finish prep: export the active playlist with all saved hot cues and loops as Rekordbox XML"/>
+                                    <MenuItem Header="Session bundle (.orbsession)"
+                                              Command="{Binding ExportOrbSessionCommand}"
+                                              ToolTip.Tip="Export this session (decks, cues, loops, playlist order) as a .orbsession bundle"/>
+                                    <Separator/>
+                                    <MenuItem Header="Render mix…"
+                                              Command="{Binding ExportMixCommand}"
+                                              IsEnabled="{Binding CanUseExportLaneActions}"
+                                              ToolTip.Tip="{Binding ExportLaneActionHint}"/>
+                                </MenuFlyout>
+                            </Button.Flyout>
                         </Button>
                     </StackPanel>
-                </StackPanel>
+                </Grid>
+            </Border>
 
-                <StackPanel Grid.Column="3" Margin="{StaticResource WsMarginHeaderRight}" Spacing="6" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Classes="secondary"
-                            Command="{Binding ReanalyzeAllIncompleteCommand}"
-                            IsVisible="{Binding HasIncompleteAnalysisTracks}"
-                            Background="#3D2E15"
-                            BorderBrush="#B8862E"
-                            ToolTip.Tip="{Binding IncompleteAnalysisSummary}">Reanalyze Incomplete</Button>
-                    <Button Classes="secondary"
-                            Command="{Binding ExportOrbSessionCommand}"
-                            ToolTip.Tip="Export this session (decks, cues, loops, playlist order) as a .orbsession bundle">Export Session</Button>
-                    <Button Classes="secondary"
-                            Command="{Binding ExportRekordboxCommand}"
-                            ToolTip.Tip="Finish prep: export the active playlist — with all saved hot cues and loops — as Rekordbox XML">Rekordbox XML</Button>
-                    <Button Classes="secondary"
-                            Command="{Binding ExportMixCommand}"
-                            IsEnabled="{Binding CanUseExportLaneActions}"
-                            ToolTip.Tip="{Binding ExportLaneActionHint}">Export Mix…</Button>
-                    <Button Classes="secondary"
+            <!-- Toolbar: edit history · viewport · timeline position · drawer -->
+            <Border Classes="toolbar">
+                <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Button Classes="icon small" Command="{Binding UndoCommand}" ToolTip.Tip="Undo (Ctrl+Z)">
+                            <PathIcon Data="{StaticResource icon_undo}" Width="14" Height="14"/>
+                        </Button>
+                        <Button Classes="icon small" Command="{Binding RedoCommand}" ToolTip.Tip="Redo (Ctrl+Y)">
+                            <PathIcon Data="{StaticResource icon_redo}" Width="14" Height="14"/>
+                        </Button>
+                    </StackPanel>
+                    <Border Grid.Column="1" Classes="divider vertical" Height="20" Margin="8,0"/>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Button Classes="icon small" Command="{Binding PanLeftCommand}" ToolTip.Tip="Pan timeline left">
+                            <PathIcon Data="{StaticResource ws_pan_left_regular}" Width="14" Height="14"/>
+                        </Button>
+                        <Button Classes="icon small" Command="{Binding PanRightCommand}" ToolTip.Tip="Pan timeline right">
+                            <PathIcon Data="{StaticResource ws_pan_right_regular}" Width="14" Height="14"/>
+                        </Button>
+                        <Button Classes="icon small" Command="{Binding ZoomOutCommand}" ToolTip.Tip="Zoom out">
+                            <PathIcon Data="{StaticResource ws_zoom_out_regular}" Width="14" Height="14"/>
+                        </Button>
+                        <Button Classes="icon small" Command="{Binding ZoomInCommand}" ToolTip.Tip="Zoom in">
+                            <PathIcon Data="{StaticResource ws_zoom_in_regular}" Width="14" Height="14"/>
+                        </Button>
+                    </StackPanel>
+                    <Slider Grid.Column="3"
+                            Margin="16,0"
+                            Minimum="0"
+                            Maximum="{Binding MaxTimelineOffsetSeconds}"
+                            Value="{Binding TimelineOffsetSeconds, Mode=TwoWay}"
+                            VerticalAlignment="Center"
+                            ToolTip.Tip="Timeline viewport position"/>
+                    <Button Grid.Column="4" Classes="icon small"
                             Click="OnToggleDrawerClick"
-                            ToolTip.Tip="Show or hide Flow Drawer to prioritize waveform space">Toggle Flow Drawer</Button>
-                </StackPanel>
-            </Grid>
+                            ToolTip.Tip="Show or hide the Flow Drawer (more room for waveforms)">
+                        <PathIcon Data="{StaticResource icon_panel_bottom}" Width="14" Height="14"/>
+                    </Button>
+                </Grid>
+            </Border>
+        </StackPanel>
 
-            <Slider Grid.Row="1"
-                    Margin="{StaticResource WsMarginTimelineSlider}"
-                    Minimum="0"
-                    Maximum="{Binding MaxTimelineOffsetSeconds}"
-                    Value="{Binding TimelineOffsetSeconds, Mode=TwoWay}"
-                    Height="{StaticResource WsTimelineHeight}"
-                    VerticalAlignment="Top"
-                    ToolTip.Tip="Timeline viewport position"/>
-        </Grid>
-
+        <!-- ═══ Row 1: timeline + inspector ═══ -->
         <Grid Grid.Row="1" ColumnDefinitions="*,276" RowDefinitions="Auto,*,Auto">
-            <Border Grid.Row="0" Grid.Column="0" Background="#131C26" BorderBrush="#293949" BorderThickness="0,0,0,1" Padding="{StaticResource WsPadLane}">
-                <Grid ColumnDefinitions="250,*,Auto">
-                    <TextBlock Grid.Column="0"
-                               Text="TRACK STRIP"
-                               FontSize="{StaticResource WsFontSm}"
-                               FontWeight="SemiBold"
-                               Foreground="{StaticResource WsTextSecondaryReadable}"
-                               VerticalAlignment="Center"/>
-                    <Canvas Grid.Column="1" ClipToBounds="True">
-                        <TextBlock Text="{Binding TimelineTick0}" Canvas.Left="0" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextMutedReadable}"/>
-                        <TextBlock Text="{Binding TimelineTick1}" Canvas.Left="140" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextMutedReadable}"/>
-                        <TextBlock Text="{Binding TimelineTick2}" Canvas.Left="280" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextMutedReadable}"/>
-                        <TextBlock Text="{Binding TimelineTick3}" Canvas.Left="420" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextMutedReadable}"/>
-                        <TextBlock Text="{Binding TimelineTick4}" Canvas.Left="560" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextMutedReadable}"/>
-                        <TextBlock Text="{Binding TimelineTick5}" Canvas.Left="700" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextMutedReadable}"/>
+
+            <!-- Ruler: aligned to the 200px deck strip + 8px waveform padding -->
+            <Border Grid.Row="0" Grid.Column="0"
+                    Background="{DynamicResource BrushBg1}"
+                    BorderBrush="{DynamicResource BrushBorder0}"
+                    BorderThickness="0,0,0,1"
+                    Padding="8,4">
+                <Grid ColumnDefinitions="192,*">
+                    <TextBlock Grid.Column="0" Classes="section" Text="DECKS" VerticalAlignment="Center"/>
+                    <Canvas Grid.Column="1" Margin="8,0,0,0" ClipToBounds="True">
+                        <TextBlock Classes="mono muted" FontSize="{DynamicResource TextSizeCaption}" Text="{Binding TimelineTick0}" Canvas.Left="0"/>
+                        <TextBlock Classes="mono muted" FontSize="{DynamicResource TextSizeCaption}" Text="{Binding TimelineTick1}" Canvas.Left="140"/>
+                        <TextBlock Classes="mono muted" FontSize="{DynamicResource TextSizeCaption}" Text="{Binding TimelineTick2}" Canvas.Left="280"/>
+                        <TextBlock Classes="mono muted" FontSize="{DynamicResource TextSizeCaption}" Text="{Binding TimelineTick3}" Canvas.Left="420"/>
+                        <TextBlock Classes="mono muted" FontSize="{DynamicResource TextSizeCaption}" Text="{Binding TimelineTick4}" Canvas.Left="560"/>
+                        <TextBlock Classes="mono muted" FontSize="{DynamicResource TextSizeCaption}" Text="{Binding TimelineTick5}" Canvas.Left="700"/>
                         <Border IsVisible="{Binding IsSnapGuideVisible}"
                                 Canvas.Left="{Binding SnapGuideCanvasLeft}"
                                 Canvas.Top="0"
-                                Width="{StaticResource WsSnapGuideMarkerWidth}"
-                                Height="{StaticResource WsSnapGuideMarkerHeight}"
-                                Background="#00D7FF"
-                                CornerRadius="1"/>
+                                Width="2"
+                                Height="16"
+                                Background="{DynamicResource BrushAccent}"
+                                CornerRadius="{DynamicResource RadiusXs}"/>
                         <Border IsVisible="{Binding IsSnapGuideVisible}"
                                 Canvas.Left="{Binding SnapGuideCanvasLeft}"
-                                Canvas.Top="{StaticResource WsSnapGuideMarkerHeight}"
-                                Background="{DynamicResource BrushBg2}"
-                                BorderBrush="{DynamicResource BrushAccent}"
-                                BorderThickness="1"
-                                CornerRadius="4"
-                                Padding="{StaticResource WsPadSnapGuide}">
-                            <TextBlock Text="{Binding SnapGuideLabel}" FontSize="{StaticResource WsFontXxs}" Foreground="#9EEFFF"/>
+                                Canvas.Top="16"
+                                Classes="fact">
+                            <TextBlock Text="{Binding SnapGuideLabel}" Foreground="{DynamicResource BrushAccent}"/>
                         </Border>
                     </Canvas>
                 </Grid>
             </Border>
 
             <Grid Grid.Row="1" Grid.Column="0">
+                <!-- Persistent scaffold: a passive sketch of deck lanes behind the real rows -->
                 <Border Margin="12"
-                        Background="#0E151D"
-                        BorderBrush="#243545"
+                        Background="{DynamicResource BrushBg0}"
+                        BorderBrush="{DynamicResource BrushBorder0}"
                         BorderThickness="1"
-                        CornerRadius="8"
+                        CornerRadius="{DynamicResource RadiusLg}"
                         Opacity="0.72"
                         IsHitTestVisible="False">
-                    <Grid Margin="14" RowDefinitions="*,*,*">
-                        <Border Grid.Row="0" Margin="0,0,0,10" Background="#16212C" BorderBrush="#314355" BorderThickness="1" CornerRadius="6">
-                            <Grid ColumnDefinitions="160,*">
-                                <Border Grid.Column="0" Background="#0F1720" CornerRadius="6,0,0,6"/>
-                                <Canvas Grid.Column="1" Margin="16,12">
-                                    <Border Width="140" Height="10" CornerRadius="4" Background="#29455E"/>
-                                    <Border Canvas.Left="168" Width="118" Height="10" CornerRadius="4" Background="#29455E"/>
-                                    <Border Canvas.Left="312" Width="152" Height="10" CornerRadius="4" Background="#29455E"/>
-                                </Canvas>
-                            </Grid>
-                        </Border>
-                        <Border Grid.Row="1" Margin="0,0,0,10" Background="#141D26" BorderBrush="#2A3948" BorderThickness="1" CornerRadius="6">
+                    <Grid Margin="16" RowDefinitions="*,8,*,8,*">
+                        <Border Grid.Row="0" Background="{DynamicResource BrushBg2}" BorderBrush="{DynamicResource BrushBorder0}" BorderThickness="1" CornerRadius="{DynamicResource RadiusMd}">
                             <Canvas Margin="176,12,16,12">
-                                <Border Width="92" Height="8" CornerRadius="4" Background="#234057"/>
-                                <Border Canvas.Left="116" Width="128" Height="8" CornerRadius="4" Background="#234057"/>
-                                <Border Canvas.Left="274" Width="86" Height="8" CornerRadius="4" Background="#234057"/>
+                                <Border Width="140" Height="8" CornerRadius="{DynamicResource RadiusSm}" Background="{DynamicResource BrushBg4}"/>
+                                <Border Canvas.Left="168" Width="116" Height="8" CornerRadius="{DynamicResource RadiusSm}" Background="{DynamicResource BrushBg4}"/>
+                                <Border Canvas.Left="312" Width="152" Height="8" CornerRadius="{DynamicResource RadiusSm}" Background="{DynamicResource BrushBg4}"/>
                             </Canvas>
                         </Border>
-                        <Border Grid.Row="2" Background="#141D26" BorderBrush="#2A3948" BorderThickness="1" CornerRadius="6">
+                        <Border Grid.Row="2" Background="{DynamicResource BrushBg2}" BorderBrush="{DynamicResource BrushBorder0}" BorderThickness="1" CornerRadius="{DynamicResource RadiusMd}">
                             <Canvas Margin="176,12,16,12">
-                                <Border Width="126" Height="8" CornerRadius="4" Background="#3A6A7A"/>
-                                <Border Canvas.Left="154" Width="104" Height="8" CornerRadius="4" Background="#3A6A7A"/>
-                                <Border Canvas.Left="286" Width="144" Height="8" CornerRadius="4" Background="#3A6A7A"/>
+                                <Border Width="92" Height="8" CornerRadius="{DynamicResource RadiusSm}" Background="{DynamicResource BrushBg3}"/>
+                                <Border Canvas.Left="116" Width="128" Height="8" CornerRadius="{DynamicResource RadiusSm}" Background="{DynamicResource BrushBg3}"/>
+                                <Border Canvas.Left="272" Width="88" Height="8" CornerRadius="{DynamicResource RadiusSm}" Background="{DynamicResource BrushBg3}"/>
+                            </Canvas>
+                        </Border>
+                        <Border Grid.Row="4" Background="{DynamicResource BrushBg2}" BorderBrush="{DynamicResource BrushBorder0}" BorderThickness="1" CornerRadius="{DynamicResource RadiusMd}">
+                            <Canvas Margin="176,12,16,12">
+                                <Border Width="124" Height="8" CornerRadius="{DynamicResource RadiusSm}" Background="{DynamicResource BrushBg3}"/>
+                                <Border Canvas.Left="152" Width="104" Height="8" CornerRadius="{DynamicResource RadiusSm}" Background="{DynamicResource BrushBg3}"/>
+                                <Border Canvas.Left="284" Width="144" Height="8" CornerRadius="{DynamicResource RadiusSm}" Background="{DynamicResource BrushBg3}"/>
                             </Canvas>
                         </Border>
                     </Grid>
@@ -370,17 +283,23 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <Button Classes="secondary"
-                                Margin="16,8"
+                        <Button Classes="ghost small"
+                                Margin="8"
                                 HorizontalAlignment="Left"
                                 Command="{Binding AddDeckCommand}"
                                 IsVisible="{Binding CanAddDeck}"
-                                ToolTip.Tip="Add another deck to this session (up to 4)">+ Add Deck</Button>
+                                ToolTip.Tip="Add another deck to this session (up to 4)">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource icon_add}" Width="14" Height="14"/>
+                                <TextBlock Text="Add deck"/>
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
                 </ScrollViewer>
 
+                <!-- Set Plan: passive transition overlay on top of the deck lanes -->
                 <Canvas IsVisible="{Binding IsFlowOverlayVisible}"
-                        Margin="186,18,20,18"
+                        Margin="184,16,24,16"
                         ClipToBounds="True"
                         ZIndex="20">
                     <ItemsControl ItemsSource="{Binding FlowTransitions}">
@@ -393,41 +312,43 @@
                             <DataTemplate>
                                 <Button Width="{Binding CanvasWidth}"
                                         Canvas.Left="{Binding CanvasLeft}"
-                                        Canvas.Top="14"
-                                        Height="30"
+                                        Canvas.Top="12"
+                                        Height="32"
                                         Background="Transparent"
                                         BorderThickness="0"
                                         Padding="0"
+                                        ToolTip.Tip="{Binding TransitionLabel}"
                                         Command="{Binding #PageRoot.DataContext.SelectFlowTransitionCommand}"
                                         CommandParameter="{Binding}">
                                     <Grid>
-                                        <Border Background="#552F7A5B"
-                                                BorderBrush="#88B8E986"
+                                        <Border Background="{DynamicResource BrushAccentSubtle}"
+                                                BorderBrush="{DynamicResource BrushAccentBorder}"
                                                 BorderThickness="1"
-                                                CornerRadius="5"
-                                                Padding="6,3">
-                                            <StackPanel Spacing="1">
-                                                <TextBlock Text="{Binding TransitionLabel}" FontSize="10" Foreground="#DDF7E4" TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Text="{Binding CompatibilityLabel}" FontSize="9" Foreground="#BFE8D3" TextTrimming="CharacterEllipsis"/>
+                                                CornerRadius="{DynamicResource RadiusSm}"
+                                                Padding="8,2">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding TransitionLabel}" FontSize="{DynamicResource WsFontSm}" Foreground="{DynamicResource BrushText0}" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding CompatibilityLabel}" FontSize="{DynamicResource WsFontSm}" Foreground="{DynamicResource BrushText1}" TextTrimming="CharacterEllipsis"/>
                                             </StackPanel>
                                         </Border>
                                         <Border Width="8"
                                                 HorizontalAlignment="Right"
-                                                CornerRadius="0,5,5,0"
-                                                Background="#77FFD58A"
+                                                CornerRadius="0,4,4,0"
+                                                Background="{DynamicResource BrushBorder2}"
                                                 Cursor="SizeWestEast"
+                                                ToolTip.Tip="Drag to resize the transition"
                                                 PointerPressed="OnFlowTransitionHandlePointerPressed"
                                                 PointerMoved="OnFlowTransitionHandlePointerMoved"
                                                 PointerReleased="OnFlowTransitionHandlePointerReleased"/>
                                         <Border IsVisible="{Binding IsSelected}"
-                                                BorderBrush="#E6FFD58A"
+                                                BorderBrush="{DynamicResource BrushAccent}"
                                                 BorderThickness="2"
-                                                CornerRadius="5"/>
+                                                CornerRadius="{DynamicResource RadiusSm}"/>
                                         <Border IsVisible="{Binding IsPresetApplied}"
-                                                Height="3"
+                                                Height="2"
                                                 VerticalAlignment="Bottom"
-                                                Background="#AA8EC8FF"
-                                                CornerRadius="0,0,5,5"/>
+                                                Background="{DynamicResource BrushInfo}"
+                                                CornerRadius="0,0,4,4"/>
                                     </Grid>
                                 </Button>
                             </DataTemplate>
@@ -446,8 +367,8 @@
                                         Canvas.Top="8"
                                         Width="4"
                                         Height="52"
-                                        Background="#80A5E6FF"
-                                        CornerRadius="1"
+                                        Background="{DynamicResource BrushInfo}"
+                                        CornerRadius="{DynamicResource RadiusXs}"
                                         Opacity="{Binding PhraseMarkerOpacity}"
                                         Cursor="SizeWestEast"
                                         ToolTip.Tip="{Binding PhraseMarkerTooltip}"
@@ -478,10 +399,10 @@
                                                     Canvas.Top="4"
                                                     Width="{Binding CanvasWidth}"
                                                     Height="28"
-                                                    Background="#2258C7FF"
-                                                    BorderBrush="#6BB4E6FF"
+                                                    Background="{DynamicResource BrushInfoSubtle}"
+                                                    BorderBrush="{DynamicResource BrushInfoBorder}"
                                                     BorderThickness="1"
-                                                    CornerRadius="4"
+                                                    CornerRadius="{DynamicResource RadiusSm}"
                                                     Opacity="{Binding Confidence}"
                                                     Tag="{Binding}"
                                                     ToolTip.Tip="{Binding Tooltip}"
@@ -489,16 +410,18 @@
                                                 <Grid ColumnDefinitions="6,*,6">
                                                     <Border Grid.Column="0"
                                                             Width="6"
-                                                            Background="#A5E6FF"
-                                                            CornerRadius="2"
+                                                            Background="{DynamicResource BrushInfo}"
+                                                            CornerRadius="{DynamicResource RadiusXs}"
+                                                            Cursor="SizeWestEast"
                                                             Tag="{Binding}"
                                                             PointerPressed="OnPhraseRegionStartHandlePointerPressed"
                                                             PointerMoved="OnPhraseRegionStartHandlePointerMoved"
                                                             PointerReleased="OnPhraseRegionStartHandlePointerReleased"/>
                                                     <Border Grid.Column="2"
                                                             Width="6"
-                                                            Background="#A5E6FF"
-                                                            CornerRadius="2"
+                                                            Background="{DynamicResource BrushInfo}"
+                                                            CornerRadius="{DynamicResource RadiusXs}"
+                                                            Cursor="SizeWestEast"
                                                             Tag="{Binding}"
                                                             PointerPressed="OnPhraseRegionEndHandlePointerPressed"
                                                             PointerMoved="OnPhraseRegionEndHandlePointerMoved"
@@ -520,7 +443,9 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Canvas.Left="{Binding BeatGuideCanvasLeft}" Canvas.Top="8" Width="2" Height="52" Background="#80FFD58A" CornerRadius="1"/>
+                                <Border Canvas.Left="{Binding BeatGuideCanvasLeft}" Canvas.Top="8" Width="2" Height="52"
+                                        Background="{DynamicResource BrushWarning}" Opacity="0.5"
+                                        CornerRadius="{DynamicResource RadiusXs}"/>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
@@ -540,478 +465,509 @@
                                         Width="{Binding CanvasWidth}"
                                         Height="6"
                                         Background="{Binding CompatibilityColor}"
-                                        CornerRadius="2"
+                                        CornerRadius="{DynamicResource RadiusXs}"
                                         ToolTip.Tip="{Binding TransitionLabel}"/>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </Canvas>
 
+                <!-- Set Plan hint -->
                 <Border IsVisible="{Binding IsFlowMode}"
+                        Classes="card"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Top"
-                        Margin="0,20,20,0"
-                    MaxWidth="300"
-                    Background="#8F14202B"
-                        BorderBrush="#36506A"
-                        BorderThickness="1"
-                        CornerRadius="6"
-                        Padding="10,6"
+                        Margin="0,16,16,0"
+                        MaxWidth="300"
                         ZIndex="22">
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="{Binding FlowOverlayHint}"
-                                   FontSize="10"
-                                   Foreground="{StaticResource WsTextSecondaryReadable}"
-                                   TextWrapping="Wrap"/>
-                        <Button Classes="secondary"
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="caption" Text="{Binding FlowOverlayHint}" TextWrapping="Wrap"/>
+                        <Button Classes="ghost small"
                                 Command="{Binding ClearFlowTransitionSelectionCommand}"
                                 IsVisible="{Binding HasSelectedFlowTransition}"
-                                HorizontalAlignment="Left">Clear Selection</Button>
+                                HorizontalAlignment="Left">Clear selection</Button>
                     </StackPanel>
                 </Border>
 
+                <!-- Empty timeline: a guidance layer, never a replacement for the canvas -->
                 <Border IsVisible="{Binding !HasLoadedDecks}"
-                        Margin="20"
-                        HorizontalAlignment="Left"
-                        VerticalAlignment="Top"
-                        MaxWidth="560"
-                        Background="#CC101821"
-                        BorderBrush="#36506A"
-                        BorderThickness="1"
-                        CornerRadius="8"
-                        Padding="14,12">
-                    <StackPanel Spacing="8">
-                        <TextBlock Text="EMPTY TIMELINE"
-                                   FontSize="{StaticResource WsFontSm}"
-                                   FontWeight="SemiBold"
-                                   Foreground="#8EC8FF"/>
-                        <TextBlock Text="{Binding TimelineEmptyCanvasSummary}"
-                                   FontSize="{StaticResource WsFontSm}"
-                                   Foreground="{StaticResource WsTextPrimaryReadable}"
-                                   TextWrapping="Wrap"/>
-                        <TextBlock Text="Waveforms and transition overlays will appear here once the first track is loaded."
-                                   FontSize="{StaticResource WsFontXs}"
-                                   Foreground="{StaticResource WsTextHintReadable}"
-                                   TextWrapping="Wrap"/>
-                    </StackPanel>
+                        Classes="card"
+                        Margin="24"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Bottom"
+                        MaxWidth="520"
+                        Padding="{DynamicResource PaddingLg}">
+                    <Grid ColumnDefinitions="Auto,12,*">
+                        <PathIcon Grid.Column="0" Data="{StaticResource icon_waves}"
+                                  Width="{DynamicResource IconSizeXl}" Height="{DynamicResource IconSizeXl}"
+                                  Foreground="{DynamicResource BrushText3}" VerticalAlignment="Top"/>
+                        <StackPanel Grid.Column="2" Spacing="4">
+                            <TextBlock Classes="section" Text="EMPTY TIMELINE"/>
+                            <TextBlock Classes="body" Text="{Binding TimelineEmptyCanvasSummary}" TextWrapping="Wrap"/>
+                            <TextBlock Classes="caption"
+                                       Text="Waveforms and transition overlays appear here once the first track is loaded. Pick a playlist in the Flow Drawer below."
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Grid>
                 </Border>
             </Grid>
 
             <wsViews:MixerCenter Grid.Row="2" Grid.Column="0"/>
 
+            <!-- ═══ Inspector ═══ -->
             <Border Grid.Row="0"
                     Grid.RowSpan="2"
                     Grid.Column="1"
-                    Classes="ws-inspector"
-                    Margin="12,8,8,8"
-                    Background="#D0111821"
-                    BorderBrush="#314355"
-                    BorderThickness="1"
-                    CornerRadius="10"
-                    Padding="{StaticResource WsPadInspector}">
+                    Classes="panel"
+                    BorderThickness="1,0,0,0">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Spacing="8">
-                        <TextBlock Text="INSPECTOR" FontSize="{StaticResource WsFontSm}" FontWeight="SemiBold" Foreground="{StaticResource WsTextSecondaryReadable}"/>
-                        <TextBlock Text="{Binding ActiveToolOption.DisplayName, StringFormat='Tool • {0}', TargetNullValue='Tool • Workstation'}" FontSize="{StaticResource WsFontLg}" FontWeight="SemiBold" Foreground="#E5EEF8"/>
-                        <TextBlock Text="{Binding ActiveToolSummary}" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}" TextWrapping="Wrap"/>
+                    <StackPanel Spacing="16" Margin="12">
+                        <StackPanel Spacing="2">
+                            <TextBlock Classes="h3" Text="{Binding ActiveToolOption.DisplayName, TargetNullValue='Workstation', FallbackValue='Workstation'}"/>
+                            <TextBlock Classes="caption" Text="{Binding ActiveToolSummary}" TextWrapping="Wrap"/>
+                        </StackPanel>
 
-                        <StackPanel Spacing="10" IsVisible="{Binding IsWaveformMode}">
-                            <!-- 1. Track Info Header -->
-                            <StackPanel Spacing="3">
-                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                    <Border Background="#2D2D2D" CornerRadius="4" Padding="6,2" IsVisible="{Binding FocusedDeck, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                        <TextBlock Text="{Binding FocusedDeck.DeckLabel}" FontSize="11" FontWeight="Bold" Foreground="#F5F5F5"/>
+                        <!-- ─── PREP ─── -->
+                        <StackPanel Spacing="16" IsVisible="{Binding IsWaveformMode}">
+
+                            <!-- No deck loaded -->
+                            <StackPanel Classes="empty-state"
+                                        IsVisible="{Binding !FocusedDeck.IsLoaded, FallbackValue=True}">
+                                <PathIcon Data="{StaticResource icon_music}"/>
+                                <TextBlock Classes="h3" Text="No deck loaded"/>
+                                <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center"
+                                           Text="Load a track from the Flow Drawer (F loads the focused deck, A / B a specific one) or drag it onto a deck. Hot cues, loops, stems and tempo show up here."/>
+                            </StackPanel>
+
+                            <StackPanel Spacing="16" IsVisible="{Binding FocusedDeck.IsLoaded, FallbackValue=False}">
+                                <!-- 1. Focused track -->
+                                <StackPanel Classes="ws-section">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Border Classes="fact"><TextBlock Text="{Binding FocusedDeck.DeckLabel}" FontWeight="SemiBold"/></Border>
+                                        <TextBlock Classes="section" Text="FOCUSED TRACK" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Classes="h3" Text="{Binding FocusedDeck.TrackTitle}" TextWrapping="Wrap"/>
+                                        <TextBlock Classes="caption" Text="{Binding FocusedDeck.TrackArtist, TargetNullValue='—'}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <Border Classes="fact" ToolTip.Tip="Effective BPM">
+                                            <TextBlock Text="{Binding FocusedDeck.DisplayBpm, StringFormat='{}{0:F1} BPM', TargetNullValue='— BPM'}"/>
+                                        </Border>
+                                        <Border Classes="fact" ToolTip.Tip="Musical key">
+                                            <TextBlock Text="{Binding FocusedDeck.TrackKey, TargetNullValue='—'}"/>
+                                        </Border>
+                                    </StackPanel>
+                                    <Border Classes="inset" Padding="8,4">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Grid.Column="0" Classes="mono"
+                                                       Text="{Binding FocusedDeck.PositionDisplayText}"
+                                                       Foreground="{DynamicResource BrushText0}"
+                                                       VerticalAlignment="Center"/>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4"
+                                                        IsVisible="{Binding FocusedDeck.IsLoopActive}">
+                                                <Ellipse Classes="status-dot success" VerticalAlignment="Center"/>
+                                                <TextBlock Classes="caption success" Text="Loop" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Grid>
                                     </Border>
-                                    <TextBlock Text="FOCUSED TRACK" FontSize="{StaticResource WsFontSm}" FontWeight="SemiBold" Foreground="#8EC8FF"/>
                                 </StackPanel>
-                                <TextBlock Text="{Binding FocusedDeck.TrackTitle, TargetNullValue='No Track Loaded'}" FontSize="14" FontWeight="Bold" Foreground="#E5E5E5" TextWrapping="Wrap"/>
-                                <TextBlock Text="{Binding FocusedDeck.TrackArtist, TargetNullValue='—'}" FontSize="11" Foreground="#A0A0A0" TextWrapping="Wrap"/>
-                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0">
-                                    <Border Classes="ws-chip" Background="#18222C" BorderBrush="#2F3D4A" BorderThickness="1" CornerRadius="4" Padding="6,2">
-                                        <TextBlock Text="{Binding FocusedDeck.DisplayBpm, StringFormat='{}{0:F1} BPM', TargetNullValue='— BPM'}" FontSize="10" Foreground="#7FC7FF"/>
-                                    </Border>
-                                    <Border Classes="ws-chip" Background="#18222C" BorderBrush="#2F3D4A" BorderThickness="1" CornerRadius="4" Padding="6,2">
-                                        <TextBlock Text="{Binding FocusedDeck.TrackKey, TargetNullValue='— Key'}" FontSize="10" Foreground="#95D36A"/>
-                                    </Border>
+
+                                <Border Classes="divider"/>
+
+                                <!-- 2. Deck transport -->
+                                <StackPanel Classes="ws-section">
+                                    <TextBlock Classes="section" Text="PLAYBACK"/>
+                                    <Grid ColumnDefinitions="*,4,*,4,*">
+                                        <Button Grid.Column="0" Classes="secondary small" HorizontalAlignment="Stretch"
+                                                Command="{Binding FocusedDeck.Deck.PlayPauseCommand}" ToolTip.Tip="Play / pause this deck">
+                                            <Panel>
+                                                <PathIcon Data="{StaticResource icon_play}" Width="14" Height="14" IsVisible="{Binding !FocusedDeck.Deck.IsPlaying}"/>
+                                                <PathIcon Data="{StaticResource icon_pause}" Width="14" Height="14" IsVisible="{Binding FocusedDeck.Deck.IsPlaying}"/>
+                                            </Panel>
+                                        </Button>
+                                        <Button Grid.Column="2" Classes="secondary small" HorizontalAlignment="Stretch"
+                                                Command="{Binding FocusedDeck.Deck.CueCommand}" ToolTip.Tip="CDJ cue: return to the cue point">Cue</Button>
+                                        <Button Grid.Column="4" Classes="secondary small" HorizontalAlignment="Stretch"
+                                                Command="{Binding FocusedDeck.Deck.SetLoopCommand}" ToolTip.Tip="Arm an engine loop at the playhead">Arm loop</Button>
+                                    </Grid>
                                 </StackPanel>
-                                <!-- Live position readout -->
-                                <Border Background="#0D1419" BorderBrush="#1E2D3A" BorderThickness="1"
-                                        CornerRadius="4" Padding="8,4" Margin="0,4,0,0"
-                                        IsVisible="{Binding FocusedDeck.IsLoaded}">
+
+                                <Border Classes="divider"/>
+
+                                <!-- 3. CDJ hot cues (2 x 4) -->
+                                <StackPanel Classes="ws-section">
                                     <Grid ColumnDefinitions="*,Auto">
-                                        <TextBlock Grid.Column="0"
-                                                   Text="{Binding FocusedDeck.PositionDisplayText}"
-                                                   FontSize="13" FontWeight="Bold" Foreground="#DDE9F5"
-                                                   FontFamily="Consolas,Courier New,monospace"/>
-                                        <Border Grid.Column="1" Background="#1A3020" BorderBrush="#2D6040"
-                                                BorderThickness="1" CornerRadius="3" Padding="5,1"
-                                                IsVisible="{Binding FocusedDeck.IsLoopActive}">
-                                            <TextBlock Text="LOOP" FontSize="9" FontWeight="Black" Foreground="#B8E986"/>
+                                        <TextBlock Grid.Column="0" Classes="section" Text="HOT CUES" VerticalAlignment="Center"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                            <Button Classes="ghost small" Command="{Binding FocusedDeck.AddCueAtPlayheadCommand}" ToolTip.Tip="Drop a hot cue at the playhead (next free pad)">Mark</Button>
+                                            <Button Classes="ghost small" Command="{Binding FocusedDeck.AddMemoryCueCommand}" ToolTip.Tip="Drop a memory cue at the playhead">Memory</Button>
+                                            <Button Classes="ghost small" Command="{Binding FocusedDeck.ResetCuePrepCommand}" ToolTip.Tip="Restore the analyzed cues">Auto</Button>
+                                        </StackPanel>
+                                    </Grid>
+                                    <UniformGrid Rows="2" Columns="4" Margin="-2">
+                                        <Button Classes="hotcue hotcue-1" Command="{Binding FocusedDeck.HotCue1Command}" Content="{Binding FocusedDeck.HotCue1Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue1Tooltip}">
+                                            <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="0"/></ContextMenu></Button.ContextMenu>
+                                        </Button>
+                                        <Button Classes="hotcue hotcue-2" Command="{Binding FocusedDeck.HotCue2Command}" Content="{Binding FocusedDeck.HotCue2Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue2Tooltip}">
+                                            <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="1"/></ContextMenu></Button.ContextMenu>
+                                        </Button>
+                                        <Button Classes="hotcue hotcue-3" Command="{Binding FocusedDeck.HotCue3Command}" Content="{Binding FocusedDeck.HotCue3Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue3Tooltip}">
+                                            <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="2"/></ContextMenu></Button.ContextMenu>
+                                        </Button>
+                                        <Button Classes="hotcue hotcue-4" Command="{Binding FocusedDeck.HotCue4Command}" Content="{Binding FocusedDeck.HotCue4Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue4Tooltip}">
+                                            <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="3"/></ContextMenu></Button.ContextMenu>
+                                        </Button>
+                                        <Button Classes="hotcue hotcue-5" Command="{Binding FocusedDeck.HotCue5Command}" Content="{Binding FocusedDeck.HotCue5Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue5Tooltip}">
+                                            <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="4"/></ContextMenu></Button.ContextMenu>
+                                        </Button>
+                                        <Button Classes="hotcue hotcue-6" Command="{Binding FocusedDeck.HotCue6Command}" Content="{Binding FocusedDeck.HotCue6Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue6Tooltip}">
+                                            <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="5"/></ContextMenu></Button.ContextMenu>
+                                        </Button>
+                                        <Button Classes="hotcue hotcue-7" Command="{Binding FocusedDeck.HotCue7Command}" Content="{Binding FocusedDeck.HotCue7Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue7Tooltip}">
+                                            <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="6"/></ContextMenu></Button.ContextMenu>
+                                        </Button>
+                                        <Button Classes="hotcue hotcue-8" Command="{Binding FocusedDeck.HotCue8Command}" Content="{Binding FocusedDeck.HotCue8Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue8Tooltip}">
+                                            <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="7"/></ContextMenu></Button.ContextMenu>
+                                        </Button>
+                                    </UniformGrid>
+                                    <TextBlock Classes="caption" Text="{Binding FocusedDeck.HotCueSummary, TargetNullValue='No cues prepped'}" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+
+                                <Border Classes="divider"/>
+
+                                <!-- 4. Loops -->
+                                <StackPanel Classes="ws-section">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <TextBlock Classes="section" Text="LOOP" VerticalAlignment="Center"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding FocusedDeck.IsLoopActive}">
+                                                <Ellipse Classes="status-dot success" VerticalAlignment="Center"/>
+                                                <TextBlock Classes="caption success" Text="Active" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Classes="ghost small"
+                                                Command="{Binding FocusedDeck.Deck.ExitLoopCommand}"
+                                                IsVisible="{Binding FocusedDeck.IsLoopActive}"
+                                                ToolTip.Tip="Exit the active loop">Exit</Button>
+                                    </Grid>
+
+                                    <Grid ColumnDefinitions="*,4,*,4,*">
+                                        <Button Grid.Column="0" Classes="secondary small" HorizontalAlignment="Stretch"
+                                                Command="{Binding FocusedDeck.SetLoopInCommand}"
+                                                ToolTip.Tip="Set the loop in-point at the playhead">In</Button>
+                                        <Button Grid.Column="2" Classes="secondary small" HorizontalAlignment="Stretch"
+                                                Command="{Binding FocusedDeck.SetLoopOutCommand}"
+                                                ToolTip.Tip="Set the loop out-point at the playhead">Out</Button>
+                                        <Button Grid.Column="4" Classes="ghost small" HorizontalAlignment="Stretch"
+                                                Command="{Binding FocusedDeck.ClearStagedLoopCommand}"
+                                                ToolTip.Tip="Clear the staged loop">Clear</Button>
+                                    </Grid>
+
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock Classes="mono" Text="{Binding FocusedDeck.LoopRegionText}" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Classes="caption" Text="{Binding FocusedDeck.LoopLengthBarsText}" IsVisible="{Binding FocusedDeck.LoopIsReady}"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Classes="secondary small"
+                                                Command="{Binding FocusedDeck.CommitLoopCommand}"
+                                                IsEnabled="{Binding FocusedDeck.LoopIsReady}"
+                                                ToolTip.Tip="Save the loop to the cue list (included in the Rekordbox export)">Save loop</Button>
+                                    </Grid>
+
+                                    <Grid ColumnDefinitions="Auto,8,*">
+                                        <TextBlock Grid.Column="0" Classes="caption" Text="Bars" VerticalAlignment="Center"/>
+                                        <Border Grid.Column="2" Classes="segmented" HorizontalAlignment="Stretch">
+                                            <UniformGrid Rows="1" Columns="5">
+                                                <Button Classes="ghost small" Padding="0,4" FontFamily="{DynamicResource FontMono}" HorizontalAlignment="Stretch"
+                                                        Command="{Binding FocusedDeck.AutoLoopBarsCommand}" CommandParameter="0.5" ToolTip.Tip="Half-bar auto-loop">½</Button>
+                                                <Button Classes="ghost small" Padding="0,4" FontFamily="{DynamicResource FontMono}" HorizontalAlignment="Stretch"
+                                                        Command="{Binding FocusedDeck.AutoLoopBarsCommand}" CommandParameter="1" ToolTip.Tip="1-bar auto-loop">1</Button>
+                                                <Button Classes="ghost small" Padding="0,4" FontFamily="{DynamicResource FontMono}" HorizontalAlignment="Stretch"
+                                                        Command="{Binding FocusedDeck.AutoLoopBarsCommand}" CommandParameter="2" ToolTip.Tip="2-bar auto-loop">2</Button>
+                                                <Button Classes="ghost small" Padding="0,4" FontFamily="{DynamicResource FontMono}" HorizontalAlignment="Stretch"
+                                                        Command="{Binding FocusedDeck.AutoLoopBarsCommand}" CommandParameter="4" ToolTip.Tip="4-bar auto-loop">4</Button>
+                                                <Button Classes="ghost small" Padding="0,4" FontFamily="{DynamicResource FontMono}" HorizontalAlignment="Stretch"
+                                                        Command="{Binding FocusedDeck.AutoLoopBarsCommand}" CommandParameter="8" ToolTip.Tip="8-bar auto-loop">8</Button>
+                                            </UniformGrid>
                                         </Border>
                                     </Grid>
-                                </Border>
-                            </StackPanel>
 
-                            <Separator Background="#252526" Height="1"/>
-
-                            <!-- 2. CDJ Transport and Looping -->
-                            <StackPanel Spacing="6" IsEnabled="{Binding FocusedDeck.IsLoaded}">
-                                <TextBlock Text="PLAYBACK &amp; LOOPING" FontSize="9" FontWeight="Black" Foreground="#666"/>
-                                <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto">
-                                    <Button Grid.Row="0" Grid.Column="0" Classes="phrase-chip" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                            Command="{Binding FocusedDeck.Deck.PlayPauseCommand}" ToolTip.Tip="Play / Pause this deck">PLAY / PAUSE</Button>
-                                    <Button Grid.Row="0" Grid.Column="1" Classes="phrase-chip" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                            Command="{Binding FocusedDeck.Deck.CueCommand}" ToolTip.Tip="Return to cue point">CUE</Button>
-                                    <Button Grid.Row="1" Grid.Column="0" Classes="phrase-chip" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                            Command="{Binding FocusedDeck.Deck.SetLoopCommand}" ToolTip.Tip="Arm loop at playhead">ARM LOOP</Button>
-                                    <Button Grid.Row="1" Grid.Column="1" Classes="phrase-chip" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                            Command="{Binding FocusedDeck.Deck.ExitLoopCommand}" ToolTip.Tip="Exit active loop">EXIT LOOP</Button>
-                                </Grid>
-                                
-                                <Grid ColumnDefinitions="*,*,*,*" Margin="0,4,0,0">
-                                    <Button Grid.Column="0" Classes="icon" Command="{Binding Loop1Command}" ToolTip.Tip="1-beat loop">1</Button>
-                                    <Button Grid.Column="1" Classes="icon" Margin="4,0,0,0" Command="{Binding Loop2Command}" ToolTip.Tip="2-beat loop">2</Button>
-                                    <Button Grid.Column="2" Classes="icon" Margin="4,0,0,0" Command="{Binding Loop4Command}" ToolTip.Tip="4-beat loop">4</Button>
-                                    <Button Grid.Column="3" Classes="icon" Margin="4,0,0,0" Command="{Binding Loop8Command}" ToolTip.Tip="8-beat loop">8</Button>
-                                </Grid>
-
-                                <Grid ColumnDefinitions="*,*,*" Margin="0,4,0,0">
-                                    <Button Classes="phrase-chip" Command="{Binding FocusedDeck.Deck.HalfLoopCommand}" ToolTip.Tip="Halve loop size">1/2</Button>
-                                    <Button Grid.Column="1" Classes="phrase-chip" Command="{Binding FocusedDeck.Deck.DoubleLoopCommand}" ToolTip.Tip="Double loop size">2×</Button>
-                                    <Button Grid.Column="2" Classes="phrase-chip" Command="{Binding ExitLoopFocusedCommand}" ToolTip.Tip="Exit focused loop">EXIT</Button>
-                                </Grid>
-
-                                <Grid ColumnDefinitions="*,*" Margin="0,4,0,0">
-                                    <Button Classes="phrase-chip" Command="{Binding FocusedDeck.Deck.MoveLoopCommand}" CommandParameter="-1" ToolTip.Tip="Move loop earlier">◀ MOVE</Button>
-                                    <Button Grid.Column="1" Classes="phrase-chip" Command="{Binding FocusedDeck.Deck.MoveLoopCommand}" CommandParameter="1" ToolTip.Tip="Move loop later">MOVE ▶</Button>
-                                </Grid>
-                            </StackPanel>
-
-                            <Separator Background="#252526" Height="1"/>
-
-                            <!-- 3. CDJ Hot Cues (2x4 Grid) -->
-                            <StackPanel Spacing="6" IsEnabled="{Binding FocusedDeck.IsLoaded}">
-                                <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
-                                    <TextBlock Grid.Column="0" Text="HOT CUES" FontSize="9" FontWeight="Black" Foreground="#666" VerticalAlignment="Center"/>
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
-                                        <Button Classes="phrase-chip" Height="22" Padding="6,0" Command="{Binding FocusedDeck.AddCueAtPlayheadCommand}" ToolTip.Tip="Drop cue marker at playhead">MARK</Button>
-                                        <Button Classes="phrase-chip" Height="22" Padding="6,0" Command="{Binding FocusedDeck.ResetCuePrepCommand}" ToolTip.Tip="Restore analyzed cues">AUTO</Button>
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <Button Classes="secondary small" FontFamily="{DynamicResource FontMono}"
+                                                Command="{Binding FocusedDeck.Deck.HalfLoopCommand}" ToolTip.Tip="Halve the loop length">÷2</Button>
+                                        <Button Classes="secondary small" FontFamily="{DynamicResource FontMono}"
+                                                Command="{Binding FocusedDeck.Deck.DoubleLoopCommand}" ToolTip.Tip="Double the loop length">×2</Button>
+                                        <Border Classes="divider vertical" Height="16"/>
+                                        <Button Classes="icon small" Command="{Binding FocusedDeck.Deck.MoveLoopCommand}" CommandParameter="-1" ToolTip.Tip="Move the loop earlier">
+                                            <PathIcon Data="{StaticResource icon_chevron_left}" Width="14" Height="14"/>
+                                        </Button>
+                                        <Button Classes="icon small" Command="{Binding FocusedDeck.Deck.MoveLoopCommand}" CommandParameter="1" ToolTip.Tip="Move the loop later">
+                                            <PathIcon Data="{StaticResource icon_chevron_right}" Width="14" Height="14"/>
+                                        </Button>
                                     </StackPanel>
-                                </Grid>
-                                
-                                <UniformGrid Rows="2" Columns="4" Margin="0,4,0,0">
-                                    <Button Classes="hotcue hotcue-1" Command="{Binding FocusedDeck.HotCue1Command}" Content="{Binding FocusedDeck.HotCue1Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue1Tooltip}">
-                                        <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="0"/></ContextMenu></Button.ContextMenu>
-                                    </Button>
-                                    <Button Classes="hotcue hotcue-2" Command="{Binding FocusedDeck.HotCue2Command}" Content="{Binding FocusedDeck.HotCue2Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue2Tooltip}">
-                                        <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="1"/></ContextMenu></Button.ContextMenu>
-                                    </Button>
-                                    <Button Classes="hotcue hotcue-3" Command="{Binding FocusedDeck.HotCue3Command}" Content="{Binding FocusedDeck.HotCue3Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue3Tooltip}">
-                                        <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="2"/></ContextMenu></Button.ContextMenu>
-                                    </Button>
-                                    <Button Classes="hotcue hotcue-4" Command="{Binding FocusedDeck.HotCue4Command}" Content="{Binding FocusedDeck.HotCue4Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue4Tooltip}">
-                                        <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="3"/></ContextMenu></Button.ContextMenu>
-                                    </Button>
-                                    <Button Classes="hotcue hotcue-5" Command="{Binding FocusedDeck.HotCue5Command}" Content="{Binding FocusedDeck.HotCue5Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue5Tooltip}">
-                                        <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="4"/></ContextMenu></Button.ContextMenu>
-                                    </Button>
-                                    <Button Classes="hotcue hotcue-6" Command="{Binding FocusedDeck.HotCue6Command}" Content="{Binding FocusedDeck.HotCue6Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue6Tooltip}">
-                                        <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="5"/></ContextMenu></Button.ContextMenu>
-                                    </Button>
-                                    <Button Classes="hotcue hotcue-7" Command="{Binding FocusedDeck.HotCue7Command}" Content="{Binding FocusedDeck.HotCue7Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue7Tooltip}">
-                                        <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="6"/></ContextMenu></Button.ContextMenu>
-                                    </Button>
-                                    <Button Classes="hotcue hotcue-8" Command="{Binding FocusedDeck.HotCue8Command}" Content="{Binding FocusedDeck.HotCue8Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue8Tooltip}">
-                                        <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="7"/></ContextMenu></Button.ContextMenu>
-                                    </Button>
-                                </UniformGrid>
-                                <TextBlock Text="{Binding FocusedDeck.HotCueSummary, TargetNullValue='No cues prepped'}" FontSize="10" Foreground="#7CB8FF" TextTrimming="CharacterEllipsis"/>
-                            </StackPanel>
+                                </StackPanel>
 
-                            <Separator Background="#252526" Height="1"/>
+                                <Border Classes="divider"/>
 
-                            <!-- 4. Loop Controls -->
-                            <StackPanel Spacing="6" IsEnabled="{Binding FocusedDeck.IsLoaded}">
-                                <Grid ColumnDefinitions="*,Auto,Auto" VerticalAlignment="Center">
-                                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                        <TextBlock Text="LOOP" FontSize="9" FontWeight="Black" Foreground="#666" VerticalAlignment="Center"/>
-                                        <!-- Green "ACTIVE" pill when engine loop is running -->
-                                        <Border Background="#1A3020" BorderBrush="#2D6040" BorderThickness="1"
-                                                CornerRadius="3" Padding="4,1"
-                                                IsVisible="{Binding FocusedDeck.IsLoopActive}">
-                                            <TextBlock Text="ACTIVE" FontSize="8" FontWeight="Black" Foreground="#B8E986"/>
-                                        </Border>
+                                <!-- 5. Stems -->
+                                <StackPanel Classes="ws-section">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Grid.Column="0" Classes="section" Text="STEMS" VerticalAlignment="Center"/>
+                                        <Button Grid.Column="1" Classes="ghost small" Command="{Binding FocusedDeck.SeparateStemsCommand}" ToolTip.Tip="Run stem separation for this track">Separate</Button>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*,4,*,4,*,4,*">
+                                        <ToggleButton Grid.Column="0" Classes="chip danger" Padding="4" HorizontalAlignment="Stretch"
+                                                      IsChecked="{Binding FocusedDeck.Stems.Vocals.IsMuted, Mode=TwoWay}" ToolTip.Tip="Mute vocals">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <Ellipse Width="6" Height="6" Fill="{DynamicResource BrushStemVocals}" VerticalAlignment="Center"/>
+                                                <TextBlock Text="Vox"/>
+                                            </StackPanel>
+                                        </ToggleButton>
+                                        <ToggleButton Grid.Column="2" Classes="chip danger" Padding="4" HorizontalAlignment="Stretch"
+                                                      IsChecked="{Binding FocusedDeck.Stems.Drums.IsMuted, Mode=TwoWay}" ToolTip.Tip="Mute drums">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <Ellipse Width="6" Height="6" Fill="{DynamicResource BrushStemDrums}" VerticalAlignment="Center"/>
+                                                <TextBlock Text="Drum"/>
+                                            </StackPanel>
+                                        </ToggleButton>
+                                        <ToggleButton Grid.Column="4" Classes="chip danger" Padding="4" HorizontalAlignment="Stretch"
+                                                      IsChecked="{Binding FocusedDeck.Stems.Bass.IsMuted, Mode=TwoWay}" ToolTip.Tip="Mute bass">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <Ellipse Width="6" Height="6" Fill="{DynamicResource BrushStemBass}" VerticalAlignment="Center"/>
+                                                <TextBlock Text="Bass"/>
+                                            </StackPanel>
+                                        </ToggleButton>
+                                        <ToggleButton Grid.Column="6" Classes="chip danger" Padding="4" HorizontalAlignment="Stretch"
+                                                      IsChecked="{Binding FocusedDeck.Stems.Other.IsMuted, Mode=TwoWay}" ToolTip.Tip="Mute melody / other">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <Ellipse Width="6" Height="6" Fill="{DynamicResource BrushStemOther}" VerticalAlignment="Center"/>
+                                                <TextBlock Text="Other"/>
+                                            </StackPanel>
+                                        </ToggleButton>
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <Button Classes="ghost small" Command="{Binding FocusedDeck.ToggleInstrumentalCommand}" ToolTip.Tip="Preset: instrumental (vocals muted)">Instrumental</Button>
+                                        <Button Classes="ghost small" Command="{Binding FocusedDeck.ToggleDrumsOnlyCommand}" ToolTip.Tip="Preset: drums only">Drums only</Button>
+                                        <Button Classes="ghost small" Command="{Binding FocusedDeck.ToggleVocalOffCommand}" ToolTip.Tip="Preset: vocals off">No vocals</Button>
                                     </StackPanel>
-                                    <Button Grid.Column="1" Classes="phrase-chip" Height="22" Padding="6,0"
-                                            Command="{Binding FocusedDeck.AddMemoryCueCommand}"
-                                            ToolTip.Tip="Drop memory cue at playhead">MEM</Button>
-                                    <Button Grid.Column="2" Classes="phrase-chip" Height="22" Padding="6,0" Margin="4,0,0,0"
-                                            Command="{Binding FocusedDeck.Deck.ExitLoopCommand}"
-                                            IsVisible="{Binding FocusedDeck.IsLoopActive}"
-                                            ToolTip.Tip="Exit active loop">EXIT</Button>
-                                </Grid>
+                                    <TextBlock Classes="caption" Text="{Binding FocusedDeck.StemControlSummary}" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
 
-                                <!-- IN / OUT buttons row -->
-                                <Grid ColumnDefinitions="*,*,*" Margin="0,2,0,0">
-                                    <Button Grid.Column="0" Classes="secondary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                            Command="{Binding FocusedDeck.SetLoopInCommand}"
-                                            ToolTip.Tip="Set loop in-point at playhead">IN</Button>
-                                    <Button Grid.Column="1" Classes="secondary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                            Margin="4,0,0,0"
-                                            Command="{Binding FocusedDeck.SetLoopOutCommand}"
-                                            ToolTip.Tip="Set loop out-point at playhead">OUT</Button>
-                                    <Button Grid.Column="2" Classes="secondary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                            Margin="4,0,0,0"
-                                            Command="{Binding FocusedDeck.ClearStagedLoopCommand}"
-                                            ToolTip.Tip="Clear loop">CLR</Button>
-                                </Grid>
+                                <Border Classes="divider"/>
 
-                                <!-- Active loop display + commit -->
-                                <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,0">
-                                    <TextBlock Grid.Column="0" Text="{Binding FocusedDeck.LoopRegionText}"
-                                               FontSize="10" Foreground="#B8E986" FontWeight="SemiBold"
-                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                    <Button Grid.Column="1" Classes="phrase-chip" Height="22" Padding="6,0"
-                                            Command="{Binding FocusedDeck.CommitLoopCommand}"
-                                            IsEnabled="{Binding FocusedDeck.LoopIsReady}"
-                                            ToolTip.Tip="Save loop to cue list (persists to Rekordbox export)">SAVE</Button>
-                                </Grid>
+                                <!-- 6. Section jumps -->
+                                <StackPanel Classes="ws-section">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Grid.Column="0" Classes="section" Text="JUMP TO" VerticalAlignment="Center"/>
+                                        <Button Grid.Column="1" Classes="icon small" Command="{Binding FocusedDeck.ViewWaveformCommand}" ToolTip.Tip="Toggle full / detail waveform view">
+                                            <PathIcon Data="{StaticResource ws_zoom_in_regular}" Width="14" Height="14"/>
+                                        </Button>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*,4,*,4,*,4,*">
+                                        <Button Grid.Column="0" Classes="secondary small" HorizontalAlignment="Stretch" Padding="0,4" Command="{Binding FocusedDeck.JumpToIntroCommand}" ToolTip.Tip="Jump to the intro">Intro</Button>
+                                        <Button Grid.Column="2" Classes="secondary small" HorizontalAlignment="Stretch" Padding="0,4" Command="{Binding FocusedDeck.JumpToBuildCommand}" ToolTip.Tip="Jump to the build">Build</Button>
+                                        <Button Grid.Column="4" Classes="secondary small" HorizontalAlignment="Stretch" Padding="0,4" Command="{Binding FocusedDeck.JumpToDropCommand}" ToolTip.Tip="Jump to the drop">Drop</Button>
+                                        <Button Grid.Column="6" Classes="secondary small" HorizontalAlignment="Stretch" Padding="0,4" Command="{Binding FocusedDeck.JumpToOutroCommand}" ToolTip.Tip="Jump to the outro">Outro</Button>
+                                    </Grid>
+                                    <TextBlock Classes="caption" Text="{Binding FocusedDeck.SectionJumpSummary}" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
 
-                                <!-- Loop length badge (bars) -->
-                                <TextBlock Text="{Binding FocusedDeck.LoopLengthBarsText}"
-                                           FontSize="9" Foreground="#A0A0A0"
-                                           IsVisible="{Binding FocusedDeck.LoopIsReady}"/>
+                                <Border Classes="divider"/>
 
-                                <!-- Auto-loop preset row -->
-                                <Grid ColumnDefinitions="*,*,*,*,*" Margin="0,4,0,0">
-                                    <Button Grid.Column="0" Classes="phrase-chip" Padding="0"
-                                            Command="{Binding FocusedDeck.AutoLoopBarsCommand}"
-                                            CommandParameter="0.5"
-                                            ToolTip.Tip="½ bar auto-loop">½</Button>
-                                    <Button Grid.Column="1" Classes="phrase-chip" Padding="0"
-                                            Command="{Binding FocusedDeck.AutoLoopBarsCommand}"
-                                            CommandParameter="1"
-                                            ToolTip.Tip="1 bar auto-loop">1</Button>
-                                    <Button Grid.Column="2" Classes="phrase-chip" Padding="0"
-                                            Command="{Binding FocusedDeck.AutoLoopBarsCommand}"
-                                            CommandParameter="2"
-                                            ToolTip.Tip="2 bar auto-loop">2</Button>
-                                    <Button Grid.Column="3" Classes="phrase-chip" Padding="0"
-                                            Command="{Binding FocusedDeck.AutoLoopBarsCommand}"
-                                            CommandParameter="4"
-                                            ToolTip.Tip="4 bar auto-loop">4</Button>
-                                    <Button Grid.Column="4" Classes="phrase-chip" Padding="0"
-                                            Command="{Binding FocusedDeck.AutoLoopBarsCommand}"
-                                            CommandParameter="8"
-                                            ToolTip.Tip="8 bar auto-loop">8</Button>
-                                </Grid>
-                            </StackPanel>
+                                <!-- 7. Gain, pitch, key -->
+                                <StackPanel Classes="ws-section">
+                                    <TextBlock Classes="section" Text="GAIN &amp; TEMPO"/>
 
-                            <Separator Background="#252526" Height="1"/>
-
-                            <!-- 5. Stems Mixer Rack -->
-                            <StackPanel Spacing="6" IsEnabled="{Binding FocusedDeck.IsLoaded}">
-                                <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
-                                    <TextBlock Grid.Column="0" Text="STEM MIXER" FontSize="9" FontWeight="Black" Foreground="#666" VerticalAlignment="Center"/>
-                                    <Button Grid.Column="1" Classes="phrase-chip" Height="22" Padding="6,0" Command="{Binding FocusedDeck.SeparateStemsCommand}" ToolTip.Tip="Run stem separation">SEPARATE</Button>
-                                </Grid>
-                                
-                                <Grid ColumnDefinitions="*,*,*,*" Margin="0,2,0,0">
-                                    <ToggleButton Classes="stem-toggle stem-v" Height="24" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                                  IsChecked="{Binding FocusedDeck.Stems.Vocals.IsMuted, Mode=TwoWay}" ToolTip.Tip="Mute Vocals">VOCAL</ToggleButton>
-                                    <ToggleButton Classes="stem-toggle stem-d" Height="24" Margin="4,0,0,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                                  IsChecked="{Binding FocusedDeck.Stems.Drums.IsMuted, Mode=TwoWay}" ToolTip.Tip="Mute Drums">DRUM</ToggleButton>
-                                    <ToggleButton Classes="stem-toggle stem-b" Height="24" Margin="4,0,0,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                                  IsChecked="{Binding FocusedDeck.Stems.Bass.IsMuted, Mode=TwoWay}" ToolTip.Tip="Mute Bass">BASS</ToggleButton>
-                                    <ToggleButton Classes="stem-toggle stem-o" Height="24" Margin="4,0,0,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                                  IsChecked="{Binding FocusedDeck.Stems.Other.IsMuted, Mode=TwoWay}" ToolTip.Tip="Mute Melody/Other">OTHER</ToggleButton>
-                                </Grid>
-
-                                <Grid ColumnDefinitions="*,*,*" Margin="0,4,0,0">
-                                    <Button Classes="phrase-chip" Command="{Binding FocusedDeck.ToggleInstrumentalCommand}" ToolTip.Tip="Instrumental Preset">INST</Button>
-                                    <Button Grid.Column="1" Classes="phrase-chip" Command="{Binding FocusedDeck.ToggleDrumsOnlyCommand}" ToolTip.Tip="Drums Only Preset">DRUMS</Button>
-                                    <Button Grid.Column="2" Classes="phrase-chip" Command="{Binding FocusedDeck.ToggleVocalOffCommand}" ToolTip.Tip="Vocal Off Preset">VOCAL OFF</Button>
-                                </Grid>
-                                <TextBlock Text="{Binding FocusedDeck.StemControlSummary}" FontSize="9" Foreground="#B8E986" TextTrimming="CharacterEllipsis"/>
-                            </StackPanel>
-
-                            <Separator Background="#252526" Height="1"/>
-
-                            <!-- 5. Phrasing Sections -->
-                            <StackPanel Spacing="6" IsEnabled="{Binding FocusedDeck.IsLoaded}">
-                                <TextBlock Text="TRACK SECTIONS" FontSize="9" FontWeight="Black" Foreground="#666"/>
-                                <Grid ColumnDefinitions="*,*,*,*,*" Margin="0,2,0,0">
-                                    <Button Classes="phrase-chip" Command="{Binding FocusedDeck.ViewWaveformCommand}" ToolTip.Tip="Zoom to full/detail">VIEW</Button>
-                                    <Button Grid.Column="1" Classes="phrase-chip" Command="{Binding FocusedDeck.JumpToIntroCommand}" ToolTip.Tip="Jump to Intro">INTRO</Button>
-                                    <Button Grid.Column="2" Classes="phrase-chip" Command="{Binding FocusedDeck.JumpToBuildCommand}" ToolTip.Tip="Jump to Build">BUILD</Button>
-                                    <Button Grid.Column="3" Classes="phrase-chip" Command="{Binding FocusedDeck.JumpToDropCommand}" ToolTip.Tip="Jump to Drop">DROP</Button>
-                                    <Button Grid.Column="4" Classes="phrase-chip" Command="{Binding FocusedDeck.JumpToOutroCommand}" ToolTip.Tip="Jump to Outro">OUTRO</Button>
-                                </Grid>
-                                <TextBlock Text="{Binding FocusedDeck.SectionJumpSummary}" FontSize="9" Foreground="#8EC8FF" TextTrimming="CharacterEllipsis"/>
-                            </StackPanel>
-
-                            <Separator Background="#252526" Height="1"/>
-
-                            <!-- 6. Gain, Pitch, Key and Lock -->
-                            <StackPanel Spacing="8" IsEnabled="{Binding FocusedDeck.IsLoaded}">
-                                <TextBlock Text="VOLUME &amp; TEMPO FORENSICS" FontSize="9" FontWeight="Black" Foreground="#666"/>
-                                
-                                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
-                                    <!-- Gain -->
-                                    <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2">
-                                        <TextBlock Text="GAIN" FontSize="9" FontWeight="SemiBold" Foreground="#A0A0A0"/>
-                                        <Slider Minimum="-12" Maximum="12" Value="{Binding FocusedDeck.TrackGainDb, Mode=TwoWay}" Height="20"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="0" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center">
-                                        <TextBlock Text="VU" FontSize="9" Foreground="#A0A0A0" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                                        <ProgressBar Minimum="0" Maximum="1" Value="{Binding FocusedDeck.VuLevel}" Orientation="Horizontal" Width="40" Height="8" Foreground="#4CAF50" Background="#2A2A2A"/>
-                                    </StackPanel>
-
-                                    <!-- Pitch/Tempo fader -->
-                                    <StackPanel Grid.Row="1" Grid.Column="0" Spacing="2">
+                                    <StackPanel Spacing="2">
                                         <Grid ColumnDefinitions="*,Auto">
-                                            <TextBlock Grid.Column="0" Text="PITCH / TEMPO" FontSize="9" FontWeight="SemiBold" Foreground="#A0A0A0"/>
-                                            <TextBlock Grid.Column="1" Text="{Binding FocusedDeck.Deck.TempoPercent, StringFormat='{}{0:+0.0;-0.0;+0.0}%'}" FontSize="9" Foreground="#FFD700" FontWeight="Bold"/>
+                                            <TextBlock Grid.Column="0" Classes="caption" Text="Gain"/>
+                                            <TextBlock Grid.Column="1" Classes="mono" Text="{Binding FocusedDeck.TrackGainDb, StringFormat='{}{0:+0.0;-0.0;0.0} dB'}"/>
                                         </Grid>
-                                        <Slider Minimum="-8" Maximum="8" Value="{Binding FocusedDeck.Deck.TempoPercent, Mode=TwoWay}" Height="20"/>
+                                        <Slider Minimum="-12" Maximum="12" Value="{Binding FocusedDeck.TrackGainDb, Mode=TwoWay}" ToolTip.Tip="Track gain (dB)"/>
                                     </StackPanel>
-                                    <ToggleButton Grid.Row="1" Grid.Column="1" VerticalAlignment="Bottom" IsChecked="{Binding FocusedDeck.Deck.KeyLock, Mode=TwoWay}"
-                                                  FontSize="8" Width="40" Height="20" Padding="2,1" CornerRadius="4"
-                                                  Background="#252525" BorderBrush="#444" ToolTip.Tip="Key Lock (hold original key when speeding up/down)">LOCK</ToggleButton>
-                                </Grid>
 
-                                <!-- Key shift adjusters -->
-                                <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
-                                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                        <TextBlock Text="KEY SHIFT:" FontSize="9" Foreground="#6E8297" VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding FocusedDeck.CurrentKeyShiftText}" FontSize="10" FontWeight="Bold" Foreground="#D8B4FE" VerticalAlignment="Center"/>
+                                    <Grid ColumnDefinitions="Auto,8,*">
+                                        <TextBlock Grid.Column="0" Classes="caption" Text="Level" VerticalAlignment="Center"/>
+                                        <ProgressBar Grid.Column="2" Classes="meter" Minimum="0" Maximum="1" Value="{Binding FocusedDeck.VuLevel}"
+                                                     VerticalAlignment="Center" ToolTip.Tip="Deck output level (peak)"/>
+                                    </Grid>
+
+                                    <StackPanel Spacing="2">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Grid.Column="0" Classes="caption" Text="Pitch"/>
+                                            <TextBlock Grid.Column="1" Classes="mono" Text="{Binding FocusedDeck.Deck.TempoPercent, StringFormat='{}{0:+0.0;-0.0;+0.0} %'}"/>
+                                        </Grid>
+                                        <Grid ColumnDefinitions="*,8,Auto">
+                                            <Slider Grid.Column="0" Minimum="-8" Maximum="8" Value="{Binding FocusedDeck.Deck.TempoPercent, Mode=TwoWay}" VerticalAlignment="Center" ToolTip.Tip="Pitch / tempo (±8 %)"/>
+                                            <ToggleButton Grid.Column="2" Classes="chip" VerticalAlignment="Center"
+                                                          IsChecked="{Binding FocusedDeck.Deck.KeyLock, Mode=TwoWay}"
+                                                          ToolTip.Tip="Key lock: hold the original key when the tempo changes">Key lock</ToggleButton>
+                                        </Grid>
                                     </StackPanel>
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
-                                        <Button Width="20" Height="18" Padding="0" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" FontSize="10" Command="{Binding FocusedDeck.DecreaseKeyShiftCommand}" ToolTip.Tip="Shift key down">-</Button>
-                                        <Button Width="20" Height="18" Padding="0" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" FontSize="10" Command="{Binding FocusedDeck.ResetKeyShiftCommand}" ToolTip.Tip="Reset key shift">0</Button>
-                                        <Button Width="20" Height="18" Padding="0" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" FontSize="10" Command="{Binding FocusedDeck.IncreaseKeyShiftCommand}" ToolTip.Tip="Shift key up">+</Button>
-                                    </StackPanel>
-                                </Grid>
 
-                                <!-- Sync Tempo and Lock Position -->
-                                <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
-                                    <Button Grid.Column="0" Classes="secondary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Command="{Binding SyncBpmCommand}" ToolTip.Tip="Align tempo across active timeline tracks">Sync Tempo</Button>
-                                    <ToggleButton Grid.Column="1" IsChecked="{Binding FocusedDeck.IsLocked, Mode=TwoWay}" ToolTip.Tip="Lock track timeline movement">🔒</ToggleButton>
-                                </Grid>
-                            </StackPanel>
+                                    <Grid ColumnDefinitions="Auto,8,*,Auto">
+                                        <TextBlock Grid.Column="0" Classes="caption" Text="Key shift" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Classes="mono" Text="{Binding FocusedDeck.CurrentKeyShiftText}" VerticalAlignment="Center"/>
+                                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2">
+                                            <Button Classes="icon small" FontFamily="{DynamicResource FontMono}" Command="{Binding FocusedDeck.DecreaseKeyShiftCommand}" ToolTip.Tip="Shift the key down a semitone">−</Button>
+                                            <Button Classes="icon small" FontFamily="{DynamicResource FontMono}" Command="{Binding FocusedDeck.ResetKeyShiftCommand}" ToolTip.Tip="Reset the key shift">0</Button>
+                                            <Button Classes="icon small" FontFamily="{DynamicResource FontMono}" Command="{Binding FocusedDeck.IncreaseKeyShiftCommand}" ToolTip.Tip="Shift the key up a semitone">+</Button>
+                                        </StackPanel>
+                                    </Grid>
 
-                            <Separator Background="#252526" Height="1"/>
+                                    <ToggleButton Classes="chip" HorizontalAlignment="Left"
+                                                  IsChecked="{Binding FocusedDeck.IsLocked, Mode=TwoWay}"
+                                                  ToolTip.Tip="Lock this track's position on the timeline">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <PathIcon Data="{StaticResource icon_lock}" Width="12" Height="12"/>
+                                            <TextBlock Text="Lock position"/>
+                                        </StackPanel>
+                                    </ToggleButton>
+                                </StackPanel>
 
-                            <!-- Coach and transition assistance guidance -->
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="MIX INTELLIGENCE &amp; COACHING" FontSize="9" FontWeight="Black" Foreground="#666"/>
-                                <TextBlock Text="{Binding FocusedDeck.MixReadinessText, TargetNullValue='No Mix readiness'}" FontSize="10" Foreground="#8EC8FF" TextWrapping="Wrap"/>
-                                <TextBlock Text="{Binding FocusedDeck.PerformanceStatusSummary, TargetNullValue='Performance status unavailable'}" FontSize="10" Foreground="#FFD58A" TextWrapping="Wrap"/>
-                                <TextBlock Text="{Binding FocusedDeck.HarmonicSuggestionText, TargetNullValue='Harmonic guidance unavailable'}" FontSize="10" Foreground="#D8B4FE" TextWrapping="Wrap"/>
-                                <TextBlock Text="{Binding FocusedDeck.TransitionStatusText, TargetNullValue='Transition guidance unavailable'}" FontSize="10" Foreground="#B8E986" TextWrapping="Wrap"/>
+                                <Border Classes="divider"/>
+
+                                <!-- 8. Mix guidance (analysis-derived text, kept neutral) -->
+                                <StackPanel Classes="ws-section">
+                                    <TextBlock Classes="section" Text="MIX GUIDANCE"/>
+                                    <TextBlock Classes="body-sm" Text="{Binding FocusedDeck.MixReadinessText, TargetNullValue='No mix readiness yet'}" TextWrapping="Wrap"/>
+                                    <TextBlock Classes="body-sm" Text="{Binding FocusedDeck.PerformanceStatusSummary, TargetNullValue='Performance status unavailable'}" TextWrapping="Wrap"/>
+                                    <TextBlock Classes="body-sm" Text="{Binding FocusedDeck.HarmonicSuggestionText, TargetNullValue='Harmonic guidance unavailable'}" TextWrapping="Wrap"/>
+                                    <TextBlock Classes="body-sm" Text="{Binding FocusedDeck.TransitionStatusText, TargetNullValue='Transition guidance unavailable'}" TextWrapping="Wrap"/>
+                                </StackPanel>
                             </StackPanel>
                         </StackPanel>
 
-                        <StackPanel Spacing="6" IsVisible="{Binding IsFlowMode}">
-                            <!-- Row 1: title -->
-                            <TextBlock Text="{Binding FlowInspectorTransitionLabel}" FontSize="{StaticResource WsFontMd}" FontWeight="SemiBold" Foreground="#E5EEF8" TextWrapping="Wrap"/>
-                            <!-- Row 2: score + preset chips -->
-                            <WrapPanel Orientation="Horizontal" ItemHeight="22">
-                                <Border Classes="ws-chip"><TextBlock Text="{Binding FlowInspectorCombinedScoreLabel}" FontSize="{StaticResource WsFontSm}" Foreground="#B8E986" TextWrapping="Wrap"/></Border>
-                                <Border Classes="ws-chip"><TextBlock Text="{Binding FlowInspectorPresetLabel}" FontSize="{StaticResource WsFontSm}" Foreground="#8EC8FF" TextWrapping="Wrap"/></Border>
-                            </WrapPanel>
-                            <!-- Row 3: warning (only when present) -->
-                            <TextBlock Text="{Binding FlowInspectorWarningLabel}" FontSize="{StaticResource WsFontSm}" Foreground="#F9A94B" TextWrapping="Wrap" IsVisible="{Binding FlowInspectorHasWarnings}"/>
-                            <!-- Row 4: harmonic · energy compact -->
-                            <TextBlock Text="{Binding FlowInspectorScoreRow}" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}" TextWrapping="Wrap"/>
-                            <!-- Row 5: phrase · beat · length · snap -->
-                            <TextBlock Text="{Binding FlowInspectorAlignmentRow}" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}" TextWrapping="Wrap"/>
-                            <!-- Row 6: curve · bands -->
-                            <TextBlock Text="{Binding FlowInspectorCurveDetailRow}" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}" TextWrapping="Wrap"/>
-                            <!-- Row 7: phrase region scaffold -->
-                            <TextBlock Text="{Binding FlowInspectorPhraseRegionSpanLabel}" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}" TextWrapping="Wrap"/>
-                            <!-- Row 8: actions -->
-                            <WrapPanel Orientation="Horizontal" ItemHeight="26">
-                                <Button Classes="secondary" Command="{Binding ApplyFlowPresetCommand}" CommandParameter="{Binding FlowInspectorTopSuggestedPresetId}" ToolTip.Tip="Apply top suggested preset">Apply</Button>
-                                <Button Classes="secondary" Margin="4,0,0,0" Command="{Binding ResetFlowPresetCommand}" ToolTip.Tip="Reset preset">Reset</Button>
-                                <Button Classes="secondary" Margin="4,0,0,0" Command="{Binding CycleFlowPresetCommand}" ToolTip.Tip="Cycle suggestions">Cycle</Button>
-                            </WrapPanel>
+                        <!-- ─── SET PLAN ─── -->
+                        <StackPanel Classes="ws-section" IsVisible="{Binding IsFlowMode}">
+                            <TextBlock Classes="h3" Text="{Binding FlowInspectorTransitionLabel}" TextWrapping="Wrap"/>
+                            <StackPanel Spacing="2">
+                                <TextBlock Classes="body-sm" Text="{Binding FlowInspectorCombinedScoreLabel}" TextWrapping="Wrap"/>
+                                <TextBlock Classes="caption" Text="{Binding FlowInspectorPresetLabel}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <Grid ColumnDefinitions="Auto,8,*" IsVisible="{Binding FlowInspectorHasWarnings}">
+                                <PathIcon Grid.Column="0" Data="{StaticResource icon_alert}" Width="14" Height="14"
+                                          Foreground="{DynamicResource BrushWarning}" VerticalAlignment="Top"/>
+                                <TextBlock Grid.Column="2" Classes="caption warning" Text="{Binding FlowInspectorWarningLabel}" TextWrapping="Wrap"/>
+                            </Grid>
+                            <Border Classes="divider"/>
+                            <TextBlock Classes="caption" Text="{Binding FlowInspectorScoreRow}" TextWrapping="Wrap"/>
+                            <TextBlock Classes="caption" Text="{Binding FlowInspectorAlignmentRow}" TextWrapping="Wrap"/>
+                            <TextBlock Classes="caption" Text="{Binding FlowInspectorCurveDetailRow}" TextWrapping="Wrap"/>
+                            <TextBlock Classes="caption" Text="{Binding FlowInspectorPhraseRegionSpanLabel}" TextWrapping="Wrap"/>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <Button Classes="secondary small" Command="{Binding ApplyFlowPresetCommand}" CommandParameter="{Binding FlowInspectorTopSuggestedPresetId}" ToolTip.Tip="Apply the top suggested transition preset">Apply</Button>
+                                <Button Classes="ghost small" Command="{Binding CycleFlowPresetCommand}" ToolTip.Tip="Cycle through the suggested presets">Cycle</Button>
+                                <Button Classes="ghost small" Command="{Binding ResetFlowPresetCommand}" ToolTip.Tip="Reset the transition preset">Reset</Button>
+                            </StackPanel>
                         </StackPanel>
-
                     </StackPanel>
                 </ScrollViewer>
             </Border>
         </Grid>
 
         <GridSplitter Grid.Row="2"
+                      Classes="shell-splitter"
                       ResizeDirection="Rows"
                       ResizeBehavior="PreviousAndNext"
-                      Background="{DynamicResource BrushBg3}"
+                      Background="{DynamicResource BrushBorder0}"
                       Height="{StaticResource WsSplitterHeight}"
                       HorizontalAlignment="Stretch"
+                      ToolTip.Tip="Drag to resize the Flow Drawer. Double-click to reset"
                       DoubleTapped="OnDrawerSplitterDoubleTapped"/>
 
-        <Border Grid.Row="3" Background="{DynamicResource BrushBg1}" BorderBrush="{DynamicResource BrushBorder1}" BorderThickness="0,1,0,0">
+        <!-- ═══ Row 3: Flow Drawer ═══ -->
+        <Border Grid.Row="3" Background="{DynamicResource BrushBg1}" BorderBrush="{DynamicResource BrushBorder0}" BorderThickness="0,1,0,0">
             <Grid RowDefinitions="Auto,Auto,*">
-                <Border Grid.Row="0" Classes="flow-drawer-header" Background="{DynamicResource RegionBrush}" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1" Padding="{StaticResource WsPadDrawerHeader}">
-                    <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto">
-                        <TextBlock Grid.Column="0" Text="FLOW DRAWER" FontSize="{StaticResource WsFontMd}" FontWeight="Bold" Foreground="{DynamicResource BrushText1}" VerticalAlignment="Center"/>
-                        <Button Grid.Column="1" Classes="drawer-header-action" Margin="10,0,0,0" Background="{DynamicResource BrushAccentSubtle}" BorderBrush="{DynamicResource BrushAccent}" BorderThickness="1" Foreground="{DynamicResource BrushAccent}" Click="OnOpenTrackListOverlayClick" ToolTip.Tip="Open a large overlay track list for focused browsing">Expand Track List</Button>
-                        <Button Grid.Column="3" Classes="drawer-header-action" Margin="0,0,6,0" Background="#1B3A1B" BorderBrush="#3A7A3A" BorderThickness="1" Foreground="#7FD47F" Command="{Binding AnalyzePlaylistCuesCommand}" IsEnabled="{Binding !IsAnalyzing}" ToolTip.Tip="Auto-detect drops, builds, phrase markers for all tracks in this playlist that have no cues yet">⚡ Analyze Playlist</Button>
-                        <Button Grid.Column="4" x:Name="AnalyzeSelectedBtn" Classes="drawer-header-action" Margin="0,0,6,0" Background="#1B2A3A" BorderBrush="#3A6A9A" BorderThickness="1" Foreground="#7FB8D4" IsEnabled="{Binding !IsAnalyzing}" Click="OnAnalyzeSelectedClick" ToolTip.Tip="Auto-detect cues only for the selected rows (skips tracks that already have cues)">⚡ Selected</Button>
-                        <ComboBox Grid.Column="5" x:Name="PlaylistSelector" Width="260" ItemsSource="{Binding Playlists}" SelectedItem="{Binding ActivePlaylist}" VerticalAlignment="Center">
+                <Border Grid.Row="0" Classes="panel-header" Background="{DynamicResource BrushBg1}" Padding="16,4">
+                    <Grid ColumnDefinitions="Auto,12,Auto,*,Auto">
+                        <TextBlock Grid.Column="0" Classes="section" Text="FLOW DRAWER" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="2" Classes="small" x:Name="PlaylistSelector" Width="260"
+                                  ItemsSource="{Binding Playlists}" SelectedItem="{Binding ActivePlaylist}"
+                                  PlaceholderText="Choose a playlist"
+                                  VerticalAlignment="Center" ToolTip.Tip="Playlist feeding the decks and the set plan">
                             <ComboBox.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding SourceTitle}" FontSize="12"/>
+                                <DataTemplate x:DataType="models:PlaylistJob">
+                                    <TextBlock Text="{Binding SourceTitle}" TextTrimming="CharacterEllipsis"/>
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
-                    </Grid>
-                </Border>
-
-                <Border Grid.Row="1" Classes="flow-status-busy" IsVisible="{Binding IsAnalyzing}" Background="#0A1A0A" BorderBrush="#2A4A2A" BorderThickness="0,0,0,1">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <StackPanel Grid.Column="0" Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding AnalysisStatusText}" FontSize="10" Foreground="{StaticResource WsTextPrimaryReadable}"/>
-                            <ProgressBar Minimum="0" Maximum="100" Value="{Binding AnalysisProgress}" Height="3" Foreground="#4CAF50" Background="#1E1E1E"/>
+                        <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                            <Button Classes="secondary small"
+                                    Command="{Binding AnalyzePlaylistCuesCommand}"
+                                    IsEnabled="{Binding !IsAnalyzing}"
+                                    ToolTip.Tip="Auto-detect drops, builds and phrase markers for every track in this playlist that has no cues yet">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <PathIcon Data="{StaticResource icon_wand}" Width="14" Height="14"/>
+                                    <TextBlock Text="Analyze cues"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Classes="icon small" Click="OnOpenTrackListOverlayClick" ToolTip.Tip="Open the track list in a large overlay">
+                                <PathIcon Data="{StaticResource icon_expand}" Width="14" Height="14"/>
+                            </Button>
+                            <Button Classes="icon small" ToolTip.Tip="More drawer actions">
+                                <PathIcon Data="{StaticResource icon_more}" Width="14" Height="14"/>
+                                <Button.Flyout>
+                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                        <MenuItem Header="Analyze selected rows only"
+                                                  IsEnabled="{Binding !IsAnalyzing}"
+                                                  Click="OnAnalyzeSelectedClick"
+                                                  ToolTip.Tip="Auto-detect cues only for the selected rows (skips tracks that already have cues)"/>
+                                        <MenuItem Header="Open track list overlay" Click="OnOpenTrackListOverlayClick"/>
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
                         </StackPanel>
-                        <TextBlock Grid.Column="1" Text="{Binding AnalysisProgress, StringFormat='{}{0}%'}" FontSize="10" Foreground="{StaticResource WsTextPrimaryReadable}" VerticalAlignment="Center" Margin="{StaticResource WsMarginDrawerStatusTrailing}"/>
                     </Grid>
                 </Border>
 
-                <Border Grid.Row="1" Classes="flow-status-idle" IsVisible="{Binding !IsAnalyzing}" Background="Transparent">
+                <!-- Analysis running -->
+                <Border Grid.Row="1" IsVisible="{Binding IsAnalyzing}" Padding="16,4"
+                        BorderBrush="{DynamicResource BrushBorder0}" BorderThickness="0,0,0,1">
+                    <Grid ColumnDefinitions="*,12,Auto">
+                        <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
+                            <TextBlock Classes="caption" Text="{Binding AnalysisStatusText}" Foreground="{DynamicResource BrushText1}" TextTrimming="CharacterEllipsis"/>
+                            <ProgressBar Classes="meter" Minimum="0" Maximum="100" Value="{Binding AnalysisProgress}"/>
+                        </StackPanel>
+                        <TextBlock Grid.Column="2" Classes="mono" Text="{Binding AnalysisProgress, StringFormat='{}{0}%'}" VerticalAlignment="Center"/>
+                    </Grid>
+                </Border>
+
+                <!-- Idle: eligibility + next-step CTAs -->
+                <Border Grid.Row="1" IsVisible="{Binding !IsAnalyzing}" Padding="16,4">
                     <StackPanel Spacing="2">
-                            <TextBlock Text="{Binding AnalysisStatusText}" FontSize="10" Foreground="{StaticResource WsTextSecondaryReadable}" IsVisible="{Binding AnalysisStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                            <TextBlock Text="{Binding WorkstationEligibilitySummary}" FontSize="10" Foreground="{StaticResource WsTextPrimaryReadable}" TextWrapping="Wrap"/>
-                            <TextBlock Text="{Binding HiddenEligibilityBreakdown}" FontSize="10" Foreground="{StaticResource WsTextSecondaryReadable}" TextWrapping="Wrap" IsVisible="{Binding HiddenEligibilityBreakdown, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                            <TextBlock Text="{Binding FlowCtaStateSummary}" FontSize="10" Foreground="{StaticResource WsTextMutedReadable}" TextWrapping="Wrap"/>
-                        <WrapPanel Orientation="Horizontal" ItemHeight="28" Margin="{StaticResource WsMarginDrawerCtas}" IsVisible="{Binding ShouldShowSelectPlaylistCta}">
-                            <Button Classes="secondary" Click="OnFocusPlaylistCtaClick" ToolTip.Tip="{Binding SelectPlaylistCtaHint}">Select Playlist</Button>
-                            <Button Classes="secondary" Margin="6,0,0,0" Click="OnImportLocalFilesCtaClick" ToolTip.Tip="{Binding ImportLocalFilesCtaHint}">Import Local Files</Button>
-                        </WrapPanel>
-                        <WrapPanel Orientation="Horizontal" ItemHeight="28" Margin="{StaticResource WsMarginDrawerCtas}" IsVisible="{Binding ShouldShowAcquireCtas}">
-                            <Button Classes="secondary" Click="OnDownloadTracksCtaClick" IsVisible="{Binding ShouldShowDownloadTracksCta}" ToolTip.Tip="{Binding DownloadTracksCtaHint}">Download Tracks</Button>
-                            <Button Classes="secondary" Margin="6,0,0,0" Click="OnImportLocalFilesCtaClick" IsVisible="{Binding ShouldShowImportLocalFilesCta}" ToolTip.Tip="{Binding ImportLocalFilesCtaHint}">Import Local Files</Button>
-                        </WrapPanel>
-                        <WrapPanel Orientation="Horizontal" ItemHeight="28" Margin="{StaticResource WsMarginDrawerCtas}" IsVisible="{Binding ShouldShowReadyTrackCtas}">
-                            <Button Classes="secondary" Click="OnLoadIntoWorkstationCtaClick" IsEnabled="{Binding HasReadyPlaylistTracks}" ToolTip.Tip="{Binding LoadIntoWorkstationCtaHint}">Load into Workstation</Button>
-                        </WrapPanel>
+                        <TextBlock Classes="caption" Text="{Binding AnalysisStatusText}" IsVisible="{Binding AnalysisStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        <TextBlock Classes="caption" Foreground="{DynamicResource BrushText1}" Text="{Binding WorkstationEligibilitySummary}" TextWrapping="Wrap"/>
+                        <TextBlock Classes="caption" Text="{Binding HiddenEligibilityBreakdown}" TextWrapping="Wrap" IsVisible="{Binding HiddenEligibilityBreakdown, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        <TextBlock Classes="caption" Text="{Binding FlowCtaStateSummary}" TextWrapping="Wrap"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0" IsVisible="{Binding ShouldShowSelectPlaylistCta}">
+                            <Button Classes="primary small" Click="OnFocusPlaylistCtaClick" ToolTip.Tip="{Binding SelectPlaylistCtaHint}">Select playlist</Button>
+                            <Button Classes="secondary small" Click="OnImportLocalFilesCtaClick" ToolTip.Tip="{Binding ImportLocalFilesCtaHint}">Import local files</Button>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0" IsVisible="{Binding ShouldShowAcquireCtas}">
+                            <Button Classes="primary small" Click="OnDownloadTracksCtaClick" IsVisible="{Binding ShouldShowDownloadTracksCta}" ToolTip.Tip="{Binding DownloadTracksCtaHint}">Download tracks</Button>
+                            <Button Classes="secondary small" Click="OnImportLocalFilesCtaClick" IsVisible="{Binding ShouldShowImportLocalFilesCta}" ToolTip.Tip="{Binding ImportLocalFilesCtaHint}">Import local files</Button>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0" IsVisible="{Binding ShouldShowReadyTrackCtas}">
+                            <Button Classes="primary small" Click="OnLoadIntoWorkstationCtaClick" IsEnabled="{Binding HasReadyPlaylistTracks}" ToolTip.Tip="{Binding LoadIntoWorkstationCtaHint}">Load into Workstation</Button>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 
-                <Grid Grid.Row="2" ColumnDefinitions="2*,*" Margin="0,2,0,0">
-                    <TabControl Grid.Column="0" x:Name="DrawerTabs" Classes="drawer-tabs" BorderThickness="0" Background="Transparent" TabStripPlacement="Top" SelectionChanged="OnDrawerTabsSelectionChanged" SelectedIndex="0">
-                        <TabItem Header="Track List" Classes="drawer-tab">
+                <Grid Grid.Row="2" ColumnDefinitions="2*,*" Margin="16,4,16,8">
+                    <TabControl Grid.Column="0" x:Name="DrawerTabs" Classes="tabs-underline" Padding="0" BorderThickness="0" Background="Transparent" TabStripPlacement="Top" SelectionChanged="OnDrawerTabsSelectionChanged" SelectedIndex="0">
+                        <TabItem Header="Track list">
                             <StackPanel>
                                 <ctrl:VirtualGridHeader>
                                     <ctrl:VirtualGridHeader.HeaderContent>
-                                        <Grid ColumnDefinitions="40,2*,3*,60,60,150">
-                                            <TextBlock Grid.Column="0" Text="#" FontSize="10" FontWeight="Bold" Foreground="#666" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            <TextBlock Grid.Column="1" Text="ARTIST" FontSize="10" FontWeight="Bold" Foreground="#666" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0"/>
-                                            <TextBlock Grid.Column="2" Text="TITLE" FontSize="10" FontWeight="Bold" Foreground="#666" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0"/>
-                                            <TextBlock Grid.Column="3" Text="KEY" FontSize="10" FontWeight="Bold" Foreground="#666" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            <TextBlock Grid.Column="4" Text="BPM" FontSize="10" FontWeight="Bold" Foreground="#666" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            <TextBlock Grid.Column="5" Text="LOAD" FontSize="10" FontWeight="Bold" Foreground="#666" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Grid ColumnDefinitions="40,2*,3*,56,56,96">
+                                            <TextBlock Grid.Column="0" Classes="section" Text="#" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Classes="section" Text="ARTIST" VerticalAlignment="Center" Margin="8,0"/>
+                                            <TextBlock Grid.Column="2" Classes="section" Text="TITLE" VerticalAlignment="Center" Margin="8,0"/>
+                                            <TextBlock Grid.Column="3" Classes="section" Text="KEY" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="4" Classes="section" Text="BPM" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="5" Classes="section" Text="LOAD" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Grid>
                                     </ctrl:VirtualGridHeader.HeaderContent>
                                 </ctrl:VirtualGridHeader>
@@ -1023,17 +979,17 @@
                                                   PointerMoved="OnFlowTrackGridPointerMoved">
                                     <ctrl:VirtualGrid.ItemTemplate>
                                         <DataTemplate DataType="models:PlaylistTrack">
-                                            <Border Classes="track-row" Height="40" Focusable="True">
-                                                <Grid ColumnDefinitions="40,2*,3*,60,60,150">
-                                                    <TextBlock Grid.Column="0" Text="{Binding TrackNumber}" VerticalAlignment="Center" HorizontalAlignment="Center" FontSize="11" Foreground="#A0A0A0"/>
-                                                    <TextBlock Grid.Column="1" Text="{Binding Artist}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Grid.Column="2" Text="{Binding Title}" VerticalAlignment="Center" Margin="8,0" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Grid.Column="3" Text="{Binding Key}" VerticalAlignment="Center" HorizontalAlignment="Center" FontSize="12" Foreground="#8EC8FF"/>
-                                                    <TextBlock Grid.Column="4" Text="{Binding BPM, StringFormat='{}{0:F0}'}" VerticalAlignment="Center" HorizontalAlignment="Center" FontSize="12"/>
-                                                    <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                        <Button Content="F" Command="{Binding #PageRoot.DataContext.LoadToFocusedDeckCommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to the focused deck" Classes="ws-btn"/>
-                                                        <Button Content="A" Command="{Binding #PageRoot.DataContext.LoadToDeckACommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to Deck A" Classes="ws-btn"/>
-                                                        <Button Content="B" Command="{Binding #PageRoot.DataContext.LoadToDeckBCommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to Deck B" Classes="ws-btn"/>
+                                            <Border Classes="track-row" Height="32" Focusable="True">
+                                                <Grid ColumnDefinitions="40,2*,3*,56,56,96">
+                                                    <TextBlock Grid.Column="0" Classes="mono muted" Text="{Binding TrackNumber}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding Artist}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Grid.Column="2" Classes="body-sm" Text="{Binding Title}" Foreground="{DynamicResource BrushText0}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Grid.Column="3" Classes="mono" Text="{Binding Key}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="4" Classes="mono" Text="{Binding BPM, StringFormat='{}{0:F0}'}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                                    <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="2" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                        <Button Classes="icon small" FontFamily="{DynamicResource FontMono}" Content="F" Command="{Binding #PageRoot.DataContext.LoadToFocusedDeckCommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to the focused deck"/>
+                                                        <Button Classes="icon small" FontFamily="{DynamicResource FontMono}" Content="A" Command="{Binding #PageRoot.DataContext.LoadToDeckACommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to Deck A"/>
+                                                        <Button Classes="icon small" FontFamily="{DynamicResource FontMono}" Content="B" Command="{Binding #PageRoot.DataContext.LoadToDeckBCommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to Deck B"/>
                                                     </StackPanel>
                                                 </Grid>
                                             </Border>
@@ -1044,19 +1000,18 @@
                         </TabItem>
                     </TabControl>
 
-                    <Border Grid.Column="1" Margin="8,0,0,0" Background="#D1111922" BorderBrush="#314355" BorderThickness="1" CornerRadius="8" Padding="{StaticResource WsPadTrackPool}">
+                    <Border Grid.Column="1" Classes="card" Margin="12,0,0,0" Padding="8">
                         <Grid RowDefinitions="Auto,Auto,*">
-                            <StackPanel Grid.Row="0" Spacing="2" Margin="0,0,0,6">
-                                <TextBlock Text="TRACK POOL" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource WsTextSecondaryReadable}"/>
-                                <TextBlock Text="Playlist context stays visible while editing flow. Use the full Track List tab or overlay for bulk operations." FontSize="9" Foreground="{StaticResource WsTextHintReadable}" TextWrapping="Wrap"/>
+                            <StackPanel Grid.Row="0" Spacing="2" Margin="0,0,0,8">
+                                <TextBlock Classes="section" Text="TRACK POOL"/>
+                                <TextBlock Classes="caption" Text="The playlist stays in view while you edit the flow. Use the track list or its overlay for bulk work." TextWrapping="Wrap"/>
                             </StackPanel>
                             <ctrl:VirtualGridHeader Grid.Row="1">
                                 <ctrl:VirtualGridHeader.HeaderContent>
-                                    <Grid ColumnDefinitions="34,*,52,48">
-                                        <TextBlock Grid.Column="0" Text="#" FontSize="10" FontWeight="Bold" Foreground="#666" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="1" Text="TRACK" FontSize="10" FontWeight="Bold" Foreground="#666" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0"/>
-                                        <TextBlock Grid.Column="2" Text="BPM" FontSize="10" FontWeight="Bold" Foreground="#666" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="3" Text="LOAD" FontSize="10" FontWeight="Bold" Foreground="#666" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <Grid ColumnDefinitions="32,*,48,32">
+                                        <TextBlock Grid.Column="0" Classes="section" Text="#" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Classes="section" Text="TRACK" VerticalAlignment="Center" Margin="8,0"/>
+                                        <TextBlock Grid.Column="2" Classes="section" Text="BPM" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Grid>
                                 </ctrl:VirtualGridHeader.HeaderContent>
                             </ctrl:VirtualGridHeader>
@@ -1065,12 +1020,12 @@
                                               SelectionMode="Single">
                                 <ctrl:VirtualGrid.ItemTemplate>
                                     <DataTemplate DataType="models:PlaylistTrack">
-                                        <Border Classes="track-row" Height="36" Focusable="True">
-                                            <Grid ColumnDefinitions="34,*,52,48">
-                                                <TextBlock Grid.Column="0" Text="{Binding TrackNumber}" VerticalAlignment="Center" HorizontalAlignment="Center" FontSize="11" Foreground="#A0A0A0"/>
-                                                <TextBlock Grid.Column="1" Text="{Binding Title}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Grid.Column="2" Text="{Binding BPM, StringFormat='{}{0:F0}'}" VerticalAlignment="Center" HorizontalAlignment="Center" FontSize="12"/>
-                                                <Button Grid.Column="3" Content="F" Command="{Binding #PageRoot.DataContext.LoadToFocusedDeckCommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to the focused deck" Classes="ws-btn" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                        <Border Classes="track-row" Height="32" Focusable="True">
+                                            <Grid ColumnDefinitions="32,*,48,32">
+                                                <TextBlock Grid.Column="0" Classes="mono muted" Text="{Binding TrackNumber}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding Title}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Grid.Column="2" Classes="mono" Text="{Binding BPM, StringFormat='{}{0:F0}'}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                                <Button Grid.Column="3" Classes="icon small" FontFamily="{DynamicResource FontMono}" Content="F" Command="{Binding #PageRoot.DataContext.LoadToFocusedDeckCommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to the focused deck" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                                             </Grid>
                                         </Border>
                                     </DataTemplate>
@@ -1082,44 +1037,59 @@
             </Grid>
         </Border>
 
+        <!-- ═══ Track-list overlay ═══ -->
         <Border x:Name="TrackListOverlay"
                 Grid.Row="0"
                 Grid.RowSpan="4"
-                Classes="overlay-backdrop"
                 IsVisible="False"
                 ZIndex="180"
-                Background="#9A11161E"
+                Background="{DynamicResource BrushScrim}"
                 PointerPressed="OnTrackListOverlayBackdropPressed">
             <Border x:Name="TrackListOverlayPanel"
                     Classes="overlay-panel size-comfort"
-                    CornerRadius="10"
-                    Background="{DynamicResource BrushBg1}"
+                    CornerRadius="{DynamicResource RadiusXl}"
+                    BoxShadow="{DynamicResource ShadowLg}"
+                    Background="{DynamicResource BrushBg2}"
                     BorderBrush="{DynamicResource BrushBorder1}"
                     BorderThickness="1">
                 <Grid RowDefinitions="Auto,*,Auto">
-                    <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="{StaticResource WsMarginOverlayHeader}">
-                        <TextBlock Grid.Column="0" Text="TRACK LIST OVERLAY" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource BrushText1}" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="1" Text="Expanded browser for playlist tracks" FontSize="10" Foreground="{DynamicResource BrushText2}" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-                            <Button Classes="icon" Click="OnSetOverlayAutoSizeClick" ToolTip.Tip="Auto size based on current window width">Auto</Button>
-                            <Button Classes="icon" Click="OnSetOverlayCompactSizeClick" ToolTip.Tip="Compact overlay size">S</Button>
-                            <Button Classes="icon" Click="OnSetOverlayComfortSizeClick" ToolTip.Tip="Comfort overlay size">M</Button>
-                            <Button Classes="icon" Click="OnSetOverlayFullSizeClick" ToolTip.Tip="Full overlay size">L</Button>
-                            <Button Classes="secondary" Click="OnFocusTrackListTabClick" ToolTip.Tip="Focus the Track List tab in drawer">Focus Drawer Tab</Button>
-                            <Button Click="OnCloseTrackListOverlayClick" Background="#3A1E1E" BorderBrush="#7A3A3A" Foreground="#EABABA">Close</Button>
+                    <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,12">
+                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Classes="h2" Text="Track list"/>
+                            <TextBlock Classes="subtitle" Text="{Binding ActivePlaylist.SourceTitle, FallbackValue='No playlist selected', TargetNullValue='No playlist selected'}"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                            <Button Classes="ghost small" ToolTip.Tip="Overlay size">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="Size"/>
+                                    <PathIcon Data="{StaticResource icon_chevron_down}" Width="12" Height="12"/>
+                                </StackPanel>
+                                <Button.Flyout>
+                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                        <MenuItem Header="Auto (fit window)" Click="OnSetOverlayAutoSizeClick"/>
+                                        <Separator/>
+                                        <MenuItem Header="Compact" Click="OnSetOverlayCompactSizeClick"/>
+                                        <MenuItem Header="Comfort" Click="OnSetOverlayComfortSizeClick"/>
+                                        <MenuItem Header="Full" Click="OnSetOverlayFullSizeClick"/>
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
+                            <Button Classes="icon small" Click="OnCloseTrackListOverlayClick" ToolTip.Tip="Close (Esc)">
+                                <PathIcon Data="{StaticResource icon_close}" Width="14" Height="14"/>
+                            </Button>
                         </StackPanel>
                     </Grid>
 
                     <Grid Grid.Row="1" RowDefinitions="Auto,*">
                         <ctrl:VirtualGridHeader Grid.Row="0">
                             <ctrl:VirtualGridHeader.HeaderContent>
-                                <Grid ColumnDefinitions="44,2*,3*,70,70,170">
-                                    <TextBlock Grid.Column="0" Text="#" FontSize="10" FontWeight="Bold" Foreground="#666" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" Text="ARTIST" FontSize="10" FontWeight="Bold" Foreground="#666" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0"/>
-                                    <TextBlock Grid.Column="2" Text="TITLE" FontSize="10" FontWeight="Bold" Foreground="#666" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0"/>
-                                    <TextBlock Grid.Column="3" Text="KEY" FontSize="10" FontWeight="Bold" Foreground="#666" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="4" Text="BPM" FontSize="10" FontWeight="Bold" Foreground="#666" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="5" Text="LOAD" FontSize="10" FontWeight="Bold" Foreground="#666" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <Grid ColumnDefinitions="44,2*,3*,72,72,112">
+                                    <TextBlock Grid.Column="0" Classes="section" Text="#" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Classes="section" Text="ARTIST" VerticalAlignment="Center" Margin="8,0"/>
+                                    <TextBlock Grid.Column="2" Classes="section" Text="TITLE" VerticalAlignment="Center" Margin="8,0"/>
+                                    <TextBlock Grid.Column="3" Classes="section" Text="KEY" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="4" Classes="section" Text="BPM" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="5" Classes="section" Text="LOAD" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Grid>
                             </ctrl:VirtualGridHeader.HeaderContent>
                         </ctrl:VirtualGridHeader>
@@ -1131,16 +1101,16 @@
                             <ctrl:VirtualGrid.ItemTemplate>
                                 <DataTemplate DataType="models:PlaylistTrack">
                                     <Border Classes="track-row" Height="40" Focusable="True">
-                                        <Grid ColumnDefinitions="44,2*,3*,70,70,170">
-                                            <TextBlock Grid.Column="0" Text="{Binding TrackNumber}" VerticalAlignment="Center" HorizontalAlignment="Center" FontSize="11" Foreground="#A0A0A0"/>
-                                            <TextBlock Grid.Column="1" Text="{Binding Artist}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Grid.Column="2" Text="{Binding Title}" VerticalAlignment="Center" Margin="8,0" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Grid.Column="3" Text="{Binding Key}" VerticalAlignment="Center" HorizontalAlignment="Center" FontSize="12" Foreground="#8EC8FF"/>
-                                            <TextBlock Grid.Column="4" Text="{Binding BPM, StringFormat='{}{0:F0}'}" VerticalAlignment="Center" HorizontalAlignment="Center" FontSize="12"/>
-                                            <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                <Button Content="F" Command="{Binding #PageRoot.DataContext.LoadToFocusedDeckCommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to the focused deck" Classes="ws-btn"/>
-                                                <Button Content="A" Command="{Binding #PageRoot.DataContext.LoadToDeckACommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to Deck A" Classes="ws-btn"/>
-                                                <Button Content="B" Command="{Binding #PageRoot.DataContext.LoadToDeckBCommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to Deck B" Classes="ws-btn"/>
+                                        <Grid ColumnDefinitions="44,2*,3*,72,72,112">
+                                            <TextBlock Grid.Column="0" Classes="mono muted" Text="{Binding TrackNumber}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Classes="body" Text="{Binding Artist}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="2" Classes="body" Text="{Binding Title}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="3" Classes="mono" Text="{Binding Key}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                            <TextBlock Grid.Column="4" Classes="mono" Text="{Binding BPM, StringFormat='{}{0:F0}'}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                            <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="2" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <Button Classes="icon small" FontFamily="{DynamicResource FontMono}" Content="F" Command="{Binding #PageRoot.DataContext.LoadToFocusedDeckCommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to the focused deck"/>
+                                                <Button Classes="icon small" FontFamily="{DynamicResource FontMono}" Content="A" Command="{Binding #PageRoot.DataContext.LoadToDeckACommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to Deck A"/>
+                                                <Button Classes="icon small" FontFamily="{DynamicResource FontMono}" Content="B" Command="{Binding #PageRoot.DataContext.LoadToDeckBCommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to Deck B"/>
                                             </StackPanel>
                                         </Grid>
                                     </Border>
@@ -1151,26 +1121,28 @@
 
                     <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
                         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <TextBlock Text="Tip: drag the resize handle to fine-tune this overlay" FontSize="10" Foreground="{DynamicResource BrushText2}" VerticalAlignment="Center"/>
-                            <Border x:Name="OverlayResizeGuidePill" IsVisible="False" Background="{DynamicResource BrushAccentSubtle}" BorderBrush="{DynamicResource BrushAccent}" BorderThickness="1" CornerRadius="4" Padding="6,2">
-                                <TextBlock x:Name="OverlayResizeGuideText" Text="" FontSize="10" Foreground="{DynamicResource BrushAccent}"/>
+                            <TextBlock Classes="caption" Text="Drag the corner to fine-tune the size. Double-click it to reset." VerticalAlignment="Center"/>
+                            <Border x:Name="OverlayResizeGuidePill" Classes="fact" IsVisible="False">
+                                <TextBlock x:Name="OverlayResizeGuideText" Text="" Foreground="{DynamicResource BrushAccent}"/>
                             </Border>
                         </StackPanel>
                         <Border Grid.Column="1"
                                 x:Name="OverlayResizeGrip"
-                                Width="22"
-                                Height="22"
-                                CornerRadius="4"
-                                Cursor="TopLeftCorner"
-                                Background="{DynamicResource BrushBg2}"
+                                Width="24"
+                                Height="24"
+                                CornerRadius="{DynamicResource RadiusSm}"
+                                Cursor="BottomRightCorner"
+                                Background="{DynamicResource BrushBg3}"
                                 BorderBrush="{DynamicResource BrushBorder1}"
                                 BorderThickness="1"
-                                ToolTip.Tip="Drag to resize overlay"
+                                ToolTip.Tip="Drag to resize the overlay. Double-click to reset"
                                 PointerPressed="OnOverlayResizeGripPressed"
                                 PointerMoved="OnOverlayResizeGripMoved"
                                 PointerReleased="OnOverlayResizeGripReleased"
                                 DoubleTapped="OnOverlayResizeGripDoubleTapped">
-                            <TextBlock Text="◢" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource BrushText2}"/>
+                            <PathIcon Data="{StaticResource icon_resize}" Width="12" Height="12"
+                                      Foreground="{DynamicResource BrushText2}"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                     </Grid>
                 </Grid>

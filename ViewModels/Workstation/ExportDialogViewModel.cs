@@ -179,6 +179,7 @@ public sealed class ExportDialogViewModel : ReactiveObject, IDisposable
         }
         catch (Exception ex)
         {
+            Serilog.Log.Error(ex, "Workstation mix export failed ({Path})", OutputPath);
             StatusMessage = $"Export failed: {ex.Message}";
         }
         finally

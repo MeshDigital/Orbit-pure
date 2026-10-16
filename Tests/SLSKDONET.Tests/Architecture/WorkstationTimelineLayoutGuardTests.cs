@@ -98,49 +98,41 @@ public class WorkstationTimelineLayoutGuardTests
     }
 
     [Fact]
-    public void WorkstationReadability_OnlyUsesWhitelistedHexForegroundAccents()
+    public void WorkstationViews_UseNoRawHexColours()
     {
-        var xaml = ReadWorkstationPageXaml();
-
-        var whitelist = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        // The cockpit was moved onto Themes/DesignTokens.axaml (2026-10). Deck, stem and
+        // hot-cue colours are data and live there as BrushStem* / BrushHotCue* tokens.
+        var sourceRoot = FindSourceRoot();
+        var files = new[]
         {
-            // Core semantic accents used in workstation cockpit surfaces
-            "F0F0F0",
-            "F5F5F5",
-            "E5E5E5",
-            "A0A0A0",
-            "9EEFFF",
-            "8EC8FF",
-            "7FC7FF",
-            "B8E986",
-            "95D36A",
-            "B8E0FF",
-            "FFD58A",
-            "FFD700",
-            "FFCAA8",
-            "DDF7E4",
-            "BFE8D3",
-            "E5EEF8",
-            "DDE9F5",
-            "D8B4FE",
-            "7CB8FF",
-            "6E8297",
-            "F9A94B",
-            "7FD47F",
-            "7FB8D4",
-            "4CAF50",
-            "666",
-            "EABABA",
+            Path.Combine(sourceRoot, "Views", "Avalonia", "WorkstationPage.axaml"),
+            Path.Combine(sourceRoot, "Views", "Avalonia", "Workstation", "WorkstationDeckRow.axaml"),
+            Path.Combine(sourceRoot, "Views", "Avalonia", "Workstation", "MixerCenter.axaml"),
+            Path.Combine(sourceRoot, "Views", "Avalonia", "Workstation", "ExportDialog.axaml"),
         };
 
-        var matches = Regex.Matches(xaml, "Foreground=\"#([A-Fa-f0-9]{3,8})\"")
-            .Select(m => m.Groups[1].Value.ToUpperInvariant())
-            .Distinct()
-            .ToList();
+        var offenders = new List<string>();
+        foreach (var file in files)
+        {
+            Assert.True(File.Exists(file), $"Expected workstation view at {file}");
+            foreach (Match m in Regex.Matches(File.ReadAllText(file), "=\"#[A-Fa-f0-9]{3,8}\""))
+                offenders.Add($"{Path.GetFileName(file)}: {m.Value}");
+        }
 
-        var nonWhitelisted = matches.Where(hex => !whitelist.Contains(hex)).ToList();
-        Assert.True(nonWhitelisted.Count == 0,
-            $"Found non-whitelisted Foreground hex literal(s): {string.Join(", ", nonWhitelisted)}");
+        Assert.True(offenders.Count == 0,
+            "Raw hex colour literals in workstation views (use a Brush* token):\n  " + string.Join("\n  ", offenders));
+    }
+
+    [Fact]
+    public void WorkstationViews_UseNoEmojiGlyphsAsIcons()
+    {
+        var sourceRoot = FindSourceRoot();
+        var xaml = File.ReadAllText(Path.Combine(sourceRoot, "Views", "Avalonia", "WorkstationPage.axaml"))
+                 + File.ReadAllText(Path.Combine(sourceRoot, "Views", "Avalonia", "Workstation", "WorkstationDeckRow.axaml"))
+                 + File.ReadAllText(Path.Combine(sourceRoot, "Views", "Avalonia", "Workstation", "MixerCenter.axaml"));
+
+        foreach (var glyph in new[] { "🔒", "⚡", "⏮", "▶", "⟳", "⇌", "◀", "◢", "✕" })
+            Assert.DoesNotContain(glyph, xaml);
     }
 
     private static string ReadWorkstationPageXaml()

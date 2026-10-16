@@ -133,6 +133,11 @@ public partial class WorkstationDeckRow : UserControl
             // Loading a corrupt/missing/undecodable file here must not crash the whole app —
             // this is the mainline "drag a track onto a deck" gesture.
             Serilog.Log.Error(ex, "WorkstationDeckRow: failed to load dropped track onto deck");
+            if (DataContext is WorkstationDeckViewModel failedDeck)
+            {
+                // Surface it on the deck lane (designed error state) instead of failing silently.
+                failedDeck.TrackLoadError = $"Could not load the dropped track: {ex.Message}";
+            }
             e.Handled = true;
         }
     }

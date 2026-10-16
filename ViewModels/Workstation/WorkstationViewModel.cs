@@ -3318,7 +3318,11 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
                     await deck.LoadPlaylistTrackCommand.Execute(track).FirstAsync();
                 }
             }
-            catch { /* Corrupt session — proceed with blank workstation */ }
+            catch (Exception ex)
+            {
+                // Corrupt session — proceed with a blank workstation, but leave a trace.
+                _logger?.LogWarning(ex, "Failed to restore workstation session; starting blank");
+            }
         });
     }
 
