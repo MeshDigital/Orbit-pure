@@ -65,7 +65,7 @@
                     <Border Grid.Column="2" Classes="segmented">
                         <StackPanel Orientation="Horizontal" Spacing="2">
                             <RadioButton Classes="chip" GroupName="importDestination" Content="New playlist"
-                                         IsChecked="{Binding !IsMergeMode, Mode=TwoWay}"
+                                         IsChecked="{Binding !IsMergeMode, Mode=OneWay}"
                                          ToolTip.Tip="Import these tracks as a separate, new playlist"/>
                             <RadioButton Classes="chip" GroupName="importDestination" Content="Merge into existing"
                                          IsChecked="{Binding IsMergeMode, Mode=TwoWay}"
