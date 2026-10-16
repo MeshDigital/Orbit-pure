@@ -11,6 +11,8 @@
         <vm:PlayerViewModel />
     </Design.DataContext>
 
+    <!-- Full-screen now-playing overlay. Sits over blurred artwork, so surfaces use the
+         translucent Glass/Scrim tokens; everything else is the normal type and icon set. -->
     <UserControl.Styles>
         <!-- Chrome fades out when the mouse is idle while playing (code-behind toggles "idle"). -->
         <Style Selector="Panel.fadeable">
@@ -24,30 +26,43 @@
             <Setter Property="Opacity" Value="0"/>
         </Style>
 
-        <Style Selector="Button.glass">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="8"/>
-            <Setter Property="CornerRadius" Value="8"/>
-            <Setter Property="Cursor" Value="Hand"/>
-        </Style>
-        <Style Selector="Button.glass:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#22FFFFFF"/>
-        </Style>
-        <Style Selector="ToggleButton.glass">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="8"/>
-            <Setter Property="CornerRadius" Value="8"/>
-        </Style>
-        <Style Selector="ToggleButton.glass:checked /template/ ContentPresenter">
-            <Setter Property="Background" Value="#334EC9B0"/>
+        <Style Selector="PathIcon">
+            <Setter Property="Width" Value="{StaticResource IconSizeLg}"/>
+            <Setter Property="Height" Value="{StaticResource IconSizeLg}"/>
         </Style>
 
-        <Style Selector="Border.chip">
-            <Setter Property="Background" Value="#26FFFFFF"/>
-            <Setter Property="CornerRadius" Value="10"/>
-            <Setter Property="Padding" Value="10,3"/>
+        <!-- Glass buttons: transparent until hover, accent glyph when toggled on -->
+        <Style Selector="Button.glass, ToggleButton.glass">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusLg}"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText0}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.glass:pointerover /template/ ContentPresenter, ToggleButton.glass:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource BrushGlassHeavy}"/>
+        </Style>
+        <Style Selector="ToggleButton.glass:checked /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource BrushAccentSubtle}"/>
+        </Style>
+        <Style Selector="ToggleButton.glass:checked">
+            <Setter Property="Foreground" Value="{StaticResource BrushAccent}"/>
+        </Style>
+        <Style Selector="Button.glass.active">
+            <Setter Property="Foreground" Value="{StaticResource BrushAccent}"/>
+        </Style>
+
+        <!-- Fixed-width technical badges (BPM / key / energy) -->
+        <Style Selector="Border.meta">
+            <Setter Property="Background" Value="{StaticResource BrushGlass}"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}"/>
+            <Setter Property="Padding" Value="8,2"/>
+        </Style>
+        <Style Selector="Border.meta > TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource FontMono}"/>
+            <Setter Property="FontSize" Value="{StaticResource TextSizeCaption}"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText1}"/>
         </Style>
 
         <!-- Queue rows -->
@@ -63,15 +78,15 @@
         </Style>
         <Style Selector="Border.qrow">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="CornerRadius" Value="8"/>
-            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
+            <Setter Property="Padding" Value="8,4"/>
         </Style>
         <Style Selector="Border.qrow:pointerover">
-            <Setter Property="Background" Value="#18FFFFFF"/>
+            <Setter Property="Background" Value="{StaticResource BrushGlass}"/>
         </Style>
         <Style Selector="Border.qrow.current">
-            <Setter Property="Background" Value="#2E4EC9B0"/>
-            <Setter Property="BorderBrush" Value="#804EC9B0"/>
+            <Setter Property="Background" Value="{StaticResource BrushSelected}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccentBorder}"/>
             <Setter Property="BorderThickness" Value="1"/>
         </Style>
         <Style Selector="Border.qrow.played">
@@ -85,7 +100,7 @@
                                  Energy="{Binding CurrentTrack.Energy, FallbackValue=0.5}"
                                  IsVisible="{Binding CurrentTrack, Converter={x:Static ObjectConverters.IsNotNull}}"
                                  Opacity="0.8"/>
-        <Border Background="#B0070A10"/>
+        <Border Background="{StaticResource BrushScrim}"/>
 
         <!-- Full-bleed visualizer -->
         <controls:OrbitVisualizerCanvas SpectrumData="{Binding SpectrumData}"
@@ -103,11 +118,11 @@
                                         Opacity="0.95"/>
 
         <!-- Soft vignette so text stays readable over busy presets -->
-        <Border IsHitTestVisible="False">
+        <Border IsHitTestVisible="False" Opacity="0.6">
             <Border.Background>
                 <RadialGradientBrush Center="50%,50%" GradientOrigin="50%,50%" RadiusX="75%" RadiusY="75%">
-                    <GradientStop Color="#00000000" Offset="0.45"/>
-                    <GradientStop Color="#99000000" Offset="1"/>
+                    <GradientStop Color="Transparent" Offset="0.45"/>
+                    <GradientStop Color="{StaticResource ColorBase0}" Offset="1"/>
                 </RadialGradientBrush>
             </Border.Background>
         </Border>
@@ -119,137 +134,142 @@
 
                 <!-- Top bar -->
                 <Panel x:Name="Chrome" Grid.Row="0" Classes="fadeable">
-                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="20,16,20,0">
+                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="24,16,24,0">
                         <Button Grid.Column="0" Classes="glass" Command="{Binding ToggleExpandedPlayerCommand}"
                                 ToolTip.Tip="Close (Esc)">
-                            <TextBlock Text="⌄" FontSize="24" Foreground="White" Margin="4,-6,4,0"/>
+                            <PathIcon Data="{StaticResource icon_chevron_down}"/>
                         </Button>
 
                         <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="2">
-                            <TextBlock Text="NOW PLAYING" FontSize="11" LetterSpacing="3" Foreground="#99FFFFFF" HorizontalAlignment="Center"/>
-                            <TextBlock Text="{Binding QueuePositionText}" FontSize="11" Foreground="#66FFFFFF" HorizontalAlignment="Center"
+                            <TextBlock Classes="section" Text="NOW PLAYING" HorizontalAlignment="Center"/>
+                            <TextBlock Classes="caption mono" Text="{Binding QueuePositionText}" HorizontalAlignment="Center"
                                        IsVisible="{Binding QueuePositionText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                         </StackPanel>
 
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                            <!-- Visualizer preset picker -->
-                            <Border Background="#26FFFFFF" CornerRadius="16" Padding="2" Margin="0,0,6,0">
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                            <!-- Visualizer preset stepper -->
+                            <Border Background="{StaticResource BrushGlass}" CornerRadius="{StaticResource RadiusLg}" Padding="2" Margin="0,0,8,0">
                                 <StackPanel Orientation="Horizontal">
-                                    <Button Classes="glass" Padding="8,4" Command="{Binding PreviousVisualizerPresetCommand}" ToolTip.Tip="Previous visual (Shift+V)">
-                                        <TextBlock Text="◀" FontSize="10" Foreground="#CCFFFFFF"/>
+                                    <Button Classes="glass" Padding="4" Command="{Binding PreviousVisualizerPresetCommand}" ToolTip.Tip="Previous visual (Shift+V)">
+                                        <PathIcon Data="{StaticResource icon_chevron_left}" Width="{StaticResource IconSizeMd}" Height="{StaticResource IconSizeMd}"/>
                                     </Button>
-                                    <TextBlock Text="{Binding CurrentVisualizerPresetName}" FontSize="12" Foreground="White" VerticalAlignment="Center"
-                                               MinWidth="110" TextAlignment="Center"/>
-                                    <Button Classes="glass" Padding="8,4" Command="{Binding CycleVisualizerPresetCommand}" ToolTip.Tip="Next visual (V)">
-                                        <TextBlock Text="▶" FontSize="10" Foreground="#CCFFFFFF"/>
+                                    <TextBlock Classes="body-sm" Text="{Binding CurrentVisualizerPresetName}"
+                                               Foreground="{StaticResource BrushText0}"
+                                               VerticalAlignment="Center" MinWidth="112" TextAlignment="Center"/>
+                                    <Button Classes="glass" Padding="4" Command="{Binding CycleVisualizerPresetCommand}" ToolTip.Tip="Next visual (V)">
+                                        <PathIcon Data="{StaticResource icon_chevron_right}" Width="{StaticResource IconSizeMd}" Height="{StaticResource IconSizeMd}"/>
                                     </Button>
                                 </StackPanel>
                             </Border>
                             <ToggleButton Classes="glass" IsChecked="{Binding IsMetadataDrivenVisuals, Mode=OneWay}"
                                           Command="{Binding ToggleMetadataDrivenVisualsCommand}"
-                                          ToolTip.Tip="Auto: pick visuals from the track's energy and mood">
-                                <TextBlock Text="◈ Auto" FontSize="12" Foreground="White"/>
-                            </ToggleButton>
+                                          Content="Auto"
+                                          ToolTip.Tip="Pick visuals from the track's energy and mood"/>
                             <ToggleButton Classes="glass" IsChecked="{Binding IsAmbientMode, Mode=OneWay}"
                                           Command="{Binding ToggleAmbientModeCommand}"
-                                          ToolTip.Tip="Ambient: slow, calm visuals">
-                                <TextBlock Text="☽" FontSize="16" Foreground="White"/>
-                            </ToggleButton>
+                                          Content="Ambient"
+                                          ToolTip.Tip="Slow, calm visuals with the track name kept low"/>
                             <ToggleButton Classes="glass" IsChecked="{Binding IsTheaterMode, Mode=OneWay}"
                                           Command="{Binding ToggleTheaterModeCommand}"
-                                          ToolTip.Tip="Borderless fullscreen (F)">
-                                <TextBlock Text="⛶" FontSize="16" Foreground="White"/>
+                                          ToolTip.Tip="Borderless full screen (F)">
+                                <PathIcon Data="{StaticResource icon_expand}"/>
                             </ToggleButton>
                             <ToggleButton Classes="glass" IsChecked="{Binding IsExpandedQueueVisible, Mode=OneWay}"
                                           Command="{Binding ToggleExpandedQueueCommand}"
-                                          ToolTip.Tip="Up Next (Q)">
-                                <TextBlock Text="☰" FontSize="16" Foreground="White"/>
+                                          ToolTip.Tip="Up next (Q)">
+                                <PathIcon Data="{StaticResource icon_queue}"/>
                             </ToggleButton>
                         </StackPanel>
                     </Grid>
                 </Panel>
 
                 <!-- Artwork + track info -->
-                <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="18"
+                <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16"
                             IsVisible="{Binding IsAmbientMode, Converter={x:Static BoolConverters.Not}}">
-                    <Border x:Name="Artwork" Width="300" Height="300" CornerRadius="14" ClipToBounds="True"
-                            HorizontalAlignment="Center" BoxShadow="0 20 60 0 #AA000000" Background="#1E1E1E">
+                    <Border x:Name="Artwork" Width="300" Height="300" CornerRadius="{StaticResource RadiusLg}" ClipToBounds="True"
+                            HorizontalAlignment="Center" BoxShadow="{StaticResource ShadowLg}" Background="{StaticResource BrushBg3}">
                         <Panel>
-                            <TextBlock Text="🎵" FontSize="80" Foreground="#40FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <PathIcon Data="{StaticResource icon_music}" Width="64" Height="64"
+                                      Foreground="{StaticResource BrushText3}"/>
                             <Image Source="{Binding CurrentTrack.ArtworkBitmap}" Stretch="UniformToFill"/>
                         </Panel>
                     </Border>
                     <StackPanel Spacing="4" HorizontalAlignment="Center" MaxWidth="640">
-                        <TextBlock Text="{Binding TrackTitle}" FontSize="28" FontWeight="Bold" Foreground="White"
+                        <TextBlock Classes="display" Text="{Binding TrackTitle}"
                                    TextAlignment="Center" TextWrapping="Wrap" HorizontalAlignment="Center"/>
-                        <TextBlock Text="{Binding TrackArtist}" FontSize="17" Foreground="#CCFFFFFF"
+                        <TextBlock Classes="h2" FontWeight="Normal" Text="{Binding TrackArtist}"
+                                   Foreground="{StaticResource BrushText1}"
                                    TextAlignment="Center" HorizontalAlignment="Center"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
-                        <Border Classes="chip"><TextBlock Text="{Binding CurrentTrack.BpmDisplay, StringFormat='{}{0} BPM'}" FontSize="11" Foreground="White"/></Border>
-                        <Border Classes="chip"><TextBlock Text="{Binding CurrentTrack.CamelotDisplay}" FontSize="11" Foreground="White"/></Border>
-                        <Border Classes="chip"><TextBlock Text="{Binding CurrentTrackEnergyBadge}" FontSize="11" Foreground="White"/></Border>
-                        <Border Classes="chip" Background="#554EC9B0" IsVisible="{Binding IsCrossfading}">
-                            <TextBlock Text="{Binding ActiveCrossfadePresetName, StringFormat='MIXING · {0}', TargetNullValue='MIXING'}" FontSize="11" FontWeight="SemiBold" Foreground="White"/>
-                        </Border>
+                        <Border Classes="meta"><TextBlock Text="{Binding CurrentTrack.BpmDisplay, StringFormat='{}{0} BPM'}"/></Border>
+                        <Border Classes="meta"><TextBlock Text="{Binding CurrentTrack.CamelotDisplay}"/></Border>
+                        <Border Classes="meta"><TextBlock Text="{Binding CurrentTrackEnergyBadge}"/></Border>
+                        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" IsVisible="{Binding IsCrossfading}">
+                            <PathIcon Data="{StaticResource icon_mix}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"
+                                      Foreground="{StaticResource BrushAccent}"/>
+                            <TextBlock Classes="caption accent" Text="{Binding ActiveCrossfadePresetName, StringFormat='Mixing · {0}', TargetNullValue='Mixing'}"/>
+                        </StackPanel>
                     </StackPanel>
                 </StackPanel>
 
                 <!-- Ambient: just the names, low -->
                 <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,24" Spacing="4"
                             IsVisible="{Binding IsAmbientMode}">
-                    <TextBlock Text="{Binding TrackTitle}" FontSize="18" FontWeight="SemiBold" Foreground="#DDFFFFFF" HorizontalAlignment="Center"/>
-                    <TextBlock Text="{Binding TrackArtist}" FontSize="13" Foreground="#88FFFFFF" HorizontalAlignment="Center"/>
+                    <TextBlock Classes="h2" Text="{Binding TrackTitle}" HorizontalAlignment="Center"/>
+                    <TextBlock Classes="body" Text="{Binding TrackArtist}" Foreground="{StaticResource BrushText1}" HorizontalAlignment="Center"/>
                 </StackPanel>
 
                 <!-- Transport -->
                 <Panel Grid.Row="2" Classes="fadeable" x:Name="Transport">
-                    <Border Margin="40,0,40,28" Padding="20,14" CornerRadius="18" Background="#66000000">
+                    <Border Margin="48,0,48,24" Padding="24,12" CornerRadius="{StaticResource RadiusXl}" Background="{StaticResource BrushScrim}">
                         <Grid RowDefinitions="Auto,Auto">
-                            <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,8">
-                                <TextBlock Text="{Binding CurrentTimeStr}" FontSize="12" Foreground="#CCFFFFFF" VerticalAlignment="Center" MinWidth="44"/>
+                            <Grid Grid.Row="0" ColumnDefinitions="48,*,48" Margin="0,0,0,8">
+                                <TextBlock Classes="mono" Text="{Binding CurrentTimeStr}" Foreground="{StaticResource BrushText1}" VerticalAlignment="Center"/>
                                 <Slider x:Name="SeekSlider" Grid.Column="1" Minimum="0" Maximum="1" VerticalAlignment="Center" Margin="8,0"/>
-                                <TextBlock Grid.Column="2" Text="{Binding TotalTimeStr}" FontSize="12" Foreground="#CCFFFFFF" VerticalAlignment="Center"
-                                           MinWidth="44" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="2" Classes="mono" Text="{Binding TotalTimeStr}" Foreground="{StaticResource BrushText1}"
+                                           VerticalAlignment="Center" TextAlignment="Right"/>
                             </Grid>
                             <Grid Grid.Row="1" ColumnDefinitions="*,Auto,*">
                                 <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                                     <ToggleButton Classes="glass" IsChecked="{Binding IsShuffling, Mode=OneWay}" Command="{Binding ToggleShuffleCommand}" ToolTip.Tip="Shuffle">
-                                        <TextBlock Text="⇌" FontSize="18" Foreground="White"/>
+                                        <PathIcon Data="{StaticResource icon_shuffle}"/>
                                     </ToggleButton>
-                                    <Button Classes="glass" Command="{Binding ToggleRepeatCommand}" ToolTip.Tip="Repeat">
-                                        <TextBlock Text="{Binding RepeatMode, Converter={StaticResource RepeatModeIconConverter}}" FontSize="18" Foreground="White"/>
+                                    <Button Classes="glass"
+                                            Classes.active="{Binding RepeatMode, Converter={x:Static ObjectConverters.NotEqual}, ConverterParameter={x:Static vm:RepeatMode.Off}}"
+                                            Command="{Binding ToggleRepeatCommand}"
+                                            ToolTip.Tip="{Binding RepeatMode, StringFormat='Repeat: {0}'}">
+                                        <PathIcon Data="{StaticResource icon_repeat}"/>
                                     </Button>
-                                    <ToggleButton Classes="glass" IsChecked="{Binding IsFlowMode, Mode=OneWay}" Command="{Binding ToggleFlowModeCommand}" ToolTip.Tip="Flow Mode — smart auto-mixing">
-                                        <TextBlock Text="∞ FLOW" FontSize="12" Foreground="White"/>
-                                    </ToggleButton>
+                                    <ToggleButton Classes="glass" IsChecked="{Binding IsFlowMode, Mode=OneWay}" Command="{Binding ToggleFlowModeCommand}"
+                                                  Content="Flow" ToolTip.Tip="Flow mode: smart auto-mixing"/>
                                 </StackPanel>
 
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14" HorizontalAlignment="Center">
-                                    <Button Classes="glass" Command="{Binding PreviousTrackCommand}" ToolTip.Tip="Previous (Shift+←)">
-                                        <TextBlock Text="⏮" FontSize="24" Foreground="White"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16" HorizontalAlignment="Center">
+                                    <Button Classes="glass" Command="{Binding PreviousTrackCommand}" ToolTip.Tip="Previous (Shift+Left)">
+                                        <PathIcon Data="{StaticResource icon_skip_previous}" Width="24" Height="24"/>
                                     </Button>
-                                    <Button Command="{Binding TogglePlayPauseCommand}" Width="62" Height="62" CornerRadius="31"
-                                            Background="White" BorderThickness="0" Padding="0"
+                                    <Button Classes="primary" Command="{Binding TogglePlayPauseCommand}" Width="56" Height="56" CornerRadius="28" Padding="0"
                                             HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                                             ToolTip.Tip="Play / pause (Space)">
                                         <Panel>
-                                            <TextBlock Text="▶" FontSize="24" Foreground="#111" Margin="4,0,0,0" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                       IsVisible="{Binding !IsPlaying}"/>
-                                            <TextBlock Text="⏸" FontSize="24" Foreground="#111" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                       IsVisible="{Binding IsPlaying}"/>
+                                            <PathIcon Data="{StaticResource icon_play}" Width="24" Height="24" IsVisible="{Binding !IsPlaying}"/>
+                                            <PathIcon Data="{StaticResource icon_pause}" Width="24" Height="24" IsVisible="{Binding IsPlaying}"/>
                                         </Panel>
                                     </Button>
-                                    <Button Classes="glass" Command="{Binding NextTrackCommand}" ToolTip.Tip="Next (Shift+→)">
-                                        <TextBlock Text="⏭" FontSize="24" Foreground="White"/>
+                                    <Button Classes="glass" Command="{Binding NextTrackCommand}" ToolTip.Tip="Next (Shift+Right)">
+                                        <PathIcon Data="{StaticResource icon_skip_next}" Width="24" Height="24"/>
                                     </Button>
                                 </StackPanel>
 
-                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Center">
                                     <Button Classes="glass" Command="{Binding ToggleMuteCommand}" ToolTip.Tip="Mute (M)">
-                                        <TextBlock Text="{Binding VolumeIcon}" FontSize="16" Foreground="White"/>
+                                        <Panel>
+                                            <PathIcon Data="{StaticResource icon_volume}" IsVisible="{Binding !IsMuted}"/>
+                                            <PathIcon Data="{StaticResource icon_volume_off}" IsVisible="{Binding IsMuted}"/>
+                                        </Panel>
                                     </Button>
-                                    <Slider Minimum="0" Maximum="100" Value="{Binding Volume}" Width="110" VerticalAlignment="Center"/>
+                                    <Slider Minimum="0" Maximum="100" Value="{Binding Volume}" Width="112" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Grid>
                         </Grid>
@@ -257,18 +277,19 @@
                 </Panel>
             </Grid>
 
-            <!-- ── Up Next column ──────────────────────────────────────── -->
+            <!-- ── Up next column ──────────────────────────────────────── -->
             <Panel Grid.Column="1" x:Name="QueueColumn" Width="360" Classes="fadeable"
                    IsVisible="{Binding ShowExpandedQueue}">
-                <Border Margin="0,16,16,28" Padding="12" CornerRadius="16" Background="#8C0B0F16" BorderBrush="#22FFFFFF" BorderThickness="1">
+                <Border Margin="0,16,16,24" Padding="12" CornerRadius="{StaticResource RadiusXl}"
+                        Background="{StaticResource BrushScrim}" BorderBrush="{StaticResource BrushBorder1}" BorderThickness="1">
                     <Grid RowDefinitions="Auto,*">
-                        <Grid ColumnDefinitions="*,Auto" Margin="4,0,4,10">
-                            <StackPanel Spacing="1">
-                                <TextBlock Text="UP NEXT" FontSize="11" LetterSpacing="2" Foreground="#AAFFFFFF"/>
-                                <TextBlock Text="{Binding UpNextSummary}" FontSize="11" Foreground="#66FFFFFF"/>
+                        <Grid ColumnDefinitions="*,Auto" Margin="4,0,4,8">
+                            <StackPanel Spacing="2">
+                                <TextBlock Classes="section" Text="UP NEXT"/>
+                                <TextBlock Classes="caption" Text="{Binding UpNextSummary}"/>
                             </StackPanel>
                             <Button Grid.Column="1" Classes="glass" Padding="6" Command="{Binding ToggleExpandedQueueCommand}" ToolTip.Tip="Hide (Q)">
-                                <TextBlock Text="✕" FontSize="11" Foreground="#AAFFFFFF"/>
+                                <PathIcon Data="{StaticResource icon_close}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
                             </Button>
                         </Grid>
 
@@ -276,38 +297,39 @@
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:PlaylistTrackViewModel">
-                                    <StackPanel Spacing="3">
+                                    <StackPanel Spacing="2">
                                         <Border Classes="qrow" Classes.current="{Binding IsQueueCurrent}" Classes.played="{Binding IsQueuePlayed}">
-                                            <Grid ColumnDefinitions="26,40,*,Auto">
+                                            <Grid ColumnDefinitions="24,40,*,Auto">
                                                 <Panel VerticalAlignment="Center">
-                                                    <TextBlock Text="{Binding QueueNumber}" FontSize="11" Foreground="#77FFFFFF"
+                                                    <TextBlock Classes="caption mono" Text="{Binding QueueNumber}"
                                                                HorizontalAlignment="Center" IsVisible="{Binding !IsQueueCurrent}"/>
-                                                    <TextBlock Text="♪" FontSize="14" Foreground="#4EC9B0"
-                                                               HorizontalAlignment="Center" IsVisible="{Binding IsQueueCurrent}"/>
+                                                    <PathIcon Data="{StaticResource icon_music}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"
+                                                              Foreground="{StaticResource BrushAccent}" IsVisible="{Binding IsQueueCurrent}"/>
                                                 </Panel>
-                                                <Border Grid.Column="1" Width="36" Height="36" CornerRadius="5" ClipToBounds="True" Background="#2A2A2A">
+                                                <Border Grid.Column="1" Width="36" Height="36" CornerRadius="{StaticResource RadiusSm}" ClipToBounds="True"
+                                                        Background="{StaticResource BrushBg3}">
                                                     <Image Source="{Binding Artwork.Image}" Stretch="UniformToFill"/>
                                                 </Border>
                                                 <Button Grid.Column="2" Background="Transparent" BorderThickness="0" Padding="8,0,4,0"
                                                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                                                         Command="{Binding #Root.DataContext.PlayQueueItemCommand}" CommandParameter="{Binding}"
                                                         ToolTip.Tip="Play now">
-                                                    <StackPanel Spacing="1">
-                                                        <TextBlock Text="{Binding TrackTitle}" FontSize="13" Foreground="White" TextTrimming="CharacterEllipsis"/>
-                                                        <TextBlock FontSize="11" Foreground="#88FFFFFF" TextTrimming="CharacterEllipsis">
+                                                    <StackPanel Spacing="0">
+                                                        <TextBlock Classes="body" Text="{Binding TrackTitle}" TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Classes="caption" TextTrimming="CharacterEllipsis">
                                                             <Run Text="{Binding ArtistName}"/>
                                                             <Run Text=" · "/>
-                                                            <Run Text="{Binding BpmDisplay}"/>
+                                                            <Run Text="{Binding BpmDisplay}" FontFamily="{StaticResource FontMono}"/>
                                                             <Run Text=" · "/>
-                                                            <Run Text="{Binding CamelotDisplay}"/>
+                                                            <Run Text="{Binding CamelotDisplay}" FontFamily="{StaticResource FontMono}"/>
                                                         </TextBlock>
                                                     </StackPanel>
                                                 </Button>
                                                 <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Spacing="2">
-                                                    <TextBlock Text="{Binding DurationDisplay}" FontSize="11" Foreground="#66FFFFFF" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                                                    <Button Classes="glass" Padding="5" Command="{Binding #Root.DataContext.RemoveFromQueueCommand}" CommandParameter="{Binding}"
+                                                    <TextBlock Classes="caption mono" Text="{Binding DurationDisplay}" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                    <Button Classes="glass" Padding="4" Command="{Binding #Root.DataContext.RemoveFromQueueCommand}" CommandParameter="{Binding}"
                                                             IsVisible="{Binding !IsQueueCurrent}" ToolTip.Tip="Remove from queue">
-                                                        <TextBlock Text="✕" FontSize="10" Foreground="#88FFFFFF"/>
+                                                        <PathIcon Data="{StaticResource icon_close}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
                                                     </Button>
                                                 </StackPanel>
                                             </Grid>
@@ -315,10 +337,12 @@
                                         <!-- Mix transition into the next row -->
                                         <Button IsVisible="{Binding ShowMixTransitionBadge}"
                                                 Command="{Binding #Root.DataContext.OpenMixTransitionCommand}" CommandParameter="{Binding}"
-                                                Margin="74,0,0,2" Padding="7,1" CornerRadius="8" HorizontalAlignment="Left"
-                                                Background="{Binding TransitionBadgeColor}" BorderThickness="0" Cursor="Hand"
-                                                ToolTip.Tip="Transition into the next track — click to edit">
-                                            <TextBlock Text="{Binding TransitionPresetLabel, StringFormat='↓ {0}'}" FontSize="10" FontWeight="SemiBold" Foreground="White"/>
+                                                Classes="glass" Margin="72,0,0,2" Padding="6,2" HorizontalAlignment="Left"
+                                                ToolTip.Tip="Transition into the next track. Click to edit.">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <PathIcon Data="{StaticResource icon_mix}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                <TextBlock Classes="caption" Text="{Binding TransitionPresetLabel}"/>
+                                            </StackPanel>
                                         </Button>
                                     </StackPanel>
                                 </DataTemplate>
