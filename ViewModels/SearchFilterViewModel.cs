@@ -1,85 +1,77 @@
 using System;
-using System.Linq;
-using SLSKDONET.Services;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Linq;
 using System.Reactive.Linq;
-using System.ComponentModel;
-using System.Collections.Specialized;
-using DynamicData;
 using ReactiveUI;
 using SLSKDONET.Models;
 
 namespace SLSKDONET.ViewModels;
 
+/// <summary>
+/// Client-side filters for the ad-hoc Search page. Every filter is applied reactively to the
+/// cached result set (no new network search), so the one filter strip on the page can be
+/// toggled freely. One evaluation routine (<see cref="Evaluate"/>) backs the predicate, the
+/// "why is this hidden" reason and <see cref="IsMatch"/> so they can never disagree.
+/// </summary>
 public class SearchFilterViewModel : ReactiveObject
 {
-    // Throttled Bitrate (minimum 320 kbps enforced)
-    private int _minBitrate = 320;
-    public int MinBitrate 
-    { 
-        get => _minBitrate; 
-        set
-        {
-            // Enforce minimum base kbps of 320
-            var clampedValue = Math.Max(value, 320);
-            if (_minBitrate == clampedValue) return;
-            this.RaiseAndSetIfChanged(ref _minBitrate, clampedValue);
-            
-            // Phase 12.6: Sync bitrate as "320+" style token
-            if (!_isSyncingFromQuery)
-                OnTokenSyncRequested?.Invoke($"{clampedValue}+", true);
-        }
+    public const int DefaultMinBitrate = 320;
+    private const int ShortQueueLimit = 50;
+
+    /// <summary>Choices offered by the "Min bitrate" dropdown (0 = any).</summary>
+    public static IReadOnlyList<int> MinBitrateOptions { get; } = new[] { 0, 128, 192, 256, 320 };
+
+    private int _minBitrate = DefaultMinBitrate;
+    /// <summary>Minimum bitrate in kbps; 0 means any. Used for the network request as well.</summary>
+    public int MinBitrate
+    {
+        get => _minBitrate;
+        set => this.RaiseAndSetIfChanged(ref _minBitrate, Math.Max(0, value));
     }
 
     // Formats
-    public ObservableCollection<string> SelectedFormats { get; } = new ObservableCollection<string>(new[] { "MP3", "FLAC", "WAV" });
-    
-    // Reliability
+    public ObservableCollection<string> SelectedFormats { get; } = new(new[] { "MP3", "FLAC", "WAV" });
+
     private bool _useHighReliability;
-    public bool UseHighReliability 
-    { 
-        get => _useHighReliability; 
-        set => this.RaiseAndSetIfChanged(ref _useHighReliability, value); 
+    /// <summary>"Short queue" chip: hide peers with more than 50 files queued.</summary>
+    public bool UseHighReliability
+    {
+        get => _useHighReliability;
+        set => this.RaiseAndSetIfChanged(ref _useHighReliability, value);
     }
 
-    // Phase 12.6: Curation Assistant
     private bool _hideSuspects = true;
+    /// <summary>"Hide suspects" chip: hide flagged files and files whose size doesn't fit their bitrate.</summary>
     public bool HideSuspects
     {
         get => _hideSuspects;
         set => this.RaiseAndSetIfChanged(ref _hideSuspects, value);
     }
 
-    // Phase 19: The Bouncer
     private BouncerMode _bouncerMode = BouncerMode.Standard;
+    /// <summary>Only <see cref="BouncerMode.Strict"/> changes filtering (320 kbps+ when known).
+    /// Standard and Relaxed are equivalent here, so the UI exposes it as one "Strict" chip.</summary>
     public BouncerMode BouncerMode
     {
         get => _bouncerMode;
-        set => this.RaiseAndSetIfChanged(ref _bouncerMode, value);
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _bouncerMode, value);
+            this.RaisePropertyChanged(nameof(IsStrict));
+        }
     }
 
-    // Phase 12.6: Bi-directional sync infrastructure
-    private bool _isSyncingFromQuery;
-    
-    /// <summary>
-    /// Callback to notify parent ViewModel when a token should be injected/removed from search bar.
-    /// Args: (token, shouldAdd)
-    /// </summary>
-    public Action<string, bool>? OnTokenSyncRequested { get; set; }
-
-    /// <summary>
-    /// Execute filter changes without triggering reverse sync to search bar.
-    /// Use when parsing tokens from query.
-    /// </summary>
-    public void SetFromQueryParsing(Action action)
+    public bool IsStrict
     {
-        _isSyncingFromQuery = true;
-        try { action(); }
-        finally { _isSyncingFromQuery = false; }
+        get => BouncerMode == BouncerMode.Strict;
+        set => BouncerMode = value ? BouncerMode.Strict : BouncerMode.Standard;
     }
 
-    // Format Toggles (Helpers for UI binding)
+    /// <summary>Runs a batch of filter changes (e.g. from query-token parsing).</summary>
+    public void SetFromQueryParsing(Action action) => action();
+
     public bool FilterMp3
     {
         get => SelectedFormats.Contains("MP3");
@@ -98,15 +90,47 @@ public class SearchFilterViewModel : ReactiveObject
         set => ToggleFormat("WAV", value);
     }
 
+    /// <summary>Number of filters that differ from the defaults (drives the conditional Clear).</summary>
+    public int ActiveFilterCount
+    {
+        get
+        {
+            var count = 0;
+            if (SelectedFormats.Count != 3) count++;
+            if (MinBitrate != DefaultMinBitrate) count++;
+            if (IsStrict) count++;
+            if (UseHighReliability) count++;
+            if (!HideSuspects) count++;
+            return count;
+        }
+    }
+
+    public bool HasActiveFilters => ActiveFilterCount > 0;
+
     public SearchFilterViewModel()
     {
-        // React to collection changes to trigger UI updates for toggle properties
-        SelectedFormats.CollectionChanged += (s, e) => 
+        SelectedFormats.CollectionChanged += (_, _) =>
         {
             this.RaisePropertyChanged(nameof(FilterMp3));
             this.RaisePropertyChanged(nameof(FilterFlac));
             this.RaisePropertyChanged(nameof(FilterWav));
+            RaiseActiveFilterChanged();
         };
+
+        PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(MinBitrate) or nameof(UseHighReliability)
+                or nameof(HideSuspects) or nameof(BouncerMode))
+            {
+                RaiseActiveFilterChanged();
+            }
+        };
+    }
+
+    private void RaiseActiveFilterChanged()
+    {
+        this.RaisePropertyChanged(nameof(ActiveFilterCount));
+        this.RaisePropertyChanged(nameof(HasActiveFilters));
     }
 
     private void ToggleFormat(string format, bool isSelected)
@@ -115,135 +139,76 @@ public class SearchFilterViewModel : ReactiveObject
             SelectedFormats.Add(format);
         else if (!isSelected && SelectedFormats.Contains(format))
             SelectedFormats.Remove(format);
-        
-        // Phase 12.6: Bi-directional sync - notify search bar
-        if (!_isSyncingFromQuery)
-            OnTokenSyncRequested?.Invoke(format.ToLowerInvariant(), isSelected);
     }
 
-    public IObservable<Func<SearchResult, bool>> FilterChanged => 
+    public IObservable<Func<SearchResult, bool>> FilterChanged =>
         this.WhenAnyValue(
             x => x.MinBitrate,
             x => x.UseHighReliability,
             x => x.HideSuspects,
-            x => x.BouncerMode) // Phase 19
+            x => x.BouncerMode)
             .Throttle(TimeSpan.FromMilliseconds(200), RxApp.MainThreadScheduler)
+            .Select(_ => System.Reactive.Unit.Default)
             .Merge(
                 Observable.FromEventPattern<NotifyCollectionChangedEventHandler, NotifyCollectionChangedEventArgs>(
-                    h => SelectedFormats.CollectionChanged += h, 
+                    h => SelectedFormats.CollectionChanged += h,
                     h => SelectedFormats.CollectionChanged -= h)
-                .Select(_ => System.Reactive.Unit.Default)
-                .Select(_ => (MinBitrate, UseHighReliability, HideSuspects, BouncerMode)) // Updated tuple
-            )
+                .Select(_ => System.Reactive.Unit.Default))
             .Select(_ => GetFilterPredicate());
 
+    private sealed record Snapshot(int MinBitrate, HashSet<string> Formats, bool HighReliability, bool HideSuspects, BouncerMode Bouncer);
 
-    public Func<SearchResult, bool> GetFilterPredicate()
+    private Snapshot TakeSnapshot() => new(
+        MinBitrate,
+        SelectedFormats.Select(f => f.ToUpperInvariant()).ToHashSet(),
+        UseHighReliability,
+        HideSuspects,
+        BouncerMode);
+
+    /// <summary>VBR buckets: asking for 320 lets V0 (~240+) through, 256 allows V1, 192 allows V2.</summary>
+    internal static int EffectiveMinBitrate(int minBitrate) => minBitrate switch
     {
-        // Capture current state values to avoid closure issues if they change during evaluation (though usually strictly sequential)
-        var minBitrate = MinBitrate;
-        var formats = SelectedFormats.Select(f => f.ToUpperInvariant()).ToHashSet(); // HashSet for O(1)
-        var highReliability = UseHighReliability;
-        var hideSuspects = HideSuspects; // Phase 12.6: Curation quality
-        var bouncerMode = BouncerMode; // Phase 19: The Bouncer
-        
-        // Return a single optimized function
-        return result => 
-        {
-            if (result.Model == null) return false;
+        >= 320 => 240,
+        >= 256 => 220,
+        >= 192 => 180,
+        _ => minBitrate
+    };
 
-            // Phase 19: The Bouncer Logic simplified
-            if (bouncerMode == BouncerMode.Strict)
-            {
-                // Strict: Only high bitrate (skip if bitrate is unknown/unreported)
-                if (result.Bitrate > 0 && result.Bitrate < 320) return false;
-            }
-            
-            // 1. Bitrate Check with "Bucket Logic" for VBR
-            // If user asks for 320, we allow V0 (~240+)
-            // If user asks for 256, we allow ~220
-            int effectiveMin = minBitrate;
-            if (minBitrate >= 320) effectiveMin = 240;      // Allow V0
-            else if (minBitrate >= 256) effectiveMin = 220; // Allow V1
-            else if (minBitrate >= 192) effectiveMin = 180; // Allow V2
-
-            // Only reject when the result actually reports a bitrate.
-            // Bitrate == 0 means the metadata is absent; filtering these out would
-            // hide the majority of Soulseek results that lack embedded tags.
-            if (result.Bitrate > 0 && result.Bitrate < effectiveMin) return false;
-
-            // 2. Format
-            // Prefer the filename extension, but fall back to the model format when the
-            // network result omits an extension. Unknown formats are allowed through so
-            // the UI doesn't appear empty when metadata is sparse.
-            var ext = System.IO.Path.GetExtension(result.Model.Filename)?.TrimStart('.');
-            var formatToken = !string.IsNullOrWhiteSpace(ext)
-                ? ext.ToUpperInvariant()
-                : (result.Model.Format ?? string.Empty).Trim().ToUpperInvariant();
-
-            if (!string.IsNullOrWhiteSpace(formatToken) && !formats.Contains(formatToken)) return false; 
-
-            // 3. Reliability (Queue Length)
-            // If High Reliability is ON, reject queues > 50
-            if (highReliability && result.QueueLength > 50) return false;
-
-            // Phase 12.6: Hide potential fakes/upscales (Operational Hardening)
-            if (hideSuspects)
-            {
-                if (result.IntegrityStatus == "Suspect") 
-                    return false;
-
-                // 4. Manual Forensic Size Gate (Phase 11.5)
-                if (result.Size > 0 && result.Length > 0 && result.Bitrate > 0)
-                {
-                    double expectedBytes = (result.Bitrate * 1000.0 / 8.0) * result.Length.Value;
-                    // Formula: ±15% variance + 10% buffer = ±25% total allowance
-                    if (result.Size < (expectedBytes * 0.75) || result.Size > (expectedBytes * 1.25))
-                    {
-                        return false;
-                    }
-                }
-            }
-
-            return true;
-        };
-    }
-
-    public string? GetHiddenReason(SearchResult result)
+    /// <summary>Returns null when the result passes, else a human-readable reason.</summary>
+    private static string? Evaluate(SearchResult result, Snapshot s)
     {
         if (result.Model == null)
             return "Invalid result";
 
-        if (BouncerMode == BouncerMode.Strict && result.Bitrate > 0 && result.Bitrate < 320)
-            return $"Bouncer strict mode requires 320kbps+, got {result.Bitrate}kbps";
+        // Bitrate == 0 means "not reported" — most Soulseek results; never hide those on bitrate.
+        if (s.Bouncer == BouncerMode.Strict && result.Bitrate > 0 && result.Bitrate < 320)
+            return $"Strict mode requires 320 kbps+, got {result.Bitrate} kbps";
 
-        int effectiveMin = MinBitrate;
-        if (MinBitrate >= 320) effectiveMin = 240;
-        else if (MinBitrate >= 256) effectiveMin = 220;
-        else if (MinBitrate >= 192) effectiveMin = 180;
-
+        var effectiveMin = EffectiveMinBitrate(s.MinBitrate);
         if (result.Bitrate > 0 && result.Bitrate < effectiveMin)
             return $"Bitrate below filter floor ({effectiveMin}kbps effective minimum)";
 
+        // Prefer the filename extension, fall back to the model format; unknown formats pass.
         var ext = System.IO.Path.GetExtension(result.Model.Filename)?.TrimStart('.');
         var formatToken = !string.IsNullOrWhiteSpace(ext)
             ? ext.ToUpperInvariant()
             : (result.Model.Format ?? string.Empty).Trim().ToUpperInvariant();
-        if (!string.IsNullOrWhiteSpace(formatToken) && !SelectedFormats.Contains(formatToken))
+        if (!string.IsNullOrWhiteSpace(formatToken) && !s.Formats.Contains(formatToken))
             return $"Format filtered out ({formatToken})";
 
-        if (UseHighReliability && result.QueueLength > 50)
-            return $"Queue too deep for high-reliability mode ({result.QueueLength})";
+        if (s.HighReliability && result.QueueLength > ShortQueueLimit)
+            return $"Peer queue too long ({result.QueueLength} files)";
 
-        if (HideSuspects)
+        if (s.HideSuspects)
         {
             if (result.IntegrityStatus == "Suspect")
                 return "Hidden by safety filter (suspect or upscaled)";
 
+            // Size gate: ±25% around bitrate × length.
             if (result.Size > 0 && result.Length > 0 && result.Bitrate > 0)
             {
-                double expectedBytes = (result.Bitrate * 1000.0 / 8.0) * result.Length.Value;
-                if (result.Size < (expectedBytes * 0.75) || result.Size > (expectedBytes * 1.25))
+                double expectedBytes = (result.Bitrate * 1000.0 / 8.0) * result.Length!.Value;
+                if (result.Size < expectedBytes * 0.75 || result.Size > expectedBytes * 1.25)
                     return "Hidden by forensic size gate";
             }
         }
@@ -251,54 +216,38 @@ public class SearchFilterViewModel : ReactiveObject
         return null;
     }
 
-    public bool IsMatch(SearchResult result) 
+    public Func<SearchResult, bool> GetFilterPredicate()
     {
-            if (result.Model == null) return false;
-
-            // Phase 19: The Bouncer Logic simplified
-            if (BouncerMode == BouncerMode.Strict)
-            {
-                if (result.Bitrate > 0 && result.Bitrate < 320) return false;
-            }
-
-            // 1. Bitrate Check
-            int effectiveMin = MinBitrate;
-            if (MinBitrate >= 320) effectiveMin = 240;      
-            else if (MinBitrate >= 256) effectiveMin = 220; 
-            else if (MinBitrate >= 192) effectiveMin = 180; 
-
-            if (result.Bitrate > 0 && result.Bitrate < effectiveMin) return false;
-
-            // 2. Format
-            var ext = System.IO.Path.GetExtension(result.Model.Filename)?.TrimStart('.');
-            var formatToken = !string.IsNullOrWhiteSpace(ext)
-                ? ext.ToUpperInvariant()
-                : (result.Model.Format ?? string.Empty).Trim().ToUpperInvariant();
-
-            if (!string.IsNullOrWhiteSpace(formatToken) && !SelectedFormats.Contains(formatToken)) return false; 
-
-            // 3. Reliability
-            if (UseHighReliability && result.QueueLength > 50) return false;
-
-            // Phase 12.6: Hide potential fakes/upscales
-            if (HideSuspects && (result.IntegrityStatus == "Suspect")) 
-                return false;
-
-            return true;
+        var snapshot = TakeSnapshot();
+        return result => Evaluate(result, snapshot) == null;
     }
 
+    public string? GetHiddenReason(SearchResult result) => Evaluate(result, TakeSnapshot());
+
+    public bool IsMatch(SearchResult result) => Evaluate(result, TakeSnapshot()) == null;
+
+    /// <summary>Resets bitrate, formats and queue filter (query-token parsing baseline).</summary>
     public void Reset()
     {
-        MinBitrate = 320;
+        MinBitrate = DefaultMinBitrate;
         UseHighReliability = false;
-        
-        // Reset formats (avoid triggering too many updates)
-        if (SelectedFormats.Count != 3) 
-        {
-             SelectedFormats.Clear();
-             SelectedFormats.Add("MP3");
-             SelectedFormats.Add("FLAC");
-             SelectedFormats.Add("WAV");
-        }
+        ResetFormats();
+    }
+
+    /// <summary>Restores every filter on the strip to its default (the "Clear" action).</summary>
+    public void ResetToDefaults()
+    {
+        Reset();
+        HideSuspects = true;
+        BouncerMode = BouncerMode.Standard;
+    }
+
+    private void ResetFormats()
+    {
+        if (SelectedFormats.Count == 3) return;
+        SelectedFormats.Clear();
+        SelectedFormats.Add("MP3");
+        SelectedFormats.Add("FLAC");
+        SelectedFormats.Add("WAV");
     }
 }

@@ -35,7 +35,7 @@ public class UiWiringGuardTests
     /// A catch whose body is a comment starting with "// intentional:" is exempt, so document
     /// genuine best-effort cases that way. RATCHET: may only go down.
     /// </summary>
-    private const int MaxSilentCatches = 102;
+    private const int MaxSilentCatches = 101;
 
     private static readonly HashSet<string> ClickableElements = new(StringComparer.Ordinal)
         { "Button", "RepeatButton", "MenuItem", "ToggleButton" };
