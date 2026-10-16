@@ -3,93 +3,100 @@
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:ctrl="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              x:Class="SLSKDONET.Views.Avalonia.StemWaveformView"
-             x:DataType="vm:StemWaveformViewModel">
+             x:DataType="vm:StemWaveformViewModel"
+             x:CompileBindings="True">
 
+  <!-- One lane per stem. Lane colour is the stem's data colour (BrushStem*); all lanes share one
+       zoom level (two-way, so scroll-zooming any lane keeps the others aligned). -->
   <UserControl.Styles>
-    <Style Selector="TextBlock.stem-label">
-      <Setter Property="FontSize" Value="9"/>
-      <Setter Property="FontWeight" Value="Bold"/>
-      <Setter Property="Width" Value="42"/>
+    <Style Selector="TextBlock.lane-label">
+      <Setter Property="Width" Value="56"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
-
-    <Style Selector="ProgressBar.loading-bar">
-      <Setter Property="Height" Value="2"/>
+    <Style Selector="Border.lane">
+      <Setter Property="Height" Value="56"/>
+      <Setter Property="ClipToBounds" Value="True"/>
+    </Style>
+    <Style Selector="ProgressBar.lane-loading">
       <Setter Property="IsIndeterminate" Value="True"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Margin" Value="12,0"/>
     </Style>
   </UserControl.Styles>
 
-  <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+  <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*">
 
-    <!-- ── Zoom / offset controls ──────────────────────────────────────── -->
-    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
-      <TextBlock Text="STEMS" FontSize="10" FontWeight="Bold" Foreground="#888" VerticalAlignment="Center"/>
-      <TextBlock Text="Zoom:" FontSize="9" Foreground="#666" VerticalAlignment="Center"/>
-      <Slider Minimum="1" Maximum="32" Value="{Binding SharedZoomLevel}"
-              Width="80" Height="16" ToolTip.Tip="Zoom"/>
-      <TextBlock Text="{Binding SharedZoomLevel, StringFormat={}{0:F1}x}"
-                 FontSize="9" Foreground="#888" VerticalAlignment="Center"/>
+    <!-- Lane header: section label + shared zoom -->
+    <TextBlock Grid.Row="0" Grid.Column="0" Classes="section" Text="STEMS"
+               VerticalAlignment="Center" Margin="0,0,0,8"/>
+    <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                HorizontalAlignment="Right" Margin="0,0,0,8">
+      <TextBlock Classes="caption" Text="Zoom" VerticalAlignment="Center"/>
+      <Slider Minimum="1" Maximum="16" Width="120" VerticalAlignment="Center"
+              Value="{Binding SharedZoomLevel}" ToolTip.Tip="Zoom all stem lanes"/>
+      <TextBlock Classes="mono" Width="40" VerticalAlignment="Center"
+                 Text="{Binding SharedZoomLevel, StringFormat={}{0:F1}x}"/>
     </StackPanel>
 
-    <!-- ── Vocals ──────────────────────────────────────────────────────── -->
-    <Grid Grid.Row="1" ColumnDefinitions="44,*" Margin="0,0,0,2">
-      <TextBlock Grid.Column="0" Classes="stem-label" Text="VOCALS" Foreground="#00CFFF"/>
-      <Grid Grid.Column="1">
-        <ProgressBar Classes="loading-bar" IsVisible="{Binding VocalsWaveform.IsLoading}"/>
-        <ctrl:WaveformControl
-          WaveformData="{Binding VocalsWaveform.WaveformData}"
-          Progress="{Binding VocalsWaveform.Progress}"
-          Height="48"
-          Background="#0A0A14"
-          Foreground="#00CFFF"
-          IsVisible="{Binding VocalsWaveform.WaveformData, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+    <!-- Vocals -->
+    <TextBlock Grid.Row="1" Grid.Column="0" Classes="section lane-label" Text="VOCALS"
+               Foreground="{StaticResource BrushStemVocals}"/>
+    <Border Grid.Row="1" Grid.Column="1" Classes="inset lane" Margin="0,0,0,4">
+      <Grid>
+        <ProgressBar Classes="meter lane-loading" IsVisible="{Binding VocalsWaveform.IsLoading}"/>
+        <ctrl:WaveformControl WaveformData="{Binding VocalsWaveform.WaveformData}"
+                              Progress="{Binding VocalsWaveform.Progress}"
+                              ZoomLevel="{Binding SharedZoomLevel, Mode=TwoWay}"
+                              Background="{StaticResource BrushBg0}"
+                              Foreground="{StaticResource BrushStemVocals}"
+                              IsVisible="{Binding VocalsWaveform.WaveformData, Converter={x:Static ObjectConverters.IsNotNull}}"/>
       </Grid>
-    </Grid>
+    </Border>
 
-    <!-- ── Drums ───────────────────────────────────────────────────────── -->
-    <Grid Grid.Row="2" ColumnDefinitions="44,*" Margin="0,0,0,2">
-      <TextBlock Grid.Column="0" Classes="stem-label" Text="DRUMS" Foreground="#FF8C00"/>
-      <Grid Grid.Column="1">
-        <ProgressBar Classes="loading-bar" IsVisible="{Binding DrumsWaveform.IsLoading}"/>
-        <ctrl:WaveformControl
-          WaveformData="{Binding DrumsWaveform.WaveformData}"
-          Progress="{Binding DrumsWaveform.Progress}"
-          Height="48"
-          Background="#140A00"
-          Foreground="#FF8C00"
-          IsVisible="{Binding DrumsWaveform.WaveformData, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+    <!-- Drums -->
+    <TextBlock Grid.Row="2" Grid.Column="0" Classes="section lane-label" Text="DRUMS"
+               Foreground="{StaticResource BrushStemDrums}"/>
+    <Border Grid.Row="2" Grid.Column="1" Classes="inset lane" Margin="0,0,0,4">
+      <Grid>
+        <ProgressBar Classes="meter lane-loading" IsVisible="{Binding DrumsWaveform.IsLoading}"/>
+        <ctrl:WaveformControl WaveformData="{Binding DrumsWaveform.WaveformData}"
+                              Progress="{Binding DrumsWaveform.Progress}"
+                              ZoomLevel="{Binding SharedZoomLevel, Mode=TwoWay}"
+                              Background="{StaticResource BrushBg0}"
+                              Foreground="{StaticResource BrushStemDrums}"
+                              IsVisible="{Binding DrumsWaveform.WaveformData, Converter={x:Static ObjectConverters.IsNotNull}}"/>
       </Grid>
-    </Grid>
+    </Border>
 
-    <!-- ── Bass ────────────────────────────────────────────────────────── -->
-    <Grid Grid.Row="3" ColumnDefinitions="44,*" Margin="0,0,0,2">
-      <TextBlock Grid.Column="0" Classes="stem-label" Text="BASS" Foreground="#44FF88"/>
-      <Grid Grid.Column="1">
-        <ProgressBar Classes="loading-bar" IsVisible="{Binding BassWaveform.IsLoading}"/>
-        <ctrl:WaveformControl
-          WaveformData="{Binding BassWaveform.WaveformData}"
-          Progress="{Binding BassWaveform.Progress}"
-          Height="48"
-          Background="#000A04"
-          Foreground="#44FF88"
-          IsVisible="{Binding BassWaveform.WaveformData, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+    <!-- Bass -->
+    <TextBlock Grid.Row="3" Grid.Column="0" Classes="section lane-label" Text="BASS"
+               Foreground="{StaticResource BrushStemBass}"/>
+    <Border Grid.Row="3" Grid.Column="1" Classes="inset lane" Margin="0,0,0,4">
+      <Grid>
+        <ProgressBar Classes="meter lane-loading" IsVisible="{Binding BassWaveform.IsLoading}"/>
+        <ctrl:WaveformControl WaveformData="{Binding BassWaveform.WaveformData}"
+                              Progress="{Binding BassWaveform.Progress}"
+                              ZoomLevel="{Binding SharedZoomLevel, Mode=TwoWay}"
+                              Background="{StaticResource BrushBg0}"
+                              Foreground="{StaticResource BrushStemBass}"
+                              IsVisible="{Binding BassWaveform.WaveformData, Converter={x:Static ObjectConverters.IsNotNull}}"/>
       </Grid>
-    </Grid>
+    </Border>
 
-    <!-- ── Other ───────────────────────────────────────────────────────── -->
-    <Grid Grid.Row="4" ColumnDefinitions="44,*">
-      <TextBlock Grid.Column="0" Classes="stem-label" Text="OTHER" Foreground="#BB88FF"/>
-      <Grid Grid.Column="1">
-        <ProgressBar Classes="loading-bar" IsVisible="{Binding OtherWaveform.IsLoading}"/>
-        <ctrl:WaveformControl
-          WaveformData="{Binding OtherWaveform.WaveformData}"
-          Progress="{Binding OtherWaveform.Progress}"
-          Height="48"
-          Background="#0A0014"
-          Foreground="#BB88FF"
-          IsVisible="{Binding OtherWaveform.WaveformData, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+    <!-- Other -->
+    <TextBlock Grid.Row="4" Grid.Column="0" Classes="section lane-label" Text="OTHER"
+               Foreground="{StaticResource BrushStemOther}"/>
+    <Border Grid.Row="4" Grid.Column="1" Classes="inset lane">
+      <Grid>
+        <ProgressBar Classes="meter lane-loading" IsVisible="{Binding OtherWaveform.IsLoading}"/>
+        <ctrl:WaveformControl WaveformData="{Binding OtherWaveform.WaveformData}"
+                              Progress="{Binding OtherWaveform.Progress}"
+                              ZoomLevel="{Binding SharedZoomLevel, Mode=TwoWay}"
+                              Background="{StaticResource BrushBg0}"
+                              Foreground="{StaticResource BrushStemOther}"
+                              IsVisible="{Binding OtherWaveform.WaveformData, Converter={x:Static ObjectConverters.IsNotNull}}"/>
       </Grid>
-    </Grid>
+    </Border>
 
   </Grid>
 </UserControl>
