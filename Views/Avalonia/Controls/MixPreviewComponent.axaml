@@ -15,12 +15,12 @@
         <!-- Restyled to match FlowBuilderView/FlowTransitionEditorPanel's dark-teal language
              instead of this component's previous, unrelated cyan/magenta "glass" palette. -->
         <Style Selector="Button.PreviewAction">
-            <Setter Property="Background" Value="#1D4E42"/>
+            <Setter Property="Background" Value="{StaticResource BrushAccentSubtle}"/>
             <Setter Property="CornerRadius" Value="6"/>
             <Setter Property="Padding" Value="0,7"/>
-            <Setter Property="Foreground" Value="#DDFCF5"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText0}"/>
             <Setter Property="FontSize" Value="12"/>
-            <Setter Property="BorderBrush" Value="#2D8E7A"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccentBorder}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="Transitions">
@@ -30,97 +30,97 @@
             </Setter>
         </Style>
         <Style Selector="Button.PreviewAction:pointerover">
-            <Setter Property="Background" Value="#256259"/>
+            <Setter Property="Background" Value="{StaticResource BrushAccentDim}"/>
         </Style>
         <Style Selector="Button.Nudge">
-            <Setter Property="Background" Value="#171C22"/>
-            <Setter Property="Foreground" Value="#9BD7CA"/>
+            <Setter Property="Background" Value="{StaticResource BrushBg3}"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushAccent}"/>
             <Setter Property="FontSize" Value="10"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Padding" Value="10,5"/>
-            <Setter Property="CornerRadius" Value="12"/>
-            <Setter Property="BorderBrush" Value="#2A333D"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder1}"/>
             <Setter Property="BorderThickness" Value="1"/>
         </Style>
         <Style Selector="Button.Nudge:pointerover">
-            <Setter Property="Background" Value="#20262D"/>
+            <Setter Property="Background" Value="{StaticResource BrushHover}"/>
         </Style>
 
         <!-- One small chip per analyzed cue — a direct, always-visible pick list per track
              (Intro/Drop/Outro/etc.) so the user doesn't have to precisely click a thin line on
              the waveform to set the trigger point. -->
         <Style Selector="Button.CueChip">
-            <Setter Property="Background" Value="#171C22"/>
-            <Setter Property="Foreground" Value="#C7D6E2"/>
+            <Setter Property="Background" Value="{StaticResource BrushBg3}"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText1}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="#2A333D"/>
-            <Setter Property="CornerRadius" Value="999"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder1}"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
             <Setter Property="Padding" Value="8,3"/>
             <Setter Property="FontSize" Value="9"/>
             <Setter Property="Margin" Value="0,0,4,4"/>
         </Style>
         <Style Selector="Button.CueChip:pointerover">
-            <Setter Property="Background" Value="#20262D"/>
-            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+            <Setter Property="Background" Value="{StaticResource BrushHover}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
         </Style>
 
         <Style Selector="Button.ZoomBtn">
-            <Setter Property="Background" Value="#171C22"/>
-            <Setter Property="Foreground" Value="#9BAAB8"/>
-            <Setter Property="BorderBrush" Value="#2A333D"/>
+            <Setter Property="Background" Value="{StaticResource BrushBg3}"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText1}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder1}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="4"/>
             <Setter Property="Padding" Value="9,3"/>
             <Setter Property="FontSize" Value="13"/>
         </Style>
         <Style Selector="Button.ZoomBtn:pointerover">
-            <Setter Property="Background" Value="#20262D"/>
+            <Setter Property="Background" Value="{StaticResource BrushHover}"/>
         </Style>
     </UserControl.Styles>
 
-    <Border Background="#1A1E24" CornerRadius="12" BorderBrush="#2F3E4C" BorderThickness="1" Padding="14,12">
+    <Border Background="{StaticResource BrushBg2}" CornerRadius="{StaticResource RadiusLg}" BorderBrush="{StaticResource BrushBorder1}" BorderThickness="1" Padding="14,12">
         <Grid RowDefinitions="Auto, Auto, Auto, *, Auto, *, Auto">
 
             <!-- Header -->
             <Grid Grid.Row="0" ColumnDefinitions="Auto, *, Auto" Margin="0,0,0,6">
                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <PathIcon Data="{StaticResource mixer_regular}" Foreground="#4EC9B0" Width="14" Height="14"/>
-                    <TextBlock Text="TRANSITION PREVIEW" FontWeight="SemiBold" FontSize="11" Foreground="#4EC9B0" VerticalAlignment="Center"/>
+                    <PathIcon Data="{StaticResource mixer_regular}" Foreground="{StaticResource BrushAccent}" Width="14" Height="14"/>
+                    <TextBlock Text="TRANSITION PREVIEW" FontWeight="SemiBold" FontSize="11" Foreground="{StaticResource BrushAccent}" VerticalAlignment="Center"/>
                 </StackPanel>
 
                 <TextBlock Grid.Column="1" Text="{Binding StatusMessage}"
                            HorizontalAlignment="Right" VerticalAlignment="Center"
                            Margin="12,0"
                            FontSize="11"
-                           Foreground="#9BAAB8"
+                           Foreground="{StaticResource BrushText1}"
                            TextTrimming="CharacterEllipsis"/>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
                     <!-- Waveform click-to-audition indicator + stop — always-visible source and
                          a way to kill it, so a preview never keeps playing invisibly underneath
                          whatever else the user does next. -->
-                    <Border Background="#1D4E42" BorderBrush="#2D8E7A" BorderThickness="1" CornerRadius="999"
+                    <Border Background="{StaticResource BrushAccentSubtle}" BorderBrush="{StaticResource BrushAccentBorder}" BorderThickness="1" CornerRadius="{StaticResource RadiusMd}"
                             Padding="8,3" Margin="0,0,6,0"
                             IsVisible="{Binding IsPreviewSeekPlaying}">
                         <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="{Binding PreviewSeekStatusText}" FontSize="10" Foreground="#9BD7CA" TextTrimming="CharacterEllipsis" MaxWidth="220"/>
+                            <TextBlock Text="{Binding PreviewSeekStatusText}" FontSize="10" Foreground="{StaticResource BrushAccent}" TextTrimming="CharacterEllipsis" MaxWidth="220"/>
                             <Button Command="{Binding StopPreviewSeekCommand}" Background="Transparent" BorderThickness="0" Padding="2"
                                     ToolTip.Tip="Stop preview">
-                                <PathIcon Data="{StaticResource dismiss_regular}" Foreground="#DDFCF5" Width="10" Height="10"/>
+                                <PathIcon Data="{StaticResource dismiss_regular}" Foreground="{StaticResource BrushText0}" Width="10" Height="10"/>
                             </Button>
                         </StackPanel>
                     </Border>
                     <ToggleButton IsChecked="{Binding IsCueEditMode, Mode=TwoWay}" Padding="8,3" FontSize="10" Margin="0,0,6,0"
-                                  Background="#171C22" BorderBrush="#2D8E7A" BorderThickness="1" CornerRadius="999"
+                                  Background="{StaticResource BrushBg3}" BorderBrush="{StaticResource BrushAccentBorder}" BorderThickness="1" CornerRadius="{StaticResource RadiusMd}"
                                   ToolTip.Tip="Edit cues right here: drag cues on the waveform, click one to rename it, change its role, pad, colour or loop, or delete it. Edits save automatically when you move on.">
-                        <TextBlock Text="✏ Edit cues" Foreground="#9BD7CA"/>
+                        <TextBlock Text="Edit cues" Foreground="{StaticResource BrushAccent}"/>
                     </ToggleButton>
                     <Button Command="{Binding OpenInFlowBuilderCommand}" Background="Transparent" BorderThickness="0" Padding="6,2"
                             ToolTip.Tip="Open this playlist in Flow Builder for full-option editing">
-                        <TextBlock Text="↗ Flow Builder" FontSize="10" Foreground="#4EC9B0"/>
+                        <TextBlock Text="Open in Flow Builder" FontSize="10" Foreground="{StaticResource BrushAccent}"/>
                     </Button>
-                    <Button Command="{Binding CancelCommand}" Background="Transparent" BorderThickness="0" Padding="4" Margin="6,0,0,0">
-                         <PathIcon Data="{StaticResource dismiss_regular}" Foreground="#9BAAB8" Width="14" Height="14"/>
+                    <Button Command="{Binding CancelCommand}" Background="Transparent" BorderThickness="0" Padding="4" Margin="8,0,0,0" ToolTip.Tip="Close">
+                         <PathIcon Data="{StaticResource dismiss_regular}" Foreground="{StaticResource BrushText1}" Width="14" Height="14"/>
                     </Button>
                 </StackPanel>
             </Grid>
@@ -131,27 +131,27 @@
                  gesture, which made it too easy to build an off-beat, badly-phrased transition.
                  Dragging the waveform itself now pans the zoomed view instead (same action as
                  the slider underneath it, just grabbed directly). -->
-            <Border Grid.Row="1" Background="#20262D" BorderBrush="#2F3E4C" BorderThickness="1" CornerRadius="4" Padding="8,3" Margin="0,0,0,6">
+            <Border Grid.Row="1" Background="{StaticResource BrushHover}" BorderBrush="{StaticResource BrushBorder1}" BorderThickness="1" CornerRadius="4" Padding="8,3" Margin="0,0,0,6">
                 <Panel>
-                <TextBlock IsVisible="{Binding IsCueEditMode}" FontSize="10" Foreground="#9BD7CA" TextWrapping="Wrap"
-                           Text="EDIT CUES: drag a cue line to move it (snaps to the grid) • click a cue to edit it below • right-click → add a cue • click elsewhere to audition • ⇥ Use as mix point sets the transition"/>
+                <TextBlock IsVisible="{Binding IsCueEditMode}" FontSize="10" Foreground="{StaticResource BrushAccent}" TextWrapping="Wrap"
+                           Text="Edit cues: drag a cue line to move it (snaps to the grid) • click a cue to edit it below • right-click → add a cue • click elsewhere to audition • Use as mix point sets the transition"/>
                 <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding !IsCueEditMode}">
-                    <TextBlock Text="Click a cue (line or chip) to set the trigger point" FontSize="10" Foreground="#9BAAB8"/>
-                    <TextBlock Text="•" FontSize="10" Foreground="#556270"/>
-                    <TextBlock Text="Click elsewhere to audition that spot" FontSize="10" Foreground="#9BAAB8"/>
-                    <TextBlock Text="•" FontSize="10" Foreground="#556270"/>
-                    <TextBlock Text="Drag to pan" FontSize="10" Foreground="#9BAAB8"/>
-                    <TextBlock Text="•" FontSize="10" Foreground="#556270"/>
-                    <TextBlock Text="Right-click → Add cue here" FontSize="10" Foreground="#9BAAB8"/>
-                    <TextBlock Text="•" FontSize="10" Foreground="#556270"/>
+                    <TextBlock Text="Click a cue (line or chip) to set the trigger point" FontSize="10" Foreground="{StaticResource BrushText1}"/>
+                    <TextBlock Text="•" FontSize="10" Foreground="{StaticResource BrushText3}"/>
+                    <TextBlock Text="Click elsewhere to audition that spot" FontSize="10" Foreground="{StaticResource BrushText1}"/>
+                    <TextBlock Text="•" FontSize="10" Foreground="{StaticResource BrushText3}"/>
+                    <TextBlock Text="Drag to pan" FontSize="10" Foreground="{StaticResource BrushText1}"/>
+                    <TextBlock Text="•" FontSize="10" Foreground="{StaticResource BrushText3}"/>
+                    <TextBlock Text="Right-click → Add cue here" FontSize="10" Foreground="{StaticResource BrushText1}"/>
+                    <TextBlock Text="•" FontSize="10" Foreground="{StaticResource BrushText3}"/>
                     <StackPanel Orientation="Horizontal" Spacing="3">
-                        <TextBlock Text="★" FontSize="10" Foreground="Gold" FontWeight="Bold"/>
-                        <TextBlock Text="= what Auto suggested" FontSize="10" Foreground="#9BAAB8"/>
+                        <PathIcon Data="{StaticResource star_regular}" Width="10" Height="10" Foreground="{StaticResource BrushWarning}"/>
+                        <TextBlock Text="= what Auto suggested" FontSize="10" Foreground="{StaticResource BrushText1}"/>
                     </StackPanel>
-                    <TextBlock Text="•" FontSize="10" Foreground="#556270"/>
+                    <TextBlock Text="•" FontSize="10" Foreground="{StaticResource BrushText3}"/>
                     <StackPanel Orientation="Horizontal" Spacing="3">
-                        <Rectangle Width="10" Height="2" Fill="#FFD700"/>
-                        <TextBlock Text="= mix start/end point" FontSize="10" Foreground="#9BAAB8"/>
+                        <Rectangle Width="10" Height="2" Fill="{StaticResource BrushWarning}"/>
+                        <TextBlock Text="= mix start/end point" FontSize="10" Foreground="{StaticResource BrushText1}"/>
                     </StackPanel>
                 </StackPanel>
                 </Panel>
@@ -163,7 +163,7 @@
             <Grid Grid.Row="2" ColumnDefinitions="Auto,8,Auto,8,Auto,10,*" Margin="0,0,0,6">
                 <Button Grid.Column="0" Classes="ZoomBtn" Content="−" Command="{Binding ZoomOutCommand}" ToolTip.Tip="Zoom out"/>
                 <TextBlock Grid.Column="2" Text="{Binding WaveformZoomLevel, StringFormat='{}{0:0.0}×'}"
-                           Foreground="#9BAAB8" FontSize="11" VerticalAlignment="Center" Width="34" TextAlignment="Center"/>
+                           Foreground="{StaticResource BrushText1}" FontSize="11" VerticalAlignment="Center" Width="34" TextAlignment="Center"/>
                 <Button Grid.Column="4" Classes="ZoomBtn" Content="+" Command="{Binding ZoomInCommand}" ToolTip.Tip="Zoom in"/>
                 <Slider Grid.Column="6"
                         Value="{Binding WaveformZoomLevel, Mode=TwoWay}"
@@ -184,7 +184,7 @@
             <Grid Grid.Row="3" RowDefinitions="Auto,Auto,Auto">
                 <Grid Grid.Row="0">
                      <!-- Background for rail -->
-                     <Rectangle Width="2" HorizontalAlignment="Center" Fill="#33FFFFFF"/>
+                     <Rectangle Width="2" HorizontalAlignment="Center" Fill="{StaticResource BrushBorder0}"/>
 
                      <controls:WaveformControl
                         WaveformData="{Binding WaveformDataA}"
@@ -204,11 +204,11 @@
                         AddCueAtCommand="{Binding AddCueToOutgoingInCueForgeCommand}"
                         SetDropAtCommand="{Binding OutgoingEditor.SetDropAtCommand}"
                         Height="130"
-                        Foreground="#4EC9B0"
+                        Foreground="{StaticResource BrushAccent}"
                         Background="Transparent"
-                        PlayheadBrush="#9BAAB8"/>
+                        PlayheadBrush="{StaticResource BrushText1}"/>
 
-                     <TextBlock Text="OUTGOING" Foreground="#4EC9B0" Opacity="0.7" FontSize="10" FontWeight="Bold" LetterSpacing="1"
+                     <TextBlock Text="OUTGOING" Foreground="{StaticResource BrushAccent}" Opacity="0.7" FontSize="10" FontWeight="Bold" LetterSpacing="1"
                                 Margin="6" HorizontalAlignment="Right" VerticalAlignment="Top"/>
 
                      <!-- Bottom corner (not top, where cue labels like "Outro" render and would
@@ -216,7 +216,7 @@
                      <Button Command="{Binding OpenOutgoingInCueForgeCommand}" Background="Transparent" BorderThickness="0" Padding="0"
                              Margin="6" HorizontalAlignment="Right" VerticalAlignment="Bottom"
                              ToolTip.Tip="Open this track in Cue Forge (full cue editor with the main player)">
-                         <TextBlock Text="🎯 Open in Cue Forge" FontSize="9" Foreground="#9BD7CA"/>
+                         <TextBlock Text="Open in Cue Forge" FontSize="10" Foreground="{StaticResource BrushAccent}"/>
                      </Button>
                 </Grid>
 
@@ -257,28 +257,25 @@
             <!-- Phase Meter (Middle) -->
             <Grid Grid.Row="4" RowDefinitions="Auto,Auto" Margin="0,6">
                 <Grid Grid.Row="0" Height="10">
-                     <Rectangle Fill="#11FFFFFF" Height="4" VerticalAlignment="Center"/>
+                     <Rectangle Fill="{StaticResource BrushBorder0}" Height="4" VerticalAlignment="Center"/>
                      <!-- Center Mark -->
-                     <Rectangle Width="2" Height="10" Fill="White" HorizontalAlignment="Center"/>
+                     <Rectangle Width="2" Height="10" Fill="{StaticResource BrushText0}" HorizontalAlignment="Center"/>
 
                      <!-- Phase Confidence Indicator (Dynamic Width/Color based on PhaseConfidence) -->
-                     <Rectangle Height="4" RadiusX="2" RadiusY="2" HorizontalAlignment="Center" Width="{Binding PhaseConfidenceWidth}">
-                        <Rectangle.Fill>
-                            <SolidColorBrush Color="#00E676" Opacity="0.8"/>
-                        </Rectangle.Fill>
-                     </Rectangle>
+                     <Rectangle Height="4" RadiusX="2" RadiusY="2" HorizontalAlignment="Center" Width="{Binding PhaseConfidenceWidth}"
+                                Fill="{StaticResource BrushSuccess}"/>
                 </Grid>
 
                 <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10" Margin="0,5,0,0">
-                     <Button Classes="Nudge" Command="{Binding NudgeBackCommand}" Content="◄ NUDGE"/>
-                     <Button Classes="Nudge" Command="{Binding NudgeForwardCommand}" Content="NUDGE ►"/>
+                     <Button Classes="Nudge" Command="{Binding NudgeBackCommand}" Content="1 beat earlier" ToolTip.Tip="Move the mix-out one beat earlier"/>
+                     <Button Classes="Nudge" Command="{Binding NudgeForwardCommand}" Content="1 beat later" ToolTip.Tip="Move the mix-out one beat later"/>
                 </StackPanel>
             </Grid>
 
             <!-- Track B (Incoming) — same size/zoom/marker treatment as Track A above. -->
             <Grid Grid.Row="5" RowDefinitions="Auto,Auto,Auto">
                 <Grid Grid.Row="0">
-                     <Rectangle Width="2" HorizontalAlignment="Center" Fill="#33FFFFFF"/>
+                     <Rectangle Width="2" HorizontalAlignment="Center" Fill="{StaticResource BrushBorder0}"/>
 
                      <controls:WaveformControl
                         WaveformData="{Binding WaveformDataB}"
@@ -298,17 +295,17 @@
                         AddCueAtCommand="{Binding AddCueToIncomingInCueForgeCommand}"
                         SetDropAtCommand="{Binding IncomingEditor.SetDropAtCommand}"
                         Height="130"
-                        Foreground="#00D7FF"
+                        Foreground="{StaticResource BrushInfo}"
                         Background="Transparent"
-                        PlayheadBrush="#9BAAB8"/>
+                        PlayheadBrush="{StaticResource BrushText1}"/>
 
-                     <TextBlock Text="INCOMING" Foreground="#00D7FF" Opacity="0.7" FontSize="10" FontWeight="Bold" LetterSpacing="1"
+                     <TextBlock Text="INCOMING" Foreground="{StaticResource BrushInfo}" Opacity="0.7" FontSize="10" FontWeight="Bold" LetterSpacing="1"
                                 Margin="6" HorizontalAlignment="Right" VerticalAlignment="Top"/>
 
                      <Button Command="{Binding OpenIncomingInCueForgeCommand}" Background="Transparent" BorderThickness="0" Padding="0"
                              Margin="6" HorizontalAlignment="Right" VerticalAlignment="Bottom"
                              ToolTip.Tip="Open this track in Cue Forge (full cue editor with the main player)">
-                         <TextBlock Text="🎯 Open in Cue Forge" FontSize="9" Foreground="#9BD7CA"/>
+                         <TextBlock Text="Open in Cue Forge" FontSize="10" Foreground="{StaticResource BrushAccent}"/>
                      </Button>
                 </Grid>
 
@@ -357,21 +354,21 @@
                 <Button Grid.Column="0" Classes="PreviewAction" Command="{Binding PlayCommand}" IsVisible="{Binding !IsPlaying}" Margin="0,0,5,0">
                     <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
                         <PathIcon Data="{StaticResource play_regular}" Width="13" Height="13"/>
-                        <TextBlock Text="PREVIEW"/>
+                        <TextBlock Text="Preview"/>
                     </StackPanel>
                 </Button>
                 <Button Grid.Column="0" Classes="PreviewAction" Command="{Binding PauseCommand}" IsVisible="{Binding IsPlaying}" Margin="0,0,5,0">
                     <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
                         <PathIcon Data="{StaticResource pause_regular}" Width="13" Height="13"/>
-                        <TextBlock Text="PAUSE"/>
+                        <TextBlock Text="Stop"/>
                     </StackPanel>
                 </Button>
 
-                <Button Grid.Column="1" Classes="PreviewAction" Command="{Binding CancelCommand}" Content="DISMISS" Margin="5,0,0,0"/>
+                <Button Grid.Column="1" Classes="PreviewAction" Command="{Binding CancelCommand}" Content="Close" Margin="5,0,0,0"/>
             </Grid>
 
             <!-- Vertical Alignment Rail Overlay (Global) -->
-            <Rectangle Grid.Row="3" Grid.RowSpan="3" Width="1" HorizontalAlignment="Center" Fill="#88FFFFFF" IsHitTestVisible="False"/>
+            <Rectangle Grid.Row="3" Grid.RowSpan="3" Width="1" HorizontalAlignment="Center" Fill="{StaticResource BrushBorder2}" IsHitTestVisible="False"/>
 
         </Grid>
     </Border>

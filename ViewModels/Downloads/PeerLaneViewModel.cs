@@ -41,10 +41,6 @@ public class PeerLaneViewModel : ReactiveObject, IDisposable
 
     public string TrackCountDisplay => TrackCount == 1 ? "1 track" : $"{TrackCount} tracks";
 
-    /// <summary>Accent color shifts from green (fast/sole provider) to amber (many-peer spread).</summary>
-    public string LaneAccentColor => TotalSpeed > 2_097_152 ? "#1DB954"
-        : TotalSpeed > 524_288 ? "#4EC9B0"
-        : "#888888";
 
     public PeerLaneViewModel(IGroup<UnifiedTrackViewModel, string, string> group)
     {
@@ -67,7 +63,6 @@ public class PeerLaneViewModel : ReactiveObject, IDisposable
                 this.RaisePropertyChanged(nameof(SpeedDisplay));
                 this.RaisePropertyChanged(nameof(TrackCount));
                 this.RaisePropertyChanged(nameof(TrackCountDisplay));
-                this.RaisePropertyChanged(nameof(LaneAccentColor));
             })
             .DisposeWith(_cleanUp);
     }
