@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -97,8 +98,9 @@ public sealed class StemWaveformViewModel : ReactiveObject
                 row.IsLoading    = false;
             });
         }
-        catch
+        catch (Exception ex)
         {
+            Serilog.Log.Warning(ex, "Stem waveform: failed to render {Path}", filePath);
             await Dispatcher.UIThread.InvokeAsync(() => row.IsLoading = false);
         }
     }

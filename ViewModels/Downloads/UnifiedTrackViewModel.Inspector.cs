@@ -48,6 +48,12 @@ public partial class UnifiedTrackViewModel
 
     public bool IsSpectralGenuine => HasSpectralVerdict && Model.Integrity == SLSKDONET.Data.IntegrityLevel.Gold;
     public bool IsSpectralSuspect => HasSpectralVerdict && Model.Integrity == SLSKDONET.Data.IntegrityLevel.Suspicious;
+    /// <summary>Suspect, but a high-bitrate (≥ 320 kbps-like) transcode: warning tier.</summary>
+    public bool IsSpectralHqTranscode => IsSpectralSuspect && IsHighBitrateTranscode;
+    /// <summary>Suspect and a low/medium-bitrate transcode: error tier.</summary>
+    public bool IsSpectralFake => IsSpectralSuspect && !IsHighBitrateTranscode;
+    /// <summary>The Re-queue action only applies to tracks that are failed or still waiting.</summary>
+    public bool CanRequeueFromForensics => IsFailed || IsWaiting;
 
     private void RaiseInspectorPropertiesChanged()
     {

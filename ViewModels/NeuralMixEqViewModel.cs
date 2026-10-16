@@ -108,6 +108,9 @@ public sealed class NeuralMixEqViewModel : ReactiveObject
 
     public ReadOnlyCollection<StemEqViewModel> AllBands { get; }
 
+    /// <summary>Flattens every band of every stem (bound by the view's "Reset all" button).</summary>
+    public ReactiveCommand<System.Reactive.Unit, System.Reactive.Unit> ResetAllCommand { get; }
+
     public NeuralMixEqViewModel()
     {
         // Placeholder source: flat silence until real stem WAV is loaded
@@ -130,6 +133,8 @@ public sealed class NeuralMixEqViewModel : ReactiveObject
 
         AllBands = new ReadOnlyCollection<StemEqViewModel>(
             new[] { VocalsEq, DrumsEq, BassEq, OtherEq });
+
+        ResetAllCommand = ReactiveCommand.Create(ResetAll);
     }
 
     /// <summary>Returns the <see cref="NeuralMixEqSampleProvider"/> for the given stem.</summary>

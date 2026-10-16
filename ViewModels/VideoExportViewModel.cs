@@ -182,8 +182,11 @@ public sealed class VideoExportViewModel : ReactiveObject, IDisposable
     public async Task StartExportAsync(IReadOnlyList<VisualFrame> frames)
     {
         string? error = Validate();
+        if (error is null && frames.Count == 0)
+            error = "Nothing to render: no visual frames were supplied for this export.";
         if (error is not null)
         {
+            // Never report "Export complete" for an empty render.
             ErrorMessage = error;
             return;
         }

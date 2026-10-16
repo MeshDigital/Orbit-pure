@@ -1,13 +1,98 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SLSKDONET.ViewModels"
         x:Class="SLSKDONET.Views.Avalonia.Dialogs.SuggestedFlowImpactDialog"
-        Title="Suggested Flow Impact"
-        Width="720"
-        Height="520"
-        MinWidth="640"
-        MinHeight="420"
+        x:DataType="vm:SuggestedFlowImpactViewModel"
+        x:CompileBindings="True"
+        Title="Suggested flow impact"
+        Width="720" Height="520"
+        MinWidth="640" MinHeight="420"
         WindowStartupLocation="CenterOwner"
         CanResize="True"
-        SystemDecorations="Full">
-  <Grid Name="RootGrid" />
+        SystemDecorations="Full"
+        Background="{StaticResource BrushBg2}">
+
+    <!-- Layout: title + summary · STYLE COUNTS (current / proposed / delta, mono) |
+         AFFECTED TRANSITIONS (scrolling list) · Close. Was built in code-behind with raw hex. -->
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="24">
+
+        <TextBlock Grid.Row="0" Classes="h2" Text="Suggested flow impact"/>
+
+        <StackPanel Grid.Row="1" Spacing="4" Margin="0,8,0,16">
+            <TextBlock Classes="body" Text="{Binding SummaryText}" TextWrapping="Wrap"/>
+            <TextBlock Classes="mono muted" Text="{Binding AverageTransitionScoreDisplay}"
+                       IsVisible="{Binding AverageTransitionScoreDisplay, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+        </StackPanel>
+
+        <Grid Grid.Row="2" ColumnDefinitions="11*,16,12*">
+
+            <!-- Style counts -->
+            <Border Grid.Column="0" Classes="card" Padding="16,12" VerticalAlignment="Top">
+                <StackPanel Spacing="8">
+                    <Grid ColumnDefinitions="*,56,56,56">
+                        <TextBlock Classes="section" Text="STYLE"/>
+                        <TextBlock Grid.Column="1" Classes="section" Text="NOW" HorizontalAlignment="Right"/>
+                        <TextBlock Grid.Column="2" Classes="section" Text="NEW" HorizontalAlignment="Right"/>
+                        <TextBlock Grid.Column="3" Classes="section" Text="Δ" HorizontalAlignment="Right"/>
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding Rows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SuggestedFlowImpactRowViewModel">
+                                <Grid ColumnDefinitions="*,56,56,56" MinHeight="24">
+                                    <TextBlock Classes="body-sm" Text="{Binding StyleLabel}" VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="1" Classes="mono muted" Text="{Binding CurrentCount}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="2" Classes="mono" Text="{Binding ProposedCount}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="3" Classes="mono accent" Text="{Binding DeltaDisplay}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Classes="caption" Text="No style changes." IsVisible="{Binding !Rows.Count}"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Affected transitions -->
+            <Border Grid.Column="2" Classes="card" Padding="16,12">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Classes="section" Text="AFFECTED TRANSITIONS" Margin="0,0,0,8"/>
+                    <Panel>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding AffectedTransitions}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Spacing="8"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:SuggestedFlowAffectedTransitionViewModel">
+                                        <Border Classes="inset" Padding="12,8">
+                                            <StackPanel Spacing="2">
+                                                <TextBlock Classes="body-sm" FontWeight="SemiBold" Text="{Binding EdgeLabel}"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Classes="caption accent" Text="{Binding StyleChangeLabel}"/>
+                                                <TextBlock Classes="caption" Text="{Binding Reason}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                        <StackPanel Classes="empty-state" IsVisible="{Binding !AffectedTransitions.Count}">
+                            <PathIcon Data="{StaticResource icon_mix}"/>
+                            <TextBlock Classes="h3" Text="No transitions change"/>
+                            <TextBlock Classes="caption" Text="Applying this suggestion keeps every transition style."/>
+                        </StackPanel>
+                    </Panel>
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Classes="primary" Content="Close" Click="OnCloseClick"/>
+        </StackPanel>
+    </Grid>
 </Window>
