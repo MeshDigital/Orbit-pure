@@ -107,8 +107,8 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject, IDisposable
     public string TransitionStyleReason { get => _transitionStyleReason; set => this.RaiseAndSetIfChanged(ref _transitionStyleReason, value); }
     public bool AddToProjectOnBridgeInsert { get => _addToProjectOnBridgeInsert; set => this.RaiseAndSetIfChanged(ref _addToProjectOnBridgeInsert, value); }
     public string AddActionLabel => IsBridgeBetweenCandidate
-        ? (IsInsertConfirmArmed ? "✓" : "Insert")
-        : "+";
+        ? (IsInsertConfirmArmed ? "Confirm" : "Insert")
+        : "Add";
     public string AddActionToolTip => IsBridgeBetweenCandidate
         ? (IsInsertConfirmArmed ? "Click again to confirm insertion between selected tracks" : "Insert this bridge candidate between selected tracks")
         : "Add to project/playlist";
