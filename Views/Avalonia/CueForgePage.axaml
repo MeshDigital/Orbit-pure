@@ -160,15 +160,15 @@
                             <TextBlock Text="Back to mix"/>
                         </StackPanel>
                     </Button>
-                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding HasUncommittedChanges}">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding Session.IsDirty}">
                         <Ellipse Classes="status-dot warning"/>
                         <TextBlock Classes="caption" Text="Unsaved changes"/>
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding IsSaved}">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding Session.IsSaved}">
                         <PathIcon Data="{StaticResource icon_check}" Width="12" Height="12" Foreground="{StaticResource BrushText2}"/>
                         <TextBlock Classes="caption" Text="Saved"/>
                     </StackPanel>
-                    <Button Classes="primary small" Command="{Binding CommitChangesCommand}" ToolTip.Tip="Save cues to the library (Ctrl+S)">
+                    <Button Classes="primary small" Command="{Binding Session.SaveCommand}" ToolTip.Tip="Save cues to the library (Ctrl+S)">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <PathIcon Data="{StaticResource cf_save}" Width="14" Height="14"/>
                             <TextBlock Text="Save"/>
@@ -214,14 +214,14 @@
 
                 <!-- Place -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                    <Button Classes="ghost small" Command="{Binding AddCueAtPlayheadCommand}"
+                    <Button Classes="ghost small" Command="{Binding Session.AddCueAtPlayheadCommand}"
                             ToolTip.Tip="Add a cue at the playhead, snapped when Snap is on (A). Takes the next free pad.">
                         <StackPanel Orientation="Horizontal" Spacing="4">
                             <PathIcon Data="{StaticResource icon_add}" Width="12" Height="12"/>
                             <TextBlock Text="Cue"/>
                         </StackPanel>
                     </Button>
-                    <Button Classes="ghost small" Command="{Binding SetDropAtPlayheadCommand}"
+                    <Button Classes="ghost small" Command="{Binding Session.SetDropAtPlayheadCommand}"
                             ToolTip.Tip="Mark a drop at the playhead (D; Shift+1 / Shift+2 force Drop 1 / Drop 2). Snapped to the bar; build-in cues, pads and [OUT] are placed for you and the auto cues are removed.">
                         <StackPanel Orientation="Horizontal" Spacing="4">
                             <PathIcon Data="{StaticResource icon_target}" Width="12" Height="12"/>
@@ -242,14 +242,14 @@
 
                 <!-- Grid + view -->
                 <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <ToggleButton Classes="chip" IsChecked="{Binding SnapToGrid}" ToolTip.Tip="Snap new and dragged cues to the beat grid (hold Shift while dragging to place freely)">
+                    <ToggleButton Classes="chip" IsChecked="{Binding Session.SnapToGrid}" ToolTip.Tip="Snap new and dragged cues to the beat grid (hold Shift while dragging to place freely)">
                         <StackPanel Orientation="Horizontal" Spacing="4">
                             <PathIcon Data="{StaticResource cf_magnet}" Width="12" Height="12"/>
                             <TextBlock Text="Snap"/>
                         </StackPanel>
                     </ToggleButton>
-                    <ComboBox Classes="small" Width="96" ItemsSource="{x:Static vm:CueForgeViewModel.SnapResolutions}"
-                              SelectedItem="{Binding SnapResolution}" IsEnabled="{Binding SnapToGrid}" ToolTip.Tip="Snap resolution"/>
+                    <ComboBox Classes="small" Width="96" ItemsSource="{x:Static vm:CueEditorSession.SnapResolutions}"
+                              SelectedItem="{Binding Session.SnapResolution}" IsEnabled="{Binding Session.SnapToGrid}" ToolTip.Tip="Snap resolution"/>
                     <Button Classes="icon small" Command="{Binding ZoomOutCommand}" ToolTip.Tip="Zoom out (minus, or mouse wheel on the waveform)">
                         <PathIcon Data="{StaticResource ws_zoom_out_regular}" Width="14" Height="14"/>
                     </Button>
@@ -268,10 +268,10 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                    <Button Classes="icon small" Command="{Binding UndoCommand}" ToolTip.Tip="Undo (Ctrl+Z)">
+                    <Button Classes="icon small" Command="{Binding Session.UndoCommand}" ToolTip.Tip="Undo (Ctrl+Z)">
                         <PathIcon Data="{StaticResource arrow_counterclockwise_regular}" Width="14" Height="14"/>
                     </Button>
-                    <Button Classes="icon small" Command="{Binding RedoCommand}" ToolTip.Tip="Redo (Ctrl+Y)">
+                    <Button Classes="icon small" Command="{Binding Session.RedoCommand}" ToolTip.Tip="Redo (Ctrl+Y)">
                         <PathIcon Data="{StaticResource ws_redo_regular}" Width="14" Height="14"/>
                     </Button>
                     <Button Classes="icon small" ToolTip.Tip="More: cue template, revert, shortcuts">
@@ -280,16 +280,16 @@
                             <Flyout Placement="BottomEdgeAlignedRight">
                                 <StackPanel Width="280" Spacing="8">
                                     <TextBlock Classes="section" Text="DROP CUE TEMPLATE"/>
-                                    <ComboBox ItemsSource="{x:Static vm:CueForgeViewModel.DropCountdownModes}" SelectedItem="{Binding DropCountdownMode}"
+                                    <ComboBox ItemsSource="{x:Static vm:CueEditorSession.DropCountdownModes}" SelectedItem="{Binding Session.DropCountdownMode}"
                                               HorizontalAlignment="Stretch"
                                               ToolTip.Tip="Build-in cues placed before every drop: DnB / Bass −16 −8, Long Blend / House −32 −16, Quick Mix / Hip-Hop −8 −4, Custom, or Auto (picked from the genre). Also used by auto-generate."/>
-                                    <TextBox Text="{Binding CustomCountdownBars}" IsVisible="{Binding IsCustomTemplate}"
+                                    <TextBox Text="{Binding Session.CustomCountdownBars}" IsVisible="{Binding Session.IsCustomTemplate}"
                                              Watermark="Bars before the drop, e.g. 32,16,8"/>
                                     <TextBlock Classes="caption" TextWrapping="Wrap"
                                                Text="App-wide: also used by the Flow Builder cue editor and auto-generate."/>
                                     <Border Classes="divider" Margin="0,4"/>
                                     <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                            Command="{Binding DiscardChangesCommand}" Content="Revert to saved cues…"/>
+                                            Command="{Binding Session.RevertCommand}" Content="Revert to saved cues…"/>
                                     <Border Classes="divider" Margin="0,4"/>
                                     <TextBlock Classes="section" Text="SHORTCUTS"/>
                                     <TextBlock Classes="caption" TextWrapping="Wrap" LineHeight="18"
@@ -320,7 +320,7 @@
                     ToolTip.Tip="Overview: click or drag to jump">
                 <ctrl:CueForgeOverviewControl
                     WaveformLow="{Binding WaveformLow}" WaveformMid="{Binding WaveformMid}" WaveformHigh="{Binding WaveformHigh}"
-                    Cues="{Binding WorkingCues}" Revision="{Binding CueRevision}"
+                    Cues="{Binding Session.Cues}" Revision="{Binding Session.CueRevision}"
                     CurrentPlayPosition="{Binding CurrentPlayPosition}" TrackDuration="{Binding TrackDuration}"
                     ZoomLevel="{Binding WaveformZoom}" ScrollOffset="{Binding WaveformScroll, Mode=TwoWay}"
                     SeekCommand="{Binding SeekPlayheadCommand}"/>
@@ -331,16 +331,16 @@
                 <Panel>
                     <ctrl:CueForgeWaveformControl x:Name="Waveform"
                         Background="{StaticResource BrushBg0}"
-                        Cues="{Binding WorkingCues}"
-                        Revision="{Binding CueRevision}"
+                        Cues="{Binding Session.Cues}"
+                        Revision="{Binding Session.CueRevision}"
                         PhraseSegments="{Binding PhraseSegments}"
                         CurrentPlayPosition="{Binding CurrentPlayPosition}"
                         Bpm="{Binding Bpm}"
                         GridBpm="{Binding GridBpm}"
                         GridOffset="{Binding GridOffset}"
                         TrackDuration="{Binding TrackDuration}"
-                        SnapToGrid="{Binding SnapToGrid}"
-                        SnapBeats="{Binding SnapBeats}"
+                        SnapToGrid="{Binding Session.SnapToGrid}"
+                        SnapBeats="{Binding Session.SnapBeats}"
                         WaveformLow="{Binding WaveformLow}"
                         WaveformMid="{Binding WaveformMid}"
                         WaveformHigh="{Binding WaveformHigh}"
@@ -351,10 +351,10 @@
                         ZoomLevel="{Binding WaveformZoom, Mode=TwoWay}"
                         ScrollOffset="{Binding WaveformScroll, Mode=TwoWay}"
                         SeekCommand="{Binding SeekPlayheadCommand}"
-                        SelectedCue="{Binding SelectedCue}"
-                        SelectCueCommand="{Binding SelectCueCommand}"
-                        CueDragStartedCommand="{Binding CueDragStartedCommand}"
-                        CueUpdatedCommand="{Binding CueUpdatedCommand}"/>
+                        SelectedCue="{Binding Session.SelectedCue}"
+                        SelectCueCommand="{Binding Session.SelectCueCommand}"
+                        CueDragStartedCommand="{Binding Session.CueDragStartedCommand}"
+                        CueUpdatedCommand="{Binding Session.CueUpdatedCommand}"/>
 
                     <StackPanel Classes="empty-state" IsVisible="{Binding IsWaveformLoading}" IsHitTestVisible="False">
                         <PathIcon Data="{StaticResource icon_waves}"/>
@@ -385,42 +385,42 @@
                         <StackPanel DockPanel.Dock="Bottom" Margin="12,0,12,12" Spacing="8">
                             <Grid ColumnDefinitions="*,Auto">
                                 <TextBlock Classes="section" Text="LOOP" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" Classes="caption mono" Text="{Binding ActiveLoopDisplay}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Classes="caption mono" Text="{Binding Session.ActiveLoopDisplay}" VerticalAlignment="Center"/>
                             </Grid>
                             <StackPanel Orientation="Horizontal" Spacing="4">
-                                <Button Classes="secondary small" Content="In" Command="{Binding SetLoopInCommand}" ToolTip.Tip="Loop in at the playhead (I)"/>
-                                <Button Classes="secondary small" Content="Out" Command="{Binding SetLoopOutCommand}" ToolTip.Tip="Loop out at the playhead (O)"/>
+                                <Button Classes="secondary small" Content="In" Command="{Binding Session.SetLoopInCommand}" ToolTip.Tip="Loop in at the playhead (I)"/>
+                                <Button Classes="secondary small" Content="Out" Command="{Binding Session.SetLoopOutCommand}" ToolTip.Tip="Loop out at the playhead (O)"/>
                                 <Border Classes="divider vertical" Height="16" Margin="4,0"/>
-                                <Button Classes="ghost small" Content="1" CommandParameter="1" Command="{Binding SetQuickLoopCommand}" ToolTip.Tip="1-bar loop from the selected cue or playhead (resizes a selected loop)"/>
-                                <Button Classes="ghost small" Content="2" CommandParameter="2" Command="{Binding SetQuickLoopCommand}" ToolTip.Tip="2-bar loop"/>
-                                <Button Classes="ghost small" Content="4" CommandParameter="4" Command="{Binding SetQuickLoopCommand}" ToolTip.Tip="4-bar loop"/>
-                                <Button Classes="ghost small" Content="8" CommandParameter="8" Command="{Binding SetQuickLoopCommand}" ToolTip.Tip="8-bar loop"/>
-                                <Button Classes="ghost small" Content="16" CommandParameter="16" Command="{Binding SetQuickLoopCommand}" ToolTip.Tip="16-bar loop"/>
+                                <Button Classes="ghost small" Content="1" CommandParameter="1" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="1-bar loop from the selected cue or playhead (resizes a selected loop)"/>
+                                <Button Classes="ghost small" Content="2" CommandParameter="2" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="2-bar loop"/>
+                                <Button Classes="ghost small" Content="4" CommandParameter="4" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="4-bar loop"/>
+                                <Button Classes="ghost small" Content="8" CommandParameter="8" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="8-bar loop"/>
+                                <Button Classes="ghost small" Content="16" CommandParameter="16" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="16-bar loop"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="4">
-                                <Button Classes="ghost small" Content="½" Command="{Binding LoopHalfCommand}" ToolTip.Tip="Halve the loop"/>
-                                <Button Classes="ghost small" Content="×2" Command="{Binding LoopDoubleCommand}" ToolTip.Tip="Double the loop"/>
-                                <ToggleButton Classes="chip" IsChecked="{Binding IsAuditioningLoop, Mode=TwoWay}" IsEnabled="{Binding HasActiveLoop}"
+                                <Button Classes="ghost small" Content="½" Command="{Binding Session.LoopHalfCommand}" ToolTip.Tip="Halve the loop"/>
+                                <Button Classes="ghost small" Content="×2" Command="{Binding Session.LoopDoubleCommand}" ToolTip.Tip="Double the loop"/>
+                                <ToggleButton Classes="chip" IsChecked="{Binding IsAuditioningLoop, Mode=TwoWay}" IsEnabled="{Binding Session.HasActiveLoop}"
                                               ToolTip.Tip="Play the loop over and over">
                                     <StackPanel Orientation="Horizontal" Spacing="4">
                                         <PathIcon Data="{StaticResource cf_loop}" Width="12" Height="12"/>
                                         <TextBlock Text="Preview"/>
                                     </StackPanel>
                                 </ToggleButton>
-                                <Button Classes="icon small danger" Command="{Binding ClearLoopCommand}" ToolTip.Tip="Delete the loop">
+                                <Button Classes="icon small danger" Command="{Binding Session.ClearLoopCommand}" ToolTip.Tip="Delete the loop">
                                     <PathIcon Data="{StaticResource cf_delete}" Width="14" Height="14"/>
                                 </Button>
                             </StackPanel>
                         </StackPanel>
 
-                        <ItemsControl x:Name="PadGrid" ItemsSource="{Binding HotCuePads}" Margin="12,8,8,4">
+                        <ItemsControl x:Name="PadGrid" ItemsSource="{Binding Session.HotCuePads}" Margin="12,8,8,4">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate><UniformGrid Columns="4" Rows="2"/></ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:HotCuePadInfo">
                                     <Button Classes="pad" Classes.empty="{Binding !IsAssigned}" Classes.selected="{Binding IsSelected}"
-                                            Command="{ReflectionBinding #Root.DataContext.TriggerPadCommand}" CommandParameter="{Binding}"
+                                            Command="{ReflectionBinding #Root.DataContext.Session.TriggerPadCommand}" CommandParameter="{Binding}"
                                             ToolTip.Tip="{Binding ToolTip}" ContextRequested="OnPadContextRequested">
                                         <Grid RowDefinitions="4,*">
                                             <Border Grid.Row="0" CornerRadius="6,6,0,0" IsVisible="{Binding IsAssigned}"
@@ -449,7 +449,7 @@
                         <Border DockPanel.Dock="Top" Classes="panel-header">
                             <Grid ColumnDefinitions="*,Auto">
                                 <TextBlock Classes="section" Text="CUES" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" Classes="caption mono" Text="{Binding CueCountDisplay}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Classes="caption mono" Text="{Binding Session.CueCountDisplay}" VerticalAlignment="Center"/>
                             </Grid>
                         </Border>
                         <Grid DockPanel.Dock="Top" ColumnDefinitions="12,64,80,*,88,56,32" Margin="8,4">
@@ -460,15 +460,15 @@
                             <TextBlock Grid.Column="5" Classes="caption" Text="Conf." ToolTip.Tip="Detection confidence for auto-generated cues"/>
                         </Grid>
                         <Panel>
-                            <StackPanel Classes="empty-state" IsVisible="{Binding !WorkingCues.Count}">
+                            <StackPanel Classes="empty-state" IsVisible="{Binding !Session.Cues.Count}">
                                 <PathIcon Data="{StaticResource icon_target}"/>
                                 <TextBlock Classes="h3" Text="No cues yet"/>
                                 <TextBlock Classes="caption" TextWrapping="Wrap" MaxWidth="320" TextAlignment="Center"
                                            Text="Click the waveform to move the playhead, then press A for a cue or D for a drop. Or let Auto-generate place structural cues."/>
                             </StackPanel>
-                            <ListBox x:Name="CueList" Classes="cues" ItemsSource="{Binding WorkingCues}"
-                                     SelectedItem="{Binding SelectedCue, Mode=TwoWay}" SelectionMode="Single"
-                                     Background="Transparent" IsVisible="{Binding !!WorkingCues.Count}">
+                            <ListBox x:Name="CueList" Classes="cues" ItemsSource="{Binding Session.Cues}"
+                                     SelectedItem="{Binding Session.SelectedCue, Mode=TwoWay}" SelectionMode="Single"
+                                     Background="Transparent" IsVisible="{Binding !!Session.Cues.Count}">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate x:DataType="models:OrbitCue">
                                         <Grid ColumnDefinitions="12,64,80,*,88,56,32" Background="Transparent"
@@ -502,36 +502,36 @@
                             <TextBlock Classes="section" Text="SELECTED CUE" VerticalAlignment="Center"/>
                         </Border>
                         <Panel>
-                            <StackPanel Classes="empty-state" IsVisible="{Binding !HasSelectedCue}">
+                            <StackPanel Classes="empty-state" IsVisible="{Binding !Session.HasSelectedCue}">
                                 <TextBlock Classes="caption" TextWrapping="Wrap" MaxWidth="240" TextAlignment="Center"
                                            Text="Select a cue on the waveform, in the list or on a pad to rename, recolour, move or delete it."/>
                             </StackPanel>
-                            <ScrollViewer IsVisible="{Binding HasSelectedCue}" VerticalScrollBarVisibility="Auto">
+                            <ScrollViewer IsVisible="{Binding Session.HasSelectedCue}" VerticalScrollBarVisibility="Auto">
                                 <StackPanel Margin="12,8,12,12" Spacing="12">
                                     <StackPanel Spacing="4">
-                                        <TextBox x:Name="CueNameBox" Text="{Binding EditingCueName}" Watermark="Cue name"
+                                        <TextBox x:Name="CueNameBox" Text="{Binding Session.EditingCueName}" Watermark="Cue name"
                                                  ToolTip.Tip="Enter to rename, Esc to cancel (F2)"/>
-                                        <TextBlock Classes="mono" Text="{Binding SelectedCuePositionDisplay}"/>
+                                        <TextBlock Classes="mono" Text="{Binding Session.SelectedCuePositionDisplay}"/>
                                         <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <TextBlock Classes="caption" Text="{Binding SelectedCueDetail}" VerticalAlignment="Center"/>
-                                            <ProgressBar Classes="meter" Width="48" Minimum="0" Maximum="1" Value="{Binding SelectedCueConfidence}"
-                                                         IsVisible="{Binding IsSelectedCueAuto}" VerticalAlignment="Center"/>
+                                            <TextBlock Classes="caption" Text="{Binding Session.SelectedCueDetail}" VerticalAlignment="Center"/>
+                                            <ProgressBar Classes="meter" Width="48" Minimum="0" Maximum="1" Value="{Binding Session.SelectedCueConfidence}"
+                                                         IsVisible="{Binding Session.IsSelectedCueAuto}" VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </StackPanel>
 
                                     <StackPanel Spacing="4">
                                         <TextBlock Classes="section" Text="MOVE"/>
                                         <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <Button Classes="secondary small" Content="−1 bar" Command="{Binding NudgeCueCommand}" CommandParameter="-bar" ToolTip.Tip="1 bar earlier (Shift+Left)"/>
-                                            <Button Classes="secondary small" Content="−1 beat" Command="{Binding NudgeCueCommand}" CommandParameter="-beat" ToolTip.Tip="1 beat earlier (Left); Ctrl+Left = 10 ms"/>
-                                            <Button Classes="secondary small" Content="+1 beat" Command="{Binding NudgeCueCommand}" CommandParameter="+beat" ToolTip.Tip="1 beat later (Right); Ctrl+Right = 10 ms"/>
-                                            <Button Classes="secondary small" Content="+1 bar" Command="{Binding NudgeCueCommand}" CommandParameter="+bar" ToolTip.Tip="1 bar later (Shift+Right)"/>
+                                            <Button Classes="secondary small" Content="−1 bar" Command="{Binding Session.NudgeCueCommand}" CommandParameter="-bar" ToolTip.Tip="1 bar earlier (Shift+Left)"/>
+                                            <Button Classes="secondary small" Content="−1 beat" Command="{Binding Session.NudgeCueCommand}" CommandParameter="-beat" ToolTip.Tip="1 beat earlier (Left); Ctrl+Left = 10 ms"/>
+                                            <Button Classes="secondary small" Content="+1 beat" Command="{Binding Session.NudgeCueCommand}" CommandParameter="+beat" ToolTip.Tip="1 beat later (Right); Ctrl+Right = 10 ms"/>
+                                            <Button Classes="secondary small" Content="+1 bar" Command="{Binding Session.NudgeCueCommand}" CommandParameter="+bar" ToolTip.Tip="1 bar later (Shift+Right)"/>
                                         </StackPanel>
                                     </StackPanel>
 
                                     <StackPanel Spacing="4">
                                         <TextBlock Classes="section" Text="COLOUR"/>
-                                        <ItemsControl ItemsSource="{x:Static vm:CueForgeViewModel.CueColorSwatches}">
+                                        <ItemsControl ItemsSource="{x:Static vm:CueEditorSession.CueColorSwatches}">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
                                             </ItemsControl.ItemsPanel>
@@ -539,18 +539,18 @@
                                                 <DataTemplate x:DataType="x:String">
                                                     <Button Classes="swatch" Background="{Binding Converter={StaticResource HexBrush}}"
                                                             ToolTip.Tip="{Binding}"
-                                                            Command="{ReflectionBinding #Root.DataContext.SetSelectedCueColorCommand}"
+                                                            Command="{ReflectionBinding #Root.DataContext.Session.SetSelectedCueColorCommand}"
                                                             CommandParameter="{Binding}"/>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
                                     </StackPanel>
 
-                                    <Grid ColumnDefinitions="*,8,*" IsVisible="{Binding IsSelectedCuePoint}">
+                                    <Grid ColumnDefinitions="*,8,*" IsVisible="{Binding Session.IsSelectedCuePoint}">
                                         <StackPanel Grid.Column="0" Spacing="4">
                                             <TextBlock Classes="section" Text="PAD"/>
-                                            <ComboBox Classes="small" HorizontalAlignment="Stretch" ItemsSource="{x:Static vm:CueForgeViewModel.CueSlotOptions}"
-                                                      SelectedItem="{Binding SelectedCueSlot}">
+                                            <ComboBox Classes="small" HorizontalAlignment="Stretch" ItemsSource="{x:Static vm:CueEditorSession.CueSlotOptions}"
+                                                      SelectedItem="{Binding Session.SelectedCueSlot}">
                                                 <ComboBox.ItemTemplate>
                                                     <DataTemplate x:DataType="vm:CueSlotOption">
                                                         <TextBlock Text="{Binding Label}"/>
@@ -560,32 +560,32 @@
                                         </StackPanel>
                                         <StackPanel Grid.Column="2" Spacing="4">
                                             <TextBlock Classes="section" Text="ROLE"/>
-                                            <ComboBox Classes="small" HorizontalAlignment="Stretch" ItemsSource="{x:Static vm:CueForgeViewModel.CueRoleOptions}"
-                                                      SelectedItem="{Binding SelectedCueRole}"
+                                            <ComboBox Classes="small" HorizontalAlignment="Stretch" ItemsSource="{x:Static vm:CueEditorSession.CueRoleOptions}"
+                                                      SelectedItem="{Binding Session.SelectedCueRole}"
                                                       ToolTip.Tip="Structural role. Choosing Drop places a drop with its build-in cues."/>
                                         </StackPanel>
                                     </Grid>
 
-                                    <StackPanel Spacing="4" IsVisible="{Binding IsSelectedCueLoop}">
+                                    <StackPanel Spacing="4" IsVisible="{Binding Session.IsSelectedCueLoop}">
                                         <TextBlock Classes="section" Text="LOOP LENGTH (BARS)"/>
                                         <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <Button Classes="secondary small" Content="1" CommandParameter="1" Command="{Binding SetQuickLoopCommand}"/>
-                                            <Button Classes="secondary small" Content="2" CommandParameter="2" Command="{Binding SetQuickLoopCommand}"/>
-                                            <Button Classes="secondary small" Content="4" CommandParameter="4" Command="{Binding SetQuickLoopCommand}"/>
-                                            <Button Classes="secondary small" Content="8" CommandParameter="8" Command="{Binding SetQuickLoopCommand}"/>
-                                            <Button Classes="secondary small" Content="16" CommandParameter="16" Command="{Binding SetQuickLoopCommand}"/>
+                                            <Button Classes="secondary small" Content="1" CommandParameter="1" Command="{Binding Session.SetQuickLoopCommand}"/>
+                                            <Button Classes="secondary small" Content="2" CommandParameter="2" Command="{Binding Session.SetQuickLoopCommand}"/>
+                                            <Button Classes="secondary small" Content="4" CommandParameter="4" Command="{Binding Session.SetQuickLoopCommand}"/>
+                                            <Button Classes="secondary small" Content="8" CommandParameter="8" Command="{Binding Session.SetQuickLoopCommand}"/>
+                                            <Button Classes="secondary small" Content="16" CommandParameter="16" Command="{Binding Session.SetQuickLoopCommand}"/>
                                         </StackPanel>
                                     </StackPanel>
 
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <Button Classes="secondary small" Command="{Binding AuditionCueCommand}" CommandParameter="{Binding SelectedCue}"
+                                        <Button Classes="secondary small" Command="{Binding AuditionCueCommand}" CommandParameter="{Binding Session.SelectedCue}"
                                                 ToolTip.Tip="Play from 4 beats before the cue (Enter)">
                                             <StackPanel Orientation="Horizontal" Spacing="4">
                                                 <PathIcon Data="{StaticResource icon_play}" Width="12" Height="12"/>
                                                 <TextBlock Text="Audition"/>
                                             </StackPanel>
                                         </Button>
-                                        <Button Classes="danger small" Command="{Binding DeleteSelectedCueCommand}" ToolTip.Tip="Delete (Delete key). Ctrl+Z brings it back.">
+                                        <Button Classes="danger small" Command="{Binding Session.DeleteSelectedCueCommand}" ToolTip.Tip="Delete (Delete key). Ctrl+Z brings it back.">
                                             <StackPanel Orientation="Horizontal" Spacing="4">
                                                 <PathIcon Data="{StaticResource cf_delete}" Width="12" Height="12"/>
                                                 <TextBlock Text="Delete"/>
@@ -612,7 +612,7 @@
         <!-- ═══ Status line ═══ -->
         <Border Grid.Row="3" Padding="24,4" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,1,0,0" MinHeight="28">
             <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Classes="caption" Classes.error="{Binding HasCommitError}" Text="{Binding LastCommitMessage}"
+                <TextBlock Classes="caption" Classes.error="{Binding Session.IsStatusError}" Text="{Binding Session.StatusText}"
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                 <TextBlock Grid.Column="1" Classes="caption muted" VerticalAlignment="Center" IsVisible="{Binding HasTrackLoaded}"
                            Text="Click waveform: playhead · drag marker: move · wheel: zoom · Shift+wheel: scroll · More (…) lists all shortcuts"/>

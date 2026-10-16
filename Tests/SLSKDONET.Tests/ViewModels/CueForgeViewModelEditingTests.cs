@@ -149,19 +149,19 @@ public class CueForgeViewModelEditingTests
         var (vm, _, _) = await CreateLoaded();
         await vm.SeekPlayheadCommand.Execute(1.3);
 
-        await vm.AddCueAtPlayheadCommand.Execute();
+        await vm.Session.AddCueAtPlayheadCommand.Execute();
 
-        var cue = Assert.Single(vm.WorkingCues);
+        var cue = Assert.Single(vm.Session.Cues);
         Assert.Equal(1.5, cue.Timestamp, 6);
         Assert.Equal(0, cue.SlotIndex);
-        Assert.Same(cue, vm.SelectedCue);
-        Assert.Same(cue, vm.HotCuePads[0].Cue);
-        Assert.True(vm.HasUncommittedChanges);
+        Assert.Same(cue, vm.Session.SelectedCue);
+        Assert.Same(cue, vm.Session.HotCuePads[0].Cue);
+        Assert.True(vm.Session.IsDirty);
 
-        vm.SnapToGrid = false;
+        vm.Session.SnapToGrid = false;
         await vm.SeekPlayheadCommand.Execute(7.3);
-        await vm.AddCueAtPlayheadCommand.Execute();
-        Assert.Contains(vm.WorkingCues, c => Math.Abs(c.Timestamp - 7.3) < 1e-9 && c.SlotIndex == 1);
+        await vm.Session.AddCueAtPlayheadCommand.Execute();
+        Assert.Contains(vm.Session.Cues, c => Math.Abs(c.Timestamp - 7.3) < 1e-9 && c.SlotIndex == 1);
     }
 
     [Fact]
@@ -170,14 +170,14 @@ public class CueForgeViewModelEditingTests
         var (vm, _, player) = await CreateLoaded();
         await vm.SeekPlayheadCommand.Execute(10.1);
 
-        await vm.TriggerPadCommand.Execute(vm.HotCuePads[5]);
-        var cue = Assert.Single(vm.WorkingCues);
+        await vm.Session.TriggerPadCommand.Execute(vm.Session.HotCuePads[5]);
+        var cue = Assert.Single(vm.Session.Cues);
         Assert.Equal(5, cue.SlotIndex);
         Assert.Equal(10.0, cue.Timestamp, 6);
         Assert.Empty(player.Loads);
 
         await vm.SeekPlayheadCommand.Execute(100.0);
-        await vm.TriggerPadCommand.Execute(vm.HotCuePads[5]);
+        await vm.Session.TriggerPadCommand.Execute(vm.Session.HotCuePads[5]);
         Assert.True(player.IsPlaying);
         Assert.Equal(10.0 / 300.0, player.Seeks.Last(), 6);
     }
@@ -186,13 +186,13 @@ public class CueForgeViewModelEditingTests
     public async Task ClearPad_KeepsCueAsMemoryCue()
     {
         var (vm, _, _) = await CreateLoaded();
-        await vm.TriggerPadCommand.Execute(vm.HotCuePads[2]);
-        var cue = vm.WorkingCues.Single();
+        await vm.Session.TriggerPadCommand.Execute(vm.Session.HotCuePads[2]);
+        var cue = vm.Session.Cues.Single();
 
-        await vm.ClearPadCommand.Execute(vm.HotCuePads[2]);
+        await vm.Session.ClearPadCommand.Execute(vm.Session.HotCuePads[2]);
 
         Assert.Equal(-1, cue.SlotIndex);
-        Assert.Null(vm.HotCuePads[2].Cue);
+        Assert.Null(vm.Session.HotCuePads[2].Cue);
         Assert.Equal("Memory", cue.KindDisplay);
     }
 
@@ -200,22 +200,22 @@ public class CueForgeViewModelEditingTests
     public async Task Rename_CommitsOnEnter_RevertsOnEscape_AndIsUndoable()
     {
         var (vm, _, _) = await CreateLoaded();
-        await vm.AddCueAtPlayheadCommand.Execute();
-        var cue = vm.WorkingCues.Single();
+        await vm.Session.AddCueAtPlayheadCommand.Execute();
+        var cue = vm.Session.Cues.Single();
         string original = cue.Name;
 
-        vm.EditingCueName = "Scratch";
-        vm.RevertCueName();
+        vm.Session.EditingCueName = "Scratch";
+        vm.Session.RevertCueName();
         Assert.Equal(original, cue.Name);
-        Assert.Equal(original, vm.EditingCueName);
+        Assert.Equal(original, vm.Session.EditingCueName);
 
-        vm.EditingCueName = "  Vocal in  ";
-        vm.CommitCueName();
+        vm.Session.EditingCueName = "  Vocal in  ";
+        vm.Session.CommitCueName();
         Assert.Equal("Vocal in", cue.Name);
-        Assert.Equal("Vocal in", vm.HotCuePads[0].CueName);
+        Assert.Equal("Vocal in", vm.Session.HotCuePads[0].CueName);
 
-        await vm.UndoCommand.Execute();
-        Assert.Equal(original, vm.WorkingCues.Single().Name);
+        await vm.Session.UndoCommand.Execute();
+        Assert.Equal(original, vm.Session.Cues.Single().Name);
     }
 
     [Fact]
@@ -223,14 +223,14 @@ public class CueForgeViewModelEditingTests
     {
         var (vm, _, _) = await CreateLoaded();
         await vm.SeekPlayheadCommand.Execute(20.0);
-        await vm.AddCueAtPlayheadCommand.Execute();
+        await vm.Session.AddCueAtPlayheadCommand.Execute();
 
-        await vm.DeleteSelectedCueCommand.Execute();
-        Assert.Empty(vm.WorkingCues);
-        Assert.Null(vm.SelectedCue);
+        await vm.Session.DeleteSelectedCueCommand.Execute();
+        Assert.Empty(vm.Session.Cues);
+        Assert.Null(vm.Session.SelectedCue);
 
-        await vm.UndoCommand.Execute();
-        Assert.Equal(20.0, Assert.Single(vm.WorkingCues).Timestamp, 6);
+        await vm.Session.UndoCommand.Execute();
+        Assert.Equal(20.0, Assert.Single(vm.Session.Cues).Timestamp, 6);
     }
 
     [Fact]
@@ -238,13 +238,13 @@ public class CueForgeViewModelEditingTests
     {
         var (vm, store, _) = await CreateLoaded();
         await vm.SeekPlayheadCommand.Execute(4.0);
-        await vm.TriggerPadCommand.Execute(vm.HotCuePads[3]);
-        await vm.SetSelectedCueColorCommand.Execute("#305AFF");
-        await vm.SetQuickLoopCommand.Execute("4");
+        await vm.Session.TriggerPadCommand.Execute(vm.Session.HotCuePads[3]);
+        await vm.Session.SetSelectedCueColorCommand.Execute("#305AFF");
+        await vm.Session.SetQuickLoopCommand.Execute("4");
 
-        await vm.CommitChangesCommand.Execute();
-        Assert.False(vm.HasUncommittedChanges);
-        Assert.True(vm.IsSaved);
+        await vm.Session.SaveCommand.Execute();
+        Assert.False(vm.Session.IsDirty);
+        Assert.True(vm.Session.IsSaved);
 
         var rows = store.Rows[Hash];
         Assert.Equal(2, rows.Count);
@@ -260,9 +260,9 @@ public class CueForgeViewModelEditingTests
         var (fresh, _, _) = Create();
         var reloaded = new CueForgeViewModel(store, new FakeTransport(), new AppConfig(), ui: a => { a(); return Task.CompletedTask; });
         await reloaded.LoadTrackAsync(Hash, "Title", "Artist");
-        Assert.Equal(2, reloaded.WorkingCues.Count);
-        Assert.Equal(3, reloaded.HotCuePads[3].Cue?.SlotIndex);
-        Assert.False(reloaded.HasUncommittedChanges);
+        Assert.Equal(2, reloaded.Session.Cues.Count);
+        Assert.Equal(3, reloaded.Session.HotCuePads[3].Cue?.SlotIndex);
+        Assert.False(reloaded.Session.IsDirty);
         fresh.Dispose();
         reloaded.Dispose();
     }
@@ -271,32 +271,32 @@ public class CueForgeViewModelEditingTests
     public async Task SwitchingTracks_AutoSavesTheDirtyDraft()
     {
         var (vm, store, _) = await CreateLoaded();
-        await vm.AddCueAtPlayheadCommand.Execute();
+        await vm.Session.AddCueAtPlayheadCommand.Execute();
 
         await vm.LoadTrackAsync("track-b", "Other", "Artist");
 
         Assert.Single(store.Rows[Hash]);
         Assert.Equal("track-b", vm.TrackHash);
-        Assert.Empty(vm.WorkingCues);
+        Assert.Empty(vm.Session.Cues);
     }
 
     [Fact]
     public async Task SetSelectedCueSlot_AcceptsBoxedIntFromICommand_AndMovesPriorHolder()
     {
         var (vm, _, _) = await CreateLoaded();
-        await vm.TriggerPadCommand.Execute(vm.HotCuePads[0]);
-        var first = vm.WorkingCues.Single();
+        await vm.Session.TriggerPadCommand.Execute(vm.Session.HotCuePads[0]);
+        var first = vm.Session.Cues.Single();
         await vm.SeekPlayheadCommand.Execute(50.0);
-        await vm.TriggerPadCommand.Execute(vm.HotCuePads[1]);
-        var second = vm.WorkingCues.Single(c => c != first);
-        vm.SelectedCue = second;
+        await vm.Session.TriggerPadCommand.Execute(vm.Session.HotCuePads[1]);
+        var second = vm.Session.Cues.Single(c => c != first);
+        vm.Session.SelectedCue = second;
 
-        ICommand command = vm.SetSelectedCueSlotCommand;
+        ICommand command = vm.Session.SetSelectedCueSlotCommand;
         command.Execute((object)0);
 
         Assert.Equal(0, second.SlotIndex);
         Assert.Equal(-1, first.SlotIndex);
-        Assert.Same(second, vm.HotCuePads[0].Cue);
+        Assert.Same(second, vm.Session.HotCuePads[0].Cue);
     }
 
     [Fact]
@@ -304,19 +304,19 @@ public class CueForgeViewModelEditingTests
     {
         var (vm, _, _) = await CreateLoaded();
         await vm.SeekPlayheadCommand.Execute(8.1);
-        await vm.SetLoopInCommand.Execute();
+        await vm.Session.SetLoopInCommand.Execute();
         await vm.SeekPlayheadCommand.Execute(15.9);
-        await vm.SetLoopOutCommand.Execute();
+        await vm.Session.SetLoopOutCommand.Execute();
 
-        var loop = Assert.Single(vm.WorkingCues);
+        var loop = Assert.Single(vm.Session.Cues);
         Assert.True(loop.IsLoop);
         Assert.Equal(8.0, loop.Timestamp, 6);
         Assert.Equal(16.0, loop.LoopEndSeconds, 6);
         Assert.Equal("4 bars", loop.Name);
 
-        await vm.LoopHalfCommand.Execute();
+        await vm.Session.LoopHalfCommand.Execute();
         Assert.Equal(12.0, loop.LoopEndSeconds, 6);
-        await vm.LoopDoubleCommand.Execute();
+        await vm.Session.LoopDoubleCommand.Execute();
         Assert.Equal(16.0, loop.LoopEndSeconds, 6);
     }
 
@@ -325,11 +325,11 @@ public class CueForgeViewModelEditingTests
     {
         var (vm, _, player) = await CreateLoaded();
         await vm.SeekPlayheadCommand.Execute(10.0);
-        await vm.AddCueAtPlayheadCommand.Execute();
+        await vm.Session.AddCueAtPlayheadCommand.Execute();
 
-        await vm.NudgeCueCommand.Execute("+beat");
+        await vm.Session.NudgeCueCommand.Execute("+beat");
 
-        Assert.Equal(10.5, vm.SelectedCue!.Timestamp, 6);
+        Assert.Equal(10.5, vm.Session.SelectedCue!.Timestamp, 6);
         Assert.True(player.IsPlaying);
         Assert.Equal(10.5 / 300.0, player.Seeks.Last(), 6);
     }

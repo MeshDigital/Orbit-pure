@@ -4,9 +4,9 @@ using SLSKDONET.Models;
 namespace SLSKDONET.ViewModels;
 
 /// <summary>
-/// One hot cue pad (slots A–H) in Cue Forge. The eight instances live for the view model's
-/// lifetime and are updated in place from WorkingCues, so the pad buttons (and any open context
-/// menu) aren't torn down and rebuilt on every cue edit.
+/// One hot cue pad (slots A–H) of a <see cref="CueEditorSession"/> (Cue Forge and the Flow Builder
+/// deck strips). The eight instances live for the session's lifetime and are updated in place from
+/// its cues, so the pad buttons (and any open context menu) aren't torn down and rebuilt on every edit.
 /// </summary>
 public sealed class HotCuePadInfo : ReactiveObject
 {

@@ -29,8 +29,10 @@ public class XamlCommandParameterTypeTests
         var path = FindRepoFile(Path.Combine("Views", "Avalonia", "Controls", "TrackCueEditorStrip.axaml"));
         var xaml = File.ReadAllText(path);
 
-        Assert.DoesNotMatch(new Regex(@"SetSelectedLoopBarsCommand\}""\s+CommandParameter=""\d+"""), xaml);
-        Assert.Equal(4, Regex.Matches(xaml, @"<x:Int32>\d+</x:Int32>").Count);
+        // The strip's loop buttons (1/2/4/8/16 bars) pass typed integers, and no button passes a
+        // numeric string literal to any command.
+        Assert.DoesNotMatch(new Regex(@"CommandParameter=""-?\d+"""), xaml);
+        Assert.Equal(5, Regex.Matches(xaml, @"<x:Int32>\d+</x:Int32>").Count);
     }
 
     private static string FindRepoFile(string relative)

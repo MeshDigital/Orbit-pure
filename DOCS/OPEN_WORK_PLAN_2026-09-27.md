@@ -401,14 +401,20 @@ These come first. Most are small, and every one is a visible bug.
   anything changed. **S**
 - [ ] **C10. Non-Windows token storage** returns null (`WindowsTokenStorage.cs:120`). This only matters
   if cross-platform support is a goal. **M**
-- [~] **C11. Mostly done 2026-09-27/28** (commits `aa5ab68`, `addfea7`, `8084d38`).
-  - `TrackCueEditorViewModel` is a per-deck cue editor that auditions through the preview player
-    instead of the main player.
-  - It's hosted in the Flow Builder transition editor, with Edit cues mode, auto-save,
-    Previous/Next and the set mini strip.
-  - Drop countdowns and arrow-key fine-tuning work in both editors.
-  - *Still open:* move Cue Forge itself onto `TrackCueEditorViewModel`, so there's one editor
-    everywhere (the user chose "later").
+- [x] **C11. Done 2026-10-17** (earlier steps 2026-09-27/28: `aa5ab68`, `addfea7`, `8084d38`).
+  - One engine: `ViewModels/CueEditing/CueEditorSession` (per instance, no player or view
+    dependency) owns a track's cues, selection, rename, colour, role, pads A–H, loops, drops with
+    build-in cues, snapping, undo/redo, dirty state and save/revert through `ICuePointService`.
+    It plays through an injected `ICueAudition`.
+  - Cue Forge (`CueForgeViewModel`) and each Flow Builder / Mix deck (`TrackCueEditorViewModel`)
+    are hosts on it. Cue Forge borrows the shared player; a deck auditions through the preview
+    player. The deck strip gained pads, 1–16-bar memory loops, rename, Rekordbox swatches and
+    drag-snap-undo.
+  - Two editors on one track: `CueSessionRegistry` reloads clean peers when one saves, and warns
+    dirty ones (Save keeps yours, Revert loads theirs). Flow Builder saves its decks before
+    "Open in Cue Forge". The registry also holds the shared drop cue template.
+  - Not merged: the Workstation deck's own `Workstation/CueEditorViewModel` (hot cues while
+    playing). A candidate for the same session later.
 
   *Original:* **Cue Forge inside Flow Builder.** This needs a per-instance editor ViewModel with its own
   audition deck. The `CueForgeViewModel` singleton currently takes over the shared player

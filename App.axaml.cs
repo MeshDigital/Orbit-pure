@@ -831,6 +831,9 @@ public partial class App : Application
 
         services.AddSingleton<SLSKDONET.ViewModels.Workstation.WorkstationViewModel>();
         services.AddSingleton<SLSKDONET.ViewModels.Workstation.CueEditorViewModel>();
+        // Links every cue editor session (Cue Forge, Flow Builder / Mix decks) and holds the shared
+        // drop cue template. No I/O in its constructor, so it can't poison the container.
+        services.AddSingleton<SLSKDONET.ViewModels.CueSessionRegistry>();
         services.AddSingleton<SLSKDONET.ViewModels.CueForgeViewModel>();
         services.AddSingleton<SLSKDONET.Engine.Analysis.AnalysisPipeline>(sp =>
             new SLSKDONET.Engine.Analysis.AnalysisPipeline(
