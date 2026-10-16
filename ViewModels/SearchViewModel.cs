@@ -1461,6 +1461,15 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     }
 
 
+    /// <summary>Routes a command's failures to the status bar + a toast, tied to this VM's lifetime.</summary>
+    private void ObserveCommandFailures(IObservable<Exception> thrownExceptions)
+    {
+        thrownExceptions
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(ReportCommandFailure)
+            .DisposeWith(_disposables);
+    }
+
     public void Dispose()
     {
         Dispose(true);

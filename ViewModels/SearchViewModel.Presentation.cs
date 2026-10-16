@@ -31,7 +31,7 @@ public enum SearchSortColumn
 /// sorting, the idle / searching / no-results / error states, the session download summary and
 /// the small row actions. Kept apart from the search pipeline in SearchViewModel.cs.
 /// </summary>
-public partial class SearchViewModel : IDisposable
+public partial class SearchViewModel
 {
     private const int MaxRecentSearches = 8;
     private const int PeerSearchTimeoutMs = 15000;
@@ -308,7 +308,7 @@ public partial class SearchViewModel : IDisposable
             IsPeerScope = true;
             await ExecuteUnifiedSearchAsync();
         });
-        searchPeerCmd.ThrownExceptions.Subscribe(ReportCommandFailure).DisposeWith(_disposables);
+        ObserveCommandFailures(searchPeerCmd.ThrownExceptions);
         SearchPeerCommand = searchPeerCmd;
 
         var copyPathCmd = ReactiveCommand.CreateFromTask(async () =>
@@ -324,7 +324,7 @@ public partial class SearchViewModel : IDisposable
             await _clipboardService.SetTextAsync(text);
             StatusText = selected.Count == 1 ? "Copied file path." : $"Copied {selected.Count} file paths.";
         });
-        copyPathCmd.ThrownExceptions.Subscribe(ReportCommandFailure).DisposeWith(_disposables);
+        ObserveCommandFailures(copyPathCmd.ThrownExceptions);
         CopyPathCommand = copyPathCmd;
 
         OpenDownloadsCommand = ReactiveCommand.Create(() => _navigationService?.NavigateTo(PageType.Projects));
