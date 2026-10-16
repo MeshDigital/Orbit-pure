@@ -33,7 +33,6 @@ public record TrackProgressChangedEvent(string TrackGlobalId, double Progress, l
 public record TrackMetadataUpdatedEvent(string TrackGlobalId);
 public record ForceStartRequestEvent(string TrackGlobalId);
 public record TrackQueuePositionUpdatedEvent(string TrackGlobalId, int Position, string PeerUsername);
-public record BumpToTopRequestEvent(string TrackGlobalId); // [NEW] Overhaul Phase
 
 // Transfer lifecycle events
 public record TransferProgressEvent(string Filename, string Username, long BytesTransferred, long TotalBytes);

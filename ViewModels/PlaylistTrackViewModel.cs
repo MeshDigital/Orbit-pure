@@ -179,6 +179,9 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
                 OnPropertyChanged(nameof(IntegrityBadge));
                 OnPropertyChanged(nameof(IntegrityColor));
                 OnPropertyChanged(nameof(IntegrityTooltip));
+                OnPropertyChanged(nameof(ForensicVerdictText));
+                OnPropertyChanged(nameof(IsIntegrityTrusted));
+                OnPropertyChanged(nameof(IsIntegritySuspicious));
             }
         }
     }
@@ -213,6 +216,30 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
         Data.IntegrityLevel.Suspicious => "Suspicious (Upscale/Transcode)",
         _ => "Not Analyzed"
     };
+
+    /// <summary>Track-list forensics column: green dot for Gold/Verified, amber for Suspicious.</summary>
+    public bool IsIntegrityTrusted => Model.Integrity is Data.IntegrityLevel.Gold or Data.IntegrityLevel.Verified;
+    public bool IsIntegritySuspicious => Model.Integrity == Data.IntegrityLevel.Suspicious;
+
+    /// <summary>Track-list quality badge. Same thresholds as TrackRepository.ApplyQualityTierFilter
+    /// (and the "Lossless / 320k / Low" filter chips): FLAC/WAV is lossless, under 320 kbps is low.</summary>
+    public bool IsTierLossless
+    {
+        get
+        {
+            var fmt = Model.Format?.ToLowerInvariant();
+            return fmt == "flac" || fmt == "wav";
+        }
+    }
+    public bool IsTierLowBitrate => !IsTierLossless && Model.Bitrate is > 0 and < 320;
+    public string QualityBadgeText
+    {
+        get
+        {
+            var fmt = string.IsNullOrWhiteSpace(Model.Format) ? "—" : Model.Format.ToUpperInvariant();
+            return !IsTierLossless && Model.Bitrate is > 0 ? $"{fmt} {Model.Bitrate}" : fmt;
+        }
+    }
 
     // 2026 Forensic UX: compact quality pill + detailed hover HUD.
     public string ForensicVerdictText => Model.Integrity switch
@@ -1198,7 +1225,6 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
     public ICommand RetryCommand { get; }
     public ICommand HardRetryCommand { get; }
     public ICommand ForceStartCommand { get; }
-    public ICommand BumpToTopCommand { get; }
     public ICommand PauseCommand { get; }
     public ICommand ResumeCommand { get; }
     public ICommand CancelCommand { get; }
@@ -1288,7 +1314,6 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
         RetryCommand = new RelayCommand(FindNewVersion, () => CanHardRetry);
         HardRetryCommand = RetryCommand;
         ForceStartCommand = new RelayCommand(ForceStart, () => CanForceStart);
-        BumpToTopCommand = new RelayCommand(BumpToTop, () => CanBumpToTop);
         ToggleLikeCommand = new RelayCommand(() => IsLiked = !IsLiked);
         FilterByKeyCommand = new RelayCommand<string>(key => _eventBus?.Publish(new SetCamelotKeyFilterEvent(key)));
         RequestRemoveCommand = new RelayCommand(() => _eventBus?.Publish(new Models.RemoveTrackFromInspectorEvent(GlobalId)));
@@ -1994,6 +2019,9 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
                 OnPropertyChanged(nameof(FileSizeBytes));
                 OnPropertyChanged(nameof(LoudnessDisplay));
                 OnPropertyChanged(nameof(Format));
+                OnPropertyChanged(nameof(QualityBadgeText));
+                OnPropertyChanged(nameof(IsTierLossless));
+                OnPropertyChanged(nameof(IsTierLowBitrate));
             }
         }
         catch (Exception ex)
@@ -2175,13 +2203,9 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
         }
     }
 
-    public void BumpToTop()
-    {
-        if (CanBumpToTop && _eventBus != null)
-        {
-            _eventBus.Publish(new Models.BumpToTopRequestEvent(GlobalId));
-        }
-    }
-
+    /// <summary>True while the track is still waiting to download, so it can be moved to the front of
+    /// the download queue (Library "Download next" → TrackOperationsViewModel.DownloadNextCommand →
+    /// DownloadManager.BumpTrackToTop). This used to back a BumpToTopCommand that published a
+    /// BumpToTopRequestEvent nobody subscribed to, and no view bound it.</summary>
     public bool CanBumpToTop => (State == PlaylistTrackState.Pending || State == PlaylistTrackState.Paused || State == PlaylistTrackState.Stalled) && !IsCompleted;
 }

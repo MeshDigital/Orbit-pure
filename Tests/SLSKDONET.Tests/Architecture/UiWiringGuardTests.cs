@@ -28,7 +28,7 @@ public class UiWiringGuardTests
     /// (property or [RelayCommand]-generated FooCommand). These are dead buttons.
     /// RATCHET: may only go down.
     /// </summary>
-    private const int MaxMissingBoundCommands = 3;
+    private const int MaxMissingBoundCommands = 0;
 
     /// <summary>
     /// Empty (or comment-only) catch blocks in ViewModels/, Services/ and Engine/.
@@ -312,8 +312,9 @@ public class UiWiringGuardTests
         }
 
         // Property: public ICommand Foo { get; } / public ReactiveCommand<...> Foo => ...
+        // The accessor brace may also sit on the next line (public ICommand? Foo\n    { get => ... }).
         private static readonly Regex PropertyDeclRegex = new(
-            @"\b(?:public|internal|protected)\b[^;\n{=()]*?\b(\w+)[ \t]*(?:\{|=>)", RegexOptions.Compiled);
+            @"\b(?:public|internal|protected)\b[^;\n{=()]*?\b(\w+)[ \t]*(?:\r?\n[ \t]*)?(?:\{|=>)", RegexOptions.Compiled);
 
         // CommunityToolkit [RelayCommand] on DoFoo / DoFooAsync / OnDoFoo → DoFooCommand
         private static readonly Regex RelayCommandRegex = new(

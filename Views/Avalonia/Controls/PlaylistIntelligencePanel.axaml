@@ -2,692 +2,380 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
              xmlns:vmCore="clr-namespace:SLSKDONET.ViewModels"
              xmlns:vmLib="clr-namespace:SLSKDONET.ViewModels.Library"
              mc:Ignorable="d"
              x:Class="SLSKDONET.Views.Avalonia.Controls.PlaylistIntelligencePanel"
-             x:DataType="vmCore:PlaylistIntelligenceViewModel">
+             x:DataType="vmCore:PlaylistIntelligenceViewModel"
+             x:CompileBindings="True">
     <UserControl.Resources>
-        <!-- Shared row for Top Artists / Top Genres / Key Distribution / BPM Brackets -->
-        <DataTemplate x:Key="StatBarRowTemplate" DataType="vmCore:PlaylistStatBar">
-            <Grid ColumnDefinitions="80,*,28" Margin="0,0,0,6">
-                <TextBlock Grid.Column="0" Text="{Binding Label}" FontSize="10" Foreground="#CCCCCC"
+        <!-- Shared bar row for Top artists / Top genres / Key distribution / BPM brackets -->
+        <DataTemplate x:Key="StatBarRowTemplate" x:DataType="vmCore:PlaylistStatBar">
+            <Grid ColumnDefinitions="88,*,32" Height="20">
+                <TextBlock Grid.Column="0" Classes="body-sm" Text="{Binding Label}" Foreground="{StaticResource BrushText0}"
                            TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                <ProgressBar Grid.Column="1" Value="{Binding Percent}" Maximum="100" Height="6"
-                             Foreground="#4EC9B0" Background="#1E2626" BorderThickness="0" CornerRadius="3"
+                <ProgressBar Grid.Column="1" Classes="meter" Value="{Binding Percent}" Maximum="100"
                              Margin="8,0" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="2" Text="{Binding CountDisplay}" FontSize="10" Foreground="#888888"
+                <TextBlock Grid.Column="2" Classes="mono" Text="{Binding CountDisplay}"
                            HorizontalAlignment="Right" VerticalAlignment="Center"/>
             </Grid>
         </DataTemplate>
     </UserControl.Resources>
-    <Border Background="#1A1B1C">
+
+    <UserControl.Styles>
+        <!-- Section cards inside the panel -->
+        <Style Selector="Border.intel-card">
+            <Setter Property="Background" Value="{StaticResource BrushBg1}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder0}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusLg}"/>
+            <Setter Property="Padding" Value="12"/>
+        </Style>
+        <!-- Candidate rows: clickable, full width -->
+        <Style Selector="Button.candidate">
+            <Setter Property="Background" Value="{StaticResource BrushBg1}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder0}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        </Style>
+        <Style Selector="Button.candidate:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource BrushBg3}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder2}"/>
+        </Style>
+        <Style Selector="TextBlock.tag">
+            <Setter Property="FontSize" Value="{StaticResource TextSizeCaption}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushAccent}"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+    </UserControl.Styles>
+
     <Grid RowDefinitions="Auto,Auto,Auto,*">
-        <Border Grid.Row="0" Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1" Padding="12,10">
-            <StackPanel Spacing="2">
-                <TextBlock Text="Playlist Intelligence"
-                           FontSize="13"
-                           FontWeight="SemiBold"
-                           Foreground="White"/>
-                <TextBlock Text="{Binding LibraryIntelligencePlaylistTitle}"
-                           FontSize="10"
-                           Foreground="#888"
-                           TextWrapping="Wrap"/>
+        <Border Grid.Row="0" Classes="panel-header" Padding="12,8">
+            <StackPanel Spacing="0" VerticalAlignment="Center">
+                <TextBlock Classes="h3" Text="Playlist Intelligence"/>
+                <TextBlock Classes="caption" Text="{Binding LibraryIntelligencePlaylistTitle}" TextWrapping="Wrap"/>
             </StackPanel>
         </Border>
 
-        <Border Grid.Row="1" Background="#1A1A1B" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1" Padding="12,8"
+        <Border Grid.Row="1" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1" Padding="12,8"
                 IsVisible="{Binding !IsLibraryIntelligenceOverviewActive}">
-            <StackPanel Spacing="4">
-                <TextBlock Text="Insert Context" FontSize="10" FontWeight="SemiBold" Foreground="#888"/>
-                <TextBlock Text="{Binding SmartInsertContextSummary}" FontSize="10" Foreground="#CCC" TextWrapping="Wrap"/>
+            <StackPanel Spacing="2">
+                <TextBlock Classes="section" Text="INSERT CONTEXT"/>
+                <TextBlock Classes="body-sm" Text="{Binding SmartInsertContextSummary}" TextWrapping="Wrap"/>
             </StackPanel>
         </Border>
 
-        <Border Grid.Row="2" Background="#171718" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1" Padding="8,8">
-            <UniformGrid Columns="5">
-                <ToggleButton IsChecked="{Binding IsLibraryIntelligenceOverviewActive, Mode=OneWay}"
-                              Command="{Binding SetLibraryIntelligenceTabCommand}"
-                              CommandParameter="Overview"
-                              FontSize="10"
-                              Padding="6,4"
-                              Margin="2,0"
-                              HorizontalContentAlignment="Center"
-                              Content="Overview"/>
-                <ToggleButton IsChecked="{Binding IsLibraryIntelligenceSmartInsertActive, Mode=OneWay}"
-                              Command="{Binding SetLibraryIntelligenceTabCommand}"
-                              CommandParameter="SmartInsert"
-                              FontSize="10"
-                              Padding="6,4"
-                              Margin="2,0"
-                              HorizontalContentAlignment="Center"
-                              Content="Smart Insert"/>
-                <ToggleButton IsChecked="{Binding IsLibraryIntelligenceSuggestNextActive, Mode=OneWay}"
-                              Command="{Binding SetLibraryIntelligenceTabCommand}"
-                              CommandParameter="SuggestNext"
-                              FontSize="10"
-                              Padding="6,4"
-                              Margin="2,0"
-                              HorizontalContentAlignment="Center"
-                              Content="Suggest Next"/>
-                <ToggleButton IsChecked="{Binding IsLibraryIntelligenceUpgradeActive, Mode=OneWay}"
-                              Command="{Binding SetLibraryIntelligenceTabCommand}"
-                              CommandParameter="Upgrade"
-                              FontSize="10"
-                              Padding="6,4"
-                              Margin="2,0"
-                              HorizontalContentAlignment="Center"
-                              Content="Upgrade"/>
-                <ToggleButton IsChecked="{Binding IsLibraryIntelligenceAutomixActive, Mode=OneWay}"
-                              Command="{Binding SetLibraryIntelligenceTabCommand}"
-                              CommandParameter="Automix"
-                              FontSize="10"
-                              Padding="6,4"
-                              Margin="2,0"
-                              HorizontalContentAlignment="Center"
-                              Content="Automix"/>
-            </UniformGrid>
+        <!-- Tabs -->
+        <Border Grid.Row="2" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1" Padding="8">
+            <Border Classes="segmented" HorizontalAlignment="Stretch">
+                <UniformGrid Columns="5">
+                    <ToggleButton Classes="chip" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                  IsChecked="{Binding IsLibraryIntelligenceOverviewActive, Mode=OneWay}"
+                                  Command="{Binding SetLibraryIntelligenceTabCommand}" CommandParameter="Overview" Content="Overview"/>
+                    <ToggleButton Classes="chip" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                  IsChecked="{Binding IsLibraryIntelligenceSmartInsertActive, Mode=OneWay}"
+                                  Command="{Binding SetLibraryIntelligenceTabCommand}" CommandParameter="SmartInsert" Content="Insert"
+                                  ToolTip.Tip="Smart Insert"/>
+                    <ToggleButton Classes="chip" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                  IsChecked="{Binding IsLibraryIntelligenceSuggestNextActive, Mode=OneWay}"
+                                  Command="{Binding SetLibraryIntelligenceTabCommand}" CommandParameter="SuggestNext" Content="Next"
+                                  ToolTip.Tip="Suggest next"/>
+                    <ToggleButton Classes="chip" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                  IsChecked="{Binding IsLibraryIntelligenceUpgradeActive, Mode=OneWay}"
+                                  Command="{Binding SetLibraryIntelligenceTabCommand}" CommandParameter="Upgrade" Content="Upgrade"/>
+                    <ToggleButton Classes="chip" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                  IsChecked="{Binding IsLibraryIntelligenceAutomixActive, Mode=OneWay}"
+                                  Command="{Binding SetLibraryIntelligenceTabCommand}" CommandParameter="Automix" Content="Automix"/>
+                </UniformGrid>
+            </Border>
         </Border>
 
-        <ScrollViewer Grid.Row="3" Padding="12,10">
+        <ScrollViewer Grid.Row="3" Padding="12">
             <Grid>
+                <!-- ═══ Overview ═══ -->
                 <StackPanel IsVisible="{Binding IsLibraryIntelligenceOverviewActive}" Spacing="12">
-                    <StackPanel IsVisible="{Binding !HasOverviewData}" Spacing="4" Margin="0,24,0,0">
-                        <TextBlock Text="No tracks in this playlist yet." FontSize="11" Foreground="#666666"
-                                   HorizontalAlignment="Center"/>
+                    <StackPanel Classes="empty-state" IsVisible="{Binding !HasOverviewData}">
+                        <PathIcon Data="{StaticResource icon_chart}"/>
+                        <TextBlock Classes="h3" Text="No tracks in this playlist yet"/>
+                        <TextBlock Classes="caption" Text="Stats appear once the playlist has tracks." TextAlignment="Center"/>
                     </StackPanel>
 
                     <StackPanel IsVisible="{Binding HasOverviewData}" Spacing="12">
-                        <!-- Headline stats -->
-                        <Border Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="10,8">
-                            <StackPanel Spacing="6">
+                        <Border Classes="intel-card">
+                            <StackPanel Spacing="8">
                                 <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="{Binding OverviewTrackCount, StringFormat='{}{0} tracks'}"
-                                               FontSize="12" FontWeight="SemiBold" Foreground="#CCCCCC"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding OverviewDurationDisplay}"
-                                               FontSize="11" Foreground="#888888"/>
+                                    <TextBlock Grid.Column="0" Classes="mono" Foreground="{StaticResource BrushText0}"
+                                               Text="{Binding OverviewTrackCount, StringFormat='{}{0} tracks'}"/>
+                                    <TextBlock Grid.Column="1" Classes="mono" Text="{Binding OverviewDurationDisplay}"/>
                                 </Grid>
-                                <TextBlock Text="{Binding OverviewBpmRangeDisplay}" FontSize="10" Foreground="#888888"/>
-
-                                <Border Background="#27313A" Height="1"/>
-
+                                <TextBlock Classes="mono" Text="{Binding OverviewBpmRangeDisplay}"/>
+                                <Border Classes="divider"/>
                                 <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="Analysis coverage" FontSize="10" Foreground="#888888" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding OverviewAnalysisCoverageDisplay}" FontSize="10" Foreground="#4EC9B0"/>
+                                    <TextBlock Grid.Column="0" Classes="caption" Text="Analysis coverage" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Classes="mono" Text="{Binding OverviewAnalysisCoverageDisplay}"/>
                                 </Grid>
-                                <ProgressBar Value="{Binding OverviewAnalysisCoveragePercent}" Maximum="100" Height="6"
-                                             Foreground="#4EC9B0" Background="#1E2626" BorderThickness="0" CornerRadius="3"/>
-
-                                <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
-                                    <TextBlock Grid.Column="0" Text="Avg energy" FontSize="10" Foreground="#888888" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding OverviewAvgEnergyDisplay}" FontSize="10" Foreground="#E0A458"/>
+                                <ProgressBar Classes="meter" Value="{Binding OverviewAnalysisCoveragePercent}" Maximum="100"/>
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Classes="caption" Text="Average energy" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Classes="mono" Text="{Binding OverviewAvgEnergyDisplay}"/>
                                 </Grid>
-                                <ProgressBar Value="{Binding OverviewAvgEnergyPercent}" Maximum="100" Height="6"
-                                             Foreground="#E0A458" Background="#26221E" BorderThickness="0" CornerRadius="3"/>
+                                <ProgressBar Classes="meter warning" Value="{Binding OverviewAvgEnergyPercent}" Maximum="100"/>
                             </StackPanel>
                         </Border>
 
-                        <!-- Top Artists -->
-                        <Border IsVisible="{Binding HasOverviewTopArtists}"
-                                Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="10,8">
-                            <StackPanel Spacing="6">
-                                <TextBlock Text="TOP ARTISTS" FontSize="9" FontWeight="Black" Foreground="#666666" LetterSpacing="1"/>
+                        <Border Classes="intel-card" IsVisible="{Binding HasOverviewTopArtists}">
+                            <StackPanel Spacing="8">
+                                <TextBlock Classes="section" Text="TOP ARTISTS"/>
                                 <ItemsControl ItemsSource="{Binding OverviewTopArtists}" ItemTemplate="{StaticResource StatBarRowTemplate}"/>
                             </StackPanel>
                         </Border>
-
-                        <!-- Top Genres -->
-                        <Border IsVisible="{Binding HasOverviewTopGenres}"
-                                Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="10,8">
-                            <StackPanel Spacing="6">
-                                <TextBlock Text="TOP GENRES" FontSize="9" FontWeight="Black" Foreground="#666666" LetterSpacing="1"/>
+                        <Border Classes="intel-card" IsVisible="{Binding HasOverviewTopGenres}">
+                            <StackPanel Spacing="8">
+                                <TextBlock Classes="section" Text="TOP GENRES"/>
                                 <ItemsControl ItemsSource="{Binding OverviewTopGenres}" ItemTemplate="{StaticResource StatBarRowTemplate}"/>
                             </StackPanel>
                         </Border>
-
-                        <!-- BPM Distribution -->
-                        <Border IsVisible="{Binding HasOverviewBpmBrackets}"
-                                Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="10,8">
-                            <StackPanel Spacing="6">
-                                <TextBlock Text="BPM DISTRIBUTION" FontSize="9" FontWeight="Black" Foreground="#666666" LetterSpacing="1"/>
+                        <Border Classes="intel-card" IsVisible="{Binding HasOverviewBpmBrackets}">
+                            <StackPanel Spacing="8">
+                                <TextBlock Classes="section" Text="BPM DISTRIBUTION"/>
                                 <ItemsControl ItemsSource="{Binding OverviewBpmBrackets}" ItemTemplate="{StaticResource StatBarRowTemplate}"/>
                             </StackPanel>
                         </Border>
-
-                        <!-- Key Distribution -->
-                        <Border IsVisible="{Binding HasOverviewKeyDistribution}"
-                                Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="10,8">
-                            <StackPanel Spacing="6">
-                                <TextBlock Text="KEY DISTRIBUTION" FontSize="9" FontWeight="Black" Foreground="#666666" LetterSpacing="1"/>
+                        <Border Classes="intel-card" IsVisible="{Binding HasOverviewKeyDistribution}">
+                            <StackPanel Spacing="8">
+                                <TextBlock Classes="section" Text="KEY DISTRIBUTION"/>
                                 <ItemsControl ItemsSource="{Binding OverviewKeyDistribution}" ItemTemplate="{StaticResource StatBarRowTemplate}"/>
                             </StackPanel>
                         </Border>
                     </StackPanel>
                 </StackPanel>
 
-                <StackPanel IsVisible="{Binding IsLibraryIntelligenceSmartInsertActive}" Spacing="8">
-                    <TextBlock Text="Smart Insert"
-                               FontSize="12"
-                               FontWeight="SemiBold"
-                               Foreground="#CCCCCC"/>
-                    <TextBlock Text="Create bridge recommendations between two playlist tracks with confidence and structure-aware filtering."
-                               FontSize="10"
-                               Foreground="#888888"
-                               TextWrapping="Wrap"/>
-                    <Border Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="10,8">
-                        <StackPanel Spacing="6">
-                            <TextBlock Text="Smart Insert Settings" FontSize="10" FontWeight="SemiBold" Foreground="#888888"/>
+                <!-- ═══ Smart Insert ═══ -->
+                <StackPanel IsVisible="{Binding IsLibraryIntelligenceSmartInsertActive}" Spacing="12">
+                    <TextBlock Classes="caption" TextWrapping="Wrap"
+                               Text="Recommends a bridge track between two playlist tracks, filtered by confidence and song structure."/>
+                    <Border Classes="intel-card">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="section" Text="Smart Insert Settings"/>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <Border Grid.Column="0" Classes="segmented">
+                                    <StackPanel Orientation="Horizontal" Spacing="2">
+                                        <ToggleButton Classes="chip" Content="Strict" IsChecked="{Binding IsSmartInsertStrictPresetActive, Mode=OneWay}"
+                                                      Command="{Binding SetSmartInsertStrictPresetCommand}"/>
+                                        <ToggleButton Classes="chip" Content="Normal" IsChecked="{Binding IsSmartInsertNormalPresetActive, Mode=OneWay}"
+                                                      Command="{Binding SetSmartInsertNormalPresetCommand}"/>
+                                        <ToggleButton Classes="chip" Content="Loose" IsChecked="{Binding IsSmartInsertLoosePresetActive, Mode=OneWay}"
+                                                      Command="{Binding SetSmartInsertLoosePresetCommand}"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
 
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <Grid ColumnDefinitions="Auto,Auto,Auto">
-                                    <Grid Grid.Column="0" RowDefinitions="Auto,Auto">
-                                        <Button Grid.Row="0"
-                                                Content="Strict"
-                                                Command="{Binding SetSmartInsertStrictPresetCommand}"
-                                                Padding="8,3"
-                                                FontSize="10"
-                                                MinWidth="52"/>
-                                        <TextBlock Grid.Row="1"
-                                                   Text="● Active"
-                                                   FontSize="9"
-                                                   Foreground="#4EC9B0"
-                                                   HorizontalAlignment="Center"
-                                                   IsVisible="{Binding IsSmartInsertStrictPresetActive}"/>
-                                    </Grid>
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                                <TextBlock Grid.Column="0" Classes="body-sm" Text="Confidence threshold"/>
+                                <TextBlock Grid.Column="1" Classes="mono" Text="{Binding LibrarySmartInsertMinConfidence, StringFormat='{}≥ {0:F2}'}"
+                                           ToolTip.Tip="{Binding LibrarySmartInsertThresholdPreset}"/>
+                            </Grid>
+                            <Slider Minimum="0.65" Maximum="0.90" TickFrequency="0.01" SmallChange="0.01" LargeChange="0.02"
+                                    Value="{Binding LibrarySmartInsertMinConfidence, Mode=TwoWay}"/>
 
-                                    <Grid Grid.Column="1" RowDefinitions="Auto,Auto" Margin="6,0,0,0">
-                                        <Button Grid.Row="0"
-                                                Content="Normal"
-                                                Command="{Binding SetSmartInsertNormalPresetCommand}"
-                                                Padding="8,3"
-                                                FontSize="10"
-                                                MinWidth="52"/>
-                                        <TextBlock Grid.Row="1"
-                                                   Text="● Active"
-                                                   FontSize="9"
-                                                   Foreground="#4EC9B0"
-                                                   HorizontalAlignment="Center"
-                                                   IsVisible="{Binding IsSmartInsertNormalPresetActive}"/>
-                                    </Grid>
-
-                                    <Grid Grid.Column="2" RowDefinitions="Auto,Auto" Margin="6,0,0,0">
-                                        <Button Grid.Row="0"
-                                                Content="Loose"
-                                                Command="{Binding SetSmartInsertLoosePresetCommand}"
-                                                Padding="8,3"
-                                                FontSize="10"
-                                                MinWidth="52"/>
-                                        <TextBlock Grid.Row="1"
-                                                   Text="● Active"
-                                                   FontSize="9"
-                                                   Foreground="#4EC9B0"
-                                                   HorizontalAlignment="Center"
-                                                   IsVisible="{Binding IsSmartInsertLoosePresetActive}"/>
-                                    </Grid>
-                                </Grid>
-                            </StackPanel>
-
-                            <StackPanel Spacing="3">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="Confidence Threshold" FontSize="10" Foreground="#CCCCCC"/>
-                                    <TextBlock Grid.Column="1"
-                                               Text="{Binding LibrarySmartInsertThresholdPreset, StringFormat='{}({0})'}"
-                                               FontSize="10"
-                                               FontWeight="SemiBold"
-                                               Foreground="#4EC9B0"/>
-                                </Grid>
-                                <Slider Minimum="0.65"
-                                        Maximum="0.90"
-                                        TickFrequency="0.01"
-                                        SmallChange="0.01"
-                                        LargeChange="0.02"
-                                        Value="{Binding LibrarySmartInsertMinConfidence, Mode=TwoWay}"/>
-                                <TextBlock Text="{Binding LibrarySmartInsertMinConfidence, StringFormat='{}Only suggestions scored ≥ {0:F2} are allowed'}"
-                                           FontSize="9"
-                                           Foreground="#666666"
-                                           TextWrapping="Wrap"/>
-                            </StackPanel>
-
-                            <Border Background="#27313A" Height="1"/>
-
-                            <StackPanel Spacing="3">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="Structure Sensitivity" FontSize="10" Foreground="#CCCCCC"/>
-                                    <TextBlock Grid.Column="1"
-                                               Text="{Binding LibrarySmartInsertStructureSensitivity, StringFormat='{}{0}%'}"
-                                               FontSize="10"
-                                               FontWeight="SemiBold"
-                                               Foreground="#4EC9B0"/>
-                                </Grid>
-                                <Slider Minimum="0"
-                                        Maximum="100"
-                                        TickFrequency="5"
-                                        SmallChange="1"
-                                        LargeChange="5"
-                                        Value="{Binding LibrarySmartInsertStructureSensitivity, Mode=TwoWay}"/>
-                                <TextBlock Text="Higher values prioritize intro/drop/breakdown/outro continuity over loose matches."
-                                           FontSize="9"
-                                           Foreground="#666666"
-                                           TextWrapping="Wrap"/>
-                            </StackPanel>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Grid.Column="0" Classes="body-sm" Text="Structure sensitivity"/>
+                                <TextBlock Grid.Column="1" Classes="mono" Text="{Binding LibrarySmartInsertStructureSensitivity, StringFormat='{}{0}%'}"/>
+                            </Grid>
+                            <Slider Minimum="0" Maximum="100" TickFrequency="5" SmallChange="1" LargeChange="5"
+                                    Value="{Binding LibrarySmartInsertStructureSensitivity, Mode=TwoWay}"/>
+                            <TextBlock Classes="caption" TextWrapping="Wrap"
+                                       Text="Higher values favour intro / drop / breakdown / outro continuity over loose matches."/>
                         </StackPanel>
                     </Border>
-                    <Border Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="10,8">
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="From" FontSize="9" Foreground="#888888"/>
-                            <TextBlock Text="{Binding SmartInsertFromLabel}" FontSize="10" Foreground="#CCCCCC" TextWrapping="Wrap"/>
-                            <TextBlock Text="To" FontSize="9" Foreground="#888888" Margin="0,4,0,0"/>
-                            <TextBlock Text="{Binding SmartInsertToLabel}" FontSize="10" Foreground="#CCCCCC" TextWrapping="Wrap"/>
-                        </StackPanel>
+
+                    <Border Classes="intel-card">
+                        <Grid ColumnDefinitions="40,*" RowDefinitions="Auto,Auto" >
+                            <TextBlock Grid.Row="0" Grid.Column="0" Classes="caption" Text="From"/>
+                            <TextBlock Grid.Row="0" Grid.Column="1" Classes="body-sm" Text="{Binding SmartInsertFromLabel}" TextWrapping="Wrap"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Classes="caption" Text="To" Margin="0,4,0,0"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Classes="body-sm" Text="{Binding SmartInsertToLabel}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                        </Grid>
                     </Border>
-                    <Border IsVisible="{Binding IsSmartInsertPreparationHintVisible}"
-                            Background="#1A2530"
-                            BorderBrush="#2E4C63"
-                            BorderThickness="1"
-                            CornerRadius="10"
-                            Padding="8,4">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <Ellipse Width="6" Height="6" Fill="#4EC9B0" VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding SmartInsertPreparationHint}"
-                                       FontSize="9"
-                                       Foreground="#4EC9B0"
-                                       TextWrapping="Wrap"/>
-                        </StackPanel>
-                    </Border>
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Content="Apply Smart Insert"
+
+                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsSmartInsertPreparationHintVisible}">
+                        <Ellipse Classes="status-dot accent"/>
+                        <TextBlock Classes="caption accent" Text="{Binding SmartInsertPreparationHint}" TextWrapping="Wrap"/>
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <Button Classes="primary" Content="Apply Smart Insert" HorizontalAlignment="Left"
                                 Command="{Binding ApplyPreparedSmartInsertCommand}"
-                                IsEnabled="{Binding HasPendingSmartInsertContext}"
-                                Background="#2D4A60"
-                                BorderBrush="#456E8D"
-                                BorderThickness="1"
-                                Foreground="#CCCCCC"
-                                Padding="10,4"
-                                CornerRadius="6"
-                                Cursor="Hand"/>
-                        <TextBlock Text="Prepare from row hover/context first, then apply explicitly."
-                                   VerticalAlignment="Center"
-                                   FontSize="9"
-                                   Foreground="#555555"
-                                   TextWrapping="Wrap"/>
+                                IsEnabled="{Binding HasPendingSmartInsertContext}"/>
+                        <TextBlock Classes="caption" TextWrapping="Wrap"
+                                   Text="Prepare it first from a track row's insert button or context menu, then apply."/>
                     </StackPanel>
                 </StackPanel>
 
+                <!-- ═══ Suggest next ═══ -->
                 <StackPanel IsVisible="{Binding IsLibraryIntelligenceSuggestNextActive}" Spacing="8">
-                    <TextBlock Text="Suggest Next"
-                               FontSize="12"
-                               FontWeight="SemiBold"
-                               Foreground="#CCCCCC"/>
-                    <TextBlock Text="Rank best next-track options from library candidates using harmonic, tempo, and energy continuity."
-                               FontSize="10"
-                               Foreground="#888888"
-                               TextWrapping="Wrap"/>
-                    <Border Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="10,8">
-                        <StackPanel Spacing="6">
-                            <TextBlock Text="{Binding SuggestNextInfoText}"
-                                       FontSize="9"
-                                       Foreground="#888888"
-                                       TextWrapping="Wrap"/>
-
-                            <TextBlock IsVisible="{Binding IsSuggestNextLoading}"
-                                       Text="Scanning transition candidates..."
-                                       FontSize="9"
-                                       Foreground="#4EC9B0"/>
-
-                            <TextBlock IsVisible="{Binding !HasSuggestNextCandidates}"
-                                       Text="No candidates yet."
-                                       FontSize="9"
-                                       Foreground="#555555"/>
-
-                            <ItemsControl IsVisible="{Binding HasSuggestNextCandidates}"
-                                          ItemsSource="{Binding SuggestNextCandidates}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Spacing="4"/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate DataType="vmLib:SuggestNextCandidateViewModel">
-                                        <Border Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="6" Padding="7,5">
-                                                <Button Command="{Binding $parent[UserControl].DataContext.SuggestNextCandidateCommand}"
-                                                    CommandParameter="{Binding}"
-                                                    Background="Transparent"
-                                                    BorderThickness="0"
-                                                    HorizontalContentAlignment="Stretch"
-                                                    Padding="0"
-                                                    Cursor="Hand">
-                                                <StackPanel Spacing="3">
-                                                    <Grid ColumnDefinitions="*,Auto">
-                                                        <TextBlock Grid.Column="0"
-                                                                   Text="{Binding TrackTitle}"
-                                                                   FontSize="10"
-                                                                   FontWeight="SemiBold"
-                                                                   Foreground="#CCCCCC"
-                                                                   TextTrimming="CharacterEllipsis"/>
-                                                        <Border Grid.Column="1"
-                                                                IsVisible="{Binding IsSavedDoubleSuggested}"
-                                                                Background="#1E2C24"
-                                                                BorderBrush="#3A5A4A"
-                                                                BorderThickness="1"
-                                                                CornerRadius="8"
-                                                                Padding="6,1"
-                                                                Margin="6,0,0,0">
-                                                            <StackPanel Orientation="Horizontal" Spacing="3">
-                                                                <Ellipse Width="5" Height="5" Fill="#8BBCA7" VerticalAlignment="Center"/>
-                                                                <TextBlock Text="Saved double" FontSize="8" Foreground="#4EC9B0"/>
-                                                            </StackPanel>
-                                                        </Border>
-                                                    </Grid>
-
-                                                    <TextBlock Text="{Binding ArtistName}"
-                                                               FontSize="9"
-                                                               Foreground="#888888"
-                                                               TextTrimming="CharacterEllipsis"/>
-
-                                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                                        <Border Background="#30353D" CornerRadius="4" Padding="5,1">
-                                                            <StackPanel Orientation="Horizontal" Spacing="2">
-                                                                <TextBlock Text="BASE" FontSize="8" Foreground="#9AA7B6"/>
-                                                                <TextBlock Text="{Binding BaseScoreDisplay}" FontSize="8" Foreground="#CCCCCC"/>
-                                                            </StackPanel>
-                                                        </Border>
-                                                        <Border Background="#233141" CornerRadius="4" Padding="5,1">
-                                                            <StackPanel Orientation="Horizontal" Spacing="2">
-                                                                <TextBlock Text="KEY" FontSize="8" Foreground="#7D93A8"/>
-                                                                <TextBlock Text="{Binding CamelotDisplay}" FontSize="8" Foreground="#B7CCE0"/>
-                                                            </StackPanel>
-                                                        </Border>
-                                                        <Border Background="#233141" CornerRadius="4" Padding="5,1">
-                                                            <StackPanel Orientation="Horizontal" Spacing="2">
-                                                                <TextBlock Text="BPM" FontSize="8" Foreground="#7D93A8"/>
-                                                                <TextBlock Text="{Binding BpmDisplay}" FontSize="8" Foreground="#B7CCE0"/>
-                                                            </StackPanel>
-                                                        </Border>
-                                                        <Border Background="#2A3A2E" CornerRadius="4" Padding="5,1">
-                                                            <StackPanel Orientation="Horizontal" Spacing="2">
-                                                                <TextBlock Text="ENERGY" FontSize="8" Foreground="#7FA58A"/>
-                                                                <TextBlock Text="{Binding EnergyRating}" FontSize="8" Foreground="#B9E2C2"/>
-                                                            </StackPanel>
-                                                        </Border>
-                                                    </StackPanel>
-
-                                                    <TextBlock IsVisible="{Binding HasSuggestionReason}"
-                                                               Text="{Binding SuggestionReason}"
-                                                               FontSize="8"
-                                                               Foreground="#4EC9B0"
-                                                               TextWrapping="Wrap"/>
-                                                </StackPanel>
-                                            </Button>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-
-                <StackPanel IsVisible="{Binding IsLibraryIntelligenceUpgradeActive}" Spacing="8">
-                    <TextBlock Text="Playlist Upgrade"
-                               FontSize="12"
-                               FontWeight="SemiBold"
-                               Foreground="#CCCCCC"/>
-                    <TextBlock Text="Detect weak transitions and propose reorder, replacement, or bridge candidates for stronger flow."
-                               FontSize="10"
-                               Foreground="#888888"
-                               TextWrapping="Wrap"/>
-                    <Border Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="10,8">
-                        <StackPanel Spacing="6">
-                            <TextBlock Text="{Binding PlaylistUpgradeInfoText}"
-                                       FontSize="9"
-                                       Foreground="#888888"
-                                       TextWrapping="Wrap"/>
-
-                            <TextBlock IsVisible="{Binding IsPlaylistUpgradeLoading}"
-                                       Text="Scanning upgrade opportunities..."
-                                       FontSize="9"
-                                       Foreground="#4EC9B0"/>
-
-                            <TextBlock IsVisible="{Binding !HasPlaylistUpgradeCandidates}"
-                                       Text="No upgrade candidates yet."
-                                       FontSize="9"
-                                       Foreground="#555555"/>
-
-                            <ItemsControl IsVisible="{Binding HasPlaylistUpgradeCandidates}"
-                                          ItemsSource="{Binding PlaylistUpgradeCandidates}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Spacing="4"/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate DataType="vmLib:PlaylistUpgradeCandidateViewModel">
-                                        <Border Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="6" Padding="7,5">
-                                                <Button Command="{Binding $parent[UserControl].DataContext.PlaylistUpgradeCandidateCommand}"
-                                                    CommandParameter="{Binding}"
-                                                    Background="Transparent"
-                                                    BorderThickness="0"
-                                                    HorizontalContentAlignment="Stretch"
-                                                    Padding="0"
-                                                    Cursor="Hand">
-                                                <StackPanel Spacing="3">
-                                                    <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto">
-                                                        <TextBlock Grid.Column="0"
-                                                                   Text="{Binding ReplacementTrackTitle}"
-                                                                   FontSize="10"
-                                                                   FontWeight="SemiBold"
-                                                                   Foreground="#CCCCCC"
-                                                                   TextTrimming="CharacterEllipsis"/>
-                                                        <Border Grid.Column="1"
-                                                                Background="#2A3140"
-                                                                BorderBrush="#536079"
-                                                                BorderThickness="1"
-                                                                CornerRadius="8"
-                                                                Padding="6,1"
-                                                                Margin="6,0,0,0">
-                                                            <TextBlock Text="{Binding ScoreLabel}"
-                                                                       FontSize="8"
-                                                                       Foreground="#C6D6F0"/>
-                                                        </Border>
-                                                        <Border Grid.Column="2"
-                                                                IsVisible="{Binding HasPriorBonus}"
-                                                                Background="#1E2A35"
-                                                                BorderBrush="#415A78"
-                                                                BorderThickness="1"
-                                                                CornerRadius="8"
-                                                                Padding="6,1"
-                                                                Margin="6,0,0,0">
-                                                            <TextBlock Text="{Binding PriorBonusLabel}"
-                                                                       FontSize="8"
-                                                                       Foreground="#AECBEB"/>
-                                                        </Border>
-                                                        <Border Grid.Column="3"
-                                                                IsVisible="{Binding IsSavedDoubleAligned}"
-                                                                Background="#1E2C24"
-                                                                BorderBrush="#3A5A4A"
-                                                                BorderThickness="1"
-                                                                CornerRadius="8"
-                                                                Padding="6,1"
-                                                                Margin="6,0,0,0">
-                                                            <TextBlock Text="Saved double"
-                                                                       FontSize="8"
-                                                                       Foreground="#4EC9B0"/>
-                                                        </Border>
-                                                        <Border Grid.Column="4"
-                                                                IsVisible="{Binding IsBridgeCandidate}"
-                                                                Background="#243043"
-                                                                BorderBrush="#4F6788"
-                                                                BorderThickness="1"
-                                                                CornerRadius="8"
-                                                                Padding="6,1"
-                                                                Margin="6,0,0,0">
-                                                            <TextBlock Text="Bridge"
-                                                                       FontSize="8"
-                                                                       Foreground="#AECBEB"/>
-                                                        </Border>
-                                                        <Border Grid.Column="5"
-                                                                IsVisible="{Binding IsReplacementCandidate}"
-                                                                Background="#3A2A1F"
-                                                                BorderBrush="#7A573F"
-                                                                BorderThickness="1"
-                                                                CornerRadius="8"
-                                                                Padding="6,1"
-                                                                Margin="6,0,0,0">
-                                                            <TextBlock Text="Replacement"
-                                                                       FontSize="8"
-                                                                       Foreground="#E1C3A8"/>
-                                                        </Border>
-                                                    </Grid>
-
-                                                    <TextBlock Text="{Binding ReplacementTrackArtist}"
-                                                               FontSize="9"
-                                                               Foreground="#888888"
-                                                               TextTrimming="CharacterEllipsis"/>
-
-                                                    <TextBlock Text="{Binding ScoreBreakdownLabel}"
-                                                               FontSize="8"
-                                                               Foreground="#7D93A8"/>
-
-                                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                                        <Border Background="#233141" CornerRadius="4" Padding="5,1">
-                                                            <StackPanel Orientation="Horizontal" Spacing="2">
-                                                                <TextBlock Text="KEY" FontSize="8" Foreground="#7D93A8"/>
-                                                                <TextBlock Text="{Binding ReplacementKey}" FontSize="8" Foreground="#B7CCE0"/>
-                                                            </StackPanel>
-                                                        </Border>
-                                                        <Border Background="#233141" CornerRadius="4" Padding="5,1">
-                                                            <StackPanel Orientation="Horizontal" Spacing="2">
-                                                                <TextBlock Text="BPM" FontSize="8" Foreground="#7D93A8"/>
-                                                                <TextBlock Text="{Binding ReplacementBpm}" FontSize="8" Foreground="#B7CCE0"/>
-                                                            </StackPanel>
-                                                        </Border>
-                                                        <Border Background="#2A3A2E" CornerRadius="4" Padding="5,1">
-                                                            <StackPanel Orientation="Horizontal" Spacing="2">
-                                                                <TextBlock Text="ENERGY" FontSize="8" Foreground="#7FA58A"/>
-                                                                <TextBlock Text="{Binding ReplacementEnergy}" FontSize="8" Foreground="#B9E2C2"/>
-                                                            </StackPanel>
-                                                        </Border>
-                                                    </StackPanel>
-
-                                                    <TextBlock Text="{Binding UpgradeReason}"
-                                                               FontSize="8"
-                                                               Foreground="#888888"
-                                                               TextWrapping="Wrap"/>
-                                                </StackPanel>
-                                            </Button>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-
-                <StackPanel IsVisible="{Binding IsLibraryIntelligenceAutomixActive}" Spacing="10">
-                    <TextBlock Text="Automix"
-                               FontSize="12"
-                               FontWeight="SemiBold"
-                               Foreground="#CCCCCC"/>
-                    <TextBlock Text="Build a harmonic journey with configurable energy and tempo arcs before applying playlist changes."
-                               FontSize="10"
-                               Foreground="#888888"
-                               TextWrapping="Wrap"/>
-                               
-                    <!-- Automix staging controls -->
-                    <Border Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="10,8">
-                        <StackPanel Spacing="6">
-                            <TextBlock Text="🎛️ Automix Staging" FontSize="11" FontWeight="SemiBold" Foreground="#888888"/>
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <Button Content="Stage analyzed"
-                                        Command="{Binding StageAllAnalyzedForAutomixCommand}"
-                                        FontSize="10" Padding="8,4" CornerRadius="4"/>
-                                <Button Content="Clear staging"
-                                        Command="{Binding ClearAutomixStagingCommand}"
-                                        FontSize="10" Padding="8,4" CornerRadius="4"/>
-                            </StackPanel>
-                            <TextBlock Text="{Binding AutomixSelectionSummary}" FontSize="9" Foreground="#888888"/>
-                            <TextBlock Text="{Binding AutomixStatusMessage}" FontSize="9" Foreground="#FFD700" TextWrapping="Wrap" IsVisible="{Binding AutomixStatusMessageVisible}"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Automix constraints section -->
-                    <Border Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="10,8">
-                        <StackPanel Spacing="6">
-                            <TextBlock Text="Automix constraints" FontSize="11" FontWeight="SemiBold" Foreground="#888888"/>
-                            <Grid ColumnDefinitions="70,*,36" RowDefinitions="Auto,Auto,Auto">
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Min BPM" FontSize="10" Foreground="#888888" VerticalAlignment="Center"/>
-                                <Slider Grid.Row="0" Grid.Column="1" Minimum="70" Maximum="190" Value="{Binding AutomixConstraints.MinBpm, Mode=TwoWay}" Margin="0,2"/>
-                                <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding AutomixConstraints.MinBpm, StringFormat='{}{0:F0}'}" FontSize="10" Foreground="#888888" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Max BPM" FontSize="10" Foreground="#888888" VerticalAlignment="Center"/>
-                                <Slider Grid.Row="1" Grid.Column="1" Minimum="80" Maximum="210" Value="{Binding AutomixConstraints.MaxBpm, Mode=TwoWay}" Margin="0,2"/>
-                                <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding AutomixConstraints.MaxBpm, StringFormat='{}{0:F0}'}" FontSize="10" Foreground="#888888" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Max tracks" FontSize="10" Foreground="#888888" VerticalAlignment="Center"/>
-                                <Slider Grid.Row="2" Grid.Column="1" Minimum="5" Maximum="60" Value="{Binding AutomixConstraints.MaxTracks, Mode=TwoWay}" Margin="0,2"/>
-                                <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding AutomixConstraints.MaxTracks}" FontSize="10" Foreground="#888888" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                            </Grid>
-
-                            <Grid ColumnDefinitions="Auto,Auto,Auto,*" Margin="0,4,0,0">
-                                <CheckBox Grid.Column="0" Content="Match key" IsChecked="{Binding AutomixConstraints.MatchKey, Mode=TwoWay}" Foreground="#888888" Margin="0,0,8,0" FontSize="10"/>
-                                <TextBlock Grid.Column="1" Text="Energy jump" FontSize="10" Foreground="#888888" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                                <Slider Grid.Column="2" Width="80" Minimum="1" Maximum="9" Value="{Binding AutomixConstraints.MaxEnergyJump, Mode=TwoWay}"/>
-                                <TextBlock Grid.Column="3" Text="{Binding AutomixConstraints.MaxEnergyJump, StringFormat='Jump {0}'}" FontSize="10" Foreground="#888888" VerticalAlignment="Center" Margin="4,0,0,0"/>
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Build & Apply actions -->
-                    <StackPanel Spacing="8">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Content="✨ Build Automix"
-                                    Command="{Binding CreateAutomixCommand}"
-                                    IsEnabled="{Binding CanCreateAutomix}"
-                                    Background="#2D4A60" BorderBrush="#456E8D" BorderThickness="1" Foreground="#CCCCCC"
-                                    Padding="12,6" CornerRadius="6" Cursor="Hand" FontWeight="SemiBold"/>
-                            <Button Content="💾 Apply Automix"
-                                    Command="{Binding ApplyAutomixCommand}"
-                                    IsEnabled="{Binding CanCreateAutomix}"
-                                    Background="#203525" BorderBrush="#2F5535" BorderThickness="1" Foreground="#CCCCCC"
-                                    Padding="12,6" CornerRadius="6" Cursor="Hand" FontWeight="SemiBold"/>
-                        </StackPanel>
-
-                        <!-- Preview list of staged tracks -->
-                        <TextBlock Text="Preview Play Order" FontSize="11" FontWeight="SemiBold" Foreground="#888888" IsVisible="{Binding CanCreateAutomix}"/>
-                        <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto">
-                            <ItemsControl ItemsSource="{Binding StagedAutomixTracks}" IsVisible="{Binding CanCreateAutomix}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Spacing="4"/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="6" Padding="6,4">
-                                            <Grid ColumnDefinitions="Auto,*,Auto">
-                                                <TextBlock Grid.Column="0" Text="{Binding SortOrder}" FontSize="10" Foreground="#888888" FontWeight="Bold" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                                    <TextBlock Text="{Binding TrackTitle}" FontSize="10" FontWeight="SemiBold" Foreground="#CCCCCC" TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Text="{Binding ArtistName}" FontSize="9" Foreground="#888888" TextTrimming="CharacterEllipsis"/>
-                                                </StackPanel>
-                                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                                    <Border Background="#233141" CornerRadius="3" Padding="4,1">
-                                                        <TextBlock Text="{Binding CamelotDisplay}" FontSize="8" Foreground="#B7CCE0"/>
-                                                    </Border>
-                                                    <Border Background="#233141" CornerRadius="3" Padding="4,1">
-                                                        <TextBlock Text="{Binding BpmDisplay}" FontSize="8" Foreground="#B7CCE0"/>
-                                                    </Border>
-                                                </StackPanel>
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
+                    <TextBlock Classes="caption" TextWrapping="Wrap"
+                               Text="Best next tracks from your library by harmonic, tempo and energy continuity."/>
+                    <TextBlock Classes="caption" Text="{Binding SuggestNextInfoText}" TextWrapping="Wrap"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsSuggestNextLoading}">
+                        <ProgressBar Classes="meter" IsIndeterminate="True" Width="40" VerticalAlignment="Center"/>
+                        <TextBlock Classes="caption" Text="Scanning transition candidates…"/>
                     </StackPanel>
+                    <StackPanel Classes="empty-state" IsVisible="{Binding !HasSuggestNextCandidates}">
+                        <PathIcon Data="{StaticResource icon_skip_next}"/>
+                        <TextBlock Classes="h3" Text="No candidates yet"/>
+                        <TextBlock Classes="caption" Text="Select a track in the playlist to rank what could follow it." TextAlignment="Center" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <ItemsControl IsVisible="{Binding HasSuggestNextCandidates}" ItemsSource="{Binding SuggestNextCandidates}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><StackPanel Spacing="4"/></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vmLib:SuggestNextCandidateViewModel">
+                                <Button Classes="candidate"
+                                        Command="{ReflectionBinding $parent[UserControl].DataContext.SuggestNextCandidateCommand}"
+                                        CommandParameter="{Binding}">
+                                    <StackPanel Spacing="2">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Grid.Column="0" Classes="body-sm" FontWeight="SemiBold" Foreground="{StaticResource BrushText0}"
+                                                       Text="{Binding TrackTitle}" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="1" Classes="tag" Text="Saved double" IsVisible="{Binding IsSavedDoubleSuggested}"/>
+                                        </Grid>
+                                        <TextBlock Classes="caption" Text="{Binding ArtistName}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Classes="mono" FontSize="{StaticResource TextSizeCaption}">
+                                            <Run Text="{Binding BaseScoreDisplay}"/><Run Text="  ·  "/><Run Text="{Binding CamelotDisplay}"/><Run Text="  ·  "/><Run Text="{Binding BpmDisplay}"/><Run Text=" BPM  ·  E"/><Run Text="{Binding EnergyRating}"/>
+                                        </TextBlock>
+                                        <TextBlock Classes="caption" Text="{Binding SuggestionReason}" TextWrapping="Wrap"
+                                                   IsVisible="{Binding HasSuggestionReason}"/>
+                                    </StackPanel>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                <!-- ═══ Upgrade ═══ -->
+                <StackPanel IsVisible="{Binding IsLibraryIntelligenceUpgradeActive}" Spacing="8">
+                    <TextBlock Classes="caption" TextWrapping="Wrap"
+                               Text="Finds weak transitions and proposes a reorder, replacement or bridge track."/>
+                    <TextBlock Classes="caption" Text="{Binding PlaylistUpgradeInfoText}" TextWrapping="Wrap"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsPlaylistUpgradeLoading}">
+                        <ProgressBar Classes="meter" IsIndeterminate="True" Width="40" VerticalAlignment="Center"/>
+                        <TextBlock Classes="caption" Text="Scanning upgrade opportunities…"/>
+                    </StackPanel>
+                    <StackPanel Classes="empty-state" IsVisible="{Binding !HasPlaylistUpgradeCandidates}">
+                        <PathIcon Data="{StaticResource icon_check}"/>
+                        <TextBlock Classes="h3" Text="No upgrade candidates yet"/>
+                    </StackPanel>
+                    <ItemsControl IsVisible="{Binding HasPlaylistUpgradeCandidates}" ItemsSource="{Binding PlaylistUpgradeCandidates}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><StackPanel Spacing="4"/></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vmLib:PlaylistUpgradeCandidateViewModel">
+                                <Button Classes="candidate"
+                                        Command="{ReflectionBinding $parent[UserControl].DataContext.PlaylistUpgradeCandidateCommand}"
+                                        CommandParameter="{Binding}">
+                                    <StackPanel Spacing="2">
+                                        <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
+                                            <TextBlock Grid.Column="0" Classes="body-sm" FontWeight="SemiBold" Foreground="{StaticResource BrushText0}"
+                                                       Text="{Binding ReplacementTrackTitle}" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="1" Classes="tag" Text="Saved double" IsVisible="{Binding IsSavedDoubleAligned}"/>
+                                            <TextBlock Grid.Column="2" Classes="tag" Text="Bridge" IsVisible="{Binding IsBridgeCandidate}"/>
+                                            <TextBlock Grid.Column="3" Classes="tag" Text="Replacement" IsVisible="{Binding IsReplacementCandidate}"/>
+                                            <TextBlock Grid.Column="4" Classes="mono" Text="{Binding ScoreLabel}" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                        </Grid>
+                                        <TextBlock Classes="caption" Text="{Binding ReplacementTrackArtist}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Classes="mono" FontSize="{StaticResource TextSizeCaption}">
+                                            <Run Text="{Binding ReplacementKey}"/><Run Text="  ·  "/><Run Text="{Binding ReplacementBpm}"/><Run Text=" BPM  ·  E"/><Run Text="{Binding ReplacementEnergy}"/>
+                                        </TextBlock>
+                                        <TextBlock Classes="caption" Text="{Binding ScoreBreakdownLabel}" TextWrapping="Wrap"/>
+                                        <TextBlock Classes="caption accent" Text="{Binding PriorBonusLabel}" IsVisible="{Binding HasPriorBonus}"/>
+                                        <TextBlock Classes="caption" Text="{Binding UpgradeReason}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                <!-- ═══ Automix ═══ -->
+                <StackPanel IsVisible="{Binding IsLibraryIntelligenceAutomixActive}" Spacing="12">
+                    <TextBlock Classes="caption" TextWrapping="Wrap"
+                               Text="Builds a harmonic journey with energy and tempo limits, previewed before anything in the playlist changes."/>
+
+                    <Border Classes="intel-card">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="section" Text="STAGING"/>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Classes="secondary small" Content="Stage analysed tracks" Command="{Binding StageAllAnalyzedForAutomixCommand}"/>
+                                <Button Classes="ghost small" Content="Clear" Command="{Binding ClearAutomixStagingCommand}"/>
+                            </StackPanel>
+                            <TextBlock Classes="caption" Text="{Binding AutomixSelectionSummary}"/>
+                            <TextBlock Classes="caption warning" Text="{Binding AutomixStatusMessage}" TextWrapping="Wrap" IsVisible="{Binding AutomixStatusMessageVisible}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Classes="intel-card">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="section" Text="CONSTRAINTS"/>
+                            <Grid ColumnDefinitions="72,*,40" RowDefinitions="Auto,Auto,Auto,Auto">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Classes="caption" Text="Min BPM" VerticalAlignment="Center"/>
+                                <Slider Grid.Row="0" Grid.Column="1" Minimum="70" Maximum="190" Value="{Binding AutomixConstraints.MinBpm, Mode=TwoWay}"/>
+                                <TextBlock Grid.Row="0" Grid.Column="2" Classes="mono" Text="{Binding AutomixConstraints.MinBpm, StringFormat='{}{0:F0}'}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Classes="caption" Text="Max BPM" VerticalAlignment="Center"/>
+                                <Slider Grid.Row="1" Grid.Column="1" Minimum="80" Maximum="210" Value="{Binding AutomixConstraints.MaxBpm, Mode=TwoWay}"/>
+                                <TextBlock Grid.Row="1" Grid.Column="2" Classes="mono" Text="{Binding AutomixConstraints.MaxBpm, StringFormat='{}{0:F0}'}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Classes="caption" Text="Max tracks" VerticalAlignment="Center"/>
+                                <Slider Grid.Row="2" Grid.Column="1" Minimum="5" Maximum="60" Value="{Binding AutomixConstraints.MaxTracks, Mode=TwoWay}"/>
+                                <TextBlock Grid.Row="2" Grid.Column="2" Classes="mono" Text="{Binding AutomixConstraints.MaxTracks}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+
+                                <TextBlock Grid.Row="3" Grid.Column="0" Classes="caption" Text="Energy jump" VerticalAlignment="Center"/>
+                                <Slider Grid.Row="3" Grid.Column="1" Minimum="1" Maximum="9" Value="{Binding AutomixConstraints.MaxEnergyJump, Mode=TwoWay}"/>
+                                <TextBlock Grid.Row="3" Grid.Column="2" Classes="mono" Text="{Binding AutomixConstraints.MaxEnergyJump}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <CheckBox Content="Match key" IsChecked="{Binding AutomixConstraints.MatchKey, Mode=TwoWay}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Classes="primary" Content="Build automix" Command="{Binding CreateAutomixCommand}" IsEnabled="{Binding CanCreateAutomix}"/>
+                        <Button Classes="secondary" Content="Apply to playlist" Command="{Binding ApplyAutomixCommand}" IsEnabled="{Binding CanCreateAutomix}"/>
+                    </StackPanel>
+
+                    <TextBlock Classes="section" Text="PREVIEW PLAY ORDER" IsVisible="{Binding CanCreateAutomix}"/>
+                    <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding StagedAutomixTracks}" IsVisible="{Binding CanCreateAutomix}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><StackPanel Spacing="0"/></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vmCore:PlaylistTrackViewModel">
+                                    <Border BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1" MinHeight="32" Padding="0,4">
+                                        <Grid ColumnDefinitions="28,*,Auto">
+                                            <TextBlock Grid.Column="0" Classes="mono muted" Text="{Binding SortOrder}" VerticalAlignment="Center"/>
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                <TextBlock Classes="body-sm" Foreground="{StaticResource BrushText0}" Text="{Binding TrackTitle}" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Classes="caption" Text="{Binding ArtistName}" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="2" Classes="mono" VerticalAlignment="Center" Margin="8,0,0,0">
+                                                <Run Text="{Binding CamelotDisplay}"/><Run Text="  "/><Run Text="{Binding BpmDisplay}"/>
+                                            </TextBlock>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
                 </StackPanel>
             </Grid>
         </ScrollViewer>
     </Grid>
-    </Border>
 </UserControl>
