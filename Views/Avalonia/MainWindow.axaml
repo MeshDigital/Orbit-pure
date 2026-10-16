@@ -515,6 +515,9 @@
                                             <DataTemplate DataType="vmCore:LibraryDoubleInspectorViewModel">
                                                 <controls:DoubleInspectorPanel/>
                                             </DataTemplate>
+                                            <DataTemplate DataType="vmCore:LibraryMultiSelectionInspectorViewModel">
+                                                <controls:MultiSelectionInspectorPanel/>
+                                            </DataTemplate>
                                             <DataTemplate DataType="vmCore:PlaylistIntelligenceViewModel">
                                                 <controls:PlaylistIntelligencePanel/>
                                             </DataTemplate>
@@ -759,6 +762,9 @@
                         </DataTemplate>
                         <DataTemplate DataType="vmCore:LibraryDoubleInspectorViewModel">
                             <controls:DoubleInspectorPanel/>
+                        </DataTemplate>
+                        <DataTemplate DataType="vmCore:LibraryMultiSelectionInspectorViewModel">
+                            <controls:MultiSelectionInspectorPanel/>
                         </DataTemplate>
                         <DataTemplate DataType="vmCore:PlaylistIntelligenceViewModel">
                             <controls:PlaylistIntelligencePanel/>

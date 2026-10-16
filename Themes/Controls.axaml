@@ -433,6 +433,37 @@
   <Style Selector="Border.badge.neutral">
     <Setter Property="Background" Value="{DynamicResource BrushBg5}"/>
   </Style>
+  <!-- fact: small fixed-format data badge (BPM, Camelot key, duration, format/bitrate, quality
+       tier). Wrap one TextBlock; it renders mono. .warning/.error for a status fact
+       (e.g. "File missing"). Not for AI/vibe labels: use ProgressBar.meter for those. -->
+  <Style Selector="Border.fact">
+    <Setter Property="Background" Value="{DynamicResource BrushBg3}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource BrushBorder0}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}"/>
+    <Setter Property="Padding" Value="6,2"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+  </Style>
+  <Style Selector="Border.fact > TextBlock">
+    <Setter Property="FontFamily" Value="{DynamicResource FontMono}"/>
+    <Setter Property="FontSize" Value="{DynamicResource TextSizeCaption}"/>
+    <Setter Property="Foreground" Value="{DynamicResource BrushText0}"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+  </Style>
+  <Style Selector="Border.fact.warning">
+    <Setter Property="Background" Value="{DynamicResource BrushWarningSubtle}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource BrushWarningBorder}"/>
+  </Style>
+  <Style Selector="Border.fact.warning > TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource BrushWarning}"/>
+  </Style>
+  <Style Selector="Border.fact.error">
+    <Setter Property="Background" Value="{DynamicResource BrushErrorSubtle}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource BrushErrorBorder}"/>
+  </Style>
+  <Style Selector="Border.fact.error > TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource BrushError}"/>
+  </Style>
 
   <!-- ================================================================
        TYPOGRAPHY  (modifiers .muted/.accent/... are declared last so they win)

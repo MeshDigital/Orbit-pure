@@ -27,7 +27,7 @@ public class RepoHygieneGuardTests
     /// with theme resources, lower it to the new count. Never raise it — use a brush/colour
     /// resource from Themes/ instead of adding a new literal.
     /// </summary>
-    private const int MaxRawHexColors = 2826;
+    private const int MaxRawHexColors = 2630;
 
     /// <summary>
     /// Resource keys that are legitimately referenced but not defined in this repo because

@@ -24,7 +24,7 @@ namespace SLSKDONET.ViewModels.Downloads;
 /// Phase 2.5 & 12.6: Unified Track ViewModel for Download Center and Lists.
 /// Implements "Smart Component" architecture - self-managing state via EventBus.
 /// </summary>
-public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposable
+public partial class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposable
 {
     private static readonly Regex RejectedUserRegex = new(@"^(?:Rejected|Skipped)\s+(?<user>[^:]+):\s*(?<detail>.+)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex BlacklistedUserRegex = new(@"^Skipping\s+peer\s+(?<user>[^\s]+)\s+\((?<detail>[^\)]+)\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -74,7 +74,11 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public string? PeerName
     {
         get => _peerName;
-        set => this.RaiseAndSetIfChanged(ref _peerName, value);
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _peerName, value);
+            this.RaisePropertyChanged(nameof(HasPeerName));
+        }
     }
     
     // Core QoL: Speed Trend tracking
@@ -654,6 +658,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(IsIndeterminate));
                 this.RaisePropertyChanged(nameof(IsFailed));
                 this.RaisePropertyChanged(nameof(IsActive));
+                this.RaisePropertyChanged(nameof(HasLiveSpeed));
                 this.RaisePropertyChanged(nameof(IsRemoteQueued));
                 this.RaisePropertyChanged(nameof(IsWaiting));
                 this.RaisePropertyChanged(nameof(IsSearching));
@@ -2335,6 +2340,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(SpectralCrestFactorColor));
                 this.RaisePropertyChanged(nameof(SpectralNoiseFloorDisplay));
                 this.RaisePropertyChanged(nameof(SpectralConfidenceDisplay));
+                RaiseInspectorPropertiesChanged();
                 this.RaisePropertyChanged(nameof(FileFormat));
                 this.RaisePropertyChanged(nameof(BitrateDisplay));
                 this.RaisePropertyChanged(nameof(DurationDisplay));
