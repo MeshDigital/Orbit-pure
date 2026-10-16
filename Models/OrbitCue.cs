@@ -83,7 +83,7 @@ public class OrbitCue : INotifyPropertyChanged
     public CueSource Source
     {
         get => _source;
-        set { if (Set(ref _source, value)) Raise(nameof(WhyHereTooltip)); }
+        set { if (Set(ref _source, value)) { Raise(nameof(WhyHereTooltip)); Raise(nameof(IsAuto)); } }
     }
 
     /// <summary>
@@ -111,13 +111,13 @@ public class OrbitCue : INotifyPropertyChanged
     public int SlotIndex
     {
         get => _slotIndex;
-        set { if (Set(ref _slotIndex, value)) { Raise(nameof(HasSlot)); Raise(nameof(SlotLabel)); } }
+        set { if (Set(ref _slotIndex, value)) { Raise(nameof(HasSlot)); Raise(nameof(SlotLabel)); Raise(nameof(KindDisplay)); } }
     }
 
     /// <summary>
     /// When true, this cue represents a loop. LoopEndSeconds marks the loop out point.
     /// </summary>
-    public bool IsLoop { get => _isLoop; set => Set(ref _isLoop, value); }
+    public bool IsLoop { get => _isLoop; set { if (Set(ref _isLoop, value)) Raise(nameof(KindDisplay)); } }
 
     /// <summary>
     /// Loop end position in seconds. Only meaningful when IsLoop is true.
@@ -153,6 +153,9 @@ public class OrbitCue : INotifyPropertyChanged
 
     public string TimestampDisplay => TimeSpan.FromSeconds(Timestamp).ToString(@"mm\:ss\.ff");
     public bool HasSlot => SlotIndex >= 0;
+    public bool IsAuto => Source == CueSource.Auto;
+    /// <summary>"Hot A" / "Memory" / "Loop" — the cue's kind as shown in cue lists.</summary>
+    public string KindDisplay => IsLoop ? "Loop" : SlotIndex is >= 0 and <= 7 ? $"Hot {SlotLabel}" : "Memory";
     public string SlotLabel => SlotIndex >= 0 ? ((char)('A' + Math.Min(SlotIndex, 7))).ToString() : string.Empty;
 
     // Confidence colour: green ≥80%, amber ≥50%, red <50%
