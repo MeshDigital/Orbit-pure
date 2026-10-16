@@ -159,7 +159,9 @@ context panel uses it.
 ### Icons
 Use `PathIcon` with an `icon_*` key: menu, home, search, inbox, link, library, users, chart,
 settings, target, waves, tune, play, pause, skip_previous, skip_next, expand, close, check, add,
-download, bell, alert, info, brain, sync, music, chevron_down/right/left. There are more legacy
+download, bell, alert, info, brain, sync, music, chevron_down/right/left/up, more (…), shuffle,
+heart, heart_outline, folder, folder_add, playlist_add, delete, edit, columns, filter, export, history,
+wand, wrench, stop, open_external, mix. There are more legacy
 `*_regular` keys in App.axaml. Size icons with `IconSize*` (16 by default). The colour inherits from
 `Foreground`. If an icon is missing, add a 24x24 single-path geometry to `Icons.axaml`. Don't fall
 back to an emoji.
