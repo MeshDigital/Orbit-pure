@@ -31,7 +31,7 @@ public enum SearchSortColumn
 /// sorting, the idle / searching / no-results / error states, the session download summary and
 /// the small row actions. Kept apart from the search pipeline in SearchViewModel.cs.
 /// </summary>
-public partial class SearchViewModel
+public partial class SearchViewModel : IDisposable
 {
     private const int MaxRecentSearches = 8;
     private const int PeerSearchTimeoutMs = 15000;

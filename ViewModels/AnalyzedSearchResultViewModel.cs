@@ -153,9 +153,10 @@ namespace SLSKDONET.ViewModels
         {
             if (bytesPerSecond <= 0) return "—";
             const double mb = 1024.0 * 1024.0;
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
             return bytesPerSecond >= mb
-                ? $"{bytesPerSecond / mb:0.0} MB/s"
-                : $"{bytesPerSecond / 1024.0:0} KB/s";
+                ? (bytesPerSecond / mb).ToString("0.0", inv) + " MB/s"
+                : (bytesPerSecond / 1024.0).ToString("0", inv) + " KB/s";
         }
 
         private void OnRawResultPropertyChanged(object? sender, PropertyChangedEventArgs e)
