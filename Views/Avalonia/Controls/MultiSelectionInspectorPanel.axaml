@@ -1,0 +1,57 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="360"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.MultiSelectionInspectorPanel"
+             x:DataType="vm:LibraryMultiSelectionInspectorViewModel">
+
+    <!-- 3+ library tracks selected: what the selection is, and the bulk actions. -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16" Spacing="16">
+            <StackPanel Spacing="2">
+                <TextBlock Classes="h3" Text="{Binding Title}"/>
+                <TextBlock Classes="caption" Text="Bulk actions apply to every selected track."/>
+            </StackPanel>
+
+            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto">
+                <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2">
+                    <TextBlock Classes="caption" Text="Total length"/>
+                    <TextBlock Classes="mono" Text="{Binding DurationDisplay}" Foreground="{StaticResource BrushText0}"/>
+                </StackPanel>
+                <StackPanel Grid.Row="0" Grid.Column="1" Spacing="2">
+                    <TextBlock Classes="caption" Text="BPM range"/>
+                    <TextBlock Classes="mono" Text="{Binding BpmRangeDisplay}" Foreground="{StaticResource BrushText0}"/>
+                </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="0" Spacing="2" Margin="0,12,0,0">
+                    <TextBlock Classes="caption" Text="Keys"/>
+                    <TextBlock Classes="mono" Text="{Binding KeysDisplay}"/>
+                </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="1" Spacing="2" Margin="0,12,0,0">
+                    <TextBlock Classes="caption" Text="Analysed"/>
+                    <TextBlock Classes="mono" Text="{Binding AnalysedDisplay}"/>
+                </StackPanel>
+            </Grid>
+
+            <TextBlock Classes="caption warning" Text="{Binding MissingDisplay}" IsVisible="{Binding HasMissing}"/>
+
+            <StackPanel Spacing="8">
+                <TextBlock Classes="section" Text="ACTIONS"/>
+                <WrapPanel Orientation="Horizontal">
+                    <WrapPanel.Styles>
+                        <Style Selector="Button">
+                            <Setter Property="Margin" Value="0,0,8,8"/>
+                        </Style>
+                    </WrapPanel.Styles>
+                    <Button Classes="primary small" Content="Analyse all" Command="{Binding AnalyseAllCommand}"
+                            ToolTip.Tip="Queue BPM, key, cue and genre/mood analysis for the selection"/>
+                    <Button Classes="secondary small" Content="Edit tags…" Command="{Binding EditTagsCommand}"/>
+                    <Button Classes="secondary small" Content="Add to playlist…" Command="{Binding AddToPlaylistCommand}"/>
+                    <Button Classes="secondary small" Content="Add to queue" Command="{Binding AddToQueueCommand}"/>
+                    <Button Classes="ghost small" Content="Clear selection" Command="{Binding ClearSelectionCommand}"/>
+                </WrapPanel>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -21,7 +21,7 @@ public sealed record GenreScore(string Label, double Confidence);
 /// ViewModel representing a track in the download queue.
 /// Manages state, progress, and updates for the UI.
 /// </summary>
-public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNode, IDisposable
+public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNode, IDisposable
 {
     private PlaylistTrackState _state;
     private double _progress;
@@ -1146,13 +1146,18 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         {
             if (Model.Rating != value)
             {
+                var previous = Model.Rating;
                 Model.Rating = value;
                 OnPropertyChanged();
-                
-                // Persistence
+
+                // Persistence — failures revert the stars and raise a toast (see PersistEngagementAsync)
                 if (_libraryService != null)
                 {
-                    _ = _libraryService.UpdateRatingAsync(GlobalId, value);
+                    var service = _libraryService;
+                    _ = PersistEngagementAsync(() => service.UpdateRatingAsync(GlobalId, value), "rating", () =>
+                    {
+                        if (Model.Rating == value) { Model.Rating = previous; OnPropertyChanged(nameof(Rating)); }
+                    });
                 }
             }
         }
@@ -1189,11 +1194,15 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
             {
                 Model.IsLiked = value;
                 OnPropertyChanged();
-                
-                // Persistence
+
+                // Persistence — failures revert the heart and raise a toast (see PersistEngagementAsync)
                 if (_libraryService != null)
                 {
-                    _ = _libraryService.UpdateLikeStatusAsync(GlobalId, value);
+                    var service = _libraryService;
+                    _ = PersistEngagementAsync(() => service.UpdateLikeStatusAsync(GlobalId, value), "like", () =>
+                    {
+                        if (Model.IsLiked == value) { Model.IsLiked = !value; OnPropertyChanged(nameof(IsLiked)); }
+                    });
                 }
             }
         }
@@ -1234,22 +1243,24 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     public ICommand NextInspectorTabCommand { get; }
     public ICommand SearchAgainCommand { get; }
 
-    private int _selectedInspectorTab = 0; // default to IDENTITY tab
+    /// <summary>Shared across tracks — see <c>s_lastInspectorTab</c> in PlaylistTrackViewModel.Inspector.cs.</summary>
     public int SelectedInspectorTab
     {
-        get => _selectedInspectorTab;
+        get => s_lastInspectorTab;
         set
         {
-            if (SetProperty(ref _selectedInspectorTab, value))
-                OnPropertyChanged(nameof(InspectorTabName));
+            if (value < 0 || s_lastInspectorTab == value) return;
+            s_lastInspectorTab = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(InspectorTabName));
         }
     }
 
     public string InspectorTabName => SelectedInspectorTab switch
     {
-        0 => "IDENTITY",
-        1 => "ANALYSIS",
-        2 => "ACTIONS",
+        InspectorTabOverview => "Overview",
+        InspectorTabCues => "Cues",
+        InspectorTabFile => "File",
         _ => ""
     };
 
@@ -1309,7 +1320,9 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         RequestEditTagsCommand = new RelayCommand(() => _eventBus?.Publish(new Models.EditTagsFromInspectorEvent(GlobalId)));
         PreviousInspectorTabCommand = new RelayCommand(() => { if (SelectedInspectorTab > 0) SelectedInspectorTab--; });
         NextInspectorTabCommand = new RelayCommand(() => { if (SelectedInspectorTab < 2) SelectedInspectorTab++; });
-        SearchAgainCommand = new RelayCommand(Reset);
+        // Was RelayCommand(Reset): it only flipped this row's in-memory State to Pending, so
+        // nothing was ever searched. Routed to the library's real hard-retry (re-queue) instead.
+        SearchAgainCommand = new RelayCommand(() => _eventBus?.Publish(new Models.RetryDownloadFromInspectorEvent(GlobalId)));
         
         // REMOVED: 8000+ redundant event listeners eliminated.
         // Centralized dispatch moved to VirtualizedTrackCollection.
@@ -1519,7 +1532,10 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
              OnPropertyChanged(nameof(SampleRateDisplay));
              OnPropertyChanged(nameof(SpectralAnalysisAvailable));
 
-             // CRITICAL: Reload technical data (waveforms) from TechnicalDetails table
+             // CRITICAL: Reload technical data (waveforms) from TechnicalDetails table. The
+             // loaded-once guard has to be reset first — otherwise this call returned instantly
+             // and cues/energy curve stayed at their pre-analysis values until an app restart.
+             _technicalDataLoaded = false;
              _ = LoadTechnicalDataAsync();
              OnPropertyChanged(nameof(Duration));
 
@@ -1544,6 +1560,9 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
               OnPropertyChanged(nameof(CurationIcon));
               OnPropertyChanged(nameof(CurationColor));
               OnPropertyChanged(nameof(ProvenanceTooltip));
+
+              RaiseInspectorDerivedPropertiesChanged();
+              AnalysisDataRefreshed?.Invoke(this, EventArgs.Empty);
           }
           catch (Exception ex)
           {
@@ -1964,8 +1983,8 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
               
             if (_technicalEntity != null)
             {
-                // Parse Cues
-                if (!string.IsNullOrEmpty(_technicalEntity.CuePointsJson))
+                // Parse legacy cues — only when the CuePoints table hasn't supplied the real ones
+                if (!_cuesFromCueTable && !string.IsNullOrEmpty(_technicalEntity.CuePointsJson))
                 {
                     try
                     {
@@ -1990,7 +2009,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
                 OnPropertyChanged(nameof(MidData));
                 OnPropertyChanged(nameof(HighData));
                 OnPropertyChanged(nameof(TechnicalSummary));
-                OnPropertyChanged(nameof(Cues));
+                RaiseCuePropertiesChanged();
                 OnPropertyChanged(nameof(PhraseSegments));
                 OnPropertyChanged(nameof(EnergyCurvePoints));
                 OnPropertyChanged(nameof(HasAnalysisData));
@@ -2013,25 +2032,6 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
 
     /// <summary>Loads analysis/technical data for this track. Alias for <see cref="LoadTechnicalDataAsync"/>.</summary>
     public Task LoadAnalysisDataAsync() => LoadTechnicalDataAsync();
-
-    /// <summary>Updates the label on a cue point and persists the full cue list for this track.</summary>
-    public async Task SaveCueLabelAsync(OrbitCue cue, string newLabel)
-    {
-        cue.Name = newLabel;
-
-        if (_libraryService == null || string.IsNullOrEmpty(GlobalId))
-            return;
-
-        try
-        {
-            var json = System.Text.Json.JsonSerializer.Serialize(_cues);
-            await _libraryService.UpdateTrackCuePointsAsync(GlobalId, json);
-        }
-        catch (Exception ex)
-        {
-            Serilog.Log.Warning(ex, "Failed to persist cue label change for track {GlobalId}", GlobalId);
-        }
-    }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

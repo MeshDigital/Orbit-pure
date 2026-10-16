@@ -1071,6 +1071,7 @@ public class LibraryService : ILibraryService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to update global like status for {Hash}", trackHash);
+            throw; // callers revert their optimistic UI and tell the user
         }
     }
 
@@ -1087,6 +1088,7 @@ public class LibraryService : ILibraryService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to update global rating for {Hash}", trackHash);
+            throw; // callers revert their optimistic UI and tell the user
         }
     }
 

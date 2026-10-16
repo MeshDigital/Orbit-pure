@@ -24,7 +24,7 @@ namespace SLSKDONET.ViewModels.Downloads;
 /// Phase 2.5 & 12.6: Unified Track ViewModel for Download Center and Lists.
 /// Implements "Smart Component" architecture - self-managing state via EventBus.
 /// </summary>
-public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposable
+public partial class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposable
 {
     private static readonly Regex RejectedUserRegex = new(@"^(?:Rejected|Skipped)\s+(?<user>[^:]+):\s*(?<detail>.+)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex BlacklistedUserRegex = new(@"^Skipping\s+peer\s+(?<user>[^\s]+)\s+\((?<detail>[^\)]+)\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -74,7 +74,11 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public string? PeerName
     {
         get => _peerName;
-        set => this.RaiseAndSetIfChanged(ref _peerName, value);
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _peerName, value);
+            this.RaisePropertyChanged(nameof(HasPeerName));
+        }
     }
     
     // Core QoL: Speed Trend tracking
@@ -488,18 +492,6 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
              _downloadManager.BumpTrackToTop(GlobalId);
          }, this.WhenAnyValue(x => x.State, s => s == PlaylistTrackState.Pending || s == PlaylistTrackState.Paused || s == PlaylistTrackState.Stalled));
 
-        ViewLogCommand = ReactiveCommand.Create(() => 
-        {
-            // Phase 0.8: View Log Logic
-            var log = string.Join("\n", RejectionDetails?.Select(r => $"{r.Rank}. [{r.ShortReason}] {r.Filename} ({r.Bitrate}kbps) @{r.Username}") ?? Enumerable.Empty<string>());
-            System.Diagnostics.Debug.WriteLine($"[Diagnostic Log] {log}");
-            
-            if (Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
-            {
-                desktop.MainWindow?.Clipboard?.SetTextAsync(log);
-            }
-        }, this.WhenAnyValue(x => x.HasRejectionDetails));
-
         CopyLogCommand = ReactiveCommand.CreateFromTask(async () => 
         {
             if (Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
@@ -666,6 +658,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(IsIndeterminate));
                 this.RaisePropertyChanged(nameof(IsFailed));
                 this.RaisePropertyChanged(nameof(IsActive));
+                this.RaisePropertyChanged(nameof(HasLiveSpeed));
                 this.RaisePropertyChanged(nameof(IsRemoteQueued));
                 this.RaisePropertyChanged(nameof(IsWaiting));
                 this.RaisePropertyChanged(nameof(IsSearching));
@@ -1614,7 +1607,6 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public ICommand FindSimilarAiCommand { get; }
     public ICommand ViewAllSearchResultsCommand { get; }
     public ICommand BumpToTopCommand { get; }
-    public ICommand ViewLogCommand { get; }
     public ICommand CopyLogCommand { get; }
     public ICommand ForceDownloadCandidateCommand { get; }
     public ICommand AcquireTrackCommand { get; }
@@ -2348,6 +2340,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(SpectralCrestFactorColor));
                 this.RaisePropertyChanged(nameof(SpectralNoiseFloorDisplay));
                 this.RaisePropertyChanged(nameof(SpectralConfidenceDisplay));
+                RaiseInspectorPropertiesChanged();
                 this.RaisePropertyChanged(nameof(FileFormat));
                 this.RaisePropertyChanged(nameof(BitrateDisplay));
                 this.RaisePropertyChanged(nameof(DurationDisplay));
