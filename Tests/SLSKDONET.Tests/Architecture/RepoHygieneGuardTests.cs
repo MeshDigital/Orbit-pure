@@ -146,6 +146,26 @@ public class RepoHygieneGuardTests
     }
 
     private static bool IsFrameworkKey(string key) => FrameworkResourceKeys.Contains(key);
+
+    /// <summary>
+    /// A key defined twice in a theme dictionary compiles fine but can throw when the
+    /// dictionary loads at app startup. Theme files and App.axaml use one flat scope each,
+    /// so every x:Key in them must be unique within the file.
+    /// </summary>
+    [Fact]
+    public void ThemeResourceKeys_AreUniquePerFile()
+    {
+        var files = RepoGuard.EnumerateFiles(Path.Combine(RepoGuard.Root, "Themes"), "*.axaml", skipTestData: false)
+            .Append(Path.Combine(RepoGuard.Root, "App.axaml"));
+        var dupes = new List<string>();
+        foreach (var file in files)
+        {
+            var keys = KeyDefRegex.Matches(File.ReadAllText(file)).Select(m => m.Groups[1].Value);
+            foreach (var g in keys.GroupBy(k => k).Where(g => g.Count() > 1))
+                dupes.Add($"{Path.GetRelativePath(RepoGuard.Root, file)}: {g.Key} x{g.Count()}");
+        }
+        Assert.True(dupes.Count == 0, "Duplicate resource keys:\n" + string.Join("\n", dupes));
+    }
 }
 
 /// <summary>Shared repo-walking helpers for the architecture guard tests.</summary>
