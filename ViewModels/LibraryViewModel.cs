@@ -74,6 +74,9 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     public ImportHistoryViewModel ImportHistoryViewModel => _importHistoryViewModel;
     public LibraryDoubleInspectorViewModel DoubleInspector { get; }
     public LibraryTrackInspectorViewModel TrackInspector { get; }
+
+    /// <summary>Inspector content when 3+ tracks are selected (summary + bulk actions).</summary>
+    public LibraryMultiSelectionInspectorViewModel MultiSelection { get; }
     public PlaylistIntelligenceViewModel Intelligence { get; }
 
     private Views.MainViewModel? _mainViewModel;
@@ -582,6 +585,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         SmartPlaylists = smartPlaylists;
         DoubleInspector = new LibraryDoubleInspectorViewModel(this, _logger, _trackSimilarityService, _transitionStyleClassifier);
         TrackInspector = new LibraryTrackInspectorViewModel(_logger, _serviceProvider?.GetService(typeof(ICuePointService)) as ICuePointService);
+        MultiSelection = new LibraryMultiSelectionInspectorViewModel(this);
         var optimizer = _serviceProvider?.GetService(typeof(Services.Playlist.PlaylistOptimizer)) as Services.Playlist.PlaylistOptimizer;
         Intelligence = new PlaylistIntelligenceViewModel(this, _trackSimilarityService, optimizer);
 
@@ -738,6 +742,14 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
                             {
                                 _ = TryAttachInspectorPairwiseContextAsync(current[0]);
                                 _ = TrackInspector.TryAttachEnhancementsAsync(current[0]);
+                            }
+                            else if (current.Count >= 3 && !Tracks.IsMixModeEnabled)
+                            {
+                                // 3+ rows: summary + bulk actions instead of leaving the last
+                                // single-track inspector on screen as if it still applied.
+                                MultiSelection.Update(current);
+                                ReactiveUI.MessageBus.Current.SendMessage(
+                                    OpenInspectorEvent.Create(MultiSelection, "Library.TrackSelection.Multi"));
                             }
                         }
                         catch (Exception ex)
