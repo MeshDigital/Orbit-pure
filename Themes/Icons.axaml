@@ -46,6 +46,11 @@
       <StreamGeometry x:Key="icon_chevron_down">M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z</StreamGeometry>
       <StreamGeometry x:Key="icon_chevron_right">M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z</StreamGeometry>
       <StreamGeometry x:Key="icon_chevron_left">M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z</StreamGeometry>
+      <!-- Transport / editing (added for Flow Builder) -->
+      <StreamGeometry x:Key="icon_stop">M18,18H6V6H18V18Z</StreamGeometry>
+      <StreamGeometry x:Key="icon_more">M16,12A2,2 0 0,1 18,10A2,2 0 0,1 20,12A2,2 0 0,1 18,14A2,2 0 0,1 16,12M10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12M4,12A2,2 0 0,1 6,10A2,2 0 0,1 8,12A2,2 0 0,1 6,14A2,2 0 0,1 4,12Z</StreamGeometry>
+      <StreamGeometry x:Key="icon_edit">M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z</StreamGeometry>
+      <StreamGeometry x:Key="icon_drag">M7,19V17H9V19H7M11,19V17H13V19H11M15,19V17H17V19H15M7,15V13H9V15H7M11,15V13H13V15H11M15,15V13H17V15H15M7,11V9H9V11H7M11,11V9H13V11H11M15,11V9H17V11H15M7,7V5H9V7H7M11,7V5H13V7H11M15,7V5H17V7H15Z</StreamGeometry>
 
       <!-- Keys referenced by Views that were never defined (fixes silent lookup failures) -->
       <StreamGeometry x:Key="chevron_down_regular">M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z</StreamGeometry>
