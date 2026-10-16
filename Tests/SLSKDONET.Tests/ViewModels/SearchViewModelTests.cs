@@ -145,6 +145,140 @@ public class SearchViewModelTests
         Assert.Equal("https://example.com/art.jpg", mapped.AlbumArtUrl);
     }
 
+    [Fact]
+    public async Task Search_KeepsStripFilters_AndRecordsRecentSearch()
+    {
+        var scheduler = UndisposedEventLoop();
+        using var _ = UseMainThreadScheduler(scheduler);
+
+        var vm = CreateViewModel((_, token) => FiniteTrackStream(new[] { CreateTrack("peer-1") }, token));
+        vm.FilterViewModel.MinBitrate = 192;
+        vm.FilterViewModel.HideSuspects = false;
+        vm.SearchQuery = "Artist Track";
+
+        await WaitForTaskAsync(InvokeUnifiedSearchAsync(vm), TimeSpan.FromSeconds(5));
+
+        // Searching used to call FilterViewModel.Reset(), silently undoing the strip.
+        Assert.Equal(192, vm.FilterViewModel.MinBitrate);
+        Assert.Equal(192, vm.MinBitrate);
+        Assert.False(vm.FilterViewModel.HideSuspects);
+        Assert.Equal("Artist Track", vm.RecentSearches.First());
+        Assert.True(vm.HasSearched);
+        Assert.Equal(1, vm.PeersResponded);
+    }
+
+    [Fact]
+    public async Task Search_FormatTokens_UpdateChipsAndAreStrippedFromQuery()
+    {
+        var scheduler = UndisposedEventLoop();
+        using var _ = UseMainThreadScheduler(scheduler);
+
+        var vm = CreateViewModel((_, token) => FiniteTrackStream(Array.Empty<Track>(), token));
+        var flacChipRaised = false;
+        vm.PropertyChanged += (_, e) => flacChipRaised |= e.PropertyName == nameof(SearchViewModel.IsMp3Enabled);
+        vm.SearchQuery = "Artist Track flac";
+
+        await WaitForTaskAsync(InvokeUnifiedSearchAsync(vm), TimeSpan.FromSeconds(5));
+
+        Assert.Equal("Artist Track", vm.SearchQuery);
+        Assert.True(vm.IsFlacEnabled);
+        Assert.False(vm.IsMp3Enabled);
+        Assert.True(flacChipRaised, "The MP3 chip must be notified when a query token turns it off.");
+    }
+
+    [Fact]
+    public async Task Search_WithNoResults_ShowsNoResultsState()
+    {
+        var scheduler = UndisposedEventLoop();
+        using var _ = UseMainThreadScheduler(scheduler);
+
+        var vm = CreateViewModel((_, token) => FiniteTrackStream(Array.Empty<Track>(), token));
+        Assert.True(vm.ShowNeverSearchedEmptyState);
+        vm.SearchQuery = "nothing matches this";
+
+        await WaitForTaskAsync(InvokeUnifiedSearchAsync(vm), TimeSpan.FromSeconds(5));
+
+        Assert.False(vm.ShowNeverSearchedEmptyState);
+        Assert.True(vm.ShowNoResultsState);
+        Assert.False(vm.ShowErrorState);
+        Assert.Equal("No results found", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task ApplyDownloadState_MarksMatchingResultsQueuedThenDownloaded()
+    {
+        var scheduler = UndisposedEventLoop();
+        using var _ = UseMainThreadScheduler(scheduler);
+
+        var vm = CreateViewModel((_, token) => FiniteTrackStream(new[] { CreateTrack("peer-1") }, token));
+        vm.SearchQuery = "Artist Track";
+        await WaitForTaskAsync(InvokeUnifiedSearchAsync(vm), TimeSpan.FromSeconds(5));
+        await Task.Delay(100);
+
+        var row = vm.SearchResults.Single();
+        var hash = row.RawResult.Model.UniqueHash;
+
+        vm.ApplyDownloadState(hash, PlaylistTrackState.Downloading);
+        Assert.True(row.IsQueued);
+
+        vm.ApplyDownloadState(hash, PlaylistTrackState.Completed);
+        Assert.True(row.IsDownloaded);
+        Assert.True(row.HasDownloadStatus);
+    }
+
+    [Fact]
+    public void PeerScope_RequiresUsernameToSearch()
+    {
+        var scheduler = UndisposedEventLoop();
+        using var _ = UseMainThreadScheduler(scheduler);
+
+        var vm = CreateViewModel((_, token) => FiniteTrackStream(Array.Empty<Track>(), token));
+        vm.SearchQuery = "Artist Track";
+        vm.IsPeerScope = true;
+
+        Assert.False(vm.IsNetworkScope);
+        Assert.False(vm.UnifiedSearchCommand.CanExecute(null));
+
+        vm.PeerUsername = "someone";
+        Assert.True(vm.UnifiedSearchCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void SortBy_SameColumnFlipsDirection_NewColumnUsesNaturalDirection()
+    {
+        var scheduler = UndisposedEventLoop();
+        using var _ = UseMainThreadScheduler(scheduler);
+
+        var vm = CreateViewModel((_, token) => FiniteTrackStream(Array.Empty<Track>(), token));
+        Assert.True(vm.IsSortedByMatch);
+        Assert.True(vm.SortDescending);
+
+        vm.SortBy(SearchSortColumn.Match);
+        Assert.False(vm.SortDescending);
+
+        vm.SortBy(SearchSortColumn.Title);
+        Assert.True(vm.IsSortedByTitle);
+        Assert.False(vm.SortDescending); // A→Z first
+
+        vm.SortBy(SearchSortColumn.Size);
+        Assert.True(vm.SortDescending); // largest first
+    }
+
+    [Fact]
+    public void RecentSearches_AreDeduplicatedAndCapped()
+    {
+        var scheduler = UndisposedEventLoop();
+        using var _ = UseMainThreadScheduler(scheduler);
+
+        var vm = CreateViewModel((_, token) => FiniteTrackStream(Array.Empty<Track>(), token));
+        for (var i = 0; i < 12; i++) vm.AddRecentSearch($"query {i}");
+        vm.AddRecentSearch("QUERY 5");
+
+        Assert.Equal(8, vm.RecentSearches.Count);
+        Assert.Equal("QUERY 5", vm.RecentSearches[0]);
+        Assert.Single(vm.RecentSearches, q => q.Equals("query 5", StringComparison.OrdinalIgnoreCase));
+    }
+
     private static SearchViewModel CreateViewModel(Func<string, CancellationToken, IAsyncEnumerable<Track>> streamFactory)
     {
         return CreateViewModelWithBus(streamFactory).vm;
