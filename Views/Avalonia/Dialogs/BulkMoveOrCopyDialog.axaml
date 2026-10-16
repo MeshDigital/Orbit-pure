@@ -2,36 +2,37 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:SLSKDONET.ViewModels.Library"
         x:Class="SLSKDONET.Views.Avalonia.Dialogs.BulkMoveOrCopyDialog"
-        Title="Move or Copy Files" Width="400" Height="300"
+        x:DataType="vm:BulkMoveOrCopyViewModel"
+        x:CompileBindings="True"
+        Title="Move or copy files" Width="420" SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
         CanResize="False"
-        Background="#151520" TransparencyLevelHint="AcrylicBlur"
+        Background="{StaticResource BrushBg2}" TransparencyLevelHint="AcrylicBlur"
         ExtendClientAreaToDecorationsHint="True">
 
-    <Grid RowDefinitions="Auto,*,Auto" Margin="20">
-        <!-- Header -->
-        <StackPanel Grid.Row="0" Spacing="8" Margin="0,10,0,16">
-            <TextBlock Text="Move or Copy Files" FontSize="18" FontWeight="SemiBold" Foreground="White"/>
-            <TextBlock Text="{Binding TrackCount, StringFormat='Applies to {0} selected track(s). You will choose the destination folder next.'}"
-                       FontSize="12" Foreground="#AAA" TextWrapping="Wrap"/>
+    <StackPanel Margin="24" Spacing="16">
+        <StackPanel Spacing="4">
+            <TextBlock Classes="h2" Text="Move or copy files"/>
+            <TextBlock Classes="body-sm muted" TextWrapping="Wrap"
+                       Text="{Binding TrackCount, StringFormat='Applies to {0} selected track(s). You choose the destination folder next.'}"/>
         </StackPanel>
 
-        <!-- Mode choice -->
-        <StackPanel Grid.Row="1" Spacing="12">
-            <RadioButton GroupName="MoveCopy" Content="Move" IsChecked="{Binding !IsCopy}" Foreground="White" FontWeight="SemiBold"/>
-            <TextBlock Text="Relocates the file on disk and updates ORBIT's library path. Use this to reorganize your collection."
-                       Foreground="#888" FontSize="11" TextWrapping="Wrap" Margin="26,-6,0,0"/>
-
-            <RadioButton GroupName="MoveCopy" Content="Copy" IsChecked="{Binding IsCopy}" Foreground="White" FontWeight="SemiBold" Margin="0,8,0,0"/>
-            <TextBlock Text="Duplicates the file to the destination for external use (e.g. staging a USB stick). ORBIT's library keeps pointing at the original."
-                       Foreground="#888" FontSize="11" TextWrapping="Wrap" Margin="26,-6,0,0"/>
+        <StackPanel Spacing="12">
+            <StackPanel Spacing="2">
+                <RadioButton GroupName="MoveCopy" Content="Move" IsChecked="{Binding !IsCopy}" FontWeight="SemiBold"/>
+                <TextBlock Classes="caption" TextWrapping="Wrap" Margin="28,0,0,0"
+                           Text="Relocates the file on disk and updates ORBIT's library path. Use this to reorganise your collection."/>
+            </StackPanel>
+            <StackPanel Spacing="2">
+                <RadioButton GroupName="MoveCopy" Content="Copy" IsChecked="{Binding IsCopy}" FontWeight="SemiBold"/>
+                <TextBlock Classes="caption" TextWrapping="Wrap" Margin="28,0,0,0"
+                           Text="Duplicates the file to the destination for external use, e.g. staging a USB stick. The library keeps pointing at the original."/>
+            </StackPanel>
         </StackPanel>
 
-        <!-- Buttons -->
-        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12" Margin="0,16,0,0">
-            <Button Content="Cancel" Click="Cancel_Click" Background="Transparent" Foreground="#AAA" Padding="16,8"/>
-            <Button Content="Choose Folder…" Click="Continue_Click"
-                    Background="#4EC9B0" Foreground="#151520" Padding="16,8" CornerRadius="6" FontWeight="Bold"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Classes="ghost" Content="Cancel" Click="Cancel_Click"/>
+            <Button Classes="primary" Content="Choose folder…" Click="Continue_Click"/>
         </StackPanel>
-    </Grid>
+    </StackPanel>
 </Window>

@@ -2,56 +2,54 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:SLSKDONET.ViewModels.Library"
         x:Class="SLSKDONET.Views.Avalonia.Dialogs.BulkRenameDialog"
-        Title="Rename Files" Width="440" Height="420"
+        x:DataType="vm:BulkRenameViewModel"
+        x:CompileBindings="True"
+        Title="Rename files" Width="480" Height="440"
         WindowStartupLocation="CenterOwner"
         CanResize="False"
-        Background="#151520" TransparencyLevelHint="AcrylicBlur"
+        Background="{StaticResource BrushBg2}" TransparencyLevelHint="AcrylicBlur"
         ExtendClientAreaToDecorationsHint="True">
 
-    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="20">
-        <!-- Header -->
-        <StackPanel Grid.Row="0" Spacing="8" Margin="0,10,0,16">
-            <TextBlock Text="Rename Files" FontSize="18" FontWeight="SemiBold" Foreground="White"/>
-            <TextBlock Text="{Binding TrackCount, StringFormat='Applies to {0} selected track(s). The original file extension is always kept.'}"
-                       FontSize="12" Foreground="#AAA" TextWrapping="Wrap"/>
-            <Border Background="#204EC9B0" CornerRadius="4" Padding="8" Margin="0,4,0,0">
-                <TextBlock Text="Tokens: {artist} {title} {album} {tracknumber} {year} {genre}"
-                           Foreground="#4EC9B0" FontSize="11" TextWrapping="Wrap"/>
-            </Border>
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="24">
+        <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,16">
+            <TextBlock Classes="h2" Text="Rename files"/>
+            <TextBlock Classes="body-sm muted" TextWrapping="Wrap"
+                       Text="{Binding TrackCount, StringFormat='Applies to {0} selected track(s). The original file extension is always kept.'}"/>
         </StackPanel>
 
         <!-- Pattern -->
-        <StackPanel Grid.Row="1" Spacing="5" Margin="0,0,0,14">
-            <TextBlock Text="Pattern" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
+        <StackPanel Grid.Row="1" Spacing="4" Margin="0,0,0,16">
+            <TextBlock Classes="caption" Text="Pattern"/>
             <TextBox Text="{Binding Pattern, Mode=TwoWay}" Watermark="{}{artist} - {title}"
-                     Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
-                     CornerRadius="6" Padding="10,8"/>
+                     FontFamily="{StaticResource FontMono}"/>
+            <TextBlock Classes="caption" TextWrapping="Wrap"
+                       Text="Tokens: {artist} {title} {album} {tracknumber} {year} {genre}"/>
         </StackPanel>
 
         <!-- Live preview -->
-        <StackPanel Grid.Row="2" Spacing="5">
-            <TextBlock Text="Preview" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-            <Border Background="#1A1A24" BorderBrush="#3E3E42" BorderThickness="1" CornerRadius="6" Padding="10">
-                <StackPanel Spacing="4">
-                    <ItemsControl ItemsSource="{Binding PreviewLines}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding}" Foreground="#DDD" FontSize="12" TextTrimming="CharacterEllipsis"/>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <TextBlock Text="Select at least one track to preview." Foreground="#666" FontSize="11"
+        <DockPanel Grid.Row="2">
+            <TextBlock DockPanel.Dock="Top" Classes="section" Text="PREVIEW" Margin="0,0,0,8"/>
+            <Border Classes="inset">
+                <Panel>
+                    <ScrollViewer IsVisible="{Binding HasPreview}">
+                        <ItemsControl ItemsSource="{Binding PreviewLines}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <TextBlock Classes="mono" Text="{Binding}" TextTrimming="CharacterEllipsis" Margin="0,2"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <TextBlock Classes="caption" Text="Select at least one track to preview."
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
                                IsVisible="{Binding !HasPreview}"/>
-                </StackPanel>
+                </Panel>
             </Border>
-        </StackPanel>
+        </DockPanel>
 
-        <!-- Buttons -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12" Margin="0,16,0,0">
-            <Button Content="Cancel" Click="Cancel_Click" Background="Transparent" Foreground="#AAA" Padding="16,8"/>
-            <Button Content="Rename" Click="Save_Click"
-                    IsEnabled="{Binding CanSave}"
-                    Background="#4EC9B0" Foreground="#151520" Padding="16,8" CornerRadius="6" FontWeight="Bold"/>
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,16,0,0">
+            <Button Classes="ghost" Content="Cancel" Click="Cancel_Click"/>
+            <Button Classes="primary" Content="Rename" Click="Save_Click" IsEnabled="{Binding CanSave}"/>
         </StackPanel>
     </Grid>
 </Window>
