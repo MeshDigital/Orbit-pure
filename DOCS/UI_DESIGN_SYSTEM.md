@@ -49,7 +49,7 @@ muted/section labels · `BrushText3` #5C626B hints, placeholders, empty-state ic
 `BrushError` #E5605A · `BrushInfo` #5AA7E8. Each colour also has `*Subtle` (10% bg) and
 `*Border` (35%) variants.
 
-**Domain.** `BrushStemVocals/Drums/Bass/Other` only for stem data. Not for UI chrome.
+**Domain.** `BrushStemVocals/Drums/Bass/Other` only for stem data; `BrushHotCue1`–`8` (+ `BrushOnHotCue`, `BrushOnHotCueLight` for the label) only for CDJ hot-cue pad slots. Not for UI chrome.
 
 **Scales.**
 - Spacing (4px grid): `SpaceXxs 2 · SpaceXs 4 · SpaceSm 8 · SpaceMd 12 · SpaceLg 16 · SpaceXl 24 · Space2xl 32 · Space3xl 48`
@@ -161,7 +161,7 @@ Use `PathIcon` with an `icon_*` key: menu, home, search, inbox, link, library, u
 settings, target, waves, tune, play, pause, skip_previous, skip_next, expand, close, check, add,
 download, bell, alert, info, brain, sync, music, chevron_down/right/left/up, more (…), shuffle,
 heart, heart_outline, folder, folder_add, playlist_add, delete, edit, columns, filter, export, history,
-wand, wrench, stop, open_external, mix. There are more legacy
+wand, wrench, stop, open_external, mix, lock, undo, redo, resize, panel_bottom. There are more legacy
 `*_regular` keys in App.axaml. Size icons with `IconSize*` (16 by default). The colour inherits from
 `Foreground`. If an icon is missing, add a 24x24 single-path geometry to `Icons.axaml`. Don't fall
 back to an emoji.
