@@ -183,8 +183,16 @@ public partial class MessageThreadView : UserControl
         if (sender is not Control { DataContext: ChatMessageViewModel message })
             return;
 
-        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-        if (clipboard != null)
-            await clipboard.SetTextAsync(message.Message);
+        // async void event handler: an escaping exception would take down the app, so contain and log it.
+        try
+        {
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (clipboard != null)
+                await clipboard.SetTextAsync(message.Message);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "MessageThreadView: copying a chat message to the clipboard failed");
+        }
     }
 }

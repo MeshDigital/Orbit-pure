@@ -254,6 +254,32 @@ public class AnalysisTrackItem : ReactiveObject
     public string KeyConfidenceTier => ToConfidenceTier(KeyConfidence);
     public string ConfidenceSemanticsSummary => $"Tonal {BpmConfidenceTier} • Key {KeyConfidenceTier}";
     public int CueCount => HasAnalysis ? _cueCount : 0;
+
+    // ── Measured values (0–1) straight from the library, null when the analyser never stored one.
+    // The view shows these as bars; it never derives moods or confidences from defaults.
+    public double? MeasuredBpmConfidence { get; }
+    public double? MeasuredKeyConfidence { get; }
+    public double? MeasuredEnergy { get; }
+    public double? MeasuredValence { get; }
+    public bool HasMeasuredBpmConfidence => MeasuredBpmConfidence.HasValue;
+    public bool HasMeasuredKeyConfidence => MeasuredKeyConfidence.HasValue;
+    public bool HasMeasuredEnergy => MeasuredEnergy.HasValue;
+    public bool HasMeasuredValence => MeasuredValence.HasValue;
+    public bool HasMeasuredProfile => HasMeasuredEnergy || HasMeasuredValence;
+    public bool HasGenres => AnalysisData?.Genres is { Count: > 0 };
+
+    /// <summary>
+    /// Brings a stored score onto 0–1: values already in range pass through, 0–10 and 0–100
+    /// scales are divided down, and a −1…1 valence is shifted up.
+    /// </summary>
+    private static double? Normalize01(double? value)
+    {
+        if (value is not { } v || double.IsNaN(v)) return null;
+        if (v < 0) return Math.Clamp((v + 1.0) / 2.0, 0, 1);
+        if (v <= 1.0) return v;
+        if (v <= 10.0) return v / 10.0;
+        return Math.Clamp(v / 100.0, 0, 1);
+    }
     public byte[] WaveformLow => _waveformLow;
     public byte[] WaveformMid => _waveformMid;
     public byte[] WaveformHigh => _waveformHigh;
@@ -307,8 +333,16 @@ public class AnalysisTrackItem : ReactiveObject
         double? loudnessLufs = null,
         string? camelotKey = null,
         string? chordProgression = null,
-        double? durationSeconds = null)
+        double? durationSeconds = null,
+        double? measuredBpmConfidence = null,
+        double? measuredKeyConfidence = null,
+        double? measuredEnergy = null,
+        double? measuredValence = null)
     {
+        MeasuredBpmConfidence = Normalize01(measuredBpmConfidence);
+        MeasuredKeyConfidence = Normalize01(measuredKeyConfidence);
+        MeasuredEnergy = Normalize01(measuredEnergy);
+        MeasuredValence = Normalize01(measuredValence);
         TrackId = trackId;
         Artist = artist;
         Title = title;
@@ -317,20 +351,15 @@ public class AnalysisTrackItem : ReactiveObject
         MusicalKey = musicalKey;
         FilePath = filePath;
         _analysisData = analysisData;
-        _cueCount = cueCount > 0 ? cueCount : (analysisData is not null ? EstimateCueCount(trackId) : 0);
-        var canUseSyntheticWaveform = string.IsNullOrWhiteSpace(filePath);
-        _waveformLow = lowBand is { Length: > 0 }
-            ? lowBand
-            : (canUseSyntheticWaveform ? BuildWaveformBand(trackId, 64, 7) : Array.Empty<byte>());
-        _waveformMid = midBand is { Length: > 0 }
-            ? midBand
-            : (canUseSyntheticWaveform ? BuildWaveformBand(trackId, 64, 17) : Array.Empty<byte>());
-        _waveformHigh = highBand is { Length: > 0 }
-            ? highBand
-            : (canUseSyntheticWaveform ? BuildWaveformBand(trackId, 64, 29) : Array.Empty<byte>());
+        // Only real data: no estimated cue counts, synthetic waveforms or invented timestamps.
+        // A track with no stored cues shows 0 and an empty waveform well, not placeholder numbers.
+        _cueCount = Math.Max(0, cueCount);
+        _waveformLow = lowBand ?? Array.Empty<byte>();
+        _waveformMid = midBand ?? Array.Empty<byte>();
+        _waveformHigh = highBand ?? Array.Empty<byte>();
         _stemsReady = analysisData?.Stems?.AreGenerated ?? false;
-        _lastAnalyzedAt = lastAnalyzedAt ?? (analysisData is not null ? DateTime.UtcNow.AddMinutes(-EstimateCueCount(trackId) * 7) : null);
-        _modelVersion = modelVersion ?? (analysisData is not null ? "essentia-2.1-b6" : null);
+        _lastAnalyzedAt = lastAnalyzedAt;
+        _modelVersion = modelVersion;
         _energyCurvePoints = energyCurvePoints ?? Array.Empty<double>();
         _segmentedEnergyPoints = segmentedEnergyPoints ?? Array.Empty<double>();
         _dropTimeSeconds = dropTimeSeconds;
@@ -633,26 +662,14 @@ public class AnalysisTrackItem : ReactiveObject
                 end,
                 (end - start) * 100.0,
                 Math.Max(26.0, (end - start) * 280.0),
-                ResolvePhraseColor(label, energy),
+                energy,
                 $"{label} • energy {(energy * 100):F0}%"));
         }
 
         return blocks;
     }
 
-    private static string ResolvePhraseColor(string label, double energy)
-    {
-        return label switch
-        {
-            "Intro" => "#3A4A5A",
-            "Build" => "#5A4A2A",
-            "Drop" => "#7A2A2A",
-            "Break" => "#2A4A5A",
-            "Outro" => "#3A3A46",
-            _ => energy >= 0.6 ? "#4A5A3A" : "#3A4A3A"
-        };
-    }
-
+}
 
 public sealed record PhraseTimelineBlock(
     string Label,
@@ -660,34 +677,17 @@ public sealed record PhraseTimelineBlock(
     double EndRatio,
     double WidthPercent,
     double WidthPx,
-    string FillColor,
-    string Tooltip);
-    private static int EstimateCueCount(string seed)
-    {
-        var hash = Math.Abs(seed.Aggregate(17, (current, c) => current * 31 + c));
-        return 4 + (hash % 5);
-    }
-
-    private static byte[] BuildWaveformBand(string seed, int length, int salt)
-    {
-        var data = new byte[length];
-        var hash = Math.Abs(seed.Aggregate(salt, (current, c) => current * 31 + c));
-        var rng = new Random(hash);
-
-        for (var i = 0; i < length; i++)
-        {
-            var wave = Math.Abs(Math.Sin((i + salt) / 6.0));
-            var jitter = rng.NextDouble() * 0.35;
-            data[i] = (byte)Math.Clamp((wave + jitter) * 180.0, 18, 255);
-        }
-
-        return data;
-    }
+    double Energy,
+    string Tooltip)
+{
+    /// <summary>The drop segment is the one block the view highlights; the rest stay neutral.</summary>
+    public bool IsDrop => Label == "Drop";
 }
 
 /// <summary>
 /// ViewModel for the Analysis page.
-/// Manages the library track list, the analysis queue, processing state, and mock data.
+/// Manages the library track list, the analysis queue and processing state. Sample data is only
+/// used when no library service exists (designer/tests), never as a stand-in for a failed load.
 /// </summary>
 public class AnalysisPageViewModel : ReactiveObject, IDisposable
 {
@@ -778,8 +778,38 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public string? LibraryLoadErrorMessage
     {
         get => _libraryLoadErrorMessage;
-        private set => this.RaiseAndSetIfChanged(ref _libraryLoadErrorMessage, value);
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _libraryLoadErrorMessage, value);
+            this.RaisePropertyChanged(nameof(HasLibraryLoadError));
+            this.RaisePropertyChanged(nameof(ShowNoLibraryTracks));
+        }
     }
+
+    private bool _isLibraryLoading;
+
+    /// <summary>True while the library snapshot is being read; drives the pane's loading state.</summary>
+    public bool IsLibraryLoading
+    {
+        get => _isLibraryLoading;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _isLibraryLoading, value);
+            this.RaisePropertyChanged(nameof(ShowNoLibraryTracks));
+            this.RaisePropertyChanged(nameof(ShowNoSearchMatches));
+        }
+    }
+
+    public bool HasLibraryLoadError => !string.IsNullOrEmpty(LibraryLoadErrorMessage);
+
+    /// <summary>Library loaded fine but holds no tracks at all.</summary>
+    public bool ShowNoLibraryTracks => !IsLibraryLoading && !HasLibraryLoadError && LibraryTracks.Count == 0;
+
+    /// <summary>The library has tracks but the current search hides all of them.</summary>
+    public bool ShowNoSearchMatches => !IsLibraryLoading && LibraryTracks.Count > 0 && FilteredLibraryTracks.Count == 0;
+
+    /// <summary>Re-reads the library after a failed load (the error state's Retry button).</summary>
+    public ReactiveCommand<Unit, Unit> RetryLoadLibraryCommand { get; private set; } = null!;
 
     public bool IsIdle => ProcessingState == AnalysisProcessingState.Idle;
     public bool IsProcessing => ProcessingState == AnalysisProcessingState.Processing;
@@ -931,6 +961,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         {
             this.RaiseAndSetIfChanged(ref _isIntegrityScanRunning, value);
             this.RaisePropertyChanged(nameof(CanScanIntegrity));
+            this.RaisePropertyChanged(nameof(ShowIntegrityPanel));
         }
     }
 
@@ -943,8 +974,21 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public string IntegrityScanStatusText
     {
         get => _integrityScanStatusText;
-        private set => this.RaiseAndSetIfChanged(ref _integrityScanStatusText, value);
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _integrityScanStatusText, value);
+            this.RaisePropertyChanged(nameof(ShowIntegrityPanel));
+        }
     }
+
+    /// <summary>
+    /// The integrity card only appears once a scan or remediation has something to say; the scan
+    /// itself is started from the page's overflow menu, so a resting page has no empty panel.
+    /// </summary>
+    public bool ShowIntegrityPanel => IsIntegrityScanRunning
+        || !string.IsNullOrEmpty(IntegrityScanStatusText)
+        || !string.IsNullOrEmpty(RemediationStatusText)
+        || HasScanIssues;
 
     public bool CanScanIntegrity => !_isIntegrityScanRunning && _corruptionScanService is not null;
 
@@ -978,7 +1022,11 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public string RemediationStatusText
     {
         get => _remediationStatusText;
-        private set => this.RaiseAndSetIfChanged(ref _remediationStatusText, value);
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _remediationStatusText, value);
+            this.RaisePropertyChanged(nameof(ShowIntegrityPanel));
+        }
     }
 
     public IReadOnlyList<CorruptFileScanEntry> ScanIssues
@@ -989,6 +1037,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             _scanIssues = value;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(HasScanIssues));
+            this.RaisePropertyChanged(nameof(ShowIntegrityPanel));
             this.RaisePropertyChanged(nameof(CorruptIssueCount));
             this.RaisePropertyChanged(nameof(MissingIssueCount));
             this.RaisePropertyChanged(nameof(CanRemediate));
@@ -1073,6 +1122,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         CopyPerformanceSnapshotCommand = ReactiveCommand.CreateFromTask(CopyPerformanceSnapshotAsync);
         ClearPerformanceProbeHistoryCommand = ReactiveCommand.Create(ClearPerformanceProbeHistory);
         SetPaneModeCommand = ReactiveCommand.Create<AnalysisPaneMode>(SetPaneMode);
+        RetryLoadLibraryCommand = ReactiveCommand.CreateFromTask(LoadLibraryAsync);
 
         var canScan = this.WhenAnyValue(x => x.CanScanIntegrity);
         ScanLibraryIntegrityCommand = ReactiveCommand.CreateFromTask(ScanLibraryIntegrityAsync, canScan);
@@ -1682,6 +1732,8 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         _filteredTrackCount = FilteredLibraryTracks.Count;
 
         this.RaisePropertyChanged(nameof(IsLibraryEmpty));
+        this.RaisePropertyChanged(nameof(ShowNoLibraryTracks));
+        this.RaisePropertyChanged(nameof(ShowNoSearchMatches));
         this.RaisePropertyChanged(nameof(FilterPerformanceDisplay));
         this.RaisePropertyChanged(nameof(PerformanceDiagnosticsSummary));
     }
@@ -1772,10 +1824,13 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
     private async Task LoadLibraryAsync()
     {
+        if (_libraryService is null)
+            return;
+
+        IsLibraryLoading = true;
+        LibraryLoadErrorMessage = null;
         try
         {
-            if (_libraryService is null)
-                return;
 
             // One shared full-library scan (entries + File.Exists sweep) instead of loading
             // and re-checking existence twice — ComputeSnapshotAsync does this same work
@@ -1805,14 +1860,16 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         }
         catch (Exception ex)
         {
-            Serilog.Log.Warning(ex, "AnalysisPage: failed to load the real library — falling back to demo data");
-            if (LibraryTracks.Count == 0)
-            {
-                LibraryLoadErrorMessage = $"Couldn't load your library ({ex.Message}) — showing sample data instead. This is not your real collection.";
-                LoadMockData();
-                ApplyFilter();
-                RefreshComputedState();
-            }
+            // Never substitute sample tracks for the user's collection: show the failure and
+            // offer a retry instead (the page's error state binds to LibraryLoadErrorMessage).
+            Serilog.Log.Warning(ex, "AnalysisPage: failed to load the library");
+            LibraryLoadErrorMessage = $"Couldn't load your library: {ex.Message}";
+        }
+        finally
+        {
+            IsLibraryLoading = false;
+            this.RaisePropertyChanged(nameof(ShowNoLibraryTracks));
+            this.RaisePropertyChanged(nameof(ShowNoSearchMatches));
         }
     }
 
@@ -1926,7 +1983,11 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             loudnessLufs: entry.LoudnessLufs,
             camelotKey: entry.CamelotKey,
                 chordProgression: entry.ChordProgression,
-                durationSeconds: entry.DurationSeconds);
+                durationSeconds: entry.DurationSeconds,
+                measuredBpmConfidence: entry.BpmConfidence,
+                measuredKeyConfidence: entry.KeyConfidence,
+                measuredEnergy: entry.Energy,
+                measuredValence: entry.Valence);
     }
 
     private static List<double> ParseSegmentedEnergyPoints(string? segmentedEnergyJson, IReadOnlyList<double> fallbackCurve)
@@ -2286,6 +2347,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         }
         catch (Exception ex)
         {
+            Serilog.Log.Warning(ex, "AnalysisPage: library integrity scan failed");
             IntegrityScanStatusText = $"Scan failed: {ex.Message}";
         }
         finally
@@ -2339,6 +2401,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         }
         catch (Exception ex)
         {
+            Serilog.Log.Warning(ex, "AnalysisPage: corrupt-file remediation failed");
             RemediationStatusText = $"Remediation failed: {ex.Message}";
         }
         finally
@@ -2515,12 +2578,9 @@ public sealed record PerformanceProbeRun(
         _ => "slow"
     };
 
-    public string SeverityColor => P95Ms switch
-    {
-        <= 6.0 => "#7BD88F",
-        <= 14.0 => "#F1C15A",
-        _ => "#FF8A80"
-    };
+    public bool IsGood => P95Ms <= 6.0;
+    public bool IsWarn => P95Ms is > 6.0 and <= 14.0;
+    public bool IsSlow => P95Ms > 14.0;
 
     public string DisplayLabel => $"{TimestampUtc:HH:mm:ss} · {SeverityLabel} · {TrendArrow} {TrendText} · {QueryCount}q · avg {AverageMs:F1} ms · p95 {P95Ms:F1} ms · max {MaxMs:F1} ms";
 }
