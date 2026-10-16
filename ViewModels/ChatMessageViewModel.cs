@@ -30,6 +30,9 @@ public sealed class ChatMessageViewModel : ReactiveObject
     public string SenderUsername { get; }
     public string Message { get; }
     public DateTime TimestampUtc { get; }
+
+    /// <summary>Message time in the user's local zone ("14:05"); <see cref="TimestampUtc"/> is UTC.</summary>
+    public string TimeDisplay => DateTime.SpecifyKind(TimestampUtc, DateTimeKind.Utc).ToLocalTime().ToString("HH:mm");
     public bool IsOutgoing { get; }
 
     private bool _showSenderHeader = true;

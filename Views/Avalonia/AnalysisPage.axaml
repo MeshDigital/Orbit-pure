@@ -420,11 +420,12 @@
                                                         ToolTip.Tip="Add to analysis queue">
                                                     <PathIcon Data="{StaticResource icon_add}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
                                                 </Button>
-                                                <Button Classes="icon small active" IsEnabled="False"
-                                                        IsVisible="{Binding IsInQueue}"
-                                                        ToolTip.Tip="Already queued">
-                                                    <PathIcon Data="{StaticResource icon_queue}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
-                                                </Button>
+                                                <!-- Queued marker: status, not an action -->
+                                                <Border Width="26" Height="26" Background="Transparent"
+                                                        IsVisible="{Binding IsInQueue}" ToolTip.Tip="In the analysis queue">
+                                                    <PathIcon Data="{StaticResource icon_queue}" Foreground="{StaticResource BrushAccent}"
+                                                              Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                                                </Border>
                                             </Panel>
                                         </Grid>
                                     </Border>

@@ -397,7 +397,9 @@ public abstract class UserCollectionNodeViewModel : ReactiveObject
 
     public string Name { get; }
     public virtual string DisplayName => Name;
-    public virtual string Icon => "📄";
+    // Node kind for the share tree's PathIcon (folder / music file / other file).
+    public virtual bool IsFolder => false;
+    public virtual bool IsMusic => false;
     public virtual string SecondaryText => string.Empty;
     public virtual string WarningText => string.Empty;
     public virtual bool HasWarning => !string.IsNullOrWhiteSpace(WarningText);
@@ -415,7 +417,7 @@ public sealed class UserCollectionFolderNodeViewModel : UserCollectionNodeViewMo
 
     public ObservableCollection<UserCollectionNodeViewModel> ChildNodes { get; } = new();
     public override IEnumerable<UserCollectionNodeViewModel> Children => ChildNodes;
-    public override string Icon => "📁";
+    public override bool IsFolder => true;
     public override string SecondaryText => QueueableFileCount > 0 ? $"{QueueableFileCount} track(s)" : "Folder";
 
     public override IEnumerable<UserCollectionFileNodeViewModel> EnumerateAllFiles()
@@ -439,7 +441,7 @@ public sealed class UserCollectionFileNodeViewModel : UserCollectionNodeViewMode
     public int Bitrate => Track.Bitrate;
     public bool IsSuspiciousLossless => false;
 
-    public override string Icon => (IsMusicFile ? "🎵" : "📄");
+    public override bool IsMusic => IsMusicFile;
     public override string SecondaryText
     {
         get
