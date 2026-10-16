@@ -74,6 +74,16 @@
       <Color x:Key="ColorStemBass">#44FF88</Color>
       <Color x:Key="ColorStemOther">#BB88FF</Color>
 
+      <!-- Domain colours: CDJ hot-cue pads A–H (data identity, matches the pad slot, not UI chrome) -->
+      <Color x:Key="ColorHotCue1">#E91E63</Color>
+      <Color x:Key="ColorHotCue2">#FF9800</Color>
+      <Color x:Key="ColorHotCue3">#CDDC39</Color>
+      <Color x:Key="ColorHotCue4">#4CAF50</Color>
+      <Color x:Key="ColorHotCue5">#00BCD4</Color>
+      <Color x:Key="ColorHotCue6">#2196F3</Color>
+      <Color x:Key="ColorHotCue7">#9C27B0</Color>
+      <Color x:Key="ColorHotCue8">#9E9E9E</Color>
+
       <!-- Text -->
       <Color x:Key="ColorText0">#E8EAED</Color>   <!-- primary -->
       <Color x:Key="ColorText1">#A8ADB5</Color>   <!-- secondary -->
@@ -146,6 +156,18 @@
       <SolidColorBrush x:Key="BrushStemDrums"     Color="{StaticResource ColorStemDrums}"/>
       <SolidColorBrush x:Key="BrushStemBass"      Color="{StaticResource ColorStemBass}"/>
       <SolidColorBrush x:Key="BrushStemOther"     Color="{StaticResource ColorStemOther}"/>
+
+      <!-- Hot-cue pads (Workstation inspector, CDJ slot colours) -->
+      <SolidColorBrush x:Key="BrushHotCue1"       Color="{StaticResource ColorHotCue1}"/>
+      <SolidColorBrush x:Key="BrushHotCue2"       Color="{StaticResource ColorHotCue2}"/>
+      <SolidColorBrush x:Key="BrushHotCue3"       Color="{StaticResource ColorHotCue3}"/>
+      <SolidColorBrush x:Key="BrushHotCue4"       Color="{StaticResource ColorHotCue4}"/>
+      <SolidColorBrush x:Key="BrushHotCue5"       Color="{StaticResource ColorHotCue5}"/>
+      <SolidColorBrush x:Key="BrushHotCue6"       Color="{StaticResource ColorHotCue6}"/>
+      <SolidColorBrush x:Key="BrushHotCue7"       Color="{StaticResource ColorHotCue7}"/>
+      <SolidColorBrush x:Key="BrushHotCue8"       Color="{StaticResource ColorHotCue8}"/>
+      <SolidColorBrush x:Key="BrushOnHotCue"      Color="#FFFFFF"/>   <!-- pad label on a saturated pad -->
+      <SolidColorBrush x:Key="BrushOnHotCueLight" Color="#111111"/>   <!-- pad label on the light (lime) pad -->
 
       <!-- ================================================================
            3. LEGACY ALIASES — referenced by existing Views. Do not use in new
