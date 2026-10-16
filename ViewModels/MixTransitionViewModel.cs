@@ -74,58 +74,32 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         _serviceProvider = serviceProvider;
         _libraryPreviewPlayer = libraryPreviewPlayer;
 
-        // In-place cue editors for the two decks — full cue control without leaving the
-        // transition (see TrackCueEditorViewModel).
+        // In-place cue editors for the two decks: the same CueEditorSession engine as Cue Forge,
+        // auditioning through the library preview player (see TrackCueEditorViewModel).
         var editorLogger = (ILogger?)serviceProvider.GetService(typeof(ILogger<TrackCueEditorViewModel>))
             ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
-        OutgoingEditor = new TrackCueEditorViewModel("Outgoing", cuePointService, libraryPreviewPlayer, editorLogger);
-        IncomingEditor = new TrackCueEditorViewModel("Incoming", cuePointService, libraryPreviewPlayer, editorLogger);
-        OutgoingEditor.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(TrackCueEditorViewModel.Cues)) { OutgoingCues = OutgoingEditor.Cues; RefreshMissingCues(); } };
-        IncomingEditor.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(TrackCueEditorViewModel.Cues)) { IncomingCues = IncomingEditor.Cues; RefreshMissingCues(); } };
+        var cueSessions = serviceProvider.GetService(typeof(CueSessionRegistry)) as CueSessionRegistry;
+        OutgoingEditor = new TrackCueEditorViewModel("Outgoing", cuePointService, libraryPreviewPlayer, editorLogger, cueSessions);
+        IncomingEditor = new TrackCueEditorViewModel("Incoming", cuePointService, libraryPreviewPlayer, editorLogger, cueSessions);
+        // Every edit (add, drag, rename, delete, undo, reload…) bumps CueRevision: republish the
+        // decks' cues so the waveforms and the mix-out / mix-in cue choices follow live.
+        OutgoingEditor.Session.WhenAnyValue(s => s.CueRevision).Subscribe(_ => { OutgoingCues = OutgoingEditor.Session.Cues.ToList(); RefreshMissingCues(); });
+        IncomingEditor.Session.WhenAnyValue(s => s.CueRevision).Subscribe(_ => { IncomingCues = IncomingEditor.Session.Cues.ToList(); RefreshMissingCues(); });
         OutgoingEditor.TriggerRequested += (_, t) => { NudgeSeconds = 0; SourceTriggerSeconds = t; };
         IncomingEditor.TriggerRequested += (_, t) => TargetTriggerSeconds = t;
         // Moving the cue a trigger sits on moves the trigger with it.
         OutgoingEditor.CueMoved += (_, m) => { if (Math.Abs(SourceTriggerSeconds - m.From) < 0.01) SourceTriggerSeconds = m.To; };
         IncomingEditor.CueMoved += (_, m) => { if (Math.Abs(TargetTriggerSeconds - m.From) < 0.01) TargetTriggerSeconds = m.To; };
 
-        // Generate cues from the deck strips — the same service as the library's "Regenerate Cues".
+        // The drop cue template is one app-wide setting held by the CueSessionRegistry, so both
+        // decks, Cue Forge and cue generation always agree on it.
         foreach (var editor in new[] { OutgoingEditor, IncomingEditor })
         {
+            // Generate cues from the deck strips — the same service as the library's "Regenerate Cues".
             editor.CueGenerator = GenerateCuesForDeckAsync;
             editor.CuesChanged += async (_, _) => await ReplanFromCuesAsync();
-        }
-
-        // Cue template — one app-wide choice, shared by both decks, Cue Forge and cue generation.
-        var configManager = (SLSKDONET.Configuration.ConfigManager?)serviceProvider.GetService(typeof(SLSKDONET.Configuration.ConfigManager));
-        var mode = configManager?.GetCurrent().DropCountdownMode ?? SLSKDONET.Engine.Cueing.DropCountdownCues.Auto;
-        var customBars = configManager?.GetCurrent().CustomCountdownBars;
-        foreach (var editor in new[] { OutgoingEditor, IncomingEditor })
-        {
-            editor.InitDropCountdownMode(mode, customBars);
-            editor.CustomCountdownBarsChanged += (sender, bars) =>
-            {
-                foreach (var other in new[] { OutgoingEditor, IncomingEditor })
-                    if (other != sender) other.InitDropCountdownMode(other.DropCountdownMode, bars);
-                if (configManager != null)
-                {
-                    var config = configManager.GetCurrent();
-                    config.CustomCountdownBars = bars;
-                    configManager.Save(config);
-                }
-            };
             // The deck you last listened to is the one the D / 1 / 2 keys place a drop on.
             editor.Auditioned += (sender, _) => ActiveEditor = (TrackCueEditorViewModel)sender!;
-            editor.DropCountdownModeChanged += (sender, newMode) =>
-            {
-                foreach (var other in new[] { OutgoingEditor, IncomingEditor })
-                    if (other != sender) other.InitDropCountdownMode(newMode);
-                if (configManager != null)
-                {
-                    var config = configManager.GetCurrent();
-                    config.DropCountdownMode = newMode;
-                    configManager.Save(config);
-                }
-            };
             // Auditioning a cue holds the main mix (resumed when the cues are saved).
             editor.HoldMainPlayback = () =>
             {
@@ -139,13 +113,14 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
                 var player = serviceProvider.GetService(typeof(PlayerViewModel)) as PlayerViewModel;
                 if (player is { IsPlaying: false }) player.TogglePlayPauseCommand.Execute(null);
             };
-            editor.WhenAnyValue(e => e.SelectedCue).Subscribe(c => { if (c != null) ActiveEditor = editor; });
+            var deck = editor;
+            editor.Session.WhenAnyValue(s => s.SelectedCue).Subscribe(c => { if (c != null) ActiveEditor = deck; });
         }
 
         // Arrow keys (MixPreviewComponent key bindings): nudge the last-selected cue and re-audition.
         NudgeActiveCueCommand = ReactiveCommand.Create<string>(step =>
         {
-            if (IsCueEditMode && ActiveEditor?.SelectedCue != null) ActiveEditor.NudgeSelectedCommand.Execute(step).Subscribe();
+            if (IsCueEditMode && ActiveEditor?.Session.SelectedCue != null) ActiveEditor.Session.NudgeCueCommand.Execute(step).Subscribe();
         });
 
         // D / 1 / 2 (MixPreviewComponent key bindings): a drop where you are listening on the last
@@ -153,8 +128,8 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         DropKeyCommand = ReactiveCommand.Create<string>(key =>
         {
             if (!IsCueEditMode || ActiveEditor is not { } editor) return;
-            if (key == "1" || key == "2") editor.SetNumberedDropHereCommand.Execute(int.Parse(key)).Subscribe();
-            else editor.SetDropHereCommand.Execute().Subscribe();
+            if (key == "1" || key == "2") editor.Session.SetNumberedDropAtPlayheadCommand.Execute(int.Parse(key)).Subscribe();
+            else editor.Session.SetDropAtPlayheadCommand.Execute().Subscribe();
         });
 
         ToggleCueEditModeCommand = ReactiveCommand.Create(() => { IsCueEditMode = !IsCueEditMode; });
@@ -162,12 +137,12 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         // transition's trigger point (the original behaviour).
         OutgoingCueClickedCommand = ReactiveCommand.Create<double>(t =>
         {
-            if (IsCueEditMode) OutgoingEditor.SelectedCue = OutgoingEditor.Cues.FirstOrDefault(c => Math.Abs(c.Timestamp - t) < 0.01);
+            if (IsCueEditMode) OutgoingEditor.Session.SelectedCue = OutgoingEditor.Session.Cues.FirstOrDefault(c => Math.Abs(c.Timestamp - t) < 0.01);
             else SourceTriggerSeconds = t;
         });
         IncomingCueClickedCommand = ReactiveCommand.Create<double>(t =>
         {
-            if (IsCueEditMode) IncomingEditor.SelectedCue = IncomingEditor.Cues.FirstOrDefault(c => Math.Abs(c.Timestamp - t) < 0.01);
+            if (IsCueEditMode) IncomingEditor.Session.SelectedCue = IncomingEditor.Session.Cues.FirstOrDefault(c => Math.Abs(c.Timestamp - t) < 0.01);
             else TargetTriggerSeconds = t;
         });
 
@@ -222,8 +197,8 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         // "now it's a real, manageable cue."
         // Waveform right-click → "Add cue here" now adds the cue right here (switching to edit mode
         // so it can be named and placed) instead of leaving for Cue Forge.
-        AddCueToOutgoingInCueForgeCommand = ReactiveCommand.Create<double>(seconds => { IsCueEditMode = true; OutgoingEditor.AddCueAtCommand.Execute(seconds).Subscribe(); });
-        AddCueToIncomingInCueForgeCommand = ReactiveCommand.Create<double>(seconds => { IsCueEditMode = true; IncomingEditor.AddCueAtCommand.Execute(seconds).Subscribe(); });
+        AddCueToOutgoingInCueForgeCommand = ReactiveCommand.Create<double>(seconds => { IsCueEditMode = true; OutgoingEditor.Session.AddCueAtCommand.Execute(seconds).Subscribe(); });
+        AddCueToIncomingInCueForgeCommand = ReactiveCommand.Create<double>(seconds => { IsCueEditMode = true; IncomingEditor.Session.AddCueAtCommand.Execute(seconds).Subscribe(); });
         SelectSourceCueCommand = ReactiveCommand.Create<double>(timestamp => SourceTriggerSeconds = timestamp);
         SelectTargetCueCommand = ReactiveCommand.Create<double>(timestamp => TargetTriggerSeconds = timestamp);
         // Plain click (not a drag, not a cue hit) on either waveform's background — auditions
@@ -271,6 +246,8 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         _previewPositionPoll = null;
         _previewPlayer.PreviewStopped -= OnPreviewStopped;
         if (_libraryPreviewPlayer != null) _libraryPreviewPlayer.PreviewStopped -= OnLibraryPreviewStopped;
+        OutgoingEditor.Dispose();
+        IncomingEditor.Dispose();
     }
 
     public PlaylistTrackViewModel? OutgoingTrack { get; private set; }
@@ -1406,21 +1383,15 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         }
     }
 
-    /// <param name="addCueAtSeconds">When set (the waveform's right-click "Add cue here"), a new
-    /// cue is added at this exact time and selected before navigating, so it's ready to manage
-    /// the moment Cue Forge opens.</param>
-    private async Task OpenTrackInCueForgeAsync(PlaylistTrackViewModel? track, double? addCueAtSeconds = null)
+    private async Task OpenTrackInCueForgeAsync(PlaylistTrackViewModel? track)
     {
         var hash = track?.Model?.TrackUniqueHash;
         if (string.IsNullOrWhiteSpace(hash)) return;
 
+        // Cue Forge loads the stored cues, so save the decks' edits first (see CueSessionRegistry).
+        await FlushCueEditsAsync();
         var cueForgeViewModel = _serviceProvider.GetRequiredService<CueForgeViewModel>();
         await cueForgeViewModel.LoadTrackAsync(hash, track!.Title, track.Artist);
-
-        if (addCueAtSeconds.HasValue)
-        {
-            await cueForgeViewModel.AddCueAtTimeAsync(addCueAtSeconds.Value);
-        }
 
         // Gives Cue Forge a "← Back to Mix Transition" link instead of a dead end — both
         // OutgoingTrack/IncomingTrack are already loaded regardless of which side's "Fix in Cue

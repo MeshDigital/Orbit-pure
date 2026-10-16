@@ -1,17 +1,25 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:SLSKDONET.ViewModels"
+             xmlns:models="using:SLSKDONET.Models"
+             xmlns:conv="using:SLSKDONET.Converters"
              x:Class="SLSKDONET.Views.Avalonia.Controls.TrackCueEditorStrip"
+             x:Name="Root"
              x:DataType="vm:TrackCueEditorViewModel"
-             x:CompileBindings="False">
+             x:CompileBindings="True">
 
-    <!-- In-place cue editor for one deck of the transition editor (DataContext:
-         TrackCueEditorViewModel). Wrap panels throughout so it also fits the narrow Mix sidepanel.
-         Shared with Flow Builder's "Edit cues" mode. Cue colours (chip dots, swatches) are data;
-         everything else is tokens/classes (DOCS/UI_DESIGN_SYSTEM.md). -->
+    <!-- Compact cue editor for one deck of the transition editor (DataContext:
+         TrackCueEditorViewModel; all cue editing is its Session, the same CueEditorSession engine
+         as Cue Forge). Used by Flow Builder's "Edit cues" mode and the Mix sidepanel, so wrap panels
+         throughout. Cue colours (pad strips, chip dots, swatches) are data; everything else is
+         tokens/classes (DOCS/UI_DESIGN_SYSTEM.md). -->
+    <UserControl.Resources>
+        <conv:ColorToBrushConverter x:Key="HexBrush"/>
+    </UserControl.Resources>
+
     <UserControl.Styles>
         <!-- Wrapped rows: every child gets the same 4px gutter. -->
-        <Style Selector="WrapPanel > Button, WrapPanel > ComboBox, WrapPanel > TextBox">
+        <Style Selector="WrapPanel > Button, WrapPanel > ComboBox, WrapPanel > TextBox, WrapPanel > ToggleButton">
             <Setter Property="Margin" Value="0,0,4,4"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
@@ -35,13 +43,36 @@
             <Setter Property="Background" Value="{StaticResource BrushBg4}"/>
             <Setter Property="BorderBrush" Value="{StaticResource BrushBorder2}"/>
         </Style>
+        <!-- Hot cue pad (compact): same look as Cue Forge's pads, 32px tall. -->
+        <Style Selector="Button.pad">
+            <Setter Property="Background" Value="{StaticResource BrushBg3}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder1}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Margin" Value="0,0,4,4"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+        </Style>
+        <Style Selector="Button.pad:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource BrushBg4}"/>
+        </Style>
+        <Style Selector="Button.pad.empty">
+            <Setter Property="Background" Value="{StaticResource BrushBg2}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder0}"/>
+        </Style>
+        <Style Selector="Button.pad.selected /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+        </Style>
         <Style Selector="Button.swatch">
             <Setter Property="Width" Value="16"/>
             <Setter Property="Height" Value="16"/>
             <Setter Property="MinWidth" Value="16"/>
             <Setter Property="MinHeight" Value="16"/>
             <Setter Property="Padding" Value="0"/>
-            <Setter Property="CornerRadius" Value="{StaticResource RadiusFull}"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}"/>
             <Setter Property="BorderBrush" Value="{StaticResource BrushBorder1}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Margin" Value="0,0,4,4"/>
@@ -54,13 +85,13 @@
     <Border Classes="inset" Padding="8,8,8,4" Margin="0,4,0,0">
         <StackPanel Spacing="4">
 
-            <!-- Toolbar -->
+            <!-- Toolbar: place · snap · history · save, the rest in "…" -->
             <WrapPanel>
-                <Button Classes="primary small" Command="{Binding SetDropHereCommand}"
+                <Button Classes="primary small" Command="{Binding Session.SetDropAtPlayheadCommand}"
                         ToolTip.Tip="Drop where you're listening (click the waveform, listen, press this or D). Snapped to the bar; the build-in cues, pads (A–C Drop 1, D–F Drop 2), [OUT] on G and numbering are done for you, and the auto cues are removed. Keys 1 / 2 force Drop 1 / Drop 2. Right-click the waveform: Drop here."
                         Content="Drop here"/>
-                <Button Classes="secondary small" Command="{Binding AddCueAtAuditionCommand}"
-                        ToolTip.Tip="Add a plain cue where you last auditioned. Right-click the waveform adds one at that exact spot. Placing your own cue removes the auto-generated ones.">
+                <Button Classes="secondary small" Command="{Binding Session.AddCueAtPlayheadCommand}"
+                        ToolTip.Tip="Add a cue where you're listening, snapped when Snap is on. Takes the next free pad. Right-click the waveform adds one at that spot. Placing your own cue removes the auto-generated ones.">
                     <StackPanel Orientation="Horizontal" Spacing="4">
                         <PathIcon Data="{StaticResource icon_add}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
                         <TextBlock Text="Cue"/>
@@ -83,48 +114,85 @@
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>
-                <TextBlock Classes="lbl" Text="Snap"/>
-                <ComboBox Classes="small" ItemsSource="{Binding SnapModes}" SelectedItem="{Binding SnapMode}" MinWidth="80"
-                          ToolTip.Tip="New and moved cues land on this grid (the track's analysed beats)"/>
-                <TextBlock Classes="lbl" Text="Cue template"/>
-                <ComboBox Classes="small" ItemsSource="{Binding DropCountdownModes}" SelectedItem="{Binding DropCountdownMode}" MinWidth="88"
-                          ToolTip.Tip="Build-in cues placed before every drop: DnB / Bass −16 −8, Long Blend / House −32 −16, Quick Mix / Hip-Hop −8 −4, Custom, or Auto (picked from the genre). Also used by automatic cue generation. Shared with Cue Forge."/>
-                <TextBox Classes="small" Text="{Binding CustomCountdownBars, UpdateSourceTrigger=LostFocus}" IsVisible="{Binding IsCustomTemplate}"
-                         Width="72" FontFamily="{StaticResource FontMono}" Watermark="32,16,8"
-                         ToolTip.Tip="Bars before the drop, comma-separated"/>
-                <TextBlock Classes="lbl" Text="{Binding TemplateHint}" Foreground="{StaticResource BrushText3}" Margin="0,0,8,4"/>
-                <Button Classes="icon small" Command="{Binding UndoCommand}" ToolTip.Tip="Undo" Margin="0,0,4,4">
+                <ToggleButton Classes="chip small" IsChecked="{Binding Session.SnapToGrid}" Content="Snap"
+                              ToolTip.Tip="New and dragged cues land on the track's beat grid"/>
+                <ComboBox Classes="small" ItemsSource="{x:Static vm:CueEditorSession.SnapResolutions}" SelectedItem="{Binding Session.SnapResolution}"
+                          IsEnabled="{Binding Session.SnapToGrid}" MinWidth="80" ToolTip.Tip="Snap resolution"/>
+                <Button Classes="icon small" Command="{Binding Session.UndoCommand}" ToolTip.Tip="Undo">
                     <PathIcon Data="{StaticResource icon_undo}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
                 </Button>
-                <Button Classes="icon small" Command="{Binding RedoCommand}" ToolTip.Tip="Redo" Margin="0,0,4,4">
+                <Button Classes="icon small" Command="{Binding Session.RedoCommand}" ToolTip.Tip="Redo">
                     <PathIcon Data="{StaticResource icon_redo}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
                 </Button>
-                <Button Classes="ghost small" Command="{Binding RevertCommand}" ToolTip.Tip="Throw away unsaved edits for this track"
-                        Content="Revert"/>
-                <Button Classes="secondary small" Command="{Binding SaveCommand}"
+                <Button Classes="secondary small" Command="{Binding Session.SaveCommand}"
                         ToolTip.Tip="Save this track's cues now (they also save automatically when you move to another transition or close)">
                     <StackPanel Orientation="Horizontal" Spacing="4">
                         <PathIcon Data="{StaticResource icon_check}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
                         <TextBlock Text="Save cues"/>
                     </StackPanel>
                 </Button>
-                <TextBlock Classes="caption" Classes.accent="{Binding !IsStatusError}" Classes.error="{Binding IsStatusError}" Text="{Binding StatusText}" VerticalAlignment="Center" Margin="4,0,0,4"
-                           TextTrimming="CharacterEllipsis" MaxWidth="260"/>
+                <Button Classes="icon small" ToolTip.Tip="More: cue template, revert">
+                    <PathIcon Data="{StaticResource icon_more}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                    <Button.Flyout>
+                        <Flyout Placement="BottomEdgeAlignedRight">
+                            <StackPanel Width="260" Spacing="8">
+                                <TextBlock Classes="section" Text="DROP CUE TEMPLATE"/>
+                                <ComboBox ItemsSource="{x:Static vm:CueEditorSession.DropCountdownModes}" SelectedItem="{Binding Session.DropCountdownMode}"
+                                          HorizontalAlignment="Stretch"
+                                          ToolTip.Tip="Build-in cues placed before every drop: DnB / Bass −16 −8, Long Blend / House −32 −16, Quick Mix / Hip-Hop −8 −4, Custom, or Auto (picked from the genre)."/>
+                                <TextBox Text="{Binding Session.CustomCountdownBars}" IsVisible="{Binding Session.IsCustomTemplate}"
+                                         FontFamily="{StaticResource FontMono}" Watermark="Bars before the drop, e.g. 32,16,8"/>
+                                <TextBlock Classes="caption" Text="{Binding Session.TemplateHint}"/>
+                                <TextBlock Classes="caption" TextWrapping="Wrap" Text="App-wide: shared with Cue Forge and cue generation."/>
+                                <Border Classes="divider" Margin="0,4"/>
+                                <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                        Command="{Binding Session.RevertCommand}" Content="Revert to saved cues"
+                                        ToolTip.Tip="Throw away unsaved edits for this track (Undo brings them back)"/>
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+                <TextBlock Classes="caption" Classes.accent="{Binding !Session.IsStatusError}" Classes.error="{Binding Session.IsStatusError}"
+                           Text="{Binding Session.StatusText}" VerticalAlignment="Center" Margin="4,0,0,4"
+                           TextTrimming="CharacterEllipsis" MaxWidth="320" ToolTip.Tip="{Binding Session.StatusText}"/>
             </WrapPanel>
 
+            <!-- Hot cue pads A–H: click a set pad to play from it, an empty one to set a cue where you're listening. -->
+            <ItemsControl ItemsSource="{Binding Session.HotCuePads}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><UniformGrid Columns="8" Rows="1"/></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:HotCuePadInfo">
+                        <Button Classes="pad" Classes.empty="{Binding !IsAssigned}" Classes.selected="{Binding IsSelected}"
+                                Command="{ReflectionBinding #Root.DataContext.Session.TriggerPadCommand}" CommandParameter="{Binding}"
+                                ToolTip.Tip="{Binding ToolTip}">
+                            <Grid RowDefinitions="4,*">
+                                <Border Grid.Row="0" CornerRadius="4,4,0,0" IsVisible="{Binding IsAssigned}"
+                                        Background="{Binding Color, Converter={StaticResource HexBrush}}"/>
+                                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="4" Margin="4,0" VerticalAlignment="Center">
+                                    <TextBlock Classes="caption" FontWeight="SemiBold" Foreground="{StaticResource BrushText0}" Text="{Binding PadLabel}"/>
+                                    <TextBlock Classes="caption" Text="{Binding CueName}" TextTrimming="CharacterEllipsis" IsVisible="{Binding IsAssigned}"/>
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
             <!-- Cues: click to select for editing -->
-            <ItemsControl ItemsSource="{Binding Cues}">
+            <ItemsControl ItemsSource="{Binding Session.Cues}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
-                    <DataTemplate>
+                    <DataTemplate x:DataType="models:OrbitCue">
                         <Button Classes="cue-chip"
-                                Command="{Binding $parent[ItemsControl].DataContext.SelectCueCommand}"
+                                Command="{ReflectionBinding #Root.DataContext.Session.SelectCueCommand}"
                                 CommandParameter="{Binding}"
                                 ToolTip.Tip="{Binding WhyHereTooltip}">
                             <StackPanel Orientation="Horizontal" Spacing="4">
-                                <Ellipse Width="8" Height="8" Fill="{Binding Color}" VerticalAlignment="Center"/>
+                                <Ellipse Width="8" Height="8" Fill="{Binding Color, Converter={StaticResource HexBrush}}" VerticalAlignment="Center"/>
                                 <TextBlock Text="{Binding SlotLabel}" FontFamily="{StaticResource FontMono}" FontWeight="SemiBold"
                                            Foreground="{StaticResource BrushText0}" IsVisible="{Binding HasSlot}"/>
                                 <TextBlock Text="{Binding Name}" Foreground="{StaticResource BrushText1}"/>
@@ -136,36 +204,38 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <TextBlock Classes="caption" Text="No cues yet. Right-click the waveform or use Cue to add one."
-                       IsVisible="{Binding !HasCues}" Margin="0,0,0,4"/>
+            <TextBlock Classes="caption" Text="No cues yet. Right-click the waveform, press Drop here, or click an empty pad."
+                       IsVisible="{Binding !Session.HasCues}" Margin="0,0,0,4"/>
 
             <!-- Inspector for the selected cue -->
-            <Border IsVisible="{Binding HasSelection}" Background="{StaticResource BrushBg2}"
+            <Border IsVisible="{Binding Session.HasSelectedCue}" Background="{StaticResource BrushBg2}"
                     BorderBrush="{StaticResource BrushBorder0}" BorderThickness="1"
                     CornerRadius="{StaticResource RadiusMd}" Padding="8,8,8,4" Margin="0,0,0,4">
                 <StackPanel Spacing="4">
                     <WrapPanel>
                         <TextBlock Classes="lbl" Text="Name" Margin="0,0,4,4"/>
-                        <TextBox Classes="small" Text="{Binding SelectedName, UpdateSourceTrigger=LostFocus}" MinWidth="132" MaxWidth="200"
-                                 Margin="0,0,8,4"/>
-                        <TextBlock Classes="lbl" Text="Role"/>
-                        <ComboBox Classes="small" ItemsSource="{Binding Roles}" SelectedItem="{Binding SelectedRole}" MinWidth="96"
-                                  Margin="0,0,8,4" ToolTip.Tip="Setting a role also applies its Rekordbox colour"/>
-                        <TextBlock Classes="lbl" Text="Pad"/>
-                        <ComboBox Classes="small" ItemsSource="{Binding SlotOptions}" SelectedItem="{Binding SelectedSlot}" MinWidth="84"
-                                  Margin="0,0,8,4" ToolTip.Tip="Hot cue pad A–H, or a memory cue (no pad)">
+                        <TextBox x:Name="CueNameBox" Classes="small" Text="{Binding Session.EditingCueName}" MinWidth="132" MaxWidth="200"
+                                 Margin="0,0,8,4" ToolTip.Tip="Enter to rename, Esc to cancel"/>
+                        <TextBlock Classes="lbl" Text="Role" IsVisible="{Binding Session.IsSelectedCuePoint}"/>
+                        <ComboBox Classes="small" ItemsSource="{x:Static vm:CueEditorSession.CueRoleOptions}" SelectedItem="{Binding Session.SelectedCueRole}"
+                                  MinWidth="96" Margin="0,0,8,4" IsVisible="{Binding Session.IsSelectedCuePoint}"
+                                  ToolTip.Tip="Structural role. Choosing Drop places a drop with its build-in cues."/>
+                        <TextBlock Classes="lbl" Text="Pad" IsVisible="{Binding Session.IsSelectedCuePoint}"/>
+                        <ComboBox Classes="small" ItemsSource="{x:Static vm:CueEditorSession.CueSlotOptions}" SelectedItem="{Binding Session.SelectedCueSlot}"
+                                  MinWidth="96" Margin="0,0,8,4" IsVisible="{Binding Session.IsSelectedCuePoint}"
+                                  ToolTip.Tip="Hot cue pad A–H, or a memory cue (no pad)">
                             <ComboBox.ItemTemplate>
-                                <DataTemplate><TextBlock Text="{Binding Label}"/></DataTemplate>
+                                <DataTemplate x:DataType="vm:CueSlotOption"><TextBlock Text="{Binding Label}"/></DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
-                        <ItemsControl ItemsSource="{Binding CuePalette}" VerticalAlignment="Center">
+                        <ItemsControl ItemsSource="{x:Static vm:CueEditorSession.CueColorSwatches}" VerticalAlignment="Center">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Button Classes="swatch" Background="{Binding}"
-                                            Command="{Binding $parent[ItemsControl].DataContext.SetSelectedColorCommand}"
+                                <DataTemplate x:DataType="x:String">
+                                    <Button Classes="swatch" Background="{Binding Converter={StaticResource HexBrush}}"
+                                            Command="{ReflectionBinding #Root.DataContext.Session.SetSelectedCueColorCommand}"
                                             CommandParameter="{Binding}" ToolTip.Tip="Cue colour"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
@@ -173,18 +243,20 @@
                     </WrapPanel>
                     <WrapPanel>
                         <TextBlock Classes="lbl" Text="Move" Margin="0,0,4,4"/>
-                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding NudgeSelectedCommand}" CommandParameter="-bar" ToolTip.Tip="1 bar earlier (Shift+←)" Content="−1 bar"/>
-                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding NudgeSelectedCommand}" CommandParameter="-beat" ToolTip.Tip="1 beat earlier (←)" Content="−1 beat"/>
-                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding NudgeSelectedCommand}" CommandParameter="+beat" ToolTip.Tip="1 beat later (→)" Content="+1 beat"/>
-                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding NudgeSelectedCommand}" CommandParameter="+bar" ToolTip.Tip="1 bar later (Shift+→)" Content="+1 bar"/>
-                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding NudgeSelectedCommand}" CommandParameter="-fine" ToolTip.Tip="10 ms earlier (Ctrl+←)" Content="−10ms"/>
-                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding NudgeSelectedCommand}" CommandParameter="+fine" ToolTip.Tip="10 ms later (Ctrl+→)" Content="+10ms"/>
-                        <TextBlock Classes="lbl" Text="Loop" Margin="8,0,4,4"/>
-                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding SetSelectedLoopBarsCommand}" ToolTip.Tip="Loop 4 bars from the cue"><Button.CommandParameter><x:Int32>4</x:Int32></Button.CommandParameter><TextBlock Text="4"/></Button>
-                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding SetSelectedLoopBarsCommand}" ToolTip.Tip="Loop 8 bars from the cue"><Button.CommandParameter><x:Int32>8</x:Int32></Button.CommandParameter><TextBlock Text="8"/></Button>
-                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding SetSelectedLoopBarsCommand}" ToolTip.Tip="Loop 16 bars from the cue"><Button.CommandParameter><x:Int32>16</x:Int32></Button.CommandParameter><TextBlock Text="16"/></Button>
-                        <Button Classes="ghost small" Command="{Binding SetSelectedLoopBarsCommand}" ToolTip.Tip="Make it a plain cue again"><Button.CommandParameter><x:Int32>0</x:Int32></Button.CommandParameter><TextBlock Text="Off"/></Button>
-                        <TextBlock Classes="lbl" Text="{Binding SelectedLoopLabel}" Margin="0,0,8,4"/>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding Session.NudgeCueCommand}" CommandParameter="-bar" ToolTip.Tip="1 bar earlier (Shift+←)" Content="−1 bar"/>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding Session.NudgeCueCommand}" CommandParameter="-beat" ToolTip.Tip="1 beat earlier (←)" Content="−1 beat"/>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding Session.NudgeCueCommand}" CommandParameter="+beat" ToolTip.Tip="1 beat later (→)" Content="+1 beat"/>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding Session.NudgeCueCommand}" CommandParameter="+bar" ToolTip.Tip="1 bar later (Shift+→)" Content="+1 bar"/>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding Session.NudgeCueCommand}" CommandParameter="-fine" ToolTip.Tip="10 ms earlier (Ctrl+←)" Content="−10ms"/>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding Session.NudgeCueCommand}" CommandParameter="+fine" ToolTip.Tip="10 ms later (Ctrl+→)" Content="+10ms"/>
+                        <TextBlock Classes="lbl" Text="Loop (bars)" Margin="8,0,4,4"/>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="1-bar memory loop from the cue (resizes a selected loop)"><Button.CommandParameter><x:Int32>1</x:Int32></Button.CommandParameter><TextBlock Text="1"/></Button>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="2-bar loop"><Button.CommandParameter><x:Int32>2</x:Int32></Button.CommandParameter><TextBlock Text="2"/></Button>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="4-bar loop"><Button.CommandParameter><x:Int32>4</x:Int32></Button.CommandParameter><TextBlock Text="4"/></Button>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="8-bar loop"><Button.CommandParameter><x:Int32>8</x:Int32></Button.CommandParameter><TextBlock Text="8"/></Button>
+                        <Button Classes="secondary small" FontFamily="{StaticResource FontMono}" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="16-bar loop"><Button.CommandParameter><x:Int32>16</x:Int32></Button.CommandParameter><TextBlock Text="16"/></Button>
+                        <Button Classes="ghost small" Command="{Binding Session.ClearLoopCommand}" ToolTip.Tip="Delete the selected (or last) loop" Content="Clear"/>
+                        <TextBlock Classes="lbl" FontFamily="{StaticResource FontMono}" Text="{Binding Session.ActiveLoopDisplay}" Margin="0,0,8,4"/>
                     </WrapPanel>
                     <TextBlock Classes="caption" Foreground="{StaticResource BrushText3}" Margin="0,0,0,4" TextWrapping="Wrap"
                                Text="Keys: ← → move 1 beat · Shift+← → 1 bar · Ctrl+← → 10 ms. Each press replays from the cue. Music that was playing waits until you save."/>
@@ -198,7 +270,7 @@
                         <Button Classes="primary small" Command="{Binding UseSelectedAsTriggerCommand}"
                                 ToolTip.Tip="Make this cue the transition's mix point on this track (mix-out for the outgoing track, mix-in for the incoming one)"
                                 Content="Use as mix point"/>
-                        <Button Classes="danger small" Command="{Binding DeleteSelectedCommand}" ToolTip.Tip="Delete this cue (Undo restores it)">
+                        <Button Classes="danger small" Command="{Binding Session.DeleteSelectedCueCommand}" ToolTip.Tip="Delete this cue (Undo restores it)">
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <PathIcon Data="{StaticResource icon_delete}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
                                 <TextBlock Text="Delete"/>

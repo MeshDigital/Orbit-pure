@@ -58,7 +58,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 return;
             }
 
-            if (e.Key is not (Key.Left or Key.Right) || mix.ActiveEditor?.SelectedCue == null) return;
+            if (e.Key is not (Key.Left or Key.Right) || mix.ActiveEditor?.Session.SelectedCue == null) return;
             string sign = e.Key == Key.Left ? "-" : "+";
             string unit = e.KeyModifiers.HasFlag(KeyModifiers.Control) ? "fine"
                         : e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? "bar"

@@ -48,7 +48,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 return;
             }
             if (e.Key is not (Key.Left or Key.Right)) return;
-            if (DataContext is not MixTransitionViewModel { IsCueEditMode: true } vm || vm.ActiveEditor?.SelectedCue == null) return;
+            if (DataContext is not MixTransitionViewModel { IsCueEditMode: true } vm || vm.ActiveEditor?.Session.SelectedCue == null) return;
             // Typing in the cue name box or an open dropdown keeps its own arrow behaviour.
             if (IsInside<TextBox>(e.Source) || IsInside<ComboBox>(e.Source)) return;
 

@@ -23,7 +23,7 @@ public partial class CueForgePage : UserControl
         InitializeComponent();
 
         CueNameBox.KeyDown += OnCueNameKeyDown;
-        CueNameBox.LostFocus += (_, _) => _vm?.CommitCueName();
+        CueNameBox.LostFocus += (_, _) => _vm?.Session.CommitCueName();
         Waveform.ScrubbingChanged += (_, scrubbing) => _vm?.SetScrubbing(scrubbing);
         Waveform.ContextRequested += OnWaveformContextRequested;
         // Clicking anywhere that isn't a text field returns keyboard focus to the page, so the
@@ -39,9 +39,9 @@ public partial class CueForgePage : UserControl
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
-        if (_vm != null) _vm.RenameRequested -= OnRenameRequested;
+        if (_vm != null) _vm.Session.RenameRequested -= OnRenameRequested;
         _vm = DataContext as CueForgeViewModel;
-        if (_vm != null) _vm.RenameRequested += OnRenameRequested;
+        if (_vm != null) _vm.Session.RenameRequested += OnRenameRequested;
     }
 
     protected override void OnAttachedToVisualTree(global::Avalonia.VisualTreeAttachmentEventArgs e)
@@ -93,18 +93,18 @@ public partial class CueForgePage : UserControl
         int pad = PadIndex(e.Key);
         if (pad >= 0 && none)
         {
-            vm.TriggerPadCommand.Execute(vm.HotCuePads[pad]).Subscribe();
+            vm.Session.TriggerPadCommand.Execute(vm.Session.HotCuePads[pad]).Subscribe();
         }
         else if ((e.Key is Key.D1 or Key.NumPad1 or Key.D2 or Key.NumPad2) && shift)
         {
-            vm.SetNumberedDropAtPlayheadCommand.Execute(e.Key is Key.D1 or Key.NumPad1 ? 1 : 2).Subscribe();
+            vm.Session.SetNumberedDropAtPlayheadCommand.Execute(e.Key is Key.D1 or Key.NumPad1 ? 1 : 2).Subscribe();
         }
         else switch (e.Key)
         {
-            case Key.Left or Key.Right when vm.SelectedCue != null && (none || shift || ctrl):
+            case Key.Left or Key.Right when vm.Session.SelectedCue != null && (none || shift || ctrl):
                 string sign = e.Key == Key.Left ? "-" : "+";
                 string unit = ctrl ? "fine" : shift ? "bar" : "beat";
-                vm.NudgeCueCommand.Execute(sign + unit).Subscribe();
+                vm.Session.NudgeCueCommand.Execute(sign + unit).Subscribe();
                 break;
             case Key.Up when none:
             case Key.Left when none:
@@ -121,16 +121,16 @@ public partial class CueForgePage : UserControl
                 vm.CueButtonCommand.Execute().Subscribe();
                 break;
             case Key.A when none:
-                vm.AddCueAtPlayheadCommand.Execute().Subscribe();
+                vm.Session.AddCueAtPlayheadCommand.Execute().Subscribe();
                 break;
             case Key.D when none:
-                vm.SetDropAtPlayheadCommand.Execute().Subscribe();
+                vm.Session.SetDropAtPlayheadCommand.Execute().Subscribe();
                 break;
             case Key.I when none:
-                vm.SetLoopInCommand.Execute().Subscribe();
+                vm.Session.SetLoopInCommand.Execute().Subscribe();
                 break;
             case Key.O when none:
-                vm.SetLoopOutCommand.Execute().Subscribe();
+                vm.Session.SetLoopOutCommand.Execute().Subscribe();
                 break;
             case Key.F when none:
                 vm.FollowPlayhead = !vm.FollowPlayhead;
@@ -141,26 +141,26 @@ public partial class CueForgePage : UserControl
             case Key.OemMinus or Key.Subtract when none:
                 vm.ZoomOutCommand.Execute().Subscribe();
                 break;
-            case Key.Delete or Key.Back when none && vm.SelectedCue != null:
-                vm.DeleteSelectedCueCommand.Execute().Subscribe();
+            case Key.Delete or Key.Back when none && vm.Session.SelectedCue != null:
+                vm.Session.DeleteSelectedCueCommand.Execute().Subscribe();
                 break;
-            case Key.Enter when none && vm.SelectedCue != null:
-                vm.AuditionCueCommand.Execute(vm.SelectedCue).Subscribe();
+            case Key.Enter when none && vm.Session.SelectedCue != null:
+                vm.AuditionCueCommand.Execute(vm.Session.SelectedCue).Subscribe();
                 break;
-            case Key.F2 when none && vm.SelectedCue != null:
-                vm.RequestRename(vm.SelectedCue);
+            case Key.F2 when none && vm.Session.SelectedCue != null:
+                vm.Session.RequestRename(vm.Session.SelectedCue);
                 break;
             case Key.Escape when none:
-                vm.SelectedCue = null;
+                vm.Session.SelectedCue = null;
                 break;
             case Key.S when ctrl:
-                vm.CommitChangesCommand.Execute().Subscribe();
+                vm.Session.SaveCommand.Execute().Subscribe();
                 break;
             case Key.Z when ctrl:
-                vm.UndoCommand.Execute().Subscribe();
+                vm.Session.UndoCommand.Execute().Subscribe();
                 break;
             case Key.Y when ctrl:
-                vm.RedoCommand.Execute().Subscribe();
+                vm.Session.RedoCommand.Execute().Subscribe();
                 break;
             default:
                 handled = false;
@@ -189,13 +189,13 @@ public partial class CueForgePage : UserControl
         if (_vm == null) return;
         if (e.Key == Key.Enter)
         {
-            _vm.CommitCueName();
+            _vm.Session.CommitCueName();
             Focus();
             e.Handled = true;
         }
         else if (e.Key == Key.Escape)
         {
-            _vm.RevertCueName();
+            _vm.Session.RevertCueName();
             Focus();
             e.Handled = true;
         }
@@ -221,16 +221,16 @@ public partial class CueForgePage : UserControl
         var menu = new ContextMenu();
         if (pad.Cue is { } cue)
         {
-            menu.Items.Add(Item("Play from here", () => vm.TriggerPadCommand.Execute(pad).Subscribe()));
-            menu.Items.Add(Item("Rename…", () => vm.RequestRename(cue)));
+            menu.Items.Add(Item("Play from here", () => vm.Session.TriggerPadCommand.Execute(pad).Subscribe()));
+            menu.Items.Add(Item("Rename…", () => vm.Session.RequestRename(cue)));
             menu.Items.Add(ColourMenu(vm, cue));
             menu.Items.Add(new Separator());
-            menu.Items.Add(Item("Clear pad (keep as memory cue)", () => vm.ClearPadCommand.Execute(pad).Subscribe()));
-            menu.Items.Add(Item("Delete cue", () => vm.DeleteCueCommand.Execute(cue).Subscribe()));
+            menu.Items.Add(Item("Clear pad (keep as memory cue)", () => vm.Session.ClearPadCommand.Execute(pad).Subscribe()));
+            menu.Items.Add(Item("Delete cue", () => vm.Session.DeleteCueCommand.Execute(cue).Subscribe()));
         }
         else
         {
-            menu.Items.Add(Item($"Set hot cue {pad.PadLabel} at playhead", () => vm.TriggerPadCommand.Execute(pad).Subscribe()));
+            menu.Items.Add(Item($"Set hot cue {pad.PadLabel} at playhead", () => vm.Session.TriggerPadCommand.Execute(pad).Subscribe()));
         }
         menu.Open(target);
         e.Handled = true;
@@ -239,24 +239,24 @@ public partial class CueForgePage : UserControl
     private void OnCueRowContextRequested(object? sender, ContextRequestedEventArgs e)
     {
         if (_vm is not { } vm || sender is not Control { DataContext: OrbitCue cue } target) return;
-        vm.SelectedCue = cue;
+        vm.Session.SelectedCue = cue;
         var menu = new ContextMenu();
         menu.Items.Add(Item("Audition", () => vm.AuditionCueCommand.Execute(cue).Subscribe()));
         menu.Items.Add(Item("Move playhead here", () => vm.SeekPlayheadCommand.Execute(cue.Timestamp).Subscribe()));
-        menu.Items.Add(Item("Rename…", () => vm.RequestRename(cue)));
+        menu.Items.Add(Item("Rename…", () => vm.Session.RequestRename(cue)));
         menu.Items.Add(ColourMenu(vm, cue));
         if (!cue.IsLoop)
         {
             var slots = new MenuItem { Header = "Pad" };
-            foreach (var option in CueForgeViewModel.CueSlotOptions)
+            foreach (var option in CueEditorSession.CueSlotOptions)
             {
                 var o = option;
-                slots.Items.Add(Item(o.Label, () => { vm.SelectedCue = cue; vm.SetSelectedCueSlotCommand.Execute(o.Value).Subscribe(); }));
+                slots.Items.Add(Item(o.Label, () => { vm.Session.SelectedCue = cue; vm.Session.SetSelectedCueSlotCommand.Execute(o.Value).Subscribe(); }));
             }
             menu.Items.Add(slots);
         }
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Delete", () => vm.DeleteCueCommand.Execute(cue).Subscribe()));
+        menu.Items.Add(Item("Delete", () => vm.Session.DeleteCueCommand.Execute(cue).Subscribe()));
         menu.Open(target);
         e.Handled = true;
     }
@@ -272,8 +272,8 @@ public partial class CueForgePage : UserControl
         if (_vm is not { } vm || !vm.HasTrackLoaded) return;
         double t = e.TryGetPosition(Waveform, out var p) ? Waveform.TimeAt(p) : vm.CurrentPlayPosition;
         var menu = new ContextMenu();
-        menu.Items.Add(Item($"Add cue here ({CueForgeGrid.FormatTime(vm.SnapTime(t))})", () => vm.AddCueAtCommand.Execute(t).Subscribe()));
-        menu.Items.Add(Item("Mark drop here", () => vm.SetDropAtCommand.Execute(t).Subscribe()));
+        menu.Items.Add(Item($"Add cue here ({CueForgeGrid.FormatTime(vm.Session.SnapTime(t))})", () => vm.Session.AddCueAtCommand.Execute(t).Subscribe()));
+        menu.Items.Add(Item("Mark drop here", () => vm.Session.SetDropAtCommand.Execute(t).Subscribe()));
         menu.Items.Add(Item("Move playhead here", () => vm.SeekPlayheadCommand.Execute(t).Subscribe()));
         menu.Open(Waveform);
         e.Handled = true;
@@ -282,7 +282,7 @@ public partial class CueForgePage : UserControl
     private static MenuItem ColourMenu(CueForgeViewModel vm, OrbitCue cue)
     {
         var colours = new MenuItem { Header = "Colour" };
-        foreach (var hex in CueForgeViewModel.CueColorSwatches)
+        foreach (var hex in CueEditorSession.CueColorSwatches)
         {
             var h = hex;
             var swatch = new Border
@@ -297,8 +297,8 @@ public partial class CueForgePage : UserControl
                 Icon = swatch,
                 Command = ReactiveCommand.Create(() =>
                 {
-                    vm.SelectedCue = cue;
-                    vm.SetSelectedCueColorCommand.Execute(h).Subscribe();
+                    vm.Session.SelectedCue = cue;
+                    vm.Session.SetSelectedCueColorCommand.Execute(h).Subscribe();
                 }),
             });
         }
