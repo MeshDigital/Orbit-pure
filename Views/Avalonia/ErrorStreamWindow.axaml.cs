@@ -73,7 +73,7 @@ public partial class ErrorStreamWindow : Window, INotifyPropertyChanged
         _errorCooldowns[key] = now;
 
         // Log every first-occurrence error to the persistent log file
-        Serilog.Log.Error("🚨 UI Error Stream - {Source}: {Message}\n{StackTrace}", source, message, stackTrace);
+        Serilog.Log.Error("UI Error Stream - {Source}: {Message}\n{StackTrace}", source, message, stackTrace);
         AppendErrorFallback(source, message, stackTrace);
 
         Dispatcher.UIThread.InvokeAsync(() =>
@@ -202,9 +202,10 @@ public partial class ErrorStreamWindow : Window, INotifyPropertyChanged
             File.AppendAllText(jsonPath, JsonSerializer.Serialize(payload) + Environment.NewLine);
             File.AppendAllText(txtPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} ERR] {source}: {message}{Environment.NewLine}{stackTrace}{Environment.NewLine}{Environment.NewLine}");
         }
-        catch
+        catch (Exception ex)
         {
-            // Last resort: do not throw from error handler.
+            // Last resort: never throw from the error handler, but don't swallow it either.
+            Serilog.Log.Warning(ex, "Error stream could not append to the fallback log file");
         }
     }
 
