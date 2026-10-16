@@ -391,9 +391,13 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         {
             if (_camelotKeyFilter == value) return;
             this.RaiseAndSetIfChanged(ref _camelotKeyFilter, value);
+            this.RaisePropertyChanged(nameof(HasCamelotKeyFilter));
             _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
         }
     }
+
+    /// <summary>A key filter set by clicking the Camelot wheel; shown as a removable chip in the toolbar.</summary>
+    public bool HasCamelotKeyFilter => !string.IsNullOrEmpty(_camelotKeyFilter);
 
     private string? _qualityTierFilter;
     /// <summary>
@@ -409,8 +413,25 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         {
             if (_qualityTierFilter == value) return;
             this.RaiseAndSetIfChanged(ref _qualityTierFilter, value);
+            this.RaisePropertyChanged(nameof(IsTierLosslessFilter));
+            this.RaisePropertyChanged(nameof(IsTierHighFilter));
+            this.RaisePropertyChanged(nameof(IsTierLowFilter));
             _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
         }
+    }
+
+    // Toolbar quality chips. They drive QualityTierFilter, which (unlike the old per-format and
+    // integrity chips) is applied on both the DB-backed and the in-memory path, and is the same
+    // filter the Dashboard's Gold/Silver/Bronze counts set before navigating here, so a
+    // click-through from Home now shows up as a checked chip instead of an invisible filter.
+    public bool IsTierLosslessFilter { get => _qualityTierFilter == "Gold"; set => SetQualityTierChip("Gold", value); }
+    public bool IsTierHighFilter { get => _qualityTierFilter == "Silver"; set => SetQualityTierChip("Silver", value); }
+    public bool IsTierLowFilter { get => _qualityTierFilter == "Bronze"; set => SetQualityTierChip("Bronze", value); }
+
+    private void SetQualityTierChip(string tier, bool on)
+    {
+        if (on) QualityTierFilter = tier;
+        else if (_qualityTierFilter == tier) QualityTierFilter = null;
     }
 
     // Phase 22: Search 2.0 - The Bouncer
@@ -551,7 +572,73 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     public HashSet<string>? DuplicateHashesFilter
     {
         get => _duplicateHashesFilter;
-        set => this.RaiseAndSetIfChanged(ref _duplicateHashesFilter, value);
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _duplicateHashesFilter, value);
+            this.RaisePropertyChanged(nameof(HasDuplicateFilter));
+        }
+    }
+
+    /// <summary>"Find duplicates" narrowed the list; shown as a removable chip in the toolbar.</summary>
+    public bool HasDuplicateFilter => _duplicateHashesFilter != null;
+
+    private static readonly HashSet<string> FilterPropertyNames = new(StringComparer.Ordinal)
+    {
+        nameof(SearchText), nameof(IsFilterAll), nameof(IsFilterDownloaded), nameof(IsFilterPending),
+        nameof(IsFilterNeedsReview), nameof(IsFilterLiked), nameof(CamelotKeyFilter), nameof(QualityTierFilter),
+        nameof(IsBouncerActive), nameof(VibeFilter), nameof(IsFilterFlac), nameof(IsFilterMp3), nameof(IsFilterWav),
+        nameof(IsFilterLossless), nameof(IsFilterQualityGold), nameof(IsFilterQualityVerified),
+        nameof(IsFilterQualityReview), nameof(DuplicateHashesFilter), nameof(FilterArtist), nameof(FilterTitle),
+    };
+
+    /// <summary>True when anything narrows the list. Drives the toolbar's "Clear" button and the
+    /// "no matches" empty state (vs. the "this playlist is empty" one).</summary>
+    public bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(_searchText) || !_isFilterAll || _isFilterLiked || _isFilterNeedsReview
+        || !string.IsNullOrEmpty(_camelotKeyFilter) || !string.IsNullOrEmpty(_qualityTierFilter)
+        || _isBouncerActive || !string.IsNullOrEmpty(_vibeFilter)
+        || _isFilterFlac || _isFilterMp3 || _isFilterWav || _isFilterLossless
+        || _isFilterQualityGold || _isFilterQualityVerified || _isFilterQualityReview
+        || _duplicateHashesFilter != null
+        || !string.IsNullOrWhiteSpace(_filterArtist) || !string.IsNullOrWhiteSpace(_filterTitle)
+        || StyleFilters.Any(f => f.IsSelected);
+
+    public System.Windows.Input.ICommand ClearFiltersCommand { get; private set; } = null!;
+    public System.Windows.Input.ICommand ClearCamelotKeyFilterCommand { get; private set; } = null!;
+    public System.Windows.Input.ICommand ClearDuplicateFilterCommand { get; private set; } = null!;
+
+    /// <summary>Resets every filter (search, status, quality, key, duplicates, style) in one go.</summary>
+    public void ClearFilters()
+    {
+        _searchText = string.Empty; this.RaisePropertyChanged(nameof(SearchText));
+        _filterArtist = string.Empty; this.RaisePropertyChanged(nameof(FilterArtist));
+        _filterTitle = string.Empty; this.RaisePropertyChanged(nameof(FilterTitle));
+        _isFilterNeedsReview = false; this.RaisePropertyChanged(nameof(IsFilterNeedsReview));
+        _isFilterDownloaded = false; this.RaisePropertyChanged(nameof(IsFilterDownloaded));
+        _isFilterPending = false; this.RaisePropertyChanged(nameof(IsFilterPending));
+        _isFilterLiked = false; this.RaisePropertyChanged(nameof(IsFilterLiked));
+        _isFilterAll = true; this.RaisePropertyChanged(nameof(IsFilterAll));
+        _isFilterFlac = _isFilterMp3 = _isFilterWav = _isFilterLossless = false;
+        _isFilterQualityGold = _isFilterQualityVerified = _isFilterQualityReview = false;
+        foreach (var name in new[] { nameof(IsFilterFlac), nameof(IsFilterMp3), nameof(IsFilterWav), nameof(IsFilterLossless),
+                                     nameof(IsFilterQualityGold), nameof(IsFilterQualityVerified), nameof(IsFilterQualityReview) })
+            this.RaisePropertyChanged(name);
+        _isBouncerActive = false; this.RaisePropertyChanged(nameof(IsBouncerActive));
+        _vibeFilter = null; this.RaisePropertyChanged(nameof(VibeFilter));
+        _camelotKeyFilter = null; this.RaisePropertyChanged(nameof(CamelotKeyFilter)); this.RaisePropertyChanged(nameof(HasCamelotKeyFilter));
+        _qualityTierFilter = null; this.RaisePropertyChanged(nameof(QualityTierFilter));
+        this.RaisePropertyChanged(nameof(IsTierLosslessFilter));
+        this.RaisePropertyChanged(nameof(IsTierHighFilter));
+        this.RaisePropertyChanged(nameof(IsTierLowFilter));
+        DuplicateHashesFilter = null;
+        foreach (var style in StyleFilters.Where(f => f.IsSelected).ToList())
+        {
+            style.PropertyChanged -= OnStyleFilterChanged;
+            style.IsSelected = false;
+            style.PropertyChanged += OnStyleFilterChanged;
+        }
+        this.RaisePropertyChanged(nameof(HasActiveFilters));
+        RefreshFilteredTracks();
     }
 
     // Task 10.4: Per-column inline filters
@@ -700,6 +787,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     {
         if (e.PropertyName == nameof(StyleFilterItem.IsSelected))
         {
+            this.RaisePropertyChanged(nameof(HasActiveFilters));
             RefreshFilteredTracks();
         }
     }
@@ -867,6 +955,16 @@ public class TrackListViewModel : ReactiveObject, IDisposable
 
         // Phase 22: Search 2.1 - Split Results
         AddToCurrentPlaylistCommand = ReactiveCommand.CreateFromTask<PlaylistTrackViewModel>(ExecuteAddToCurrentPlaylistAsync);
+
+        ClearFiltersCommand = ReactiveCommand.Create(ClearFilters);
+        ClearCamelotKeyFilterCommand = ReactiveCommand.Create(() => { CamelotKeyFilter = null; });
+        ClearDuplicateFilterCommand = ReactiveCommand.Create(() => { DuplicateHashesFilter = null; RefreshFilteredTracks(); });
+
+        // Any filter change re-evaluates HasActiveFilters (Clear button + empty-state wording).
+        this.Changed
+            .Where(e => e.PropertyName != null && FilterPropertyNames.Contains(e.PropertyName))
+            .Subscribe(_ => this.RaisePropertyChanged(nameof(HasActiveFilters)))
+            .DisposeWith(_disposables);
 
         // Selection Change Tracking
         _selectedTracks.CollectionChanged += OnSelectionChanged;

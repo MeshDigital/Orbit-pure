@@ -65,6 +65,8 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand WriteSeratoCuesCommand { get; }
     /// <summary>Parameter "compare" (ORBIT + CUE-DETR side by side) or "ai" (CUE-DETR only).</summary>
     public System.Windows.Input.ICommand GenerateCuesWithAiCommand { get; }
+    /// <summary>Moves the clicked (or all selected) still-pending tracks to the front of the download queue.</summary>
+    public System.Windows.Input.ICommand DownloadNextCommand { get; }
 
     // Phase 10.5: Dependency Warning Property
     public bool AreDependenciesHealthy => _dependencyHealthService.IsHealthy;
@@ -139,6 +141,33 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         SetColorTagCommand = new RelayCommand<string>(ExecuteSetColorTag);
         WriteSeratoCuesCommand = new AsyncRelayCommand<string>(ExecuteWriteSeratoCues);
         GenerateCuesWithAiCommand = new AsyncRelayCommand<string>(ExecuteGenerateCuesWithAi);
+        DownloadNextCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteDownloadNext);
+    }
+
+    /// <summary>
+    /// "Download next": pins the clicked track (or every selected track) to the very top of the
+    /// download queue via DownloadManager.BumpTrackToTop. Only tracks that are still waiting
+    /// (Pending/Paused/Stalled) can be moved; the toast says how many actually were.
+    /// </summary>
+    private void ExecuteDownloadNext(PlaylistTrackViewModel? track)
+    {
+        var selected = LibraryViewModel?.Tracks.SelectedTracks?.ToList() ?? [];
+        var targets = selected.Count > 0 ? selected : (track != null ? [track] : []);
+        var pending = targets.Where(t => t.CanBumpToTop && !string.IsNullOrEmpty(t.GlobalId)).ToList();
+        if (pending.Count == 0)
+        {
+            _notificationService.Show("Download next", "None of the selected tracks are waiting to download.", Views.NotificationType.Information);
+            return;
+        }
+
+        // Bump in reverse so the first selected track ends up first in the queue.
+        for (int i = pending.Count - 1; i >= 0; i--)
+            _downloadManager.BumpTrackToTop(pending[i].GlobalId);
+
+        _notificationService.Show("Download next",
+            pending.Count == 1 ? $"\"{pending[0].Title}\" moved to the front of the download queue."
+                               : $"{pending.Count} tracks moved to the front of the download queue.",
+            Views.NotificationType.Success);
     }
 
     /// <summary>
