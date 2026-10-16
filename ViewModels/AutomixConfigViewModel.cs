@@ -163,6 +163,11 @@ public sealed class AutomixConfigViewModel : ReactiveObject
     /// Up to 5 example transitions shown live as the user adjusts sliders.
     /// Populated from <see cref="RebuildPreview"/>.
     /// </summary>
+    /// <summary>Choices for <see cref="EnergyCurve"/>. The dialog binds ItemsSource to this so
+    /// SelectedItem is a string (ComboBoxItem children never matched the string property).</summary>
+    public static System.Collections.Generic.IReadOnlyList<string> EnergyCurveOptions { get; } =
+        new[] { "None", "Rising", "Wave", "Peak" };
+
     public ObservableCollection<TransitionPreviewItem> PreviewTransitions { get; } = new();
 
     // ── Dialog state ──────────────────────────────────────────────────────
