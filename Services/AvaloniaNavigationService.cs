@@ -68,8 +68,9 @@ public class NavigationService : INavigationService
             using var _ = _perfTracker.Measure($"Nav:{pageKey}");
             _logger.LogInformation("Navigating to page: {PageKey}", pageKey);
 
-            // Save current page in history (if exists)
-            if (_currentPage != null)
+            // Save current page in history (if exists). Re-navigating to the page already shown
+            // (e.g. the import preview's Retry) must not push it, or Back/Cancel lands on itself.
+            if (_currentPage != null && _currentPage.GetType() != pageType)
             {
                 _pageHistory.Push(_currentPage);
             }

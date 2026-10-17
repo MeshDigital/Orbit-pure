@@ -1182,7 +1182,10 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
         if (_libraryService == null || TotalCount == 0) return;
         try
         {
-            var jobs = (await _libraryService.LoadAllPlaylistJobsAsync())
+            // Reuse the picker's list when it's already loaded (loading every playlist with its
+            // tracks is the expensive part); snapshot it before the first await.
+            var known = MergeTargets.Select(m => m.Job).ToList();
+            var jobs = (known.Count > 0 ? known : await _libraryService.LoadAllPlaylistJobsAsync())
                 .Where(j => !j.IsDeleted && !j.IsSmartPlaylist)
                 .ToList();
 
