@@ -180,6 +180,62 @@
                     <TextBlock Classes="mono" Text="{Binding LoopDisplay}" VerticalAlignment="Center" Margin="8,0,0,0"
                                ToolTip.Tip="Drag across the bar ruler to set a loop region; the preview then loops it."/>
                 </StackPanel>
+
+                <!-- Templates: starting points that create ordinary, editable clips -->
+                <Button Grid.Column="6" Classes="secondary small" VerticalAlignment="Center" ToolTip.Tip="Start from a template (custom intro, acapella, instrumental, bassline swap, extended intro)">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="{StaticResource icon_wand}" Width="14" Height="14"/>
+                        <TextBlock Text="Templates"/>
+                        <PathIcon Data="{StaticResource icon_chevron_down}" Width="12" Height="12"/>
+                    </StackPanel>
+                    <Button.Flyout>
+                        <Flyout Placement="BottomEdgeAlignedRight">
+                            <StackPanel Width="320" Spacing="12">
+                                <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Templates}" SelectedItem="{Binding SelectedTemplate}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="svc:EditTemplateInfo">
+                                            <TextBlock Text="{Binding Name}"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <TextBlock Classes="caption" Text="{Binding TemplateDescription}" TextWrapping="Wrap"/>
+                                <Grid ColumnDefinitions="96,*" RowDefinitions="Auto,8,Auto,8,Auto,8,Auto,8,Auto">
+                                    <TextBlock Grid.Row="0" Classes="caption" Text="Track A" VerticalAlignment="Center"/>
+                                    <ComboBox Grid.Row="0" Grid.Column="1" Classes="small" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding Sources}" SelectedItem="{Binding TemplateTrackA}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:EditSourceItemViewModel">
+                                                <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Row="2" Classes="caption" Text="Track B" VerticalAlignment="Center" IsVisible="{Binding TemplateNeedsTrackB}"/>
+                                    <ComboBox Grid.Row="2" Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" IsVisible="{Binding TemplateNeedsTrackB}"
+                                              ItemsSource="{Binding Sources}" SelectedItem="{Binding TemplateTrackB}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:EditSourceItemViewModel">
+                                                <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Row="4" Classes="caption" Text="Bars" VerticalAlignment="Center" IsVisible="{Binding TemplateUsesBars}"/>
+                                    <NumericUpDown Grid.Row="4" Grid.Column="1" Classes="small" Value="{Binding TemplateBars}" Minimum="1" Maximum="256" Increment="4"
+                                                   FormatString="0" IsVisible="{Binding TemplateUsesBars}"/>
+                                    <TextBlock Grid.Row="6" Classes="caption" Text="From bar" VerticalAlignment="Center" IsVisible="{Binding TemplateUsesStartBar}"/>
+                                    <NumericUpDown Grid.Row="6" Grid.Column="1" Classes="small" Value="{Binding TemplateStartBar}" Minimum="1" Increment="4"
+                                                   FormatString="0.##" IsVisible="{Binding TemplateUsesStartBar}"/>
+                                    <TextBlock Grid.Row="8" Classes="caption" Text="Times" VerticalAlignment="Center" IsVisible="{Binding TemplateUsesRepeats}"/>
+                                    <NumericUpDown Grid.Row="8" Grid.Column="1" Classes="small" Value="{Binding TemplateRepeats}" Minimum="1" Maximum="16" Increment="1"
+                                                   FormatString="0" IsVisible="{Binding TemplateUsesRepeats}"/>
+                                </Grid>
+                                <TextBlock Classes="caption warning" Text="{Binding TemplateBlocker}" TextWrapping="Wrap" IsVisible="{Binding HasTemplateBlocker}"/>
+                                <TextBlock Classes="caption" TextWrapping="Wrap"
+                                           Text="Replaces the current arrangement with ordinary clips you can edit. Ctrl+Z brings the old one back."/>
+                                <Button Classes="primary small" Content="Apply template" Command="{Binding ApplyTemplateCommand}" HorizontalAlignment="Left"/>
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
             </Grid>
         </Border>
 

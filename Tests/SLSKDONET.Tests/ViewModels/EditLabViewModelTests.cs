@@ -181,6 +181,25 @@ public sealed class EditLabViewModelTests : IDisposable
         Assert.Single(_vm.Project!.AllClips);
     }
 
+    [Fact]
+    public async Task Template_DefaultsTracks_AppliesAsOneUndoStep()
+    {
+        await ProjectWithTrack("a");
+        Assert.False(_vm.CanApplyTemplate); // custom intro needs a second track
+        _sources.Bpm["b"] = 124;
+        await _vm.AddTrackAsync("b", "Track b", "Artist", null);
+
+        Assert.Equal("a", _vm.TemplateTrackA!.Hash);
+        Assert.Equal("b", _vm.TemplateTrackB!.Hash);
+        _vm.TemplateBars = 8;
+        _vm.ApplyTemplateCommand.Execute().Subscribe();
+        Assert.Equal(3, _vm.Lanes.Count);
+        Assert.True(_vm.HasProblems); // drums/vocals stems aren't separated yet
+
+        _vm.UndoCommand.Execute().Subscribe();
+        Assert.False(_vm.HasClips);
+    }
+
     // ── fakes ───────────────────────────────────────────────────────────────
 
     private sealed class FakeSources : EditLabSourceService
