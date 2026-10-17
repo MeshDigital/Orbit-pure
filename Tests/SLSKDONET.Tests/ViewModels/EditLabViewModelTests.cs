@@ -93,6 +93,12 @@ public sealed class EditLabViewModelTests : IDisposable
         _vm.UndoCommand.Execute().Subscribe();
         Assert.Equal(0, _vm.Project!.AllClips.Single().GainDb);
         Assert.Equal(0, _vm.SelectedClip!.GainDb);
+
+        Assert.Equal("Full mix", _vm.SelectedClip!.StemName);
+        _vm.SelectedClip!.StemName = "Vocals";
+        Assert.Equal(EditStem.Vocals, _vm.Project!.AllClips.Single().Stem);
+        _vm.SelectedClip!.StartBar = 5;
+        Assert.Equal(4, _vm.Project!.AllClips.Single().StartBar); // the inspector shows bars 1-based
     }
 
     [Fact]

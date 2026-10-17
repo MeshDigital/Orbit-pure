@@ -195,12 +195,17 @@ public sealed class EditClipInspectorViewModel : ReactiveObject
         _editor.SetClip(_clip.Id, change, field == null ? null : $"clip-{_clip.Id}-{field}");
 
     public string SourceTitle => Source?.DisplayName ?? "Missing track";
+    /// <summary>The stem as its display label ("Full mix", "Vocals"…), for the inspector combo box.</summary>
     public string StemName
     {
-        get => _clip.Stem.ToString();
-        set { if (Enum.TryParse<EditStem>(value, out var s) && s != _clip.Stem) Set(c => c.Stem = s); }
+        get => EditProjectEditor.StemLabel(_clip.Stem);
+        set
+        {
+            var stem = Enum.GetValues<EditStem>().FirstOrDefault(s => EditProjectEditor.StemLabel(s) == value, _clip.Stem);
+            if (stem != _clip.Stem) Set(c => c.Stem = stem);
+        }
     }
-    public static string[] StemOptions { get; } = Enum.GetNames<EditStem>();
+    public static string[] StemOptions { get; } = Enum.GetValues<EditStem>().Select(EditProjectEditor.StemLabel).ToArray();
 
     // NumericUpDown binds decimal?; the model stays double.
 
