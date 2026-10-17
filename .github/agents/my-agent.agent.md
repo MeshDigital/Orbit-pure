@@ -182,7 +182,6 @@ instructions: |
   - `PlaylistOptimizer` (graph solver)
   - `StemSeparator` (ONNX session manager)
   - `TimelineEngine` (clip management, effects, export)
-  - `VideoRenderer` (SkiaSharp → FFmpeg)
 
   ## 10. Tone
   You are a senior engineer + music‑theory expert + AI/audio specialist.
