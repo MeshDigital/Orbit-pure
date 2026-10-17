@@ -113,6 +113,8 @@ public class EditLabRenderService
         }
 
         _eventBus?.Publish(new TrackAnalysisRequestedEvent(hash, AnalysisTier.Tier1, IsHighPriority: true));
+        // The Library page doesn't watch the DB; tell it a new track exists so the edit shows up without a manual refresh.
+        _eventBus?.Publish(new SLSKDONET.Events.LibraryUpdatedEvent($"Edit Lab render: {title}"));
         progress?.Report(1.0);
         _logger?.LogInformation("Edit Lab: rendered {Title} ({Seconds:0.0}s) to {Path}", title, result.DurationSeconds, path);
         return new EditRenderOutcome(hash, title, path, result, cues, warnings);

@@ -629,6 +629,9 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         _disposables.Add(_eventBus.GetEvent<FileIngestionCompletedEvent>().Subscribe(OnFileIngestionCompleted));
         _disposables.Add(_eventBus.GetEvent<FileMissingDetectedEvent>().Subscribe(OnFileMissingDetected));
         _disposables.Add(_eventBus.GetEvent<TrackRemovedEvent>().Subscribe(evt => OnLibraryTrackRemoved(evt.TrackGlobalId)));
+        // A track was added outside the download pipeline (e.g. an Edit Lab render): reload quietly.
+        _disposables.Add(_eventBus.GetEvent<SLSKDONET.Events.LibraryUpdatedEvent>().Subscribe(evt =>
+            Dispatcher.UIThread.Post(() => _ = ReloadAfterExternalAddAsync(evt.Reason))));
         // Playlist Overview stats should update live as tracks land in whichever playlist is
         // currently open, not just when the user re-selects it — filtered so an import into a
         // different playlist elsewhere doesn't trigger a pointless refresh.
@@ -1082,6 +1085,21 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     {
         Dispatcher.UIThread.Post(() =>
             ApplyFileIngestionStarted(evt));
+    }
+
+    private async Task ReloadAfterExternalAddAsync(string reason)
+    {
+        try
+        {
+            await _libraryCacheService.ClearCacheAsync();
+            await Projects.LoadProjectsAsync();
+            if (SelectedProject is { } current)
+                await Tracks.LoadProjectTracksAsync(current);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Library reload after external add failed ({Reason})", reason);
+        }
     }
 
     private void OnFileIngestionCompleted(FileIngestionCompletedEvent evt)
