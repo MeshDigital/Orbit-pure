@@ -123,6 +123,7 @@
                         <MenuItem Header="Edit tags…" Command="{Binding RequestEditTagsCommand}"/>
                         <MenuItem Header="Add to playlist…" Command="{Binding AddToProjectCommand}"/>
                         <MenuItem Header="Open in Workstation" Command="{Binding OpenWorkstationCommand}"/>
+                        <MenuItem Header="Open in Edit Lab" Command="{Binding OpenInEditLabCommand}"/>
                         <MenuItem Header="Separate stems" Command="{Binding SeparateStemsCommand}"/>
                         <Separator/>
                         <MenuItem Header="Remove from library…" Command="{Binding RequestRemoveCommand}"/>

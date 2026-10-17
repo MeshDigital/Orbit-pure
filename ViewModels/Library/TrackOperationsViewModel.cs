@@ -33,6 +33,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     private readonly IEventBus _eventBus; // Phase 11.6 Notification
     private readonly IDialogService _dialogService;
     private readonly CueForgeViewModel _cueForgeViewModel;
+    private readonly EditLab.EditLabViewModel? _editLabViewModel;
     private readonly INotificationService _notificationService;
     private readonly AnalyzeTrackStructureJob? _cueStructureJob;
     private readonly Services.Repositories.ITrackRepository _trackRepository;
@@ -58,6 +59,8 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand AnalyseTrackCommand { get; }
     public System.Windows.Input.ICommand OpenAuditLogCommand { get; }
     public System.Windows.Input.ICommand OpenInCueForgeCommand { get; }
+    /// <summary>New Edit Lab project with the track as its base, then shows the Edit Lab.</summary>
+    public System.Windows.Input.ICommand OpenInEditLabCommand { get; }
     public System.Windows.Input.ICommand SetColorTagCommand { get; }
     public System.Windows.Input.ICommand RegenerateCuesCommand { get; }
     public System.Windows.Input.ICommand RefreshBpmFromTagsCommand { get; }
@@ -88,8 +91,10 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         Services.Repositories.ITrackRepository trackRepository,
         AnalyzeTrackStructureJob? cueStructureJob = null,
         Services.Integrations.Serato.SeratoCueExportService? seratoExport = null,
-        Services.AudioAnalysis.CueDetrCueService? cueDetrCues = null)
+        Services.AudioAnalysis.CueDetrCueService? cueDetrCues = null,
+        EditLab.EditLabViewModel? editLabViewModel = null)
     {
+        _editLabViewModel = editLabViewModel;
         _logger = logger;
         _downloadManager = downloadManager;
         _playerViewModel = playerViewModel;
@@ -138,6 +143,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         RefreshBpmFromTagsCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteRefreshBpmFromTags);
         OpenAuditLogCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteOpenAuditLog);
         OpenInCueForgeCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteOpenInCueForge);
+        OpenInEditLabCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteOpenInEditLab);
         SetColorTagCommand = new RelayCommand<string>(ExecuteSetColorTag);
         WriteSeratoCuesCommand = new AsyncRelayCommand<string>(ExecuteWriteSeratoCues);
         GenerateCuesWithAiCommand = new AsyncRelayCommand<string>(ExecuteGenerateCuesWithAi);
@@ -876,6 +882,28 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
 
         await _cueForgeViewModel.LoadTrackAsync(hash, track.Title, track.Artist);
         _eventBus.Publish(new Models.NavigateToPageEvent("CueForge"));
+    }
+
+    private async Task ExecuteOpenInEditLab(PlaylistTrackViewModel? track)
+    {
+        track ??= LibraryViewModel?.Tracks.LeadSelectedTrack;
+        if (track == null || _editLabViewModel == null) return;
+
+        var hash = string.IsNullOrWhiteSpace(track.Model?.TrackUniqueHash)
+            ? track.Model?.Id.ToString("N")
+            : track.Model?.TrackUniqueHash;
+        if (string.IsNullOrEmpty(hash)) return;
+
+        _eventBus.Publish(new Models.NavigateToPageEvent("EditLab"));
+        try
+        {
+            await _editLabViewModel.OpenWithTrackAsync(hash, track.Title, track.Artist, track.Model?.ResolvedFilePath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Open in Edit Lab failed for {Hash}", hash);
+            _notificationService.Show("Couldn't open in Edit Lab", ex.Message, Views.NotificationType.Error);
+        }
     }
 
     public void Dispose()

@@ -14,7 +14,7 @@ public enum PageType
     NowPlaying,
     Decks,
     Timeline,
-    Stems,
+    EditLab,
     Workstation,
     CueForge,
     Users,

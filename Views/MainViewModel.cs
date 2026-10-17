@@ -235,7 +235,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateWorkstationCommand = new RelayCommand(NavigateToWorkstation);
         NavigateDecksCommand = new RelayCommand(NavigateToDecks);
         NavigateTimelineCommand = new RelayCommand(NavigateToTimeline);
-        NavigateStemsCommand = new RelayCommand(NavigateToStems);
+        NavigateEditLabCommand = new RelayCommand(NavigateToEditLab);
         NavigateCueForgeCommand = new RelayCommand(NavigateToCueForge);
         NavigateUsersCommand = new RelayCommand(NavigateToUsers);
         NavigateFlowBuilderCommand = new RelayCommand(NavigateToFlowBuilder);
@@ -455,7 +455,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.RegisterPage("Analysis", typeof(Avalonia.AnalysisPage));
         _navigationService.RegisterPage("NowPlaying", typeof(Avalonia.NowPlayingPage));
         _navigationService.RegisterPage("Workstation", typeof(Avalonia.WorkstationPage));
-        _navigationService.RegisterPage("Stems", typeof(Avalonia.StemsPage));
+        _navigationService.RegisterPage("EditLab", typeof(Avalonia.EditLabPage));
         _navigationService.RegisterPage("CueForge", typeof(Avalonia.CueForgePage));
         _navigationService.RegisterPage("Users", typeof(Avalonia.UsersPage));
         _navigationService.RegisterPage("FlowBuilder", typeof(Avalonia.FlowBuilderPage));
@@ -923,6 +923,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsSettingsOverlayActive => CurrentPageType == PageType.Settings;
     public bool IsWorkstationOverlayActive => IsCreativeOverlayPage(CurrentPageType);
     public bool IsCueForgeOverlayActive => CurrentPageType == PageType.CueForge;
+    public bool IsEditLabOverlayActive => CurrentPageType == PageType.EditLab;
     public bool IsUsersOverlayActive => CurrentPageType == PageType.Users;
     public bool IsFlowBuilderOverlayActive => CurrentPageType == PageType.FlowBuilder;
 
@@ -941,6 +942,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         nameof(IsSettingsOverlayActive),
         nameof(IsWorkstationOverlayActive),
         nameof(IsCueForgeOverlayActive),
+        nameof(IsEditLabOverlayActive),
         nameof(IsUsersOverlayActive),
         nameof(IsFlowBuilderOverlayActive)
     ];
@@ -961,7 +963,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         if (typeof(Avalonia.NowPlayingPage).IsAssignableFrom(pageType)) return PageType.NowPlaying;
         if (typeof(Avalonia.SettingsPage).IsAssignableFrom(pageType)) return PageType.Settings;
         if (typeof(Avalonia.WorkstationPage).IsAssignableFrom(pageType)) return PageType.Workstation;
-        if (pageType.Name.Contains("StemsPage", StringComparison.Ordinal)) return PageType.Stems;
+        if (typeof(Avalonia.EditLabPage).IsAssignableFrom(pageType)) return PageType.EditLab;
         if (typeof(Avalonia.UsersPage).IsAssignableFrom(pageType)) return PageType.Users;
         if (typeof(Avalonia.FlowBuilderPage).IsAssignableFrom(pageType)) return PageType.FlowBuilder;
 
@@ -1010,7 +1012,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         if (normalizedSource.StartsWith("FlowBuilder.", StringComparison.Ordinal))
         {
-            return currentPageType is PageType.Workstation or PageType.Decks or PageType.Timeline or PageType.Stems;
+            return currentPageType is PageType.Workstation or PageType.Decks or PageType.Timeline;
         }
 
         return true;
@@ -1038,7 +1040,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public static bool IsAcquireOverlayPage(PageType pageType) => pageType is PageType.Search or PageType.Projects or PageType.Import;
     public static bool IsSystemOverlayPage(PageType pageType) => pageType is PageType.Home or PageType.Library or PageType.Analysis or PageType.NowPlaying or PageType.Settings;
-    public static bool IsCreativeOverlayPage(PageType pageType) => pageType is PageType.Workstation or PageType.Decks or PageType.Timeline or PageType.Stems;
+    public static bool IsCreativeOverlayPage(PageType pageType) => pageType is PageType.Workstation or PageType.Decks or PageType.Timeline;
 
     private void EnsureNavigationGroupExpanded(PageType pageType)
     {
@@ -1052,7 +1054,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             IsSystemExpanded = true;
         }
 
-        if (IsCreativeOverlayPage(pageType))
+        if (IsCreativeOverlayPage(pageType) || pageType == PageType.EditLab)
         {
             IsCreativeExpanded = true;
         }
@@ -1177,7 +1179,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateWorkstationCommand { get; }
     public ICommand NavigateDecksCommand { get; }
     public ICommand NavigateTimelineCommand { get; }
-    public ICommand NavigateStemsCommand { get; }
+    public ICommand NavigateEditLabCommand { get; }
     public ICommand NavigateCueForgeCommand { get; }
     public ICommand NavigateUsersCommand { get; }
     public ICommand NavigateFlowBuilderCommand { get; }
@@ -1333,9 +1335,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void NavigateToTimeline() => NavigateToWorkstation();
 
-    private void NavigateToStems()
+    private void NavigateToEditLab()
     {
-        _navigationService.NavigateTo("Stems");
+        _navigationService.NavigateTo("EditLab");
     }
 
     private void NavigateToCueForge()

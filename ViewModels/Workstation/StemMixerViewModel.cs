@@ -75,12 +75,6 @@ public sealed class StemMixerViewModel : ReactiveObject, IDisposable
         private set => this.RaiseAndSetIfChanged(ref _hasStems, value);
     }
 
-    /// <summary>
-    /// Optional per-stem waveform rows. Supplied only for the standalone Stems page
-    /// (DI singleton); workstation decks pass null and skip the waveform render cost.
-    /// </summary>
-    public StemWaveformViewModel? Waveforms { get; }
-
     // ── Stem paths (populated after successful separation) ────────────────────
 
     public string? VocalsWavPath { get; private set; }
@@ -107,12 +101,8 @@ public sealed class StemMixerViewModel : ReactiveObject, IDisposable
     // ── Constructor ───────────────────────────────────────────────────────────
 
     public StemMixerViewModel(CachedStemSeparator separator)
-        : this(separator, null) { }
-
-    public StemMixerViewModel(CachedStemSeparator separator, StemWaveformViewModel? waveforms)
     {
         _separator = separator;
-        Waveforms  = waveforms;
 
         // Stereo 44100 hz — matches Orbit's standard audio pipeline format.
         Mixer = new StemMixerService(WaveFormat.CreateIeeeFloatWaveFormat(44100, 2));
@@ -171,9 +161,6 @@ public sealed class StemMixerViewModel : ReactiveObject, IDisposable
                 if (failed > 0)
                     ErrorMessage = $"{failed} of {stems.Count} stems could not be loaded.";
             });
-
-            if (Waveforms != null)
-                await Waveforms.LoadStemWaveformsAsync(VocalsWavPath, DrumsWavPath, BassWavPath, OtherWavPath);
         }
         catch (OperationCanceledException)
         {
@@ -259,7 +246,6 @@ public sealed class StemMixerViewModel : ReactiveObject, IDisposable
     {
         HasStems       = false;
         SourceFileName = null;
-        Waveforms?.Clear();
     }
 
     public void Dispose()
