@@ -113,6 +113,49 @@
                             <TextBlock Text="Stop" IsVisible="{Binding IsPlaying}"/>
                         </StackPanel>
                     </Button>
+
+                    <!-- Render: the one primary action. Options in the flyout; progress + cancel while it runs. -->
+                    <Button Classes="primary" IsVisible="{Binding IsNotRendering}" IsEnabled="{Binding CanRenderAtAll}"
+                            ToolTip.Tip="Render the edit to a new track in your library">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <PathIcon Data="{StaticResource icon_export}" Width="14" Height="14"/>
+                            <TextBlock Text="Render"/>
+                        </StackPanel>
+                        <Button.Flyout>
+                            <Flyout Placement="BottomEdgeAlignedRight">
+                                <StackPanel Width="320" Spacing="12">
+                                    <TextBlock Classes="h3" Text="Render to library"/>
+                                    <TextBlock Classes="caption" Text="{Binding RenderSummary}" TextWrapping="Wrap"/>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="section" Text="FORMAT"/>
+                                        <Border Classes="segmented" HorizontalAlignment="Left">
+                                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                                <RadioButton Classes="chip" GroupName="renderFormat" Content="WAV 24-bit" IsChecked="{Binding RenderAsWav}"/>
+                                                <RadioButton Classes="chip" GroupName="renderFormat" Content="FLAC" IsChecked="{Binding RenderAsFlac}"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <ToggleButton Classes="chip" Content="Loop region only" IsChecked="{Binding RenderLoopOnly}" IsEnabled="{Binding HasLoop}"
+                                                      ToolTip.Tip="Render just the loop region (drag across the bar ruler to set one)"/>
+                                        <ToggleButton Classes="chip" Content="Write cues" IsChecked="{Binding RenderWriteCues}"
+                                                      ToolTip.Tip="Add a memory cue at every clip start, so the sections are marked in Cue Forge and exports"/>
+                                    </StackPanel>
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Classes="caption" Text="Saved to"/>
+                                        <TextBlock Classes="mono muted" Text="{Binding RenderOutputFolder}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <Button Classes="primary small" Content="Start render" Command="{Binding RenderCommand}" HorizontalAlignment="Left"/>
+                                </StackPanel>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding IsRendering}">
+                        <TextBlock Classes="caption" Text="Rendering" VerticalAlignment="Center"/>
+                        <ProgressBar Classes="meter" Width="120" Minimum="0" Maximum="1" Value="{Binding RenderProgress}" VerticalAlignment="Center"/>
+                        <TextBlock Classes="mono" Width="40" Text="{Binding RenderProgress, StringFormat={}{0:P0}}" VerticalAlignment="Center"/>
+                        <Button Classes="secondary small" Content="Cancel" Command="{Binding CancelRenderCommand}"/>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
         </Border>

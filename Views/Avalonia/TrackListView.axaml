@@ -302,6 +302,8 @@
                                   ToolTip.Tip="Only the CUE-DETR model's cue points (snapped to the bar grid). Your own placed cues are kept."/>
                     </MenuItem>
                     <MenuItem Header="Edit cues in Cue Forge" Command="{Binding Operations.OpenInCueForgeCommand}"/>
+                    <MenuItem Header="Open in Edit Lab" Command="{Binding Operations.OpenInEditLabCommand}"
+                              ToolTip.Tip="Start a new edit with this track as the base: cut it up, combine it with other tracks' stems, render it"/>
                     <MenuItem Header="Refresh BPM from tags" Command="{Binding Operations.RefreshBpmFromTagsCommand}"
                               ToolTip.Tip="Re-reads the file's embedded BPM tag and trusts it over ORBIT's analysis. Fixes breakbeat/DnB tracks the beat tracker misreads."/>
                     <MenuItem Header="Hard retry download" Command="{Binding Operations.HardRetryCommand}" IsEnabled="{Binding Operations.AreDependenciesHealthy}"/>

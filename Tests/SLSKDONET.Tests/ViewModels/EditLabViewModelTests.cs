@@ -23,13 +23,16 @@ public sealed class EditLabViewModelTests : IDisposable
     private readonly FakeGate _gate = new();
     private readonly FakeDevice _device = new();
     private readonly EditLabViewModel _vm;
+    private readonly FakeRender _render;
+    private readonly FakeNotifications _toasts = new();
 
     public EditLabViewModelTests()
     {
         Directory.CreateDirectory(_dir);
         _sources = new FakeSources(_dir);
+        _render = new FakeRender(_sources);
         _vm = new EditLabViewModel(new EditProjectStore(rootDirectory: _dir), _sources, new EditPreviewEngine(() => _device),
-            _gate, ui: a => { a(); return Task.CompletedTask; });
+            _gate, _toasts, ui: a => { a(); return Task.CompletedTask; }, renderService: _render);
     }
 
     public void Dispose()
@@ -200,7 +203,68 @@ public sealed class EditLabViewModelTests : IDisposable
         Assert.False(_vm.HasClips);
     }
 
+    [Fact]
+    public async Task Render_Success_RecordsProvenanceOnTheProject_AndToasts()
+    {
+        var item = await ProjectWithTrack();
+        item.AddClipCommand.Execute("FullMix").Subscribe();
+        _vm.RenderAsFlac = true;
+        await _vm.RenderAsync();
+
+        Assert.Equal(EditRenderFormat.Flac, _render.LastRequest!.Format);
+        var record = Assert.Single(_vm.Project!.Renders);
+        Assert.Equal("rendered-hash", record.TrackHash);
+        Assert.Equal(SLSKDONET.Views.NotificationType.Success, _toasts.Last!.Value.Type);
+        Assert.False(_vm.IsRendering);
+    }
+
+    [Fact]
+    public async Task Render_Failure_IsAnErrorToast_NeverASuccess()
+    {
+        var item = await ProjectWithTrack();
+        item.AddClipCommand.Execute("FullMix").Subscribe();
+        _render.Fail = true;
+        await _vm.RenderAsync();
+
+        Assert.Empty(_vm.Project!.Renders);
+        Assert.Equal(SLSKDONET.Views.NotificationType.Error, _toasts.Last!.Value.Type);
+        Assert.StartsWith("Render failed", _vm.Status, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LoopOnlyRender_WithoutALoop_IsRefused()
+    {
+        var item = await ProjectWithTrack();
+        item.AddClipCommand.Execute("FullMix").Subscribe();
+        _vm.RenderLoopOnly = true;
+        await _vm.RenderAsync();
+        Assert.Null(_render.LastRequest);
+        Assert.Contains("loop region", _vm.Status, StringComparison.Ordinal);
+    }
+
     // ── fakes ───────────────────────────────────────────────────────────────
+
+    private sealed class FakeRender : EditLabRenderService
+    {
+        public EditRenderRequest? LastRequest;
+        public bool Fail;
+        public FakeRender(EditLabSourceService sources) : base(sources, null, null, null) { }
+
+        public override Task<EditRenderOutcome> RenderToLibraryAsync(EditRenderRequest request, IProgress<double>? progress, CancellationToken ct)
+        {
+            LastRequest = request;
+            if (Fail) throw new InvalidOperationException("disk full");
+            return Task.FromResult(new EditRenderOutcome("rendered-hash", "Track a (ORBIT Edit)", "x.flac",
+                new EditRenderResult("x.flac", 44100 * 8, 44100, 0.5f, 0), 0, Array.Empty<string>()));
+        }
+    }
+
+    private sealed class FakeNotifications : SLSKDONET.Views.INotificationService
+    {
+        public (string Title, string Message, SLSKDONET.Views.NotificationType Type)? Last;
+        public void Show(string title, string message, SLSKDONET.Views.NotificationType type = SLSKDONET.Views.NotificationType.Information, TimeSpan? duration = null) =>
+            Last = (title, message, type);
+    }
 
     private sealed class FakeSources : EditLabSourceService
     {

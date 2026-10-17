@@ -79,7 +79,8 @@ public sealed partial class EditLabViewModel : ReactiveObject, IEditArrangerHost
         IEditLabPlayerGate? playerGate = null,
         INotificationService? notifications = null,
         ILogger<EditLabViewModel>? logger = null,
-        Func<Action, Task>? ui = null)
+        Func<Action, Task>? ui = null,
+        EditLabRenderService? renderService = null)
     {
         _store = store;
         _sources = sources;
@@ -88,6 +89,7 @@ public sealed partial class EditLabViewModel : ReactiveObject, IEditArrangerHost
         _notifications = notifications;
         _logger = logger;
         _ui = ui ?? (a => Dispatcher.UIThread.InvokeAsync(a).GetTask());
+        _renderService = renderService;
 
         Editor.Changed += OnEditorChanged;
         _preview.Ended += OnPreviewEnded;
@@ -860,6 +862,7 @@ public sealed partial class EditLabViewModel : ReactiveObject, IEditArrangerHost
         foreach (var cts in _separations.Values) cts.Cancel();
         _autosaveCts?.Cancel();
         _searchCts?.Cancel();
+        _renderCts?.Cancel();
         _preview.Dispose();
     }
 }

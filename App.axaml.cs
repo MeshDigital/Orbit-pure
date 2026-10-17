@@ -939,6 +939,13 @@ public partial class App : Application
                 }
             });
         });
+        services.AddSingleton<SLSKDONET.Services.EditLab.EditLabRenderService>(sp =>
+            new SLSKDONET.Services.EditLab.EditLabRenderService(
+                sp.GetRequiredService<SLSKDONET.Services.EditLab.EditLabSourceService>(),
+                sp.GetService<AppConfig>(),
+                sp.GetService<SLSKDONET.Services.IEventBus>(),
+                sp.GetService<SLSKDONET.Services.ICuePointService>(),
+                sp.GetService<Microsoft.Extensions.Logging.ILogger<SLSKDONET.Services.EditLab.EditLabRenderService>>()));
         services.AddSingleton<ViewModels.EditLab.IEditLabPlayerGate>(sp =>
             new ViewModels.EditLab.PlayerViewModelEditLabGate(sp.GetRequiredService<PlayerViewModel>()));
         services.AddSingleton<ViewModels.EditLab.EditLabViewModel>(sp =>
@@ -948,7 +955,8 @@ public partial class App : Application
                 sp.GetRequiredService<SLSKDONET.Services.EditLab.EditPreviewEngine>(),
                 sp.GetService<ViewModels.EditLab.IEditLabPlayerGate>(),
                 sp.GetService<Views.INotificationService>(),
-                sp.GetService<Microsoft.Extensions.Logging.ILogger<ViewModels.EditLab.EditLabViewModel>>()));
+                sp.GetService<Microsoft.Extensions.Logging.ILogger<ViewModels.EditLab.EditLabViewModel>>(),
+                renderService: sp.GetRequiredService<SLSKDONET.Services.EditLab.EditLabRenderService>()));
 
         // ── Task 7.4-7.6: Timeline Editor ViewModel ───────────────────────
         services.AddSingleton<ViewModels.TimelineViewModel>();

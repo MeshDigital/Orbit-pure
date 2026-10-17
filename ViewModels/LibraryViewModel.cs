@@ -648,6 +648,8 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
             Dispatcher.UIThread.InvokeAsync(() => BatchTagEditCommand.Execute(null))));
         _disposables.Add(_eventBus.GetEvent<OpenInCueForgeFromInspectorEvent>().Subscribe(evt =>
             Dispatcher.UIThread.InvokeAsync(() => Operations.OpenInCueForgeCommand.Execute(FindSelectedTrack(evt.TrackGlobalId)))));
+        _disposables.Add(_eventBus.GetEvent<OpenInEditLabFromInspectorEvent>().Subscribe(evt =>
+            Dispatcher.UIThread.InvokeAsync(() => Operations.OpenInEditLabCommand.Execute(FindSelectedTrack(evt.TrackGlobalId)))));
         _disposables.Add(_eventBus.GetEvent<RetryDownloadFromInspectorEvent>().Subscribe(evt =>
             Dispatcher.UIThread.InvokeAsync(() => Operations.HardRetryCommand.Execute(FindSelectedTrack(evt.TrackGlobalId)))));
         

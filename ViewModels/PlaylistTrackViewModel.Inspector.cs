@@ -177,6 +177,11 @@ public partial class PlaylistTrackViewModel
     public ICommand OpenInCueForgeCommand => _openInCueForgeCommand ??=
         new RelayCommand(() => _eventBus?.Publish(new OpenInCueForgeFromInspectorEvent(GlobalId)), () => IsCompleted);
 
+    private ICommand? _openInEditLabCommand;
+    /// <summary>New Edit Lab project with this track as the base (tempo/key).</summary>
+    public ICommand OpenInEditLabCommand => _openInEditLabCommand ??=
+        new RelayCommand(() => _eventBus?.Publish(new OpenInEditLabFromInspectorEvent(GlobalId)), () => IsCompleted);
+
     // ── Persistence feedback ──────────────────────────────────────────────────────────────────
 
     /// <summary>Writes a rating/like change and, on failure, reverts the in-memory value and
