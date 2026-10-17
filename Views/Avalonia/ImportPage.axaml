@@ -41,11 +41,64 @@
         <!-- Header -->
         <StackPanel Grid.Row="0" Spacing="2" Margin="24,16,24,16">
             <TextBlock Classes="h1" Text="Import"/>
-            <TextBlock Classes="subtitle" Text="Bring in playlists from Spotify, a pasted tracklist or a CSV file."/>
+            <TextBlock Classes="subtitle" Text="Bring in playlists from Spotify, a pasted tracklist or a CSV file. You'll see a preview before anything is added."/>
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0"
+                        IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                <PathIcon Data="{StaticResource icon_alert}" Foreground="{StaticResource BrushWarning}"
+                          Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"
+                          IsVisible="{Binding StatusIsError}"/>
+                <TextBlock Classes="caption" Classes.warning="{Binding StatusIsError}" Text="{Binding StatusMessage}"
+                           TextWrapping="Wrap" VerticalAlignment="Center"/>
+            </StackPanel>
         </StackPanel>
 
         <ScrollViewer Grid.Row="1">
             <StackPanel Spacing="{StaticResource SpaceXl}" Margin="24,0,24,24" MaxWidth="880" HorizontalAlignment="Left">
+
+                <!-- ── Recent imports ──────────────────────────────── -->
+                <StackPanel Classes="import-section" IsVisible="{Binding HasRecentImports}">
+                    <TextBlock Classes="section" Text="RECENT IMPORTS"/>
+                    <Border Classes="card" Padding="0">
+                        <ItemsControl ItemsSource="{Binding RecentImports}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:RecentImportItemViewModel">
+                                    <Border Height="40" Padding="12,0" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                            <Panel Width="16" Height="16" Margin="0,0,12,0" VerticalAlignment="Center">
+                                                <PathIcon Data="{StaticResource icons_spotify}" Foreground="{StaticResource BrushText2}"
+                                                          Width="{StaticResource IconSizeMd}" Height="{StaticResource IconSizeMd}"
+                                                          IsVisible="{Binding IsSpotify}"/>
+                                                <PathIcon Data="{StaticResource icon_file}" Foreground="{StaticResource BrushText2}"
+                                                          Width="{StaticResource IconSizeMd}" Height="{StaticResource IconSizeMd}"
+                                                          IsVisible="{Binding IsCsv}"/>
+                                                <PathIcon Data="{StaticResource icon_queue}" Foreground="{StaticResource BrushText2}"
+                                                          Width="{StaticResource IconSizeMd}" Height="{StaticResource IconSizeMd}"
+                                                          IsVisible="{Binding IsText}"/>
+                                            </Panel>
+                                            <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding Title}"
+                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" Margin="12,0">
+                                                <TextBlock Classes="caption mono" Text="{Binding TrackCountText}"/>
+                                                <TextBlock Classes="caption mono" Text="{Binding DateText}"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                <Button Classes="icon small" Command="{Binding CheckForNewTracksCommand}"
+                                                        IsVisible="{Binding CanCheckForNewTracks}"
+                                                        ToolTip.Tip="Check the source for new tracks and update this playlist">
+                                                    <PathIcon Data="{StaticResource icon_sync}"/>
+                                                </Button>
+                                                <Button Classes="icon small" Command="{Binding OpenCommand}"
+                                                        ToolTip.Tip="Open in Library">
+                                                    <PathIcon Data="{StaticResource icon_open_external}"/>
+                                                </Button>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
+                </StackPanel>
 
                 <!-- ── Spotify ─────────────────────────────────────── -->
                 <StackPanel Classes="import-section">
@@ -81,20 +134,27 @@
                                     <TextBlock Classes="body" Text="Liked Songs"/>
                                     <TextBlock Classes="caption" Text="Every track you have liked on Spotify."/>
                                 </StackPanel>
-                                <Button Grid.Column="2" Classes="secondary" Content="Import"
+                                <Button Grid.Column="2" Classes="secondary" Content="Preview"
                                         Command="{Binding ImportLikedSongsCommand}"
-                                        IsEnabled="{Binding IsAuthenticated}"/>
+                                        IsEnabled="{Binding IsAuthenticated}"
+                                        ToolTip.Tip="Connect Spotify to import your Liked Songs"/>
                             </Grid>
 
                             <StackPanel Spacing="4">
                                 <TextBlock Classes="caption" Text="Playlist or album link"/>
                                 <Grid ColumnDefinitions="*,Auto">
                                     <TextBox Classes="mono" Text="{Binding PlaylistUrl, Mode=TwoWay}"
-                                             Watermark="https://open.spotify.com/playlist/…" Margin="0,0,8,0"/>
-                                    <Button Grid.Column="1" Classes="secondary" Content="Import"
+                                             Watermark="https://open.spotify.com/playlist/…" Margin="0,0,8,0">
+                                        <TextBox.KeyBindings>
+                                            <KeyBinding Gesture="Enter" Command="{Binding LoadPlaylistCommand}"/>
+                                        </TextBox.KeyBindings>
+                                    </TextBox>
+                                    <Button Grid.Column="1" Classes="secondary" Content="Preview"
                                             Command="{Binding LoadPlaylistCommand}"
-                                            IsEnabled="{Binding IsAuthenticated}"/>
+                                            ToolTip.Tip="Load the tracks and choose where they go"/>
                                 </Grid>
+                                <TextBlock Classes="caption" TextWrapping="Wrap" IsVisible="{Binding !IsAuthenticated}"
+                                           Text="Not connected: public playlists still load from the web player, but private or very large ones need a connection."/>
                             </StackPanel>
 
                             <StackPanel Spacing="8" IsVisible="{Binding IsAuthenticated}">
@@ -117,7 +177,7 @@
                                                 <Button Classes="secondary tile"
                                                         Command="{Binding $parent[UserControl].DataContext.ImportPlaylistCommand}"
                                                         CommandParameter="{Binding}"
-                                                        ToolTip.Tip="Import this playlist">
+                                                        ToolTip.Tip="Preview this playlist">
                                                     <Grid ColumnDefinitions="Auto,*">
                                                         <Border Width="40" Height="40" Classes="inset" Padding="0" Margin="0,0,12,0">
                                                             <PathIcon Data="{StaticResource icon_music}" Foreground="{StaticResource BrushText3}"/>
@@ -156,7 +216,7 @@
                                     <Button Classes="ghost" Content="Open 1001Tracklists"
                                             Command="{Binding OpenTracklistsWebsiteCommand}"/>
                                 </StackPanel>
-                                <Button Grid.Column="1" Classes="primary" Content="Parse and import"
+                                <Button Grid.Column="1" Classes="secondary" Content="Preview tracklist"
                                         Command="{Binding ImportTracklistCommand}"/>
                             </Grid>
 
