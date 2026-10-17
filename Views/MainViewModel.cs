@@ -223,6 +223,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _disposables.Add(_eventBus.GetEvent<OpenLibraryForPlaylistEvent>()
             .Subscribe(evt => Dispatcher.UIThread.Post(() => HandleOpenLibraryForPlaylist(evt))));
 
+        _disposables.Add(_eventBus.GetEvent<OpenPlaylistInLibraryEvent>()
+            .Subscribe(evt => Dispatcher.UIThread.Post(() => HandleOpenPlaylistInLibrary(evt))));
+
         // Initialize commands
         NavigateHomeCommand = new RelayCommand(NavigateToHome); // Phase 6D
         NavigateSearchCommand = new RelayCommand(NavigateToSearch);
@@ -1418,6 +1421,28 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     /// this to get back to exactly the playlist + track pair the user came from, instead of a
     /// dead end once they're done fixing a cue.
     /// </summary>
+    /// <summary>Import page "Recent imports" → open that playlist in the Library.</summary>
+    private async void HandleOpenPlaylistInLibrary(OpenPlaylistInLibraryEvent evt)
+    {
+        NavigateToLibrary();
+        try
+        {
+            var playlist = LibraryViewModel.Projects.AllProjects.FirstOrDefault(p => p.Id == evt.PlaylistId);
+            if (playlist == null)
+            {
+                await LibraryViewModel.Projects.LoadProjectsAsync();
+                playlist = LibraryViewModel.Projects.AllProjects.FirstOrDefault(p => p.Id == evt.PlaylistId);
+            }
+
+            if (playlist != null) LibraryViewModel.SelectedProject = playlist;
+            else _logger.LogWarning("Open playlist: {PlaylistId} not found in the Library", evt.PlaylistId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to open playlist {PlaylistId} in the Library", evt.PlaylistId);
+        }
+    }
+
     private async void HandleOpenLibraryForPlaylist(OpenLibraryForPlaylistEvent evt)
     {
         NavigateToLibrary();

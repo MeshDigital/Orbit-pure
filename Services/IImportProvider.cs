@@ -66,4 +66,25 @@ public class ImportBatchResult
     /// pasted tracklist), so the user can navigate back to it later. Null when none was found.
     /// </summary>
     public string? SourceUrl { get; set; }
+
+    /// <summary>Playlist owner or album artist, shown in the preview header. Null when unknown.</summary>
+    public string? SourceOwner { get; set; }
+}
+
+/// <summary>
+/// Thrown by a streaming provider when the source could not be read at all (bad link, private or
+/// deleted playlist, unreadable file, nothing parseable, not signed in). Providers used to log
+/// these and yield nothing, so the preview finished as "Loaded 0 tracks — ready to import" with
+/// the real reason only in the log. The orchestrator turns this into the preview's error state.
+/// </summary>
+public class ImportSourceException : System.Exception
+{
+    public ImportSourceException(string message, bool requiresSignIn = false, System.Exception? inner = null)
+        : base(message, inner)
+    {
+        RequiresSignIn = requiresSignIn;
+    }
+
+    /// <summary>True when connecting (or reconnecting) the account would fix it.</summary>
+    public bool RequiresSignIn { get; }
 }

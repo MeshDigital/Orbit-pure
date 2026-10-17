@@ -1,158 +1,150 @@
 # Import Orchestration and Preview
 
-**Updated:** April 20, 2026  
-**Focus:** how ORBIT normalizes import requests, prevents duplicates, and streams preview results before download submission
+**Updated:** October 17, 2026
+**Focus:** how a playlist gets from Spotify, a pasted tracklist or a CSV file into a library playlist and the download queue, and what the preview shows along the way
 
 ---
 
-## Overview
+## The flow at a glance
 
-The import pipeline is designed to let users bring playlists and collections into ORBIT without immediately committing to a full download job.
-
-The core behavior is:
-
-1. accept an external source or playlist input
-2. normalize and identify it
-3. detect whether the import already exists
-4. preview the incoming tracks
-5. let the user accept or cancel
-6. hand off the chosen items to the download system
-
-This behavior is centralized in `ImportOrchestrator`.
+1. **Import page** (`Views/Avalonia/ImportPage.axaml`, `SpotifyImportViewModel`): pick a source.
+   - Spotify: a playlist/album link (works without a connection for public playlists via the
+     web-player fallback), one of "Your playlists", or Liked Songs (needs a connection).
+   - Tracklist: paste text (Ctrl+Shift+V pastes and previews).
+   - CSV: drop or choose a file.
+   - Recent imports: the last five imported playlists. Open one in the Library, or re-fetch its
+     source ("check for new tracks"), which opens the preview set to update that playlist.
+2. **`ImportOrchestrator.StartImportWithPreviewAsync`** works out a deterministic job id
+   (hash of the canonical source), looks for an earlier import of the same source (id, then
+   URL, then Spotify playlist id), opens the preview and streams the provider's batches into it.
+3. **Preview** (`ImportPreviewPage.axaml`, `ImportPreviewViewModel`): the user picks a
+   destination and rows. One primary button commits.
+4. **Commit**: `DownloadManager.QueueProject` persists the playlist and queues downloads, and
+   returns a `ProjectQueueResult` with what actually happened. The toast reports those counts
+   and the app opens the playlist in the Library.
 
 ---
 
 ## Primary files
 
-- `Services/ImportOrchestrator.cs`
-- `ViewModels/ImportPreviewViewModel.cs`
-- `Services/DownloadManager.cs`
-- provider implementations for streaming and non-streaming imports
-- `Views/Avalonia/ImportPage.axaml`
+| File | Role |
+|---|---|
+| `Services/ImportOrchestrator.cs` | Preview session lifecycle, duplicate lookup, streaming, error translation, Retry / Reconnect, background sync (`SilentImportAsync`) |
+| `Services/ImportProviders/*` | Spotify (API, scraper fallback), Spotify Liked Songs, pasted tracklist, CSV. All are `IStreamingImportProvider` |
+| `Services/ImportProviders/SpotifyImportErrors.cs` | Spotify/network exceptions → short actionable `ImportSourceException` |
+| `Services/Import/ImportMatching.cs` | `LibraryMatchIndex`, `PlaylistMembershipIndex`, `ImportTrackMapper`, `ProjectQueueResult` |
+| `Services/Import/ImportQueueGateway.cs` | `IImportQueueGateway`: the preview's seam to DownloadManager (fakeable in tests) |
+| `ViewModels/ImportPreviewViewModel.cs` | Row status, destination, suggestion, summary, commit |
+| `ViewModels/SelectableTrack.cs` | One preview row: selection, editable artist/title, status, duration |
+| `ViewModels/SpotifyImportViewModel.cs`, `RecentImportItemViewModel.cs` | Import page |
+| `Services/DownloadManager.cs` (`QueueProject`) | Gap analysis + persistence + queueing |
 
 ---
 
-## Why the orchestrator exists
+## Provider contract
 
-Importing is more complex than a simple “paste URL and go” operation.
-
-The app needs to handle:
-
-- different source types
-- provider-specific parsing rules
-- duplicate detection
-- preview-first UX
-- cancellation
-- clean transition into download jobs
-
-Centralizing that logic keeps the rest of the UI thin and predictable.
+- Stream batches (`ImportBatchResult`): tracks, source title/type/URL/owner, estimated total.
+- **On failure, throw `ImportSourceException`** (set `RequiresSignIn` when connecting the
+  account would fix it). Providers used to log and yield nothing, so the preview finished as
+  "Loaded 0 tracks — ready to import" with the reason only in the log.
+- Spotify: `client.Paginate` pages past 100 (playlists) / 50 (albums, Liked Songs); the client's
+  `SimpleRetryHandler` honours 429 Retry-After. Removed/episode items are skipped; local files
+  are kept (they can still be searched by artist/title). Missing ISRC doesn't matter.
+- A pasted tracklist has no source URL of its own. Only a detected backlink (1001Tracklists) is
+  stored as the playlist's `SourceUrl`, never the pasted text.
 
 ---
 
-## Main orchestration flow
+## The preview
 
-### 1. Provider resolution
-The import layer identifies which provider should handle the input, such as a playlist URL or structured source.
+### Header
+Source icon, title and "Spotify · by Owner · 37 tracks".
 
-### 2. Input normalization
-The input is normalized so equivalent forms of the same source can be recognized consistently.
+### Destination step
+Segmented choice **New playlist | Add to existing**.
 
-### 3. Duplicate detection
-The orchestrator checks for previously known imports or jobs using:
+- **New playlist**: editable name, defaulting to (and following) the source title until the user
+  edits it. If a playlist with that name exists, a warning offers "Add to that playlist instead".
+- **Add to existing**: searchable list of every playlist (smart playlists excluded) with track
+  counts. Picking one loads its rows and re-labels the preview.
+- **Suggestion card** (`callout`), shown when a likely duplicate is found:
+  - *Same source imported before* (id / URL / Spotify playlist id): destination defaults to
+    updating it. "You imported this before as 'X'. N tracks there, M of these are new."
+  - *Same name*, or a recent playlist that already holds ≥60% of the tracks: destination stays
+    New; the card offers to update instead.
+  - Buttons: **Update 'X'** (recommended) / **Import as new**. "Import as new" mints a fresh id so
+    the two playlists stay separate.
 
-- normalized URLs
-- generated identifiers
-- provider-specific playlist identifiers where applicable
+### Row status
+| Status | Meaning | Default |
+|---|---|---|
+| New | Not in the library: will download | checked |
+| Similar | Not owned, but a 75–88% fuzzy match exists (tooltip names it) | checked |
+| Owned | In the library: the playlist links the file, nothing downloads | checked |
+| Queued | Already waiting/searching/downloading | checked |
+| In playlist | Already in the destination: skipped | unchecked |
+| Retry | In the destination but failed before: retried | checked |
+| Repeat | Same track earlier in this import | unchecked |
+| No match | No title: can't be searched | unchecked |
 
-### 4. Preview initialization
-An `ImportPreviewViewModel` is created or refreshed so the user can inspect incoming items before committing.
+"Owned" and "In playlist" use the **same rules as `QueueProject`** (`ImportMatching.cs`): library
+by hash → Spotify id → loose artist|title → fuzzy ≥0.88; playlist membership by hash → linked
+library file's hash → Spotify id → loose key. Editing a row's artist/title re-matches it.
 
-### 5. Streaming or non-streaming load
-If the provider supports streaming preview, items appear incrementally in the UI instead of waiting for a full batch to finish.
+### Summary strip
+Mono chips that double as filters: All · New · Owned · In playlist · Queued · No match (zero
+counts hidden). Selection actions sit in the `…` menu: select all/none shown, select only tracks
+to download, reset to the suggested selection.
 
-### 6. Accept / cancel decision
-If the user accepts, the chosen items are submitted to the download manager. If cancelled, the in-progress preview work is stopped cleanly.
+### Footer
+One sentence: "Add 37 tracks to new playlist 'Night Drive' · 12 already owned, 25 will download",
+Cancel, and one primary button labelled for the action ("Import 37 tracks", "Add 12 to 'X'",
+"Update 'X' (+3)"). The button is driven only by `AddToLibraryCommand.CanExecute`; every input
+(loading, selection, destination, target, name, commit state) funnels through
+`RaiseCommitStateChanged()`. When disabled, a caption says why ("Choose a playlist to add to",
+"Name the new playlist", "Select at least one track", "Everything is already in 'X'",
+"Loading tracks… 150 of 1,800").
 
----
-
-## Preview-first UX
-
-The preview stage is a deliberate product choice.
-
-Benefits:
-
-- the user sees what is about to be imported
-- accidental large jobs are easier to catch
-- duplicates can be noticed before commitment
-- it creates a more trustworthy onboarding flow for external playlists
-
----
-
-## Streaming provider support
-
-Some providers can yield items incrementally. In that case ORBIT updates the preview list in real time.
-
-This improves perceived responsiveness and makes large imports feel alive rather than blocked behind one long spinner.
-
----
-
-## Download handoff
-
-Once the user confirms the preview, the orchestrator prepares the selected items for the download layer.
-
-At that point responsibility shifts to `DownloadManager`, which owns:
-
-- queueing jobs
-- progress tracking
-- persistence of the actual job record
-
-This separation keeps import focused on intake and validation rather than long-running download behavior.
+### States
+Loading with progress (n of total) · error with Retry / Connect Spotify · partial-load warning
+banner (rows kept) · empty source · "you already own everything" notice · empty filter.
 
 ---
 
-## Cancellation behavior
+## Commit
 
-The preview pipeline uses cancellation tokens so the user can abort an import mid-stream without crashing the page.
+- Sends only checked rows that change the playlist (not repeats, unsearchable or already-there
+  rows). Owned rows are linked to the existing file.
+- **Existing destination keeps its own title, type and link.** (It used to be renamed to the
+  incoming source.) An update of the same source refreshes the stored source URL.
+- Idempotent: after success the button reads "Already imported"; the command also blocks
+  re-entry while running. A failure stays on the page with the error under the button and can
+  be retried; nothing is reported as success.
+- Toast text comes from `ProjectQueueResult` (added / linked / queued for download / retried /
+  already there), or "Nothing new to add…" when nothing changed.
+- Paste/CSV rows without Spotify metadata are enriched in the background after the commit.
 
-This is especially important for:
+## Background sync (`SilentImportAsync`)
 
-- large playlists
-- unstable provider responses
-- accidental imports from the wrong source
-
----
-
-## Duplicate prevention strategy
-
-The orchestrator attempts to prevent duplicate work before it begins.
-
-Typical checks include:
-
-- same normalized URL
-- same generated stable identifier
-- provider-specific playlist ID match
-
-This is not only a convenience feature; it also protects the download pipeline from redundant jobs.
+Library "Sync" and "Sync all" stream the source and send it through the same `QueueProject`
+gap analysis (priority 10, so the auto-acquire setting still applies). It writes to the earlier
+playlist's id and keeps its name.
 
 ---
 
-## Current limitations
+## Tests
 
-- unusual or malformed provider URLs may still evade perfect normalization
-- very slow upstream providers can make the preview feel stalled if they stop yielding items
-- preview state is intentionally session-level, not a long-term saved import draft
+- `Tests/SLSKDONET.Tests/ViewModels/ImportPreviewCommitStateTests.cs`: commit button
+  CanExecute after load / merge without target / target picked.
+- `Tests/SLSKDONET.Tests/ViewModels/ImportPreviewFlowTests.cs`: statuses, counts, footer text,
+  existing destination, re-import suggestion, name/overlap suggestions, commit payload,
+  idempotency, failure, states, cancel.
+- `Tests/SLSKDONET.Tests/Services/Import/ImportMatchingAndProviderErrorTests.cs`: matching rules
+  and the provider failure contract.
 
----
+## Known limits
 
-## Recommended future improvements
-
-- progress breakdown for streamed preview ingestion
-- richer duplicate-resolution UI when an existing job is found
-- resume semantics for cancelled preview sessions
-- better normalization for more provider URL variants
-
----
-
-## Summary
-
-Import orchestration is ORBIT’s intake control layer. It normalizes incoming sources, prevents duplicate work, previews content safely, and only hands off to downloads once the user has confirmed the import set.
+- Spotify-generated mixes (Discover Weekly etc.) often 404 through the Web API for third-party
+  apps; the preview says so.
+- The public web-player fallback (not connected) may return only part of a large playlist.
+- Overlap detection only checks the 8 most recent playlists plus a same-named one.

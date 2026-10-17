@@ -361,6 +361,27 @@
     <Setter Property="CornerRadius" Value="{DynamicResource RadiusLg}"/>
     <Setter Property="Padding" Value="{DynamicResource PaddingMd}"/>
   </Style>
+  <!-- callout: a calm, tinted inline message inside a page (a suggestion, a notice, a partial
+       failure). Accent by default; .info .warning .error for status. Not for decoration. -->
+  <Style Selector="Border.callout">
+    <Setter Property="Background" Value="{DynamicResource BrushAccentSubtle}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource BrushAccentBorder}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="{DynamicResource RadiusLg}"/>
+    <Setter Property="Padding" Value="{DynamicResource PaddingMd}"/>
+  </Style>
+  <Style Selector="Border.callout.info">
+    <Setter Property="Background" Value="{DynamicResource BrushInfoSubtle}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource BrushInfoBorder}"/>
+  </Style>
+  <Style Selector="Border.callout.warning">
+    <Setter Property="Background" Value="{DynamicResource BrushWarningSubtle}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource BrushWarningBorder}"/>
+  </Style>
+  <Style Selector="Border.callout.error">
+    <Setter Property="Background" Value="{DynamicResource BrushErrorSubtle}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource BrushErrorBorder}"/>
+  </Style>
   <!-- panel: docked region (side pane, inspector). No radius; caller sets the edge border. -->
   <Style Selector="Border.panel">
     <Setter Property="Background" Value="{DynamicResource BrushBg2}"/>

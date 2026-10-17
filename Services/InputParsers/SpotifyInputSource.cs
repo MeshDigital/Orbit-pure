@@ -106,6 +106,7 @@ public class SpotifyInputSource : IInputSource
 
             var fullAlbum = await client.Albums.Get(albumId);
             var albumName = fullAlbum.Name ?? "Spotify Album";
+            var albumArtist = fullAlbum.Artists?.FirstOrDefault()?.Name;
             var total = fullAlbum.Tracks.Total ?? 0;
             
             // Note: Albums.GetTracks returns SimpleTrack (no album object inside)
@@ -116,7 +117,9 @@ public class SpotifyInputSource : IInputSource
 
             await foreach (var simpleTrack in client.Paginate(items))
             {
-                batch.Add(MapSimpleTrackToSearchQuery(simpleTrack, fullAlbum, total));
+                var mapped = MapSimpleTrackToSearchQuery(simpleTrack, fullAlbum, total);
+                mapped.SourceOwner = albumArtist;
+                batch.Add(mapped);
 
                 if (batch.Count >= 50)
                 {
@@ -135,6 +138,7 @@ public class SpotifyInputSource : IInputSource
             // ... Playlist Logic (Unchanged) ...
             var playlist = await client.Playlists.Get(playlistId);
             var playlistName = playlist.Name ?? "Spotify Playlist";
+            var playlistOwner = playlist.Owner?.DisplayName;
             
             var request = new PlaylistGetItemsRequest { Limit = 100 };
             var items = await client.Playlists.GetItems(playlistId, request);
@@ -145,7 +149,9 @@ public class SpotifyInputSource : IInputSource
                 {
                     if (item.Track is FullTrack track)
                     {
-                        batch.Add(MapToSearchQuery(track, playlistName, total));
+                        var mapped = MapToSearchQuery(track, playlistName, total, playlistId);
+                        mapped.SourceOwner = playlistOwner;
+                        batch.Add(mapped);
                         if (batch.Count >= 50)
                         {
                              yield return new List<SearchQuery>(batch);

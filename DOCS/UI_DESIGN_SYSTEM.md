@@ -109,6 +109,7 @@ A checked chip is accent-tinted. Inside `segmented`, the checked segment is neut
 | `panel-header` | 36px title row on a panel: `TextBlock.section` + close `Button.icon.small` |
 | `toolbar` | The one action row under a page header (44px, bottom hairline) |
 | `inset` | Sunken well: waveforms, logs, drop zones |
+| `callout` (+ `info`, `warning`, `error`) | Calm tinted inline message inside a page: a suggestion ("You imported this before…"), a notice, a partial failure. Icon + text + at most two small buttons. Accent tint by default |
 | `dialog` | Floating modal (RadiusXl, ShadowLg, 24 padding) |
 | `divider` / `divider vertical` | 1px hairline, horizontal / vertical (set Height on vertical) |
 | `badge` (+ `neutral`) | **Numeric counters only** (unread, queue). Wrap one TextBlock |

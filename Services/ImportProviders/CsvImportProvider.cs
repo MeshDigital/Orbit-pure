@@ -18,7 +18,7 @@ public class CsvImportProvider : IStreamingImportProvider
     private readonly ISpotifyMetadataService _metadataService;
 
     public string Name => "CSV";
-    public string IconGlyph => "📄";
+    public string IconGlyph => "file";
 
     public CsvImportProvider(
         ILogger<CsvImportProvider> logger,
@@ -91,7 +91,9 @@ public class CsvImportProvider : IStreamingImportProvider
     {
         var result = await ImportAsync(input);
         
-        if (result.Success && result.Tracks.Any())
+        if (!result.Success || !result.Tracks.Any())
+            throw new ImportSourceException(result.ErrorMessage ?? "No tracks found in the CSV file.");
+
         {
             // Stream raw tracks directly - Enrichment happens in background background worker
             const int batchSize = 50;

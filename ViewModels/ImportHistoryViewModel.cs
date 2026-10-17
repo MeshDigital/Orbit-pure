@@ -31,6 +31,7 @@ public partial class ImportHistoryViewModel : INotifyPropertyChanged
     private readonly ILogger<ImportHistoryViewModel> _logger;
     private readonly ILibraryService _libraryService;
     private readonly DownloadManager _downloadManager;
+    private readonly INotificationService? _notifications;
 
     private ObservableCollection<PlaylistJob> _importHistory = new();
     public ObservableCollection<PlaylistJob> ImportHistory
@@ -59,14 +60,16 @@ public partial class ImportHistoryViewModel : INotifyPropertyChanged
     public ImportHistoryViewModel(
         ILogger<ImportHistoryViewModel> logger,
         ILibraryService libraryService,
-        DownloadManager downloadManager)
+        DownloadManager downloadManager,
+        INotificationService? notifications = null)
     {
         _logger = logger;
         _libraryService = libraryService;
         _downloadManager = downloadManager;
+        _notifications = notifications;
 
         LoadHistoryCommand = new AsyncRelayCommand(LoadHistoryAsync);
-        ReImportCommand = new RelayCommand<PlaylistJob>(ExecuteReImport);
+        ReImportCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteReImportAsync);
 
         // REMOVED: Eager loading - now loads only when page is accessed
         // _ = LoadHistoryAsync();
@@ -99,35 +102,31 @@ public partial class ImportHistoryViewModel : INotifyPropertyChanged
         }
     }
 
-    private void ExecuteReImport(PlaylistJob? job)
+    /// <summary>
+    /// Re-runs a download pass on a past import: QueueProject re-saves the playlist and queues its
+    /// rows; DownloadManager skips finished ones and retries failed/missing ones. This used to be
+    /// fire-and-forget with no feedback, so a failure (or success) was invisible.
+    /// </summary>
+    private async Task ExecuteReImportAsync(PlaylistJob? job)
     {
         if (job == null) return;
 
-        _logger.LogInformation("Re-Import requested for job: {Title} ({Id})", job.SourceTitle, job.Id);
-
-        // Logic: 
-        // 1. Reset failed/missing tracks to Missing?
-        // 2. Queue project in DownloadManager
-        
-        // For now, we assume the user wants to retry downloading missing/failed tracks
-        // We can just QueueProject anew? 
-        // Or better: Iterate tracks and reset if needed?
-        
-        // Simpler approach: Just queue it. DownloadManager should handle it.
-        // If track exists and is downloaded, it skips.
-        // If track is missing, it queues it.
-        
-        // Check if job is already active?
-        // If it was "Deleted" (soft), we might need to un-delete it?
-        // The job object here is from "GetHistoricalJobsAsync".
-        
-        // if (job.IsDeleted) 
-        // {
-             // If we expose IsDeleted in Model, check it.
-             // Assume active for now or handle in QueueProject.
-        // }
-
-        _ = _downloadManager.QueueProject(job);
+        _logger.LogInformation("Re-import requested for job: {Title} ({Id})", job.SourceTitle, job.Id);
+        try
+        {
+            await _downloadManager.QueueProject(job);
+            var pending = job.PlaylistTracks.Count(t => t.Status != TrackStatus.Downloaded);
+            _notifications?.Show("Re-import queued",
+                pending == 0
+                    ? $"Every track in '{job.SourceTitle}' is already downloaded."
+                    : $"{pending} missing or failed tracks from '{job.SourceTitle}' are queued again.",
+                NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Re-import failed for job {Title} ({Id})", job.SourceTitle, job.Id);
+            _notifications?.Show("Re-import failed", ex.Message, NotificationType.Error);
+        }
     }
 
     public async Task SelectJob(Guid jobId)
