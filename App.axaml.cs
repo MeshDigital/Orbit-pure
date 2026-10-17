@@ -801,7 +801,7 @@ public partial class App : Application
         services.AddTransient<Views.Avalonia.ImportPreviewPage>();
         services.AddTransient<Views.Avalonia.AnalysisPage>();
         services.AddSingleton<ViewModels.AnalysisPageViewModel>();
-        services.AddTransient<Views.Avalonia.StemsPage>();
+        services.AddTransient<Views.Avalonia.EditLabPage>();
         services.AddTransient<Views.Avalonia.WorkstationPage>();
         services.AddTransient<Views.Avalonia.UsersPage>();
         services.AddTransient<Views.Avalonia.CueForgePage>();
@@ -912,9 +912,43 @@ public partial class App : Application
         services.AddSingleton<Services.Audio.ISurgicalProcessingService, Services.Audio.SurgicalProcessingService>();
         services.AddSingleton<Services.Audio.ITransitionPreviewPlayer, Services.Audio.TransitionPreviewPlayer>();
         services.AddSingleton<Services.IWaveformCacheService, Services.WaveformCacheService>();
-        services.AddSingleton<ViewModels.StemMixerViewModel>();
-        services.AddSingleton<ViewModels.StemWaveformViewModel>();
-        services.AddSingleton<ViewModels.NeuralMixEqViewModel>();
+
+        // ── Edit Lab: stems + track editing (replaces the old, unreachable Stems page) ──
+        // None of these do I/O in their constructors, so they can't poison the container.
+        services.AddSingleton<SLSKDONET.Services.EditLab.EditProjectStore>(sp =>
+            new SLSKDONET.Services.EditLab.EditProjectStore(sp.GetService<Microsoft.Extensions.Logging.ILogger<SLSKDONET.Services.EditLab.EditProjectStore>>()));
+        services.AddSingleton<SLSKDONET.Services.EditLab.EditLabSourceService>(sp =>
+            new SLSKDONET.Services.EditLab.EditLabSourceService(
+                sp.GetService<SLSKDONET.Services.ILibraryService>(),
+                sp.GetService<SLSKDONET.Services.DatabaseService>(),
+                sp.GetService<SLSKDONET.Services.Audio.Separation.CachedStemSeparator>(),
+                sp.GetService<Microsoft.Extensions.Logging.ILogger<SLSKDONET.Services.EditLab.EditLabSourceService>>()));
+        services.AddSingleton<SLSKDONET.Services.EditLab.EditPreviewEngine>(sp =>
+        {
+            var cfg = sp.GetService<AppConfig>();
+            return new SLSKDONET.Services.EditLab.EditPreviewEngine(() =>
+            {
+                try
+                {
+                    return SLSKDONET.Services.Audio.AudioOutputProvider.CreatePreviewDevice(cfg?.AudioOutputMode, cfg?.AudioOutputDeviceName);
+                }
+                catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException)
+                {
+                    Serilog.Log.Warning(ex, "Edit Lab preview: couldn't open {Device}; using the Windows default", cfg?.AudioOutputDeviceName ?? "(default)");
+                    return new NAudio.Wave.WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
+                }
+            });
+        });
+        services.AddSingleton<ViewModels.EditLab.IEditLabPlayerGate>(sp =>
+            new ViewModels.EditLab.PlayerViewModelEditLabGate(sp.GetRequiredService<PlayerViewModel>()));
+        services.AddSingleton<ViewModels.EditLab.EditLabViewModel>(sp =>
+            new ViewModels.EditLab.EditLabViewModel(
+                sp.GetRequiredService<SLSKDONET.Services.EditLab.EditProjectStore>(),
+                sp.GetRequiredService<SLSKDONET.Services.EditLab.EditLabSourceService>(),
+                sp.GetRequiredService<SLSKDONET.Services.EditLab.EditPreviewEngine>(),
+                sp.GetService<ViewModels.EditLab.IEditLabPlayerGate>(),
+                sp.GetService<Views.INotificationService>(),
+                sp.GetService<Microsoft.Extensions.Logging.ILogger<ViewModels.EditLab.EditLabViewModel>>()));
 
         // ── Task 7.4-7.6: Timeline Editor ViewModel ───────────────────────
         services.AddSingleton<ViewModels.TimelineViewModel>();

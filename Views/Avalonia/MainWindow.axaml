@@ -438,6 +438,15 @@
                                     </StackPanel>
                                 </Button>
 
+                                <Button Classes="nav" Command="{Binding NavigateEditLabCommand}"
+                                        ToolTip.Tip="Edit Lab — Combine tracks and stems into intros and edits, then render them to the library"
+                                        Classes.selected="{Binding IsEditLabOverlayActive}">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_mix}"/>
+                                        <TextBlock Text="Edit Lab" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
                                 <Button Classes="nav" Command="{Binding NavigateFlowBuilderCommand}"
                                         ToolTip.Tip="Flow Builder — Suggest and apply a DJ-mix track order for a playlist"
                                         Classes.selected="{Binding IsFlowBuilderOverlayActive}">

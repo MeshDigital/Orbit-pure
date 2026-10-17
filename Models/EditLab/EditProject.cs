@@ -156,6 +156,14 @@ public sealed class EditClip
     public int ManualSemitones { get; set; }
 
     public double EndBar => StartBar + LengthBars;
+
+    /// <summary>A copy with a new id (all fields are values).</summary>
+    public EditClip CloneWithNewId()
+    {
+        var copy = (EditClip)MemberwiseClone();
+        copy.Id = Guid.NewGuid();
+        return copy;
+    }
 }
 
 /// <summary>A render of the project that was added to the library.</summary>
