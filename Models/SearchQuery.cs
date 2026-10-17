@@ -87,6 +87,9 @@ public class SearchQuery
     /// </summary>
     public string? SourceTitle { get; set; }
 
+    /// <summary>Who made the source playlist (Spotify owner / album artist), when known.</summary>
+    public string? SourceOwner { get; set; }
+
     /// <summary>
     /// Total number of tracks contained in the source list/playlist.
     /// </summary>

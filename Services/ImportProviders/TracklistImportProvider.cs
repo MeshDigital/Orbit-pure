@@ -16,7 +16,7 @@ public class TracklistImportProvider : IStreamingImportProvider
     private readonly EngineDiagnosticsService? _diagnostics;
 
     public string Name => "Pasted Tracklist";
-    public string IconGlyph => "📋";
+    public string IconGlyph => "list";
 
     public TracklistImportProvider(ILogger<TracklistImportProvider> logger, EngineDiagnosticsService? diagnostics = null)
     {
@@ -59,7 +59,7 @@ public class TracklistImportProvider : IStreamingImportProvider
                 return Task.FromResult(new ImportResult
                 {
                     Success = false,
-                    ErrorMessage = "No valid tracks found in pasted text.\n\nExpected format:\nArtist - Title\n0:00 Artist - Title"
+                    ErrorMessage = "No tracks found in the pasted text. Put one track per line, e.g. \"Artist - Title\" or \"0:00 Artist - Title\"."
                 });
             }
 
@@ -103,9 +103,10 @@ public class TracklistImportProvider : IStreamingImportProvider
             };
             _logger.LogInformation("ImportStreamAsync completed: yielded {Count} tracks from pasted tracklist", result.Tracks.Count);
         }
-        else if (!result.Success)
+        else
         {
             _logger.LogWarning("ImportStreamAsync: no tracks yielded — {Error}", result.ErrorMessage);
+            throw new ImportSourceException(result.ErrorMessage ?? "No tracks found in the pasted text.");
         }
     }
 

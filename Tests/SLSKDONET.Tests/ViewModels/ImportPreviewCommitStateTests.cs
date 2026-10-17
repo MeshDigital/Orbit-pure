@@ -24,7 +24,7 @@ public class ImportPreviewCommitStateTests
         library ??= CreateLibrary();
         var vm = new ImportPreviewViewModel(
             NullLogger<ImportPreviewViewModel>.Instance,
-            null!,
+            new ImportPreviewFlowTests.FakeQueue(),
             new Mock<INavigationService>().Object,
             library.Object);
         vm.RunOnUiThread = a => { a(); return Task.CompletedTask; };

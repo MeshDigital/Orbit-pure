@@ -20,7 +20,7 @@ public class SpotifyLikedSongsImportProvider : IImportProvider, IStreamingImport
     private readonly ISpotifyMetadataService _metadataService;
 
     public string Name => "Spotify Liked Songs";
-    public string IconGlyph => "❤️";
+    public string IconGlyph => "heart";
     public bool ForceRefresh { get; set; }
 
     public SpotifyLikedSongsImportProvider(
@@ -135,65 +135,64 @@ public class SpotifyLikedSongsImportProvider : IImportProvider, IStreamingImport
 
     public async IAsyncEnumerable<ImportBatchResult> ImportStreamAsync(string input)
     {
-        if (!await _authService.IsAuthenticatedAsync()) yield break;
-        
-        var client = await _authService.GetAuthenticatedClientAsync();
-        Paging<SavedTrack> page;
+        // Every failure here used to be logged and swallowed (yield break / break), so the
+        // preview finished "ready to import" with zero or a silently truncated set of tracks.
+        if (!await _authService.IsAuthenticatedAsync())
+            throw new ImportSourceException("Connect your Spotify account to import Liked Songs.", requiresSignIn: true);
 
-        try 
+        SpotifyClient client;
+        Paging<SavedTrack> page;
+        try
         {
+            client = await _authService.GetAuthenticatedClientAsync();
             _logger.LogInformation("Streaming Spotify Liked Songs...");
             page = await client.Library.GetTracks(new LibraryTracksRequest { Limit = 50 });
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ImportSourceException)
         {
-            _logger.LogError(ex, "Failed to start Spotify stream");
-            yield break;
+            _logger.LogError(ex, "Failed to start Spotify Liked Songs stream");
+            throw SpotifyImportErrors.Translate(ex);
         }
 
         int total = page.Total ?? 0;
-        
-        // Yield first page
+        int fetched = 0;
+
         var firstBatch = new List<SearchQuery>();
         await ProcessPage(page, firstBatch);
-        yield return new ImportBatchResult 
-        { 
-            Tracks = firstBatch, 
+        fetched += firstBatch.Count;
+        yield return new ImportBatchResult
+        {
+            Tracks = firstBatch,
             SourceTitle = "Liked Songs (Spotify)",
-            TotalEstimated = total 
+            TotalEstimated = total
         };
 
-        // Fetch remaining pages
         while (page.Next != null)
         {
-            ImportBatchResult? batchResult = null;
+            var batch = new List<SearchQuery>();
             try
             {
                 await Task.Delay(100); // Rate limiting
                 page = await client.NextPage(page);
-                
-                var batch = new List<SearchQuery>();
                 await ProcessPage(page, batch);
-                
-                if (batch.Any())
-                {
-                    batchResult = new ImportBatchResult 
-                    { 
-                        Tracks = batch, 
-                        SourceTitle = "Liked Songs (Spotify)",
-                        TotalEstimated = total 
-                    };
-                }
             }
             catch (Exception ex)
             {
-                 _logger.LogError(ex, "Error streaming page");
-                 break; // Stop on error but keep what we have
+                _logger.LogError(ex, "Liked Songs stream stopped after {Fetched}/{Total} tracks", fetched, total);
+                throw new ImportSourceException(
+                    $"Spotify stopped responding after {fetched} of {total} liked songs. {SpotifyImportErrors.Translate(ex).Message}",
+                    inner: ex);
             }
 
-            if (batchResult != null)
+            fetched += batch.Count;
+            if (batch.Any())
             {
-                yield return batchResult;
+                yield return new ImportBatchResult
+                {
+                    Tracks = batch,
+                    SourceTitle = "Liked Songs (Spotify)",
+                    TotalEstimated = total
+                };
             }
         }
     }
