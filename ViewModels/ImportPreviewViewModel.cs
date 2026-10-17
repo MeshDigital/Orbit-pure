@@ -92,7 +92,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
             {
                 _isLoading = value;
                 OnPropertyChanged();
-                OnPropertyChanged(nameof(CanAddToLibrary));
+                RaiseCommitStateChanged();
             }
         }
     }
@@ -106,7 +106,13 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     public int SelectedCount
     {
         get => _selectedCount;
-        set { _selectedCount = value; OnPropertyChanged(); }
+        set
+        {
+            if (_selectedCount == value) return;
+            _selectedCount = value;
+            OnPropertyChanged();
+            RaiseCommitStateChanged();
+        }
     }
 
     public int TrackCount => ImportedTracks.Count;
@@ -214,12 +220,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
                 var selectableTrack = new SelectableTrack(track);
                 
                 // Wire up notification so the ViewModel knows when selection changes
-                selectableTrack.OnSelectionChanged = () => 
-                {
-                     UpdateSelectedCount();
-                     // Re-evaluate command can-execute
-                     ((AsyncRelayCommand)AddToLibraryCommand).RaiseCanExecuteChanged();
-                };
+                selectableTrack.OnSelectionChanged = UpdateSelectedCount;
                 
                 selectableTracks.Add(selectableTrack);
             }
@@ -229,7 +230,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
             // CRITICAL FIX: Replace entire collection instead of modifying it
             // This triggers OnPropertyChanged and forces UI to rebind
             // Pattern from main branch, adapted for SelectableTrack
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            await RunOnUiThread(() =>
             {
                 ImportedTracks = new ObservableCollection<SelectableTrack>(selectableTracks);
                 AlbumGroups.Clear(); // Clear album groups before regrouping
@@ -241,7 +242,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
             GroupByAlbum();
             
             // Phase 22: Default to selecting missing tracks
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => 
+            await RunOnUiThread(() => 
             {
                 SelectMissing();
                 StatusMessage = $"Loaded {ImportedTracks.Count} tracks";
@@ -319,8 +320,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
             if (_selectedMergeTarget == value) return;
             _selectedMergeTarget = value;
             OnPropertyChanged();
-            OnPropertyChanged(nameof(CommitButtonLabel));
-            OnPropertyChanged(nameof(CanAddToLibrary));
+            RaiseCommitStateChanged();
 
             if (_isMergeMode && value != null)
             {
@@ -383,8 +383,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
                 SelectMissing();
             }
 
-            OnPropertyChanged(nameof(CommitButtonLabel));
-            OnPropertyChanged(nameof(CanAddToLibrary));
+            RaiseCommitStateChanged();
         }
     }
 
@@ -441,7 +440,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
         // (LoadMergeTargetsAsync below fills it in), so there's nothing to react to yet either.
         _isMergeMode = _existingJob != null;
         OnPropertyChanged(nameof(IsMergeMode));
-        OnPropertyChanged(nameof(CommitButtonLabel));
+        RaiseCommitStateChanged();
 
         _ = LoadMergeTargetsAsync(sourceType);
     }
@@ -459,8 +458,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
         ExistingTrackCount = _existingJob.TotalTracks;
 
         await SelectMergeCandidatesAsync();
-        OnPropertyChanged(nameof(CommitButtonLabel));
-        OnPropertyChanged(nameof(CanAddToLibrary));
+        RaiseCommitStateChanged();
     }
 
     /// <summary>
@@ -512,16 +510,11 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
              enrichedTracks.Add(selectable);
          }
 
-         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+         await RunOnUiThread(() =>
          {
              foreach (var selectable in enrichedTracks)
              {
-                 selectable.OnSelectionChanged = () => 
-                 {
-                     UpdateSelectedCount();
-                     if (AddToLibraryCommand is AsyncRelayCommand arc)
-                        arc.RaiseCanExecuteChanged();
-                 };
+                 selectable.OnSelectionChanged = UpdateSelectedCount;
                  ImportedTracks.Add(selectable);
              }
 
@@ -595,7 +588,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
             // (AddTracksToPreviewAsync) — the DB load above is fine off the UI thread, but the
             // IsSelected/StatusMessage mutations below are bound to the UI and threw "Call from
             // invalid thread" without this.
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            await RunOnUiThread(() =>
             {
                 int added = 0;
                 int retried = 0;
@@ -660,7 +653,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
                 .Take(50)
                 .ToList();
 
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            await RunOnUiThread(() =>
             {
                 MergeTargets.Clear();
                 foreach (var job in candidates)
@@ -716,7 +709,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
             // Initial delay to let UI settle
             await Task.Delay(500, cancellationToken);
             
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => StatusMessage = "Fetching metadata...");
+            await RunOnUiThread(() => StatusMessage = "Fetching metadata...");
             
             int enriched = 0;
             foreach (var track in tracks)
@@ -754,7 +747,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
                         enriched++;
                         
                         // Update UI on main thread
-                        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                        await RunOnUiThread(() =>
                         {
                             StatusMessage = $"Enriched {enriched}/{tracks.Count} tracks";
                         });
@@ -772,7 +765,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
             
             if (!cancellationToken.IsCancellationRequested)
             {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                await RunOnUiThread(() =>
                 {
                     StatusMessage = $"Ready - {enriched}/{tracks.Count} tracks enriched";
                 });
@@ -787,7 +780,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             _logger.LogError(ex, "Background metadata enrichment failed");
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            await RunOnUiThread(() =>
             {
                 StatusMessage = "Metadata enrichment failed";
             });
@@ -967,7 +960,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
         // resumed past an await with no SynchronizationContext) — mutating IsSelected directly
         // from that second caller threw "Call from invalid thread" against a bound checkbox.
         // Dispatcher.UIThread.Post is safe to call from either thread.
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        _ = RunOnUiThread(() =>
         {
             foreach (var track in ImportedTracks)
             {
@@ -986,12 +979,37 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
 
     public void UpdateSelectedCount()
     {
-        var newCount = ImportedTracks.Count(t => t.IsSelected);
-        if (SelectedCount != newCount)
+        SelectedCount = ImportedTracks.Count(t => t.IsSelected);
+    }
+
+    /// <summary>
+    /// The single place every input of <see cref="CanAddToLibrary"/> funnels through. The commit
+    /// button is driven by <see cref="AddToLibraryCommand"/>'s CanExecute, which Avalonia only
+    /// re-queries on CanExecuteChanged — raising just the property (as the old setters did) left
+    /// the button disabled after loading finished, after picking a merge target, or after
+    /// switching destination, until the user happened to toggle a checkbox.
+    /// </summary>
+    private void RaiseCommitStateChanged()
+    {
+        OnPropertyChanged(nameof(CanAddToLibrary));
+        OnPropertyChanged(nameof(CommitButtonLabel));
+        (AddToLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// Marshals view-bound mutations onto the UI thread. Runs inline when already there.
+    /// Tests replace it with a synchronous invoker (there is no running dispatcher under xUnit).
+    /// </summary>
+    internal Func<Action, Task> RunOnUiThread { get; set; } = DefaultRunOnUiThread;
+
+    private static Task DefaultRunOnUiThread(Action action)
+    {
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
         {
-            SelectedCount = newCount;
-            OnPropertyChanged(nameof(CanAddToLibrary));
+            action();
+            return Task.CompletedTask;
         }
+        return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(action).GetTask();
     }
 
     /// <summary>
