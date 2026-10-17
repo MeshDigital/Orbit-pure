@@ -468,7 +468,8 @@ says every DI registration is referenced somewhere. Check each item with a grep 
     - Timeline: `NewSessionCommand`
     - StemChannel: `ResetCommand`
     - Workstation: `FocusDeckCommand`
-    - MainViewModel: `NavigatePlayer`, `NavigateTimeline`, `NavigateStems`, `ResetZoom`,
+    - MainViewModel: `NavigatePlayer`, `NavigateTimeline`, `NavigateStems` (gone 2026-10-17: the Stems
+      page was replaced by the Edit Lab, `NavigateEditLabCommand`), `ResetZoom`,
       `CancelDownloads`, and the Pause/Resume/Retry-All trio (`:309`)
 - [ ] **D4. Events with only one side connected.**
   - Subscribed to but never published: `TrackUpdatedEvent`, `TrackMovedEvent`,
@@ -527,6 +528,16 @@ Big features. Plan these separately; this list only tracks them.
   - [ ] plugin API
   - [ ] Last.fm scrobbling
   - [ ] remote access
+- **Edit Lab** (v1 shipped 2026-10-17, branch `feature/edit-lab-2026-10-17`; see `DOCS/EDIT_LAB.md`).
+  Replaces the dead Stems page. *v2 candidates:*
+  - [ ] Better time-stretch (a WSOLA or Rubber Band-class stretcher) for stretches beyond ±8 % and
+    shifts beyond ±2 st. The SMB phase vocoder smears drums.
+  - [ ] An anti-aliased resampler (a windowed sinc) for SR conversion and speed-ups.
+  - [ ] Drag tracks from the Library into the bin (needs the Library visible next to the Edit Lab).
+  - [ ] Lane gain/pan, fade curves, gain automation.
+  - [ ] Waveform thumbnails on clips (from the stored waveform blobs or the stem files).
+  - [ ] A crossfade preview at clip joins, and a "glue" fade when splitting.
+  - [ ] A "Show in Library" jump after a render, and a playlist of all ORBIT Edits.
 - **Durability:**
   - [ ] Split the oversized classes: `WorkstationViewModel` (3,758 lines), `AnalysisPageViewModel`
     (2,523) and `DownloadManager` (4,762). This overlaps issue #163.

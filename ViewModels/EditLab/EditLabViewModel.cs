@@ -306,6 +306,7 @@ public sealed partial class EditLabViewModel : ReactiveObject, IEditArrangerHost
                 PickerStatus = "Type at least two letters of a title or artist.";
                 return;
             }
+            if (PickerResults.Count == 0) PickerStatus = "Searching…";
             var hits = await _sources.SearchAsync(query);
             if (cts.IsCancellationRequested) return;
             await _ui(() =>
