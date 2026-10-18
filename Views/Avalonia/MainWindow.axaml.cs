@@ -45,6 +45,19 @@ namespace SLSKDONET.Views.Avalonia
             return null;
         }
 
+        private SLSKDONET.Services.Entertainment.IAmbientModeService? _ambientModeService;
+        private DateTime _lastActivityReportUtc = DateTime.MinValue;
+
+        private void ReportUserActivity()
+        {
+            var now = DateTime.UtcNow;
+            if ((now - _lastActivityReportUtc).TotalSeconds < 1) return; // pointer moves fire constantly
+            _lastActivityReportUtc = now;
+            _ambientModeService ??= (App.Current as App)?.Services?.GetService(typeof(SLSKDONET.Services.Entertainment.IAmbientModeService))
+                as SLSKDONET.Services.Entertainment.IAmbientModeService;
+            _ambientModeService?.NotifyUserActivity();
+        }
+
         public MainWindow()
         {
             InitializeComponent();
@@ -61,6 +74,12 @@ namespace SLSKDONET.Views.Avalonia
 
             // Global Keyboard Shortcuts
             this.KeyDown += OnKeyDown;
+
+            // Feed user activity to Ambient Mode's idle timer (it was never told, so it always
+            // thought the user was idle and kept flipping the visualizer back to Ambient).
+            AddHandler(global::Avalonia.Input.InputElement.PointerMovedEvent, (_, _) => ReportUserActivity(), global::Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+            AddHandler(global::Avalonia.Input.InputElement.PointerPressedEvent, (_, _) => ReportUserActivity(), global::Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+            AddHandler(global::Avalonia.Input.InputElement.KeyDownEvent, (_, _) => ReportUserActivity(), global::Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
 
             this.DataContextChanged += (_, _) =>
             {
