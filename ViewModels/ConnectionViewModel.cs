@@ -245,6 +245,19 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>
+    /// Re-reads the account from AppConfig after the setup wizard saved it, and hides the login
+    /// dialog (the wizard already offered sign-in; the status dot reopens it).
+    /// </summary>
+    public void ReloadFromConfig()
+    {
+        Username = _config.Username ?? "";
+        RememberPassword = _config.RememberPassword;
+        AutoConnectEnabled = _config.AutoConnectEnabled;
+        IsLoginOverlayVisible = false;
+        if (IsConnected) StatusText = $"Connected as {Username}";
+    }
+
     private void ShowLogin()
     {
         IsLoginOverlayVisible = true;

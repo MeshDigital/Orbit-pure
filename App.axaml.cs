@@ -231,6 +231,20 @@ public partial class App : Application
                         await databaseService.InitAsync().WaitAsync(initCts.Token);
                         
                         Serilog.Log.Information("✅ Database initialization completed successfully");
+
+                        // First-run setup: decide before the UI exists. An install that has an
+                        // account, chosen folders or tracks is marked completed here and never
+                        // sees the wizard; only a genuinely fresh one does.
+                        var showSetupWizard = false;
+                        try
+                        {
+                            var firstRun = await Services.GetRequiredService<Services.Setup.FirstRunCoordinator>().EvaluateAsync();
+                            showSetupWizard = firstRun.ShouldShowWizard;
+                        }
+                        catch (Exception setupEx)
+                        {
+                            Serilog.Log.Error(setupEx, "First-run check failed; the setup wizard stays closed (Settings → Advanced → Setup opens it)");
+                        }
                         
                         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => splashScreen.UpdateStatus("Starting UI..."));
                         await Task.Delay(50);
@@ -283,6 +297,9 @@ public partial class App : Application
                             Services.GetRequiredService<WindowsToastService>().Initialize(toastHandle);
 
                             Services.GetRequiredService<UiStallWatchdog>().Start();
+
+                            if (showSetupWizard)
+                                mainVm?.Setup?.OpenWizard();
 
                             // Tray icon (live tooltip + menu) and the Windows taskbar button
                             // (thumbnail Previous/Play/Next + download progress).
@@ -739,6 +756,36 @@ public partial class App : Application
         services.AddSingleton<SearchFilterViewModel>(); // [FIX] Added missing registration
         services.AddSingleton<ConnectionViewModel>();
         services.AddSingleton<SettingsViewModel>();
+
+        // First-run setup wizard + quick tour (DOCS/FIRST_RUN_SETUP.md). The wizard's view models
+        // only see these interfaces; the implementations reuse the services Settings uses.
+        services.AddSingleton<Services.Setup.ISetupStateStore, Services.Setup.ConfigSetupStateStore>();
+        services.AddSingleton<Services.Setup.ISetupFolderService, Services.Setup.SetupFolderService>();
+        services.AddSingleton<Services.Setup.ISetupSettingsGateway, Services.Setup.ConfigSetupSettingsGateway>();
+        services.AddSingleton<Services.Setup.ISoulseekSetupGateway>(sp => new Services.Setup.SoulseekSetupGateway(
+            sp.GetRequiredService<AppConfig>(),
+            sp.GetRequiredService<ConfigManager>(),
+            sp.GetRequiredService<IConnectionLifecycleService>(),
+            sp.GetRequiredService<IEventBus>(),
+            sp.GetRequiredService<ISoulseekCredentialService>(),
+            sp.GetRequiredService<ILogger<Services.Setup.SoulseekSetupGateway>>()));
+        services.AddSingleton<Services.Setup.ILibraryFolderSetupGateway, Services.Setup.LibraryFolderSetupGateway>();
+        services.AddSingleton<Services.Setup.ISpotifySetupGateway, ViewModels.Setup.SettingsSpotifySetupGateway>();
+        services.AddSingleton<Services.Setup.IAudioSetupGateway, ViewModels.Setup.SettingsAudioSetupGateway>();
+        services.AddSingleton<Services.Setup.FirstRunCoordinator>();
+        services.AddTransient<ViewModels.Setup.SetupWizardViewModel>();
+        services.AddSingleton(sp => new ViewModels.Setup.SetupShellViewModel(
+            () => sp.GetRequiredService<ViewModels.Setup.SetupWizardViewModel>(),
+            sp.GetRequiredService<Services.Setup.ISetupStateStore>(),
+            sp.GetRequiredService<ILogger<ViewModels.Setup.SetupShellViewModel>>(),
+            sp.GetRequiredService<IEventBus>(),
+            // The wizard has its own sign-in step; don't stack the login dialog under it.
+            onWizardOpened: () => sp.GetRequiredService<ConnectionViewModel>().IsLoginOverlayVisible = false,
+            onWizardClosed: () =>
+            {
+                sp.GetRequiredService<ConnectionViewModel>().ReloadFromConfig();
+                sp.GetRequiredService<SettingsViewModel>().RefreshFromConfig();
+            }));
         services.AddSingleton<BulkOperationViewModel>();
         services.AddSingleton<HomeViewModel>();
 

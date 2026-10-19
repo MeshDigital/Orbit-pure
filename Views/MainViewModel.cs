@@ -54,6 +54,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public SearchViewModel SearchViewModel { get; }
     public ConnectionViewModel ConnectionViewModel { get; }
     public SettingsViewModel SettingsViewModel { get; }
+    /// <summary>First-run setup wizard and quick tour (null only in tests that build the shell by hand).</summary>
+    public SLSKDONET.ViewModels.Setup.SetupShellViewModel? Setup { get; }
     public HomeViewModel HomeViewModel { get; }
     public TimelineViewModel TimelineViewModel { get; }
     public StatusBarViewModel StatusBar { get; }
@@ -117,7 +119,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         SidebarViewModel sidebarViewModel,
         IRightPanelService rightPanelService,
         PerformanceTracker perfTracker,
-        FlowBuilderViewModel flowBuilderViewModel)
+        FlowBuilderViewModel flowBuilderViewModel,
+        SLSKDONET.ViewModels.Setup.SetupShellViewModel? setup = null)
 
     {
         _logger = logger;
@@ -140,6 +143,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _flowBuilderViewModel = flowBuilderViewModel;
 
         Sidebar = sidebarViewModel;
+        Setup = setup;
         _rightPanelService = rightPanelService;
         PerfTracker = perfTracker;
 
@@ -504,6 +508,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             LibraryViewModel?.Dispose();
             SearchViewModel?.Dispose();
             SettingsViewModel?.Dispose();
+            Setup?.Dispose();
             HomeViewModel?.Dispose();
             _globalHotkeyService?.Dispose();
         }
