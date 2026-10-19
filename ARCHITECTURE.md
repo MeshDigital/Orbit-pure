@@ -114,6 +114,33 @@ ORBIT-Pure is a high-fidelity P2P music workstation that combines Soulseek netwo
 - **Dependency Injection**: Clean service composition and testing
 - **Configuration Management**: Environment-specific settings
 
+### Schema changes (the convention)
+The library schema is built at startup by `Services/Data/SchemaMigratorService.InitializeDatabaseAsync`,
+in this order:
+1. **EF migrations** (`MigrateAsync`) — frozen. Never run `dotnet ef migrations add`: the model has
+   drifted far from the last migration and a new one would bundle all of that drift.
+2. **Explicit raw-SQL patches** (`ApplySchemaPatchesAsync`) — add a `ColumnExists`/`TableExists`
+   guarded `ALTER TABLE … ADD COLUMN` / `CREATE TABLE` here for every schema change, with a NOT
+   NULL column always carrying a `DEFAULT`. Patch the column whether the table was just created or
+   already existed (don't put column patches in the `else` of a CREATE).
+3. **Schema reconciliation** (`Services/Data/SchemaReconciler`) — the safety net. Driven by the
+   design-time EF model it creates any mapped table that is still missing (EF's own CREATE TABLE
+   + indexes), adds any mapped column that is still missing (`ALTER TABLE ADD COLUMN`, NOT NULL
+   columns get the model default or the CLR default: 0, '', zero Guid…), and creates missing
+   unique indexes / alternate keys (matched by column set). Additive only — it never drops,
+   renames or rewrites data; each statement is isolated (e.g. duplicate rows blocking a unique
+   index are logged, not "fixed"); it logs everything it patched and never throws. When nothing
+   is missing it costs one `pragma_table_info` per table. Added 2026-10-19 after a brand-new DB
+   (`--setup-preview`) came up 13 columns short of the model (`audio_features.VectorEmbedding`,
+   `analysis_runs.*Confidence`, `SetLists.FlowWeightsJson`, `SetTracks.*`, `Tracks.*`) and
+   every library query failed.
+
+Guard: `Tests/SLSKDONET.Tests/Architecture/FreshDatabaseSchemaParityTests` builds a fresh DB
+through the real `DatabaseService.InitAsync` path (via `FreshDatabaseScope`, a temp
+`ORBIT_DB_PATH`) and fails on any mapped table/column/unique key the DB lacks, on unmapped
+NOT NULL columns without a default, and if the main library queries throw. Note that the shared
+test DB is built with `EnsureCreated()` from the model, so ordinary tests never see drift.
+
 ---
 
 ## 🎯 Data Flow Architecture

@@ -418,7 +418,14 @@
                         <TextBlock Classes="caption" Text="Try a different title or artist."/>
                     </StackPanel>
 
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" IsVisible="{Binding !IsLibraryEmpty}">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <!-- Rows only when the library actually loaded: never under the error state. -->
+                        <ScrollViewer.IsVisible>
+                            <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                <Binding Path="!IsLibraryEmpty"/>
+                                <Binding Path="!HasLibraryLoadError"/>
+                            </MultiBinding>
+                        </ScrollViewer.IsVisible>
                         <ItemsControl ItemsSource="{Binding FilteredLibraryTracks}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>

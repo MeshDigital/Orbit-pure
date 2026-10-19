@@ -702,6 +702,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly Stopwatch _analysisSessionStopwatch = new();
     private readonly Dictionary<string, DateTime> _trackAnalysisStartedAtUtc = new(StringComparer.Ordinal);
+    // Hashes whose library entry is being looked up after a TrackAnalysisRequestedEvent for a
+    // track this page hasn't loaded yet (see OnTrackAnalysisRequested) — dedupes repeat requests.
+    private readonly HashSet<string> _pendingQueueResolutions = new(StringComparer.Ordinal);
     private readonly System.Reactive.Subjects.Subject<System.Reactive.Unit> _refreshRequestSubject = new();
     private readonly System.Reactive.Subjects.Subject<string?> _filterRequestSubject = new();
 
@@ -1490,46 +1493,22 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     }
 
     /// <summary>
-    /// Reported by the user: many rows in the "incomplete/corrupt" list showed literally
-    /// "Selected Artist — Selected Track" instead of real metadata. Root cause: when a
-    /// TrackAnalysisRequestedEvent fires for a hash not yet present in LibraryTracks,
-    /// OnTrackAnalysisRequested creates a placeholder item with those literal strings as a
-    /// stand-in, meant to be replaced once real data is available — but the only place that ever
-    /// did that replacement (UpdateFrom, below) was OnTrackAnalysisCompletedAsync's SUCCESS path.
-    /// A track whose analysis fails (exactly the corrupt-file case this list exists to surface)
-    /// never got refreshed and stayed stuck on the placeholder text forever. This now attempts
-    /// the same identity lookup/refresh on failure too.
+    /// Marks a row this page shows as failed. Requests for tracks the page never resolved to a
+    /// real library entry have no row (see <see cref="OnTrackAnalysisRequested"/>), so they are
+    /// not counted as failed analyses here.
     /// </summary>
-    private async Task OnTrackAnalysisFailedAsync(TrackAnalysisFailedEvent evt)
+    private Task OnTrackAnalysisFailedAsync(TrackAnalysisFailedEvent evt)
     {
         var track = FindTrack(evt.TrackGlobalId);
         if (track is null)
-            return;
-
-        if (_libraryService is not null && track.Artist == "Selected Artist" && track.Title == "Selected Track")
-        {
-            try
-            {
-                var entry = await _libraryService.FindLibraryEntryAsync(evt.TrackGlobalId).ConfigureAwait(true);
-                if (entry is not null)
-                {
-                    var refreshedTrack = MapLibraryEntryToTrack(entry);
-                    refreshedTrack.IsInPlaylist = track.IsInPlaylist;
-                    track.UpdateFrom(refreshedTrack);
-                }
-            }
-            catch (Exception ex)
-            {
-                // Keep status updates flowing below; the row just keeps its previous values.
-                Serilog.Log.Debug(ex, "AnalysisPage: refresh lookup failed for {TrackId}", evt.TrackGlobalId);
-            }
-        }
+            return Task.CompletedTask;
 
         track.AnalysisStatus = AnalysisRunStatus.Failed;
         track.CurrentStep = "Analysis failed";
         track.AnalysisError = evt.Error;
         track.ProgressPercent = 100;
         RefreshComputedState();
+        return Task.CompletedTask;
     }
 
     private async Task OnTrackAnalysisCompletedAsync(TrackAnalysisCompletedEvent evt)
@@ -1652,22 +1631,61 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         if (AnalysisQueue.Any(t => t.TrackId == evt.TrackGlobalId))
             return;
 
-        var track = LibraryTracks.FirstOrDefault(t => t.TrackId == evt.TrackGlobalId)
-            ?? AnalysisQueue.FirstOrDefault(t => t.TrackId == evt.TrackGlobalId);
-
-        if (track == null)
+        var track = LibraryTracks.FirstOrDefault(t => t.TrackId == evt.TrackGlobalId);
+        if (track != null)
         {
-            track = new AnalysisTrackItem(
-                evt.TrackGlobalId,
-                "Selected Artist",
-                "Selected Track");
-
-            HookTrack(track);
-            LibraryTracks.Add(track);
-            ApplyFilter();
+            AddToQueue(track);
+            return;
         }
 
-        AddToQueue(track);
+        // A track this page hasn't loaded (e.g. one a folder import just added): look up the real
+        // entry instead of inventing a row. This used to add an "Selected Artist — Selected Track"
+        // placeholder — when the library query was failing (2026-10-19, fresh-install schema
+        // drift) a 2,650-track folder import filled the page with 2,650 fake rows, every one then
+        // marked "Analysis failed", hiding the real "Couldn't load your library" error.
+        _ = QueueUnlistedTrackAsync(evt.TrackGlobalId);
+    }
+
+    private async Task QueueUnlistedTrackAsync(string trackHash)
+    {
+        // The library can't be read right now: the error state already says so, and every lookup
+        // would fail the same way.
+        if (_libraryService is null || HasLibraryLoadError || !_pendingQueueResolutions.Add(trackHash))
+            return;
+
+        try
+        {
+            var entry = await _libraryService.FindLibraryEntryAsync(trackHash).ConfigureAwait(true);
+            if (entry is null)
+            {
+                Serilog.Log.Debug("AnalysisPage: analysis requested for {TrackId}, which is not in the library; not listing it", trackHash);
+                return;
+            }
+
+            if (AnalysisQueue.Any(t => t.TrackId == trackHash))
+                return;
+
+            var track = LibraryTracks.FirstOrDefault(t => t.TrackId == trackHash);
+            if (track is null)
+            {
+                track = MapLibraryEntryToTrack(entry);
+                HookTrack(track);
+                LibraryTracks.Add(track);
+                ApplyFilter();
+            }
+
+            AddToQueue(track);
+        }
+        catch (Exception ex)
+        {
+            // The analysis itself still runs (AnalysisQueueService has the request); only this
+            // page's row for it is missing.
+            Serilog.Log.Warning(ex, "AnalysisPage: could not resolve requested track {TrackId}", trackHash);
+        }
+        finally
+        {
+            _pendingQueueResolutions.Remove(trackHash);
+        }
     }
 
     private void OnFileIngestionQueued(FileIngestionQueuedEvent evt)

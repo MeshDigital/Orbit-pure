@@ -519,6 +519,12 @@ public class SchemaMigratorService
             {
                 context.ConfigureSqliteOptimizations(connection);
                 await ApplySchemaPatchesAsync(context, connection);
+
+                // Safety net behind the migrations and the explicit patches above: whatever the
+                // EF model maps but the database still lacks (a brand-new install was missing 13
+                // columns, 2026-10-19) is added here, additively. See SchemaReconciler.
+                SchemaReconciler.Reconcile(context, connection, _logger);
+                _logger.LogInformation("[{Ms}ms] Database Init: schema reconciliation finished", sw.ElapsedMilliseconds);
             }
         }
 
@@ -1271,9 +1277,12 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
                 _logger.LogInformation("✅ AnalysisRuns table created successfully");
             }
-            else
+
+            // Patch the table whichever way it was made. This used to be an `else` of the CREATE
+            // above, so a freshly created table (whose CREATE lacks the newer columns) was never
+            // patched — a brand-new install had no BpmConfidence/KeyConfidence/IntegrityScore/
+            // CurrentStage (2026-10-19; SchemaReconciler now also catches this class of drift).
             {
-                // Patch existing table
                 if (!ColumnExists("analysis_runs", "Tier"))
                 {
                     _logger.LogInformation("Patching Schema: Adding Tier to AnalysisRuns...");

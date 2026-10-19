@@ -290,4 +290,46 @@ public class VirtualizedTrackCollectionTests
         Assert.False(selectedItem.IsPlaceholder, "A page containing a currently-selected item must never be evicted.");
         Assert.True(selectedItem.IsSelected);
     }
+
+    /// <summary>
+    /// 2026-10-19 fresh-install schema drift: the count query worked, every page query failed and
+    /// came back empty, so All Tracks showed rows stuck on "Loading…" forever. A failed query must
+    /// surface as LoadErrorMessage (bound to the track list's error state).
+    /// </summary>
+    [Fact]
+    public async Task FailingPageQuery_SurfacesLoadError_InsteadOfEndlessPlaceholders()
+    {
+        var playlistId = Guid.NewGuid();
+        var library = new Mock<ILibraryService>();
+        library.Setup(s => s.GetTrackCountAsync(playlistId, null, null, null, null, null)).ReturnsAsync(20);
+        library.Setup(s => s.GetPagedPlaylistTracksAsync(
+                playlistId, It.IsAny<int>(), It.IsAny<int>(), null, null, null, null, TrackSortColumn.Default, false, null))
+            .ReturnsAsync(new List<PlaylistTrack>());
+        library.SetupGet(s => s.LastTrackQueryError).Returns((string?)null);
+
+        var sut = new VirtualizedTrackCollection(
+            NullLogger<VirtualizedTrackCollection>.Instance, library.Object, new EventBusService(),
+            new ArtworkCacheService(NullLogger<ArtworkCacheService>.Instance, new HttpClient()), playlistId, pageSize: 10);
+        await WaitForCountAsync(sut, TimeSpan.FromSeconds(2));
+        Assert.False(sut.HasLoadError);
+
+        library.SetupGet(s => s.LastTrackQueryError).Returns("SQLite Error 1: 'no such column: a.VectorEmbedding'.");
+        await sut.LoadPageAsync(0);
+
+        Assert.True(sut.HasLoadError);
+        Assert.Contains("VectorEmbedding", sut.LoadErrorMessage);
+    }
+
+    [Fact]
+    public async Task EmptyButSuccessfulQuery_IsNotAnError()
+    {
+        var (sut, library) = BuildSut(totalCount: 0);
+        library.SetupGet(s => s.LastTrackQueryError).Returns((string?)null);
+        await WaitForCountAsync(sut, TimeSpan.FromSeconds(2));
+
+        await sut.LoadPageAsync(0);
+
+        Assert.False(sut.HasLoadError);
+        Assert.Null(sut.LoadErrorMessage);
+    }
 }
