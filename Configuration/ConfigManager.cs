@@ -11,6 +11,9 @@ public class ConfigManager
 {
     private readonly string _configPath;
     private AppConfig _config = null!;
+    // Many callers fire-and-forget SaveAsync; without this, two saves could open config.ini at
+    // the same time and one failed with "file is being used by another process".
+    private readonly object _saveLock = new();
 
     public ConfigManager(string? configPath = null)
     {
@@ -492,15 +495,52 @@ public class ConfigManager
         iniContent.AppendLine("[Advanced]");
         iniContent.AppendLine($"EnableNetworkActivityMonitor = {config.EnableNetworkActivityMonitor}");
 
-        File.WriteAllText(_configPath, iniContent.ToString());
-        _config = config;
+        lock (_saveLock)
+        {
+            WriteAtomically(_configPath, iniContent.ToString());
+            _config = config;
+        }
+    }
+
+    /// <summary>
+    /// Writes to a temp file and swaps it in, so a crash mid-write can't leave a truncated
+    /// config.ini. Retries briefly when another process (OneDrive, antivirus, a second ORBIT)
+    /// holds the file.
+    /// </summary>
+    private static void WriteAtomically(string path, string contents)
+    {
+        var tempPath = path + ".tmp";
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.WriteAllText(tempPath, contents);
+                File.Move(tempPath, path, overwrite: true);
+                return;
+            }
+            catch (IOException) when (attempt < 5)
+            {
+                Thread.Sleep(50 * attempt);
+            }
+        }
     }
 
     public AppConfig GetCurrent() => _config;
 
+    /// <summary>
+    /// Saves on a background thread. Never throws: most callers fire and forget, and an
+    /// unobserved failure used to surface as an "Unobserved Task Exception" in the error stream.
+    /// </summary>
     public async Task SaveAsync(AppConfig config)
     {
-        await Task.Run(() => Save(config));
+        try
+        {
+            await Task.Run(() => Save(config));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Serilog.Log.Warning(ex, "[ConfigManager] Saving {Path} failed; the change stays in memory and is written on the next save", _configPath);
+        }
     }
 
     private static List<string> ParseImportWebShortcuts(string? json)
