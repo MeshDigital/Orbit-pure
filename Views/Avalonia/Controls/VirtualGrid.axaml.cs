@@ -132,7 +132,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                             try
                             {
                                 var val = (bool)prop.GetValue(item)!;
-                                if (val && !_selectedItems.Contains(item))
+                                if (val && IsSelectable(item) && !_selectedItems.Contains(item))
                                 {
                                     _selectedItems.Add(item);
                                 }
@@ -213,7 +213,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                         try
                         {
                             var val = (bool)prop.GetValue(item)!;
-                            if (val && !_selectedItems.Contains(item))
+                            if (val && IsSelectable(item) && !_selectedItems.Contains(item))
                             {
                                 _selectedItems.Add(item);
                             }
@@ -235,7 +235,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                     try
                     {
                         bool val = (bool)prop.GetValue(sender)!;
-                        if (val)
+                        if (val && IsSelectable(sender))
                         {
                             if (!_selectedItems.Contains(sender))
                             {
@@ -543,8 +543,13 @@ namespace SLSKDONET.Views.Avalonia.Controls
             }
         }
 
+        /// <summary>Placeholder ("Loading…") rows are never part of the selection.</summary>
+        private static bool IsSelectable(object? item) =>
+            item != null && item is not SLSKDONET.ViewModels.IPlaceholderRow { IsPlaceholder: true };
+
         private void SelectIndexInternal(int index, object item)
         {
+            if (!IsSelectable(item)) return;
             if (!_selectedItems.Contains(item))
             {
                 _selectedItems.Add(item);

@@ -546,6 +546,21 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         private set => this.RaiseAndSetIfChanged(ref _hasSelectedTracks, value);
     }
 
+    private int _selectedTrackCount;
+    /// <summary>Real (loaded, non-placeholder) selected rows; what the selection bar shows.</summary>
+    public int SelectedTrackCount
+    {
+        get => _selectedTrackCount;
+        private set => this.RaiseAndSetIfChanged(ref _selectedTrackCount, value);
+    }
+
+    /// <summary>
+    /// The rows that count as a user selection: never the shared "Loading…" placeholder, never
+    /// a null slot. The selection bar is visible only when this is non-empty.
+    /// </summary>
+    internal static List<PlaylistTrackViewModel> RealSelection(IEnumerable<PlaylistTrackViewModel?> candidates) =>
+        candidates.Where(t => t is { IsPlaceholder: false }).Select(t => t!).Distinct().ToList();
+
     private string _selectedCountText = string.Empty;
     public string SelectedCountText
     {
@@ -789,7 +804,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     {
         // Don't trigger recursive updates if we're already changing selection
         _selectedTracks.Clear();
-        foreach (var t in selected) _selectedTracks.Add(t);
+        foreach (var t in RealSelection(selected)) _selectedTracks.Add(t);
         UpdateSelectionState();
     }
 
@@ -1172,6 +1187,11 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         try
         {
             _logger.LogInformation("Loading tracks for project: {Name} (Virtualized)", job.SourceTitle);
+
+            // A different playlist: the old selection's rows are about to be disposed and the grid
+            // drops its own selection when ItemsSource changes, so keeping them here left a "1
+            // selected" bar over a list where nothing is highlighted.
+            if (_selectedTracks.Count > 0) ClearSelection();
             
             // Cleanup existing
             foreach (var track in CurrentProjectTracks)
@@ -1538,7 +1558,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
 
     private void UpdateSelectionState()
     {
-        var count = SelectedTracks.Count;
+        var count = RealSelection(SelectedTracks).Count;
+        SelectedTrackCount = count;
         HasSelectedTracks = count > 0;
         HasMultiSelection = count > 1;
         SelectedCountText = $"{count} tracks selected";

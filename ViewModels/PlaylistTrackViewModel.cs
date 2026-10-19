@@ -21,7 +21,7 @@ public sealed record GenreScore(string Label, double Confidence);
 /// ViewModel representing a track in the download queue.
 /// Manages state, progress, and updates for the UI.
 /// </summary>
-public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNode, IDisposable
+public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNode, IDisposable, IPlaceholderRow
 {
     private PlaylistTrackState _state;
     private double _progress;
@@ -49,6 +49,10 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
         get => _isSelected;
         set
         {
+            // The shared "Loading…" placeholder stands in for every not-yet-loaded row at once;
+            // selecting it once used to leave a phantom "1 selected" bar (and every loading row
+            // highlighted) with nothing real selected.
+            if (value && IsPlaceholder) return;
             if (SetProperty(ref _isSelected, value) && value)
             {
                 // Trigger the lazy-load of waveform data from DB
