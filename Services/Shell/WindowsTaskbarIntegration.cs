@@ -24,6 +24,7 @@ public sealed class WindowsTaskbarIntegration : IDisposable
     private const uint IdNext = 3;
 
     private const uint WM_COMMAND = 0x0111;
+    private const uint WM_SETTINGCHANGE = 0x001A;
     private const int THBN_CLICKED = 0x1800;
     private const uint MSGFLT_ALLOW = 1;
     private const int SM_CXSMICON = 49;
@@ -238,6 +239,21 @@ public sealed class WindowsTaskbarIntegration : IDisposable
                     }
                 });
             }
+            else if (msg == WM_SETTINGCHANGE && lParam != IntPtr.Zero
+                     && Marshal.PtrToStringUni(lParam) == "ImmersiveColorSet")
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    try
+                    {
+                        if (OperatingSystem.IsWindows() && IsActive) OnThemeChanged();
+                    }
+                    catch (Exception ex)
+                    {
+                        Disable(ex, "theme change");
+                    }
+                });
+            }
             else if (msg == WM_COMMAND && HiWord(wParam) == THBN_CLICKED)
             {
                 var glyph = LoWord(wParam) switch
@@ -283,38 +299,55 @@ public sealed class WindowsTaskbarIntegration : IDisposable
     [SupportedOSPlatform("windows")]
     private void CreateIcons()
     {
-        var size = SmallIconSize();
-        _iconPrevious = CreateGlyphIcon(ShellGlyph.Previous, size);
-        _iconPlay = CreateGlyphIcon(ShellGlyph.Play, size);
-        _iconPause = CreateGlyphIcon(ShellGlyph.Pause, size);
-        _iconNext = CreateGlyphIcon(ShellGlyph.Next, size);
+        DestroyIcons();
+
+        // The taskbar (and its thumbnail flyout) renders at the system DPI, not the window's.
+        var metric = GetSystemMetrics(SM_CXSMICON);
+        var size = metric > 0 ? metric : 16;
+
+        // Glyph colour follows the taskbar theme: white on the dark flyout, near-black on light.
+        var (r, g, b) = TaskbarUsesLightTheme() ? ((byte)32, (byte)32, (byte)32) : ((byte)255, (byte)255, (byte)255);
+        _iconPrevious = CreateGlyphIcon(ShellGlyph.Previous, size, r, g, b);
+        _iconPlay = CreateGlyphIcon(ShellGlyph.Play, size, r, g, b);
+        _iconPause = CreateGlyphIcon(ShellGlyph.Pause, size, r, g, b);
+        _iconNext = CreateGlyphIcon(ShellGlyph.Next, size, r, g, b);
+    }
+
+    private void DestroyIcons()
+    {
+        foreach (var icon in new[] { _iconPrevious, _iconPlay, _iconPause, _iconNext })
+            if (icon != IntPtr.Zero) DestroyIcon(icon);
+        _iconPrevious = _iconPlay = _iconPause = _iconNext = IntPtr.Zero;
     }
 
     [SupportedOSPlatform("windows")]
-    private int SmallIconSize()
+    private bool TaskbarUsesLightTheme()
     {
         try
         {
-            var dpi = GetDpiForWindow(_hwnd);
-            if (dpi > 0)
-            {
-                var px = GetSystemMetricsForDpi(SM_CXSMICON, dpi);
-                if (px > 0) return px;
-            }
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return key?.GetValue("SystemUsesLightTheme") is int v && v != 0;
         }
-        catch (EntryPointNotFoundException)
+        catch (Exception ex)
         {
-            // Pre-1607 Windows 10: no per-DPI metrics; the system-DPI value below is right there.
-            _logger.LogDebug("[Taskbar] GetSystemMetricsForDpi unavailable; using system DPI icon size");
+            _logger.LogDebug(ex, "[Taskbar] Reading the taskbar theme failed; assuming dark");
+            return false;
         }
-        var fallback = GetSystemMetrics(SM_CXSMICON);
-        return fallback > 0 ? fallback : 16;
+    }
+
+    /// <summary>Light/dark switch (WM_SETTINGCHANGE "ImmersiveColorSet"): re-render the glyphs and re-send the buttons.</summary>
+    [SupportedOSPlatform("windows")]
+    private void OnThemeChanged()
+    {
+        CreateIcons();
+        _appliedThumbs = null;
+        Sync();
     }
 
     [SupportedOSPlatform("windows")]
-    private IntPtr CreateGlyphIcon(ShellGlyph glyph, int size)
+    private IntPtr CreateGlyphIcon(ShellGlyph glyph, int size, byte r, byte g, byte b)
     {
-        var pixels = ShellGlyphRasterizer.Render(glyph, size);
+        var pixels = ShellGlyphRasterizer.Render(glyph, size, r, g, b);
         var header = new BITMAPINFOHEADER
         {
             biSize = (uint)Marshal.SizeOf<BITMAPINFOHEADER>(),
@@ -446,9 +479,7 @@ public sealed class WindowsTaskbarIntegration : IDisposable
         {
             _taskbar = null;
             _window = null;
-            foreach (var icon in new[] { _iconPrevious, _iconPlay, _iconPause, _iconNext })
-                if (icon != IntPtr.Zero) DestroyIcon(icon);
-            _iconPrevious = _iconPlay = _iconPause = _iconNext = IntPtr.Zero;
+            DestroyIcons();
         }
     }
 
@@ -558,11 +589,6 @@ public sealed class WindowsTaskbarIntegration : IDisposable
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
 
-    [DllImport("user32.dll")]
-    private static extern int GetSystemMetricsForDpi(int nIndex, uint dpi);
-
-    [DllImport("user32.dll")]
-    private static extern uint GetDpiForWindow(IntPtr hwnd);
 
     [DllImport("gdi32.dll", SetLastError = true)]
     private static extern IntPtr CreateDIBSection(IntPtr hdc, ref BITMAPINFOHEADER pbmi, uint usage, out IntPtr ppvBits, IntPtr hSection, uint offset);
