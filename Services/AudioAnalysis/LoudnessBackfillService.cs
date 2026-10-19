@@ -330,12 +330,14 @@ public sealed class LoudnessBackfillService : IDisposable
 
         if (measured + noLoudness > 0 || synced > 0)
             _eventBus.Publish(new SLSKDONET.Events.LibraryUpdatedEvent("Loudness backfill"));
-        if (total > 0 || synced > 0)
-            _eventBus.Publish(new ToastRequestedEvent(
-                cancelled ? "Loudness measurement stopped" : "Loudness measured",
-                BuildSummary(result),
-                failed > 0 ? NotificationType.Warning : NotificationType.Success,
-                null));
+        // Always report, so a start from the Library menu with nothing to do isn't a silent no-op.
+        _eventBus.Publish(new ToastRequestedEvent(
+            cancelled ? "Loudness measurement stopped" : "Loudness measured",
+            BuildSummary(result),
+            failed > 0 ? NotificationType.Warning
+                : total == 0 && synced == 0 ? NotificationType.Information
+                : NotificationType.Success,
+            null));
 
         Finish(result);
         return result;
