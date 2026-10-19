@@ -1203,6 +1203,15 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             .Subscribe(OnFileIngestionCompleted)
             .DisposeWith(_disposables);
 
+        // A folder import adds tracks in one go and publishes one completion event: reload the
+        // page's library once, so "Analyse N new tracks" finds them here instead of doing one
+        // library lookup per requested track (OnTrackAnalysisRequested).
+        _eventBus.GetEvent<LibraryImportCompletedEvent>()
+            .Where(evt => evt.Result.ChangedLibrary && _libraryService is not null)
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(evt => { _ = LoadLibraryAsync(); })
+            .DisposeWith(_disposables);
+
         _eventBus.GetEvent<FileMissingDetectedEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(OnFileMissingDetected)

@@ -68,6 +68,7 @@ public sealed class LibraryHealthViewModel : ReactiveObject
     private readonly ILogger<LibraryHealthViewModel> _logger;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly LibraryFolderScannerService _scannerService;
+    private readonly ILibraryImportLauncher? _importLauncher;
     private readonly IFileInteractionService? _fileInteractionService;
 
     public ObservableCollection<FormatBreakdownRowViewModel> FormatBreakdown { get; } = new();
@@ -116,6 +117,7 @@ public sealed class LibraryHealthViewModel : ReactiveObject
         _dbFactory = dbFactory;
         _scannerService = scannerService;
         _fileInteractionService = serviceProvider.GetService(typeof(IFileInteractionService)) as IFileInteractionService;
+        _importLauncher = serviceProvider.GetService(typeof(ILibraryImportLauncher)) as ILibraryImportLauncher;
 
         RefreshDiskUsageCommand = new AsyncRelayCommand(RefreshDiskUsageAsync);
         RefreshUnplayedCommand = new AsyncRelayCommand(RefreshUnplayedAsync);
@@ -304,7 +306,12 @@ public sealed class LibraryHealthViewModel : ReactiveObject
         if (row == null) return;
         try
         {
-            await _scannerService.ScanFolderAsync(row.FolderId);
+            // Through the import sheet when the shell provides it, so this rescan shows the same
+            // phases and summary as every other folder import.
+            if (_importLauncher != null)
+                await _importLauncher.RunImportAsync(new[] { row.FolderId }, "Importing untracked files");
+            else
+                await _scannerService.ScanFolderAsync(row.FolderId);
             await RefreshUntrackedAsync();
         }
         catch (Exception ex)

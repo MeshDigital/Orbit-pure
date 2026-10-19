@@ -165,6 +165,8 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                     OnPropertyChanged(nameof(SelectedProjectCard));
                 }
 
+                if (ReferenceEquals(value, _allTracksJob)) _ = RefreshAllTracksCountsAsync();
+
                 // Raise event for parent ViewModel to handle
                 ProjectSelected?.Invoke(this, value);
             }
@@ -338,6 +340,35 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
             foreach (var projectId in evt.Tracks.Select(t => t.Track.PlaylistId).Distinct())
                 RefreshActiveDownloadStats(projectId);
         }));
+
+        // A folder import publishes one completion event; the All Tracks header counts follow it.
+        _disposables.Add(eventBus.GetEvent<LibraryImportCompletedEvent>().Subscribe(evt =>
+        {
+            if (evt.Result.ChangedLibrary) _ = RefreshAllTracksCountsAsync();
+        }));
+    }
+
+    /// <summary>
+    /// "All Tracks" is a pseudo-project with no PlaylistJobs row, so nothing ever filled its
+    /// TotalTracks / SuccessfulCount: the header read "0 tracks · 0 downloaded" on a full library.
+    /// Counted from the same LibraryEntries query the grid uses.
+    /// </summary>
+    internal async Task RefreshAllTracksCountsAsync()
+    {
+        try
+        {
+            var total = await _libraryService.GetTrackCountAsync(Guid.Empty).ConfigureAwait(false);
+            var downloaded = await _libraryService.GetTrackCountAsync(Guid.Empty, downloadedOnly: true).ConfigureAwait(false);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                _allTracksJob.TotalTracks = total;
+                _allTracksJob.SuccessfulCount = downloaded;
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to count All Tracks for the library header");
+        }
     }
 
     public void Dispose()
@@ -435,6 +466,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             _logger.LogInformation("Loading projects from database...");
+            _ = RefreshAllTracksCountsAsync();
             var jobs = await _libraryService.LoadAllPlaylistJobsAsync();
             await LoadFoldersAsync();
 

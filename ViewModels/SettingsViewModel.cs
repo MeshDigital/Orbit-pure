@@ -81,6 +81,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private readonly ISpotifyMetadataService _spotifyMetadataService;
     private readonly DatabaseService _databaseService;
     private readonly LibraryFolderScannerService _libraryFolderScannerService;
+    private readonly ILibraryImportLauncher? _importLauncher;
     private readonly IEventBus _eventBus;
     private readonly NetworkActivityMonitor? _networkActivityMonitor;
     private readonly EngineDiagnosticsService? _engineDiagnosticsService;
@@ -1900,10 +1901,12 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         ILibraryService? libraryService = null,
         IDialogService? dialogService = null,
         NetworkActivityMonitor? networkActivityMonitor = null,
-        EngineDiagnosticsService? engineDiagnosticsService = null)
+        EngineDiagnosticsService? engineDiagnosticsService = null,
+        ILibraryImportLauncher? importLauncher = null)
     {
         _logger = logger;
         _config = config;
+        _importLauncher = importLauncher;
         _networkActivityMonitor = networkActivityMonitor;
         _engineDiagnosticsService = engineDiagnosticsService;
         _configManager = configManager;
@@ -2533,85 +2536,29 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>
+    /// "Scan library": registers the download/shared folders, then runs the import sheet over every
+    /// Library Source (phases, counters and a summary live there, not in this status line).
+    /// </summary>
     private async Task ScanLibraryAsync()
     {
+        if (IsScanning) return;
         try
         {
-            if (IsScanning) return;
             IsScanning = true;
-            ScanStatus = "Preparing to scan...";
-            
-            _logger.LogInformation("Starting manual library scan...");
-            
-            // 1. Ensure configured folders are registered as library scan targets.
-            // Both the download directory and the Soulseek shared folder are included
-            // so files on different drives are always picked up.
-            if (!string.IsNullOrEmpty(_config.DownloadDirectory))
-                await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.DownloadDirectory);
-            else
-                _logger.LogWarning("No download directory configured for scanning.");
+            (ScanLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            (FullLibrarySyncCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            ScanStatus = "Scanning — see the import sheet";
 
-            if (!string.IsNullOrEmpty(_config.SharedFolderPath) &&
-                !string.Equals(_config.SharedFolderPath, _config.DownloadDirectory, StringComparison.OrdinalIgnoreCase))
-                await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.SharedFolderPath);
-
-            // 2. Run Scan
-            var progress = new Progress<ScanProgress>(p =>
-            {
-                var lines = new System.Text.StringBuilder();
-
-                // Completed folders — one summary line each
-                foreach (var f in p.CompletedFolders)
-                    lines.AppendLine(f.Display());
-
-                // Active folder — live counter
-                var active = string.IsNullOrWhiteSpace(p.CurrentFile) ? string.Empty : $"  ⟳ {p.CurrentFile}";
-                lines.Append($"Total: {p.FilesDiscovered} found  |  {p.FilesImported} new  |  {p.FilesDuplicateByPath + p.FilesDuplicateByHash} known  |  {p.FilesAutoUpgraded} upgraded{active}");
-
-                ScanStatus = lines.ToString();
-            });
-
-            var results = await _libraryFolderScannerService.ScanAllFoldersAsync(progress);
-            
-            // 3. Summarize
-            int totalImported = results.Values.Sum(r => r.FilesImported);
-            int totalSkipped = results.Values.Sum(r => r.FilesSkipped);
-            int totalDupPath = results.Values.Sum(r => r.FilesDuplicateByPath);
-            int totalDupHash = results.Values.Sum(r => r.FilesDuplicateByHash);
-            int totalMetadataFailed = results.Values.Sum(r => r.FilesMetadataFailed);
-            int totalUpgraded = results.Values.Sum(r => r.FilesAutoUpgraded);
-            int totalRemovalCandidates = results.Values.Sum(r => r.FilesMarkedForRemoval);
-
-            // Per-folder breakdown for the final status
-            int idx = 0;
-            var folderLines = new System.Text.StringBuilder();
-            folderLines.AppendLine($"✅ Scan complete — {totalImported} new, {totalDupPath + totalDupHash} known, {totalUpgraded} upgraded");
-            foreach (var r in results.Values)
-            {
-                idx++;
-                var name = System.IO.Path.GetFileName(r.FolderPath.TrimEnd(
-                    System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar));
-                if (string.IsNullOrEmpty(name)) name = r.FolderPath;
-                var tag = r.FilesImported > 0 ? $"+{r.FilesImported} new" : (r.TotalFilesFound > 0 ? "all known" : "empty/inaccessible");
-                folderLines.AppendLine($"  [{idx}] {name}  —  {r.TotalFilesFound} files  {tag}");
-            }
-            ScanStatus = folderLines.ToString().TrimEnd();
-            _logger.LogInformation(
-                "Manual scan complete. Imported: {Imported}, Upgraded: {Upgraded}, RemoveCandidates: {RemoveCandidates}, Skipped: {Skipped}, DupPath: {DupPath}, DupHash: {DupHash}, MetaFailed: {MetaFailed}",
-                totalImported,
-                totalUpgraded,
-                totalRemovalCandidates,
-                totalSkipped,
-                totalDupPath,
-                totalDupHash,
-                totalMetadataFailed);
-
+            await EnsureConfiguredFoldersRegisteredAsync();
+            var result = await RunImportSheetAsync("Scanning your library folders");
+            ScanStatus = DescribeImport(result);
             await LoadRemovalCandidatesAsync();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Manual scan failed");
-            ScanStatus = "Scan Failed";
+            ScanStatus = "Scan failed — see logs.";
         }
         finally
         {
@@ -2620,6 +2567,35 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             (FullLibrarySyncCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }
+
+    /// <summary>The download directory and Soulseek shared folder are always Library Sources.</summary>
+    private async Task EnsureConfiguredFoldersRegisteredAsync()
+    {
+        if (!string.IsNullOrEmpty(_config.DownloadDirectory))
+            await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.DownloadDirectory);
+        else
+            _logger.LogWarning("No download directory configured for scanning.");
+
+        if (!string.IsNullOrEmpty(_config.SharedFolderPath) &&
+            !string.Equals(_config.SharedFolderPath, _config.DownloadDirectory, StringComparison.OrdinalIgnoreCase))
+            await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.SharedFolderPath);
+    }
+
+    /// <summary>Runs the import sheet when the shell provides it; tests and headless hosts import directly.</summary>
+    private async Task<LibraryImportResult?> RunImportSheetAsync(string title)
+    {
+        if (_importLauncher != null)
+            return await _importLauncher.RunImportAsync(null, title);
+        return await _libraryFolderScannerService.ImportFoldersAsync(new LibraryImportRequest { Trigger = LibraryImportTrigger.Maintenance });
+    }
+
+    internal static string DescribeImport(LibraryImportResult? result) => result switch
+    {
+        null => "Another import is running. Its progress is in the import sheet.",
+        { Error: not null } => $"Scan stopped: {result.Error}",
+        { WasCancelled: true } => $"Scan cancelled. {result.Added:N0} new tracks kept.",
+        _ => $"Scan complete: {result.Added:N0} new, {result.AlreadyInLibrary + result.Duplicates:N0} already known, {result.ProblemCount:N0} not added.",
+    };
 
     private async Task ReconcileLibraryAsync()
     {
@@ -2664,25 +2640,15 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             (ScanLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
             (ReconcileLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
 
-            if (!string.IsNullOrEmpty(_config.DownloadDirectory))
-                await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.DownloadDirectory);
-
-            if (!string.IsNullOrEmpty(_config.SharedFolderPath) &&
-                !string.Equals(_config.SharedFolderPath, _config.DownloadDirectory, StringComparison.OrdinalIgnoreCase))
-                await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.SharedFolderPath);
-
-            var progress = new Progress<ScanProgress>(p =>
+            await EnsureConfiguredFoldersRegisteredAsync();
+            var import = await RunImportSheetAsync("Full library sync: scanning folders");
+            if (import == null)
             {
-                var folderLabel = string.IsNullOrWhiteSpace(p.CurrentFile)
-                    ? (string.IsNullOrWhiteSpace(p.CurrentFolder) ? string.Empty
-                        : $" ({System.IO.Path.GetFileName(p.CurrentFolder.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar))})")
-                    : $" ({p.CurrentFile})";
-                FullSyncStatus = $"Scanning{folderLabel}: {p.FilesDiscovered} found, {p.FilesImported} imported...";
-            });
-
-            var results = await _libraryFolderScannerService.ScanAllFoldersAsync(progress);
-            int totalImported = results.Values.Sum(r => r.FilesImported);
-            int totalUpgraded = results.Values.Sum(r => r.FilesAutoUpgraded);
+                FullSyncStatus = "Another import is running. Try again when it finishes.";
+                return;
+            }
+            int totalImported = import.Added;
+            int totalUpgraded = import.Upgraded;
 
             FullSyncStatus = "Step 2/2: Reconciling file paths...";
             var (reset, checked_, relinked) = await _libraryService.ReconcileLibraryAsync();
@@ -3133,39 +3099,27 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>Settings → Library "Add folder": the same picker + import sheet as Library folders.</summary>
     private async Task AddLibraryFolderAsync()
     {
         try
         {
-            var path = await _fileInteractionService.OpenFolderDialogAsync("Select Music Library Folder");
-            if (string.IsNullOrEmpty(path)) return;
-
-            await using var context = _dbFactory != null ? _dbFactory.CreateDbContext() : new AppDbContext();
-
-            // Check duplicates
-            if (await context.LibraryFolders.AnyAsync(f => f.FolderPath == path))
+            if (_importLauncher != null)
             {
-                _logger.LogWarning("Folder already exists: {Path}", path);
+                await _importLauncher.PickFolderAndStartImportAsync();
                 return;
             }
 
-            var folder = new LibraryFolderEntity
-            {
-                Id = Guid.NewGuid(),
-                FolderPath = path,
-                IsEnabled = true,
-                AddedAt = DateTime.UtcNow
-            };
-
-            context.LibraryFolders.Add(folder);
-            await context.SaveChangesAsync();
-
+            var path = await _fileInteractionService.OpenFolderDialogAsync("Select Music Library Folder");
+            if (string.IsNullOrEmpty(path)) return;
+            await _libraryFolderScannerService.RegisterFolderAsync(path);
             _eventBus.Publish(new LibraryFoldersChangedEvent());
             _logger.LogInformation("Added library folder: {Path}", path);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to add library folder");
+            _eventBus.Publish(new ToastRequestedEvent("Couldn't add the folder", ex.Message, NotificationType.Error, TimeSpan.FromSeconds(6)));
         }
     }
 

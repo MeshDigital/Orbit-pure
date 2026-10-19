@@ -1,0 +1,207 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:SLSKDONET.ViewModels"
+             xmlns:svc="using:SLSKDONET.Services"
+             mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="520"
+             x:Class="SLSKDONET.Views.Avalonia.LibraryImportSheet"
+             x:DataType="vm:LibraryImportViewModel">
+
+    <!-- The import sheet (DOCS/UI_DESIGN_SYSTEM.md: dialog). MainWindow hosts it over a scrim and
+         disables the shell while it is open, so the app is locked during the initial import. -->
+    <UserControl.Styles>
+        <Style Selector="TextBlock.step-label">
+            <Setter Property="Foreground" Value="{StaticResource BrushText2}"/>
+        </Style>
+        <Style Selector="TextBlock.step-label.active">
+            <Setter Property="Foreground" Value="{StaticResource BrushText0}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style Selector="TextBlock.step-label.done">
+            <Setter Property="Foreground" Value="{StaticResource BrushText1}"/>
+        </Style>
+        <Style Selector="TextBlock.stat-value">
+            <Setter Property="FontFamily" Value="{StaticResource FontMono}"/>
+            <Setter Property="FontSize" Value="{StaticResource TextSizeValue}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText0}"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Border Classes="dialog" Width="560" MaxHeight="680">
+        <Grid RowDefinitions="Auto,Auto,*,Auto">
+
+            <!-- Header -->
+            <Grid Grid.Row="0" ColumnDefinitions="Auto,*" Margin="0,0,0,16">
+                <Border Width="40" Height="40" CornerRadius="{StaticResource RadiusMd}" Background="{StaticResource BrushAccentSubtle}"
+                        VerticalAlignment="Top" Margin="0,0,12,0">
+                    <PathIcon Data="{StaticResource icon_folder_add}" Width="20" Height="20" Foreground="{StaticResource BrushAccent}"/>
+                </Border>
+                <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                    <TextBlock Classes="h2" Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Classes="subtitle" IsVisible="{Binding IsRunning}"
+                               Text="Your library is being built. The rest of ORBIT is paused until this finishes, or run it in the background."
+                               TextWrapping="Wrap"/>
+                    <TextBlock Classes="mono" Foreground="{StaticResource BrushText2}" Text="{Binding FolderLine}"
+                               IsVisible="{Binding !!FolderLine}" TextTrimming="CharacterEllipsis"
+                               ToolTip.Tip="{Binding FolderLine}"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Phases -->
+            <Border Grid.Row="1" Classes="inset" Padding="12,8" Margin="0,0,0,16">
+                <ItemsControl ItemsSource="{Binding Steps}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:LibraryImportStepViewModel">
+                            <Grid ColumnDefinitions="24,*,Auto" Height="32">
+                                <Panel Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Left">
+                                    <Ellipse Classes="status-dot" IsVisible="{Binding IsPending}"/>
+                                    <Ellipse Classes="status-dot accent pulse_amber" IsVisible="{Binding IsActive}"/>
+                                    <PathIcon Data="{StaticResource icon_check}" Width="14" Height="14"
+                                              Foreground="{StaticResource BrushSuccess}" IsVisible="{Binding IsDone}"/>
+                                </Panel>
+                                <TextBlock Grid.Column="1" Classes="body step-label" VerticalAlignment="Center"
+                                           Classes.active="{Binding IsActive}" Classes.done="{Binding IsDone}"
+                                           Text="{Binding Label}"/>
+                                <TextBlock Grid.Column="2" Classes="mono" Foreground="{StaticResource BrushText2}"
+                                           VerticalAlignment="Center" Text="{Binding Detail}"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Border>
+
+            <!-- Body: live progress while running, summary when done -->
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                <StackPanel Spacing="16">
+
+                    <!-- Running -->
+                    <StackPanel Spacing="8" IsVisible="{Binding IsRunning}">
+                        <TextBlock Classes="h3" Text="{Binding PhaseTitle}"/>
+                        <ProgressBar Classes="meter thick" Maximum="100" Value="{Binding ProgressValue}"
+                                     IsIndeterminate="{Binding IsIndeterminate}"/>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Classes="mono" Foreground="{StaticResource BrushText2}"
+                                       Text="{Binding CurrentFile}" TextTrimming="CharacterEllipsis" Margin="0,0,12,0"
+                                       ToolTip.Tip="{Binding CurrentFile}"/>
+                            <TextBlock Grid.Column="1" Classes="mono" Foreground="{StaticResource BrushText1}" IsVisible="{Binding IsProgressPhase}">
+                                <Run Text="{Binding Processed, StringFormat='{}{0:N0}'}"/><Run Text=" / "/><Run Text="{Binding Total, StringFormat='{}{0:N0}'}"/>
+                            </TextBlock>
+                            <TextBlock Grid.Column="1" Classes="mono" Foreground="{StaticResource BrushText1}" IsVisible="{Binding IsScanningPhase}"
+                                       Text="{Binding FilesFound, StringFormat='{}{0:N0} files found'}"/>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Done -->
+                    <Grid ColumnDefinitions="Auto,*" IsVisible="{Binding IsCompleted}">
+                        <Panel Grid.Column="0" Margin="0,0,12,0" VerticalAlignment="Top">
+                            <PathIcon Data="{StaticResource icon_check}" Width="20" Height="20"
+                                      Foreground="{StaticResource BrushSuccess}" IsVisible="{Binding IsCleanFinish}"/>
+                            <PathIcon Data="{StaticResource icon_alert}" Width="20" Height="20"
+                                      Foreground="{StaticResource BrushWarning}" IsVisible="{Binding IsInterruptedFinish}"/>
+                        </Panel>
+                        <StackPanel Grid.Column="1" Spacing="4">
+                            <TextBlock Classes="h3" Text="{Binding SummaryTitle}"/>
+                            <TextBlock Classes="body" Foreground="{StaticResource BrushText1}" Text="{Binding SummaryLine}" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Counters (mono so they don't jitter while they climb) -->
+                    <UniformGrid Columns="4">
+                        <StackPanel Spacing="2" Margin="0,0,8,0">
+                            <TextBlock Classes="stat-value" Text="{Binding Added, StringFormat='{}{0:N0}'}"/>
+                            <TextBlock Classes="caption" Text="New"/>
+                        </StackPanel>
+                        <StackPanel Spacing="2" Margin="0,0,8,0" ToolTip.Tip="The same file is already in your library">
+                            <TextBlock Classes="stat-value" Text="{Binding AlreadyInLibrary, StringFormat='{}{0:N0}'}"/>
+                            <TextBlock Classes="caption" Text="Already in library"/>
+                        </StackPanel>
+                        <StackPanel Spacing="2" Margin="0,0,8,0" ToolTip.Tip="Another copy of a track you already have (same artist and title)">
+                            <TextBlock Classes="stat-value" Text="{Binding Duplicates, StringFormat='{}{0:N0}'}"/>
+                            <TextBlock Classes="caption" Text="Duplicates"/>
+                        </StackPanel>
+                        <StackPanel Spacing="2" ToolTip.Tip="Unreadable or corrupt files, and audio formats ORBIT can't import yet">
+                            <TextBlock Classes="stat-value">
+                                <Run Text="{Binding Unreadable, StringFormat='{}{0:N0}'}"/><Run Text=" · " Foreground="{StaticResource BrushText3}"/><Run Text="{Binding Unsupported, StringFormat='{}{0:N0}'}"/>
+                            </TextBlock>
+                            <TextBlock Classes="caption" Text="Unreadable · unsupported"/>
+                        </StackPanel>
+                    </UniformGrid>
+
+                    <TextBlock Classes="caption" IsVisible="{Binding HasUpgraded}" TextWrapping="Wrap"
+                               Text="{Binding Upgraded, StringFormat='{}{0:N0} duplicates replaced a lower-quality copy (the old file is listed under Library Health → removal candidates).'}"/>
+
+                    <TextBlock Classes="caption error" IsVisible="{Binding HasFailed}" TextWrapping="Wrap"
+                               Text="{Binding Failed, StringFormat='{}{0:N0} files were read but could not be saved to the library. See Show details.'}"/>
+
+                    <!-- Problems + details -->
+                    <Border Classes="callout warning" IsVisible="{Binding HasIssues}">
+                        <StackPanel Spacing="8">
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                <PathIcon Grid.Column="0" Data="{StaticResource icon_alert}" Width="16" Height="16" Margin="0,0,8,0"
+                                          Foreground="{StaticResource BrushWarning}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Classes="body-sm" VerticalAlignment="Center" TextWrapping="Wrap"
+                                           Text="Some files weren't added: unreadable, unsupported, or a missing folder."/>
+                                <Button Grid.Column="2" Classes="ghost small" Content="{Binding DetailsToggleText}"
+                                        Command="{Binding ToggleDetailsCommand}"/>
+                            </Grid>
+                            <Border Classes="inset" Padding="8" IsVisible="{Binding IsDetailsVisible}">
+                                <ScrollViewer MaxHeight="200" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Spacing="4">
+                                        <ItemsControl ItemsSource="{Binding Issues}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="svc:LibraryImportIssue">
+                                                    <Grid ColumnDefinitions="96,*" Margin="0,0,0,4" ToolTip.Tip="{Binding Path}">
+                                                        <TextBlock Grid.Column="0" Classes="caption" Text="{Binding KindLabel}" VerticalAlignment="Top"/>
+                                                        <StackPanel Grid.Column="1" Spacing="0">
+                                                            <TextBlock Classes="mono" Foreground="{StaticResource BrushText0}" Text="{Binding FileName}" TextTrimming="CharacterEllipsis"/>
+                                                            <TextBlock Classes="caption" Text="{Binding Reason}" TextWrapping="Wrap"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock Classes="caption" IsVisible="{Binding HasHiddenIssues}"
+                                                   Text="{Binding HiddenIssueCount, StringFormat='…and {0:N0} more (see the log for the full list).'}"/>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Footer -->
+            <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,24,0,0">
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsRunning}">
+                    <Button Classes="ghost" Command="{Binding RunInBackgroundCommand}"
+                            ToolTip.Tip="Keep importing while you use ORBIT. Progress moves to a chip in the top bar.">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <PathIcon Data="{StaticResource icon_panel_bottom}" Width="14" Height="14"/>
+                            <TextBlock Text="Run in background"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="secondary" Content="Cancel" Command="{Binding CancelCommand}"
+                            ToolTip.Tip="Stop the import. Tracks already checked are kept in your library."/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsCompleted}">
+                    <Button Classes="ghost" Content="Close" Command="{Binding CloseCommand}"/>
+                    <Button Classes="secondary" Command="{Binding AnalyseCommand}" IsVisible="{Binding ShowAnalyse}"
+                            ToolTip.Tip="Queue BPM, key, energy and cue analysis for the tracks this import added">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <PathIcon Data="{StaticResource icon_brain}" Width="14" Height="14"/>
+                            <TextBlock Text="{Binding AnalyseText}"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="primary" Command="{Binding OpenInLibraryCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <PathIcon Data="{StaticResource icon_library}" Width="14" Height="14"/>
+                            <TextBlock Text="Open in Library"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

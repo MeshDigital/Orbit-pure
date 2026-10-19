@@ -793,6 +793,9 @@ public partial class App : Application
         // [NEW] Library Scanning
         services.AddSingleton<LibraryFolderScannerService>();
         services.AddSingleton<LibraryFolderWatchService>();
+        // The import sheet is the launcher every "add / scan folder" entry point goes through.
+        services.AddSingleton<ViewModels.LibraryImportViewModel>();
+        services.AddSingleton<ILibraryImportLauncher>(sp => sp.GetRequiredService<ViewModels.LibraryImportViewModel>());
 
         // Orchestration Services
         services.AddSingleton<SearchOrchestrationService>();

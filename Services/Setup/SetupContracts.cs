@@ -47,7 +47,7 @@ public interface ILibraryFolderSetupGateway
     /// <summary>Adds the folders that aren't Library Sources yet. Returns how many were added.</summary>
     Task<int> AddAsync(IReadOnlyList<LibraryFolderSetupEntry> folders);
 
-    /// <summary>Starts a background scan of all Library Sources; reports its result as a toast.</summary>
+    /// <summary>Imports every Library Source through the import sheet (phases, progress, summary).</summary>
     void StartScan();
 }
 

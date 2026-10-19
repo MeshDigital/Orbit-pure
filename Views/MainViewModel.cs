@@ -56,6 +56,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public SettingsViewModel SettingsViewModel { get; }
     /// <summary>First-run setup wizard and quick tour (null only in tests that build the shell by hand).</summary>
     public SLSKDONET.ViewModels.Setup.SetupShellViewModel? Setup { get; }
+
+    /// <summary>The folder import sheet / top-bar chip (Library folders, Settings and setup "Scan now").</summary>
+    public SLSKDONET.ViewModels.LibraryImportViewModel? Import { get; }
     public HomeViewModel HomeViewModel { get; }
     public TimelineViewModel TimelineViewModel { get; }
     public StatusBarViewModel StatusBar { get; }
@@ -120,7 +123,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         IRightPanelService rightPanelService,
         PerformanceTracker perfTracker,
         FlowBuilderViewModel flowBuilderViewModel,
-        SLSKDONET.ViewModels.Setup.SetupShellViewModel? setup = null)
+        SLSKDONET.ViewModels.Setup.SetupShellViewModel? setup = null,
+        SLSKDONET.ViewModels.LibraryImportViewModel? import = null)
 
     {
         _logger = logger;
@@ -144,6 +148,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         Sidebar = sidebarViewModel;
         Setup = setup;
+        Import = import;
         _rightPanelService = rightPanelService;
         PerfTracker = perfTracker;
 
@@ -1456,6 +1461,13 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateToLibrary();
         try
         {
+            if (evt.PlaylistId == Guid.Empty)
+            {
+                // "All Tracks" (the import sheet's "Open in Library").
+                LibraryViewModel.Projects.LoadAllTracksCommand.Execute(null);
+                return;
+            }
+
             var playlist = LibraryViewModel.Projects.AllProjects.FirstOrDefault(p => p.Id == evt.PlaylistId);
             if (playlist == null)
             {

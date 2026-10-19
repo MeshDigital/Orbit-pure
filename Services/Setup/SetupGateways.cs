@@ -291,17 +291,20 @@ public sealed class LibraryFolderSetupGateway : ILibraryFolderSetupGateway
     private readonly LibraryFolderScannerService _scanner;
     private readonly IEventBus _eventBus;
     private readonly ILogger<LibraryFolderSetupGateway> _logger;
+    private readonly ILibraryImportLauncher? _importLauncher;
 
     public LibraryFolderSetupGateway(
         IDbContextFactory<AppDbContext> dbFactory,
         LibraryFolderScannerService scanner,
         IEventBus eventBus,
-        ILogger<LibraryFolderSetupGateway> logger)
+        ILogger<LibraryFolderSetupGateway> logger,
+        ILibraryImportLauncher? importLauncher = null)
     {
         _dbFactory = dbFactory;
         _scanner = scanner;
         _eventBus = eventBus;
         _logger = logger;
+        _importLauncher = importLauncher;
     }
 
     public async Task<IReadOnlyList<LibraryFolderSetupEntry>> GetExistingAsync()
@@ -343,18 +346,23 @@ public sealed class LibraryFolderSetupGateway : ILibraryFolderSetupGateway
         return added;
     }
 
+    /// <summary>"Scan now" opens the import sheet (over the wizard) for every Library Source.</summary>
     public void StartScan()
     {
-        _eventBus.Publish(new ToastRequestedEvent("Scanning library folders", "New music is added to the library as it's found.", NotificationType.Information, TimeSpan.FromSeconds(4)));
+        if (_importLauncher != null)
+        {
+            _ = _importLauncher.StartImportAsync(null, "Importing your music");
+            return;
+        }
+
+        // Headless fallback (no shell): import in the background and report the result as a toast.
         _ = Task.Run(async () =>
         {
             try
             {
-                var results = await _scanner.ScanAllFoldersAsync();
-                var imported = results.Values.Sum(r => r.FilesImported);
-                var found = results.Values.Sum(r => r.TotalFilesFound);
+                var result = await _scanner.ImportFoldersAsync(new LibraryImportRequest());
                 _eventBus.Publish(new ToastRequestedEvent("Library scan finished",
-                    $"{imported:N0} tracks added from {found:N0} files in {results.Count} folder(s).", NotificationType.Success, TimeSpan.FromSeconds(6)));
+                    $"{result.Added:N0} tracks added from {result.FilesFound:N0} files.", NotificationType.Success, TimeSpan.FromSeconds(6)));
             }
             catch (Exception ex)
             {

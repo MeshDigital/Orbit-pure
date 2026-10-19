@@ -195,6 +195,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     {
         if (e.PropertyName == nameof(VirtualizedTrackCollection.LoadErrorMessage))
             RaiseTrackLoadErrorChanged();
+        else if (e.PropertyName == nameof(VirtualizedTrackCollection.Count))
+            this.RaisePropertyChanged(nameof(IsLibraryEmpty));
     }
 
     private void RaiseTrackLoadErrorChanged()
@@ -580,6 +582,21 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         private set => this.RaiseAndSetIfChanged(ref _hasSelectedTracks, value);
     }
 
+    private int _selectedTrackCount;
+    /// <summary>Real (loaded, non-placeholder) selected rows; what the selection bar shows.</summary>
+    public int SelectedTrackCount
+    {
+        get => _selectedTrackCount;
+        private set => this.RaiseAndSetIfChanged(ref _selectedTrackCount, value);
+    }
+
+    /// <summary>
+    /// The rows that count as a user selection: never the shared "Loading…" placeholder, never
+    /// a null slot. The selection bar is visible only when this is non-empty.
+    /// </summary>
+    internal static List<PlaylistTrackViewModel> RealSelection(IEnumerable<PlaylistTrackViewModel?> candidates) =>
+        candidates.Where(t => t is { IsPlaceholder: false }).Select(t => t!).Distinct().ToList();
+
     private string _selectedCountText = string.Empty;
     public string SelectedCountText
     {
@@ -638,6 +655,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         || StyleFilters.Any(f => f.IsSelected);
 
     public System.Windows.Input.ICommand ClearFiltersCommand { get; private set; } = null!;
+
     public System.Windows.Input.ICommand ClearCamelotKeyFilterCommand { get; private set; } = null!;
     public System.Windows.Input.ICommand ClearDuplicateFilterCommand { get; private set; } = null!;
 
@@ -823,7 +841,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     {
         // Don't trigger recursive updates if we're already changing selection
         _selectedTracks.Clear();
-        foreach (var t in selected) _selectedTracks.Add(t);
+        foreach (var t in RealSelection(selected)) _selectedTracks.Add(t);
         UpdateSelectionState();
     }
 
@@ -1078,6 +1096,16 @@ public class TrackListViewModel : ReactiveObject, IDisposable
                 _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
         }));
 
+        // A folder import adds LibraryEntries in batches and publishes ONE completion event; All
+        // Tracks refreshes once on it (no per-file refresh storm, no "0 tracks" mid-import).
+        _disposables.Add(eventBus.GetEvent<LibraryImportCompletedEvent>().Subscribe(evt =>
+        {
+            if (!evt.Result.ChangedLibrary) return;
+            var currentProjectId = _mainViewModel?.LibraryViewModel?.SelectedProject?.Id;
+            if (currentProjectId == null || currentProjectId == Guid.Empty)
+                _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
+        }));
+
         // Camelot key filter from wheel click (toggle: click same key again to clear)
         _disposables.Add(eventBus.GetEvent<SetCamelotKeyFilterEvent>().Subscribe(evt =>
             CamelotKeyFilter = CamelotKeyFilter == evt.Key ? null : evt.Key));
@@ -1197,6 +1225,11 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         try
         {
             _logger.LogInformation("Loading tracks for project: {Name} (Virtualized)", job.SourceTitle);
+
+            // A different playlist: the old selection's rows are about to be disposed and the grid
+            // drops its own selection when ItemsSource changes, so keeping them here left a "1
+            // selected" bar over a list where nothing is highlighted.
+            if (_selectedTracks.Count > 0) ClearSelection();
             
             // Cleanup existing
             foreach (var track in CurrentProjectTracks)
@@ -1563,7 +1596,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
 
     private void UpdateSelectionState()
     {
-        var count = SelectedTracks.Count;
+        var count = RealSelection(SelectedTracks).Count;
+        SelectedTrackCount = count;
         HasSelectedTracks = count > 0;
         HasMultiSelection = count > 1;
         SelectedCountText = $"{count} tracks selected";
