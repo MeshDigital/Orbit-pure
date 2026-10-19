@@ -107,6 +107,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             {
                 _config.DownloadDirectory = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(EditLabOutputDirectoryDisplay));
                 SaveSettings(); 
             }
         }
@@ -126,6 +127,81 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 _ = Task.Run(() => _soulseek.RefreshShareStateAsync());
             }
         }
+    }
+
+    /// <summary>Settings → Library: queue every finished download for analysis.</summary>
+    public bool AnalyzeNewDownloads
+    {
+        get => _config.AnalyzeNewDownloads;
+        set
+        {
+            if (_config.AnalyzeNewDownloads != value)
+            {
+                _config.AnalyzeNewDownloads = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    /// <summary>Settings → Downloads: where Edit Lab renders go. Empty = &lt;download folder&gt;/ORBIT Edits.</summary>
+    public string EditLabOutputDirectory
+    {
+        get => _config.EditLabOutputDirectory ?? "";
+        set
+        {
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value;
+            if (_config.EditLabOutputDirectory != normalized)
+            {
+                _config.EditLabOutputDirectory = normalized;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(EditLabOutputDirectoryDisplay));
+                OnPropertyChanged(nameof(HasCustomEditLabOutputDirectory));
+                SaveSettings();
+            }
+        }
+    }
+
+    public string EditLabOutputDirectoryDisplay => string.IsNullOrWhiteSpace(_config.EditLabOutputDirectory)
+        ? System.IO.Path.Combine(DownloadPath, "ORBIT Edits")
+        : _config.EditLabOutputDirectory!;
+
+    public bool HasCustomEditLabOutputDirectory => !string.IsNullOrWhiteSpace(_config.EditLabOutputDirectory);
+
+    private ICommand? _browseEditLabOutputDirectoryCommand;
+    public ICommand BrowseEditLabOutputDirectoryCommand => _browseEditLabOutputDirectoryCommand ??= new AsyncRelayCommand(async () =>
+    {
+        var path = await _fileInteractionService.OpenFolderDialogAsync("Select Edit Lab Output Folder");
+        if (!string.IsNullOrEmpty(path)) EditLabOutputDirectory = path;
+    });
+
+    private ICommand? _resetEditLabOutputDirectoryCommand;
+    public ICommand ResetEditLabOutputDirectoryCommand => _resetEditLabOutputDirectoryCommand ??= new RelayCommand(() => EditLabOutputDirectory = "");
+
+    /// <summary>Settings → Advanced → Setup: reopen the first-run wizard / start the quick tour.</summary>
+    private ICommand? _runSetupAgainCommand;
+    public ICommand RunSetupAgainCommand => _runSetupAgainCommand ??= new RelayCommand(() => _eventBus.Publish(new SLSKDONET.Services.Setup.OpenSetupWizardRequestedEvent()));
+    private ICommand? _takeTourCommand;
+    public ICommand TakeTourCommand => _takeTourCommand ??= new RelayCommand(() => _eventBus.Publish(new SLSKDONET.Services.Setup.StartTourRequestedEvent()));
+
+    /// <summary>Cancels a Spotify sign-in started from here or from the setup wizard.</summary>
+    public void CancelSpotifyConnect() => _connectCts?.Cancel();
+
+    /// <summary>
+    /// Re-reads every value the setup wizard can change (it writes AppConfig directly), so this
+    /// page shows the same values right away.
+    /// </summary>
+    public void RefreshFromConfig()
+    {
+        foreach (var name in new[]
+                 {
+                     nameof(DownloadPath), nameof(SharedFolderPath), nameof(EnableLibrarySharing),
+                     nameof(AudioOutputMode), nameof(AudioOutputDeviceName), nameof(AnalyzeNewDownloads),
+                     nameof(EditLabOutputDirectory), nameof(EditLabOutputDirectoryDisplay), nameof(HasCustomEditLabOutputDirectory),
+                     nameof(SoulseekUsername), nameof(SoulseekAutoConnectEnabled), nameof(SoulseekRememberPassword),
+                 })
+            OnPropertyChanged(name);
+        RefreshAvailableAudioOutputDevices();
     }
 
     public bool EnableLibrarySharing
@@ -2001,7 +2077,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>
     /// Phase 8: Enhanced FFmpeg dependency checker with timeout, stderr capture, and fallback paths.
     /// </summary>
-    private async Task CheckFfmpegAsync()
+    /// <summary>Also used by the setup wizard's Audio &amp; analysis step.</summary>
+    public async Task CheckFfmpegAsync()
     {
         try
         {
@@ -2136,7 +2213,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             return (false, "");
         }
     }
-    private async Task ConnectSpotifyAsync()
+    /// <summary>Spotify OAuth sign-in (browser). Also used by the setup wizard's Connections step.</summary>
+    public async Task ConnectSpotifyAsync()
     {
         // Cancel any previous attempts to free up the port
         _connectCts?.Cancel();
@@ -2303,7 +2381,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private void OpenFfmpegDownloadPage()
+    public void OpenFfmpegDownloadPage()
     {
         const string url = "https://ffmpeg.org/download.html";
         try

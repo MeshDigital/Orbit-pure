@@ -1405,10 +1405,18 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     _logger.LogWarning(ex, "Failed to update AvailabilityState to LocalUnanalyzed in DB for {Id}", ctx.Model.Id);
                 }
 
-                _eventBus.Publish(new TrackAnalysisRequestedEvent(
-                    queuedHash,
-                    AnalysisTier.Tier1,
-                    IsHighPriority: true));
+                // Settings → Library / setup wizard: "Analyse new downloads automatically".
+                if (_config.AnalyzeNewDownloads)
+                {
+                    _eventBus.Publish(new TrackAnalysisRequestedEvent(
+                        queuedHash,
+                        AnalysisTier.Tier1,
+                        IsHighPriority: true));
+                }
+                else
+                {
+                    _logger.LogDebug("Auto-analysis of new downloads is off; {Track} stays unanalysed until queued manually", ctx.Model.Title);
+                }
             }
 
             await _libraryService.AddTrackToLibraryIndexAsync(ctx.Model, ctx.Model.ResolvedFilePath);

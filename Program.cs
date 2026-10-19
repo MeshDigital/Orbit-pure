@@ -16,6 +16,10 @@ namespace SLSKDONET
         [STAThread]
         public static void Main(string[] args)
         {
+            // --profile <dir> / --setup-preview: must run before anything resolves a data path.
+            var startupArgs = SLSKDONET.Configuration.StartupArguments.Parse(args);
+            startupArgs.Apply();
+
             // Build configuration for Serilog
             var configuration = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
@@ -69,6 +73,9 @@ namespace SLSKDONET
             try
             {
                 Log.Information("Starting ORBIT application | RunJsonLog: {RunJsonLogPath} | RunTxtLog: {RunTxtLogPath}", runJsonLogPath, runTxtLogPath);
+                if (startupArgs.ProfileDirectory != null)
+                    Log.Warning("Running on a separate profile ({Mode}): {Profile} — the normal AppData config and library are not used",
+                        startupArgs.IsSetupPreview ? "setup preview" : "--profile", startupArgs.ProfileDirectory);
                 BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
             }
             catch (Exception ex)

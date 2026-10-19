@@ -22,7 +22,7 @@ public class LinuxTokenStorage : ISecureTokenStorage
         _logger = logger;
         
         // Store in user's .config folder
-        var configPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var configPath = SLSKDONET.Data.OrbitPaths.RoamingRoot;
         if (string.IsNullOrEmpty(configPath))
         {
             configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");

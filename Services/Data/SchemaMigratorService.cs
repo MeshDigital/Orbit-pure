@@ -154,7 +154,7 @@ public class SchemaMigratorService
     {
         try
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var appData = SLSKDONET.Data.OrbitPaths.RoamingRoot;
             var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
             var backupDir = LibraryDatabaseMaintenance.GetBackupDirectory(dbPath); // derived from the DB path so ORBIT_DB_PATH (tests) never restores/rotates the real backups
 
@@ -282,7 +282,7 @@ public class SchemaMigratorService
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
         _logger.LogInformation("[{Ms}ms] Database Init: Starting", sw.ElapsedMilliseconds);
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var appData = SLSKDONET.Data.OrbitPaths.RoamingRoot;
         var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
 
         // Phase 24: Automatic Database Backup & Recovery
@@ -3059,7 +3059,7 @@ public class SchemaMigratorService
     {
         try
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var appData = SLSKDONET.Data.OrbitPaths.RoamingRoot;
             var jsonPath = System.IO.Path.Combine(appData, "ORBIT", "stem_preferences.json");
 
             if (!System.IO.File.Exists(jsonPath)) return;

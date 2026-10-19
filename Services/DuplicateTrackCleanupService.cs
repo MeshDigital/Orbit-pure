@@ -223,7 +223,7 @@ public sealed class DuplicateTrackCleanupService
     {
         try
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var appData = SLSKDONET.Data.OrbitPaths.RoamingRoot;
             var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
             var backupDir = Path.Combine(appData, "ORBIT", "Backups");
 

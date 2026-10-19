@@ -10,6 +10,7 @@
          xmlns:vmDownloads="clr-namespace:SLSKDONET.ViewModels.Downloads"
          xmlns:vmDiag="clr-namespace:SLSKDONET.ViewModels.Diagnostics"
          xmlns:svc="clr-namespace:SLSKDONET.Services"
+         xmlns:setupViews="clr-namespace:SLSKDONET.Views.Avalonia.Setup"
         mc:Ignorable="d" d:DesignWidth="1400" d:DesignHeight="900"
         x:Class="SLSKDONET.Views.Avalonia.MainWindow"
         x:DataType="vm:MainViewModel"
@@ -261,7 +262,7 @@
                             </Border>
                         </Panel>
                     </Button>
-                    <Button Classes="icon" Command="{Binding NavigateSettingsCommand}"
+                    <Button x:Name="TopBarSettings" Classes="icon" Command="{Binding NavigateSettingsCommand}"
                             ToolTip.Tip="Settings (Ctrl+Shift+S)">
                         <PathIcon Data="{StaticResource icon_settings}"/>
                     </Button>
@@ -332,7 +333,7 @@
                             </Button>
 
                             <StackPanel Spacing="2" IsVisible="{Binding IsAcquireExpanded}">
-                                <Button Classes="nav" Command="{Binding NavigateSearchCommand}"
+                                <Button x:Name="NavSearch" Classes="nav" Command="{Binding NavigateSearchCommand}"
                                         ToolTip.Tip="Search (Ctrl+2)"
                                         Classes.selected="{Binding IsSearchOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
@@ -341,7 +342,7 @@
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigateProjectsCommand}"
+                                <Button x:Name="NavInbox" Classes="nav" Command="{Binding NavigateProjectsCommand}"
                                         ToolTip.Tip="Inbox (Ctrl+4)"
                                         Classes.selected="{Binding IsProjectsOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
@@ -350,7 +351,7 @@
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigateImportCommand}"
+                                <Button x:Name="NavImport" Classes="nav" Command="{Binding NavigateImportCommand}"
                                         ToolTip.Tip="Import"
                                         Classes.selected="{Binding IsImportOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
@@ -381,7 +382,7 @@
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigateLibraryCommand}"
+                                <Button x:Name="NavLibrary" Classes="nav" Command="{Binding NavigateLibraryCommand}"
                                         ToolTip.Tip="Library (Ctrl+3)"
                                         Classes.selected="{Binding IsLibraryOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
@@ -399,7 +400,7 @@
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigateAnalysisCommand}"
+                                <Button x:Name="NavAnalysis" Classes="nav" Command="{Binding NavigateAnalysisCommand}"
                                         ToolTip.Tip="Analysis Pipeline"
                                         Classes.selected="{Binding IsAnalysisOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
@@ -408,7 +409,7 @@
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigateSettingsCommand}"
+                                <Button x:Name="NavSettings" Classes="nav" Command="{Binding NavigateSettingsCommand}"
                                         ToolTip.Tip="Settings (Ctrl+Shift+S)"
                                         Classes.selected="{Binding IsSettingsOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
@@ -429,7 +430,7 @@
                                 </Grid>
                             </Button>
                             <StackPanel Spacing="2" IsVisible="{Binding IsCreativeExpanded}">
-                                <Button Classes="nav" Command="{Binding NavigateCueForgeCommand}"
+                                <Button x:Name="NavCueForge" Classes="nav" Command="{Binding NavigateCueForgeCommand}"
                                         ToolTip.Tip="Cue Forge — Visual cue generation and loop placement"
                                         Classes.selected="{Binding IsCueForgeOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
@@ -438,7 +439,7 @@
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigateEditLabCommand}"
+                                <Button x:Name="NavEditLab" Classes="nav" Command="{Binding NavigateEditLabCommand}"
                                         ToolTip.Tip="Edit Lab — Combine tracks and stems into intros and edits, then render them to the library"
                                         Classes.selected="{Binding IsEditLabOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
@@ -447,7 +448,7 @@
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigateFlowBuilderCommand}"
+                                <Button x:Name="NavFlowBuilder" Classes="nav" Command="{Binding NavigateFlowBuilderCommand}"
                                         ToolTip.Tip="Flow Builder — Suggest and apply a DJ-mix track order for a playlist"
                                         Classes.selected="{Binding IsFlowBuilderOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
@@ -456,7 +457,7 @@
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigateWorkstationCommand}"
+                                <Button x:Name="NavWorkstation" Classes="nav" Command="{Binding NavigateWorkstationCommand}"
                                         ToolTip.Tip="Workstation — Decks, Timeline &amp; Stem Editor (Ctrl+Shift+P)"
                                         Classes.selected="{Binding IsWorkstationOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
@@ -909,6 +910,17 @@
                           IsVisible="{Binding PlayerViewModel.IsPlaying}"/>
             </Panel>
         </Button>
+
+        <!-- First-run setup wizard (DOCS/FIRST_RUN_SETUP.md): above the shell and the login dialog,
+             below toasts so its own notifications stay visible. -->
+        <Panel Grid.RowSpan="3" ZIndex="1500" IsVisible="{Binding Setup.IsWizardOpen, FallbackValue=False}">
+            <setupViews:SetupWizardView DataContext="{Binding Setup.Wizard}"/>
+        </Panel>
+
+        <!-- Quick tour coach marks over the real navigation items -->
+        <Panel Grid.RowSpan="3" ZIndex="1600" IsVisible="{Binding Setup.Tour.IsOpen, FallbackValue=False}">
+            <setupViews:TourOverlay DataContext="{Binding Setup.Tour}"/>
+        </Panel>
 
         <!-- Toast Notifications -->
         <ItemsControl Grid.RowSpan="3"

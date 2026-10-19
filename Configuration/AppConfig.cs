@@ -240,6 +240,11 @@ public class AppConfig
 
     // Audio Analysis Parallelism
     public int MaxConcurrentAnalyses { get; set; } = 0; // 0 = auto-detect based on CPU/RAM, 1 = sequential, >1 = parallel
+    /// <summary>Queue every finished download for analysis (BPM, key, cues, loudness). [Analysis] AnalyzeNewDownloads.</summary>
+    public bool AnalyzeNewDownloads { get; set; } = true;
+
+    // Edit Lab: where rendered edits are written. Empty = <download folder>/ORBIT Edits. [EditLab] OutputDirectory.
+    public string? EditLabOutputDirectory { get; set; }
 
     // Hyper-Drive: Adaptive lane autotuning
     public bool EnableAdaptiveLanes { get; set; } = true;
@@ -320,5 +325,17 @@ public class AppConfig
     /// No data is ever sent externally. Default off (opt-in).
     /// </summary>
     public bool EnableKeyboardTelemetry { get; set; } = false;
+
+    // ── [Setup] first-run wizard and quick tour ──────────────────────────────────────────
+    /// <summary>The first-run setup wizard was finished or skipped (or an existing install was detected).</summary>
+    public bool SetupCompleted { get; set; }
+    /// <summary>Wizard version that set <see cref="SetupCompleted"/>; lets a future wizard ask about new steps only.</summary>
+    public int SetupVersion { get; set; }
+    /// <summary>The quick tour was finished or skipped at least once.</summary>
+    public bool TourCompleted { get; set; }
+
+    /// <summary>Download folder used when config.ini has none (also what the first-run check treats as "not chosen yet").</summary>
+    public static string FallbackDownloadDirectory =>
+        System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile), "Downloads", "SLSKDONET");
 
 }

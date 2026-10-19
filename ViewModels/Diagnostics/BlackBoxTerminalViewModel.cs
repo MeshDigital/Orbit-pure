@@ -41,7 +41,7 @@ namespace SLSKDONET.ViewModels.Diagnostics
         private string? ResolveLogFilePath(string trackHash)
         {
             var baseDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                SLSKDONET.Data.OrbitPaths.RoamingRoot,
                 "ORBIT",
                 "TrackLogs"
             );

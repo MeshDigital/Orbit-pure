@@ -22,6 +22,15 @@ public class ConfigManager
     /// </summary>
     public static string GetDefaultConfigPath()
     {
+        // A profile override (ORBIT_PROFILE_DIR / --profile / --setup-preview) wins over every
+        // other location, so a preview instance can never pick up the real config.ini.
+        if (SLSKDONET.Data.OrbitPaths.IsProfileOverridden)
+        {
+            var profileDir = SLSKDONET.Data.OrbitPaths.AppDataDirectory;
+            Directory.CreateDirectory(profileDir);
+            return Path.Combine(profileDir, "config.ini");
+        }
+
         // Optional dev override: look for config.ini in C:\temp first.
         var devPath = "C:/temp/config.ini";
         if (File.Exists(devPath))
@@ -37,11 +46,13 @@ public class ConfigManager
         }
 
         // Fallback to AppData for a more traditional installation.
-        var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var configDir = Path.Combine(appDataPath, "ORBIT");
+        var configDir = SLSKDONET.Data.OrbitPaths.AppDataDirectory;
         Directory.CreateDirectory(configDir);
         return Path.Combine(configDir, "config.ini");
     }
+
+    /// <summary>The config.ini this manager reads and writes.</summary>
+    public string ConfigPath => _configPath;
 
     /// <summary>
     /// Loads configuration from file or creates default.
@@ -181,6 +192,15 @@ public class ConfigManager
                 
                 // [Analysis]
                 MaxConcurrentAnalyses = int.TryParse(config["Analysis:MaxConcurrentAnalyses"], out var mca) ? mca : 0,
+                AnalyzeNewDownloads = !bool.TryParse(config["Analysis:AnalyzeNewDownloads"], out var annd) || annd, // Default true
+
+                // [EditLab]
+                EditLabOutputDirectory = string.IsNullOrWhiteSpace(config["EditLab:OutputDirectory"]) ? null : config["EditLab:OutputDirectory"],
+
+                // [Setup]
+                SetupCompleted = bool.TryParse(config["Setup:Completed"], out var setupDone) && setupDone,
+                SetupVersion = int.TryParse(config["Setup:Version"], out var setupVer) ? setupVer : 0,
+                TourCompleted = bool.TryParse(config["Setup:TourCompleted"], out var tourDone) && tourDone,
                 
                 // [Window]
                 WindowWidth = double.TryParse(config["Window:Width"], out var ww) ? ww : 1400,
@@ -400,6 +420,17 @@ public class ConfigManager
         iniContent.AppendLine();
         iniContent.AppendLine("[Analysis]");
         iniContent.AppendLine($"MaxConcurrentAnalyses = {config.MaxConcurrentAnalyses}");
+        iniContent.AppendLine($"AnalyzeNewDownloads = {config.AnalyzeNewDownloads}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[EditLab]");
+        iniContent.AppendLine($"OutputDirectory = {config.EditLabOutputDirectory}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[Setup]");
+        iniContent.AppendLine($"Completed = {config.SetupCompleted}");
+        iniContent.AppendLine($"Version = {config.SetupVersion}");
+        iniContent.AppendLine($"TourCompleted = {config.TourCompleted}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[Window]");

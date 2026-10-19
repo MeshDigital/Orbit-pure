@@ -23,7 +23,7 @@ public class SoulseekCredentialService : ISoulseekCredentialService
     {
         _logger = logger;
         
-        var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var appDataPath = SLSKDONET.Data.OrbitPaths.LocalRoot;
         var appFolder = Path.Combine(appDataPath, "ORBIT");
         Directory.CreateDirectory(appFolder);
         

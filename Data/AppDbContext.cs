@@ -55,7 +55,7 @@ public class AppDbContext : DbContext
     {
         if (!optionsBuilder.IsConfigured)
         {
-            var appData = System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData);
+            var appData = SLSKDONET.Data.OrbitPaths.RoamingRoot;
             var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
             Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
 

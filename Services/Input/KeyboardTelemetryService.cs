@@ -40,7 +40,7 @@ public sealed class KeyboardTelemetryService : IKeyboardTelemetryService, IDispo
         try
         {
             var dbDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                SLSKDONET.Data.OrbitPaths.RoamingRoot,
                 "ORBIT-Pure");
             Directory.CreateDirectory(dbDir);
             _db = new LiteDatabase(Path.Combine(dbDir, "keyboard-telemetry.db"));
