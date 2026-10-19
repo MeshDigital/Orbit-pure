@@ -59,6 +59,10 @@ public class AnalysisQueueService : IDisposable
     /// <summary>Maximum number of concurrent analysis jobs.</summary>
     public int MaxWorkers { get; }
 
+    /// <summary>Requests queued or running right now. Background maintenance (the loudness
+    /// backfill) waits while this is above zero so it never competes with a real analysis run.</summary>
+    public int PendingCount => Math.Max(0, Volatile.Read(ref _queuedCount));
+
     public AnalysisQueueService(
         IEventBus eventBus,
         ILogger<AnalysisQueueService> logger,

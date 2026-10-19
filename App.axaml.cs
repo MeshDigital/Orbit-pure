@@ -65,6 +65,8 @@ public partial class App : Application
             // Eagerly activate background queue listeners that subscribe to the event bus.
             // Without resolving this singleton, manual Analyse actions appear to do nothing.
             _ = Services.GetRequiredService<Services.AnalysisQueueService>();
+            // Same for the loudness backfill: it listens for the inspector's single-track "Measure".
+            _ = Services.GetRequiredService<Services.AudioAnalysis.LoudnessBackfillService>();
 
             // Eagerly activate the network activity monitor so it's observing from startup, not
             // only once something (e.g. the Settings page) happens to resolve it first.
@@ -839,6 +841,14 @@ public partial class App : Application
             return generator;
         });
         services.AddSingleton<Services.AnalysisQueueService>();
+        services.AddSingleton<Services.AudioAnalysis.LoudnessBackfillService>(sp =>
+            new Services.AudioAnalysis.LoudnessBackfillService(
+                sp.GetRequiredService<IDbContextFactory<AppDbContext>>(),
+                sp.GetRequiredService<Services.AudioAnalysis.AudioIngestionPipeline>(),
+                sp.GetRequiredService<IEventBus>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.AudioAnalysis.LoudnessBackfillService>>(),
+                sp.GetService<Services.AnalysisQueueService>()));
+        services.AddSingleton<ViewModels.LoudnessBackfillViewModel>();
 
         // ── Task 1.5: Beatgrid Detection ──────────────────────────────────
         services.AddSingleton<Services.AudioAnalysis.BeatgridDetectionService>();

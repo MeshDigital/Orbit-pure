@@ -27,6 +27,23 @@ public record TrackAnalysisRequestedEvent(
 public record TrackAnalysisUpdatedEvent(string TrackGlobalId, DateTime UpdatedAtUtc, Guid? DatabaseId = null);
 public record StemSeparationRequestedEvent(string TrackGlobalId, string FilePath);
 
+// Loudness backfill (LoudnessBackfillService): measures integrated LUFS for tracks analysed before
+// the real loudness meter existed, without a full re-analysis.
+/// <summary>Measure this one track's loudness now (the inspector's "Measure" link).</summary>
+public record MeasureTrackLoudnessRequestedEvent(string TrackGlobalId);
+/// <summary>A track's loudness was measured and written to every stored copy. <c>Lufs</c> is null
+/// when the file decoded but has no gated loudness (silence) or when the measurement failed
+/// (<c>Success</c> false, <c>Error</c> says why).</summary>
+public record TrackLoudnessMeasuredEvent(string TrackGlobalId, double? Lufs, bool Success, string? Error = null);
+/// <summary>Bulk backfill progress. Published after every track and once when the run ends.</summary>
+public record LoudnessBackfillProgressEvent(
+    int Done,
+    int Total,
+    int Failed,
+    int Measured,
+    bool IsRunning,
+    bool IsWaitingForAnalysis);
+
 // Analysis Queue Visibility (Glass Box Architecture)
 public record AnalysisQueueStatusChangedEvent(
     int QueuedCount,
