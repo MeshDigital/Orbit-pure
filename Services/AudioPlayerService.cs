@@ -845,7 +845,10 @@ namespace SLSKDONET.Services
         /// </summary>
         private float ComputeLoudnessGain(double? trackLoudnessLufs)
         {
-            if (!_config.LoudnessNormalizationEnabled || trackLoudnessLufs is not double lufs)
+            // AsLufs rejects legacy values (Essentia's 0–1 average_loudness was stored as "LUFS"
+            // before re-analysis; treating 0.8 as LUFS cut every such track by ~15 dB).
+            if (!_config.LoudnessNormalizationEnabled
+                || SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(trackLoudnessLufs) is not double lufs)
                 return 1f;
 
             var gainDb = Math.Min(0.0, _config.LoudnessNormalizationTargetLufs - lufs);

@@ -565,7 +565,7 @@ public class DashboardService
             IsTrustworthy = entity.IsTrustworthy,
             Integrity = entity.Integrity,
             QualityDetails = entity.QualityDetails,
-            Loudness = entity.Loudness,
+            Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.Loudness),
             TruePeak = entity.TruePeak,
             DynamicRange = entity.DynamicRange,
             Priority = entity.Priority,

@@ -83,10 +83,12 @@
             <!-- The width binds to the column itself (not a child's Width) so the GridSplitter drag
                  round-trips into LibraryNavPanelWidth. MinWidth 260 keeps every playlist row fully
                  readable (art, name, stats, actions); it drops to 60 when the rail is collapsed so
-                 collapsing actually hands the space back to the track list. -->
+                 collapsing actually hands the space back to the track list. MaxWidth follows the page
+                 width (LibraryViewModel.FitNavPanelMaxWidth, at most a third of the page) so a wide
+                 panel plus the context panel can't squeeze the track list below a readable title. -->
             <ColumnDefinition Width="{Binding LibraryNavPanelWidth, Mode=TwoWay, Converter={StaticResource GridLengthPixelConverter}}"
                               MinWidth="{Binding IsNavigationCollapsed, Converter={StaticResource BoolToWidthConverter}, ConverterParameter='60,260'}"
-                              MaxWidth="560"/>
+                              MaxWidth="{Binding LibraryNavPanelMaxWidth}"/>
             <ColumnDefinition Width="4"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
@@ -374,52 +376,51 @@
             <!-- Playlist header: one 56px row. Title and counts left; Discover, Shuffle and the one
                  primary action (Play) right. Lives above the ContentControl's re-scoped Tracks
                  DataContext so it binds straight against LibraryViewModel. -->
-            <Border Grid.Row="0" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1" Padding="16,8"
+            <!-- The counts line is one trimming TextBlock (it used to be a horizontal StackPanel that
+                 measured at full width and ran under the Discover button when the pane was narrow).
+                 Below NarrowPlaylistHeaderWidth the header gets the "narrow" class and the action
+                 labels hide, leaving icon buttons with tooltips. -->
+            <Border Grid.Row="0" Classes="playlist-header" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1" Padding="16,8"
+                    SizeChanged="OnPlaylistHeaderSizeChanged"
                     IsVisible="{Binding SelectedProject, Converter={x:Static ObjectConverters.IsNotNull}}">
-                <Grid ColumnDefinitions="Auto,*">
+                <Border.Styles>
+                    <Style Selector="Border.playlist-header.narrow TextBlock.action-label">
+                        <Setter Property="IsVisible" Value="False"/>
+                    </Style>
+                </Border.Styles>
+                <Grid ColumnDefinitions="Auto,*,Auto">
                     <Border Grid.Column="0" Width="40" Height="40" CornerRadius="{StaticResource RadiusMd}"
                             Background="{Binding SelectedProject.SourceTitle, Converter={StaticResource UsernameToColorConverter}}">
                         <PathIcon Data="{StaticResource icon_music}" Width="18" Height="18" Foreground="{StaticResource BrushText0}" Opacity="0.85"/>
                     </Border>
-                    <Grid Grid.Column="1" ColumnDefinitions="*,Auto" Margin="12,0,0,0">
-                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="0">
-                            <TextBlock Text="{Binding SelectedProject.SourceTitle}" Classes="h2" TextTrimming="CharacterEllipsis" MaxLines="1"/>
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <TextBlock Classes="mono" Text="{Binding SelectedProject.TotalTracks, StringFormat='{}{0} tracks'}"/>
-                                <TextBlock Classes="caption" Text="·" VerticalAlignment="Center"/>
-                                <TextBlock Classes="mono" Foreground="{StaticResource BrushSuccess}"
-                                           Text="{Binding SelectedProject.SuccessfulCount, StringFormat='{}{0} downloaded'}"/>
-                                <StackPanel Orientation="Horizontal" Spacing="4"
-                                            IsVisible="{Binding SelectedProject.FailedCount}">
-                                    <TextBlock Classes="caption" Text="·" VerticalAlignment="Center"/>
-                                    <TextBlock Classes="mono" Foreground="{StaticResource BrushError}"
-                                               Text="{Binding SelectedProject.FailedCount, StringFormat='{}{0} failed'}"/>
-                                </StackPanel>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="0" Margin="12,0">
+                        <TextBlock Text="{Binding SelectedProject.SourceTitle}" Classes="h2" TextTrimming="CharacterEllipsis" MaxLines="1"
+                                   ToolTip.Tip="{Binding SelectedProject.SourceTitle}"/>
+                        <!-- Runs on one line: whitespace between them would render as extra spaces. -->
+                        <TextBlock Classes="mono" TextTrimming="CharacterEllipsis" MaxLines="1"><Run Text="{Binding SelectedProject.TotalTracks, StringFormat='{}{0} tracks'}"/><Run Text=" · " Foreground="{StaticResource BrushText2}"/><Run Text="{Binding SelectedProject.SuccessfulCount, StringFormat='{}{0} downloaded'}" Foreground="{StaticResource BrushSuccess}"/><Run Text="{Binding SelectedProject.FailedCountSuffix}" Foreground="{StaticResource BrushError}"/></TextBlock>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Button Classes="ghost" Click="OpenDiscover_Click"
+                                IsVisible="{Binding IsLibraryIntelligencePanelVisible}"
+                                ToolTip.Tip="Discover: suggest tracks to add to this playlist (Beatport + Deezer), downloadable via Soulseek">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource icon_wand}" Width="14" Height="14"/>
+                                <TextBlock Classes="action-label" Text="Discover"/>
                             </StackPanel>
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="12,0,0,0">
-                            <Button Classes="ghost" Click="OpenDiscover_Click"
-                                    IsVisible="{Binding IsLibraryIntelligencePanelVisible}"
-                                    ToolTip.Tip="Suggest tracks to add to this playlist (Beatport + Deezer), downloadable via Soulseek">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <PathIcon Data="{StaticResource icon_wand}" Width="14" Height="14"/>
-                                    <TextBlock Text="Discover"/>
-                                </StackPanel>
-                            </Button>
-                            <ToggleButton Classes="chip" IsChecked="{Binding PlayerViewModel.IsShuffling, Mode=TwoWay}"
-                                          Command="{Binding PlayerViewModel.ToggleShuffleCommand}"
-                                          ToolTip.Tip="Shuffle">
-                                <PathIcon Data="{StaticResource icon_shuffle}" Width="14" Height="14"/>
-                            </ToggleButton>
-                            <Button Classes="primary" Command="{Binding PlayAlbumCommand}" CommandParameter="{Binding SelectedProject}"
-                                    ToolTip.Tip="Play this playlist">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <PathIcon Data="{StaticResource icon_play}" Width="14" Height="14"/>
-                                    <TextBlock Text="Play"/>
-                                </StackPanel>
-                            </Button>
-                        </StackPanel>
-                    </Grid>
+                        </Button>
+                        <ToggleButton Classes="chip" IsChecked="{Binding PlayerViewModel.IsShuffling, Mode=TwoWay}"
+                                      Command="{Binding PlayerViewModel.ToggleShuffleCommand}"
+                                      ToolTip.Tip="Shuffle">
+                            <PathIcon Data="{StaticResource icon_shuffle}" Width="14" Height="14"/>
+                        </ToggleButton>
+                        <Button Classes="primary" Command="{Binding PlayAlbumCommand}" CommandParameter="{Binding SelectedProject}"
+                                ToolTip.Tip="Play this playlist">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource icon_play}" Width="14" Height="14"/>
+                                <TextBlock Classes="action-label" Text="Play"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
                 </Grid>
             </Border>
 
@@ -433,63 +434,63 @@
                     </DataTemplate>
                 </ContentControl.DataTemplates>
             </ContentControl>
+
+            <!-- ═══ SELECTION BAR ═══
+                 Appears only while tracks are selected: count, the three most common actions,
+                 everything else under "More". It lives in the track-list pane (it used to be centred
+                 on the whole page, so with a narrow list it floated over the playlist panel). The
+                 pane's width bounds it; the ScrollViewer is the fallback for a very narrow pane. -->
+            <Border Grid.Row="1" IsVisible="{Binding Tracks.HasSelectedTracks}"
+                    VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                    Background="{StaticResource BrushBg3}" BorderBrush="{StaticResource BrushBorder1}" BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusLg}" BoxShadow="{StaticResource ShadowLg}"
+                    Padding="12,8" Margin="16,0,16,24" ZIndex="100">
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Classes="mono" Foreground="{StaticResource BrushText0}" VerticalAlignment="Center" Margin="4,0,8,0"
+                                   Text="{Binding Tracks.SelectedTracks.Count, StringFormat='{}{0} selected'}"/>
+                        <Border Classes="divider vertical" Height="20"/>
+                        <Button Classes="primary small" Command="{Binding Tracks.Operations.PlayTrackCommand}"
+                                ToolTip.Tip="Clear the queue and play the selected tracks">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource icon_play}" Width="12" Height="12"/>
+                                <TextBlock Text="Play"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Classes="secondary small" Content="Add to queue" Command="{Binding Tracks.Operations.AddSelectedToQueueCommand}"/>
+                        <Button Classes="secondary small" Content="Add to playlist…" Command="{Binding BatchAddToPlaylistCommand}"/>
+                        <Button Classes="ghost small" ToolTip.Tip="More actions for the selection">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="More"/>
+                                <PathIcon Data="{StaticResource icon_chevron_down}" Width="12" Height="12"/>
+                            </StackPanel>
+                            <Button.Flyout>
+                                <MenuFlyout Placement="TopEdgeAlignedRight">
+                                    <MenuItem Header="Edit tags…" Command="{Binding BatchTagEditCommand}"/>
+                                    <MenuItem Header="Analyse" Command="{Binding BatchQueueAnalysisCommand}"
+                                              ToolTip.Tip="Queue the selected tracks for audio analysis"/>
+                                    <MenuItem Header="Download next" Command="{Binding Operations.DownloadNextCommand}"
+                                              ToolTip.Tip="Move the selected tracks that are still waiting to the front of the download queue"/>
+                                    <Separator/>
+                                    <MenuItem Header="Rename files…" Command="{Binding BulkRenameCommand}"
+                                              ToolTip.Tip="Rename the selected tracks' files by pattern"/>
+                                    <MenuItem Header="Move or copy files…" Command="{Binding BulkMoveOrCopyCommand}"/>
+                                    <Separator/>
+                                    <MenuItem Header="Export to Rekordbox XML…" Command="{Binding BatchExportRekordboxCommand}"/>
+                                    <MenuItem Header="Export to M3U…" Command="{Binding BatchExportM3uCommand}"
+                                              ToolTip.Tip="Rekordbox, VirtualDJ, Serato, any player"/>
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                        <Border Classes="divider vertical" Height="20"/>
+                        <Button Classes="icon small" Command="{Binding BatchClearSelectionCommand}" ToolTip.Tip="Clear selection (Esc)">
+                            <PathIcon Data="{StaticResource icon_close}" Width="14" Height="14"/>
+                        </Button>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
         </Grid>
     </Grid>
-
-    <!-- ═══ SELECTION BAR ═══
-         Appears only while tracks are selected: count, the three most common actions, everything
-         else under "More". MaxWidth follows the root panel so it never slides under the context
-         side panel; the ScrollViewer is the fallback for very narrow windows. -->
-    <Border IsVisible="{Binding Tracks.HasSelectedTracks}"
-            VerticalAlignment="Bottom" HorizontalAlignment="Center"
-            MaxWidth="{ReflectionBinding #RootPanel.Bounds.Width}"
-            Background="{StaticResource BrushBg3}" BorderBrush="{StaticResource BrushBorder1}" BorderThickness="1"
-            CornerRadius="{StaticResource RadiusLg}" BoxShadow="{StaticResource ShadowLg}"
-            Padding="12,8" Margin="16,0,16,24" ZIndex="100">
-        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <TextBlock Classes="mono" Foreground="{StaticResource BrushText0}" VerticalAlignment="Center" Margin="4,0,8,0"
-                           Text="{Binding Tracks.SelectedTracks.Count, StringFormat='{}{0} selected'}"/>
-                <Border Classes="divider vertical" Height="20"/>
-                <Button Classes="primary small" Command="{Binding Tracks.Operations.PlayTrackCommand}"
-                        ToolTip.Tip="Clear the queue and play the selected tracks">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <PathIcon Data="{StaticResource icon_play}" Width="12" Height="12"/>
-                        <TextBlock Text="Play"/>
-                    </StackPanel>
-                </Button>
-                <Button Classes="secondary small" Content="Add to queue" Command="{Binding Tracks.Operations.AddSelectedToQueueCommand}"/>
-                <Button Classes="secondary small" Content="Add to playlist…" Command="{Binding BatchAddToPlaylistCommand}"/>
-                <Button Classes="ghost small" ToolTip.Tip="More actions for the selection">
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                        <TextBlock Text="More"/>
-                        <PathIcon Data="{StaticResource icon_chevron_down}" Width="12" Height="12"/>
-                    </StackPanel>
-                    <Button.Flyout>
-                        <MenuFlyout Placement="TopEdgeAlignedRight">
-                            <MenuItem Header="Edit tags…" Command="{Binding BatchTagEditCommand}"/>
-                            <MenuItem Header="Analyse" Command="{Binding BatchQueueAnalysisCommand}"
-                                      ToolTip.Tip="Queue the selected tracks for audio analysis"/>
-                            <MenuItem Header="Download next" Command="{Binding Operations.DownloadNextCommand}"
-                                      ToolTip.Tip="Move the selected tracks that are still waiting to the front of the download queue"/>
-                            <Separator/>
-                            <MenuItem Header="Rename files…" Command="{Binding BulkRenameCommand}"
-                                      ToolTip.Tip="Rename the selected tracks' files by pattern"/>
-                            <MenuItem Header="Move or copy files…" Command="{Binding BulkMoveOrCopyCommand}"/>
-                            <Separator/>
-                            <MenuItem Header="Export to Rekordbox XML…" Command="{Binding BatchExportRekordboxCommand}"/>
-                            <MenuItem Header="Export to M3U…" Command="{Binding BatchExportM3uCommand}"
-                                      ToolTip.Tip="Rekordbox, VirtualDJ, Serato, any player"/>
-                        </MenuFlyout>
-                    </Button.Flyout>
-                </Button>
-                <Border Classes="divider vertical" Height="20"/>
-                <Button Classes="icon small" Command="{Binding BatchClearSelectionCommand}" ToolTip.Tip="Clear selection (Esc)">
-                    <PathIcon Data="{StaticResource icon_close}" Width="14" Height="14"/>
-                </Button>
-            </StackPanel>
-        </ScrollViewer>
-    </Border>
 
     <!-- ═══ OVERLAYS ═══ -->
 

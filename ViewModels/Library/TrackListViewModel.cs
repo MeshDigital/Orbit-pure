@@ -694,7 +694,26 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     public double ListWidth
     {
         get => _listWidth;
-        set { if (Math.Abs(_listWidth - value) < 1) return; _listWidth = value; RefitColumns(); }
+        set { if (Math.Abs(_listWidth - value) < 1) return; _listWidth = value; RefitColumns(); RefitToolbar(); }
+    }
+
+    // Toolbar responsiveness (TrackListColumnLayout.FitToolbar): what doesn't fit moves into the
+    // Filters menu instead of being clipped (the search box and chips used to be cut off mid-word).
+    private (bool TierChips, bool StatusSegment) _toolbar = (true, true);
+    public bool ShowTierChips => _toolbar.TierChips;
+    public bool ShowStatusSegment => _toolbar.StatusSegment;
+    public bool ShowFilterMenu => !_toolbar.TierChips;
+    public bool IsToolbarNarrow => !_toolbar.StatusSegment;
+
+    private void RefitToolbar()
+    {
+        var fitted = TrackListColumnLayout.FitToolbar(_listWidth);
+        if (fitted == _toolbar) return;
+        _toolbar = fitted;
+        this.RaisePropertyChanged(nameof(ShowTierChips));
+        this.RaisePropertyChanged(nameof(ShowStatusSegment));
+        this.RaisePropertyChanged(nameof(ShowFilterMenu));
+        this.RaisePropertyChanged(nameof(IsToolbarNarrow));
     }
 
     private bool _isScrolledDown;
@@ -721,6 +740,11 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     public bool ShowForensicsColumn => _columns.Forensics;
     public bool ShowDurationColumn => _columns.Duration;
     public bool ShowRatingColumn => _columns.Rating;
+    public bool ShowQueueAction => _columns.QueueAction;
+    public bool ShowInsertAction => _columns.InsertAction;
+    public bool ShowArtistColumn => _columns.ArtistColumn;
+    /// <summary>Narrow list: the artist is shown as a second line under the title instead.</summary>
+    public bool ShowArtistUnderTitle => !_columns.ArtistColumn;
 
     private void RefitColumns()
     {
@@ -732,6 +756,10 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(ShowForensicsColumn));
         this.RaisePropertyChanged(nameof(ShowDurationColumn));
         this.RaisePropertyChanged(nameof(ShowRatingColumn));
+        this.RaisePropertyChanged(nameof(ShowQueueAction));
+        this.RaisePropertyChanged(nameof(ShowInsertAction));
+        this.RaisePropertyChanged(nameof(ShowArtistColumn));
+        this.RaisePropertyChanged(nameof(ShowArtistUnderTitle));
     }
     
     // ListBox Selection Binding

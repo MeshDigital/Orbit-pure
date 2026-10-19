@@ -95,7 +95,7 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
     // Phase 2: Pure UX Alignment - DataGrid Extras
     public DateTime? CompletedAt => Model.CompletedAt;
     public string CompletedAtDisplay => CompletedAt.HasValue ? CompletedAt.Value.ToString("yyyy-MM-dd HH:mm") : "—";
-    public string FormatDisplay => !string.IsNullOrEmpty(Format) ? Format.ToUpper() : "—";
+    public string FormatDisplay => !string.IsNullOrEmpty(Format) ? Format.ToUpperInvariant() : "—";
 
     public bool IsPrepared => Model.IsPrepared;
     public string PreparationStatus => IsPrepared ? "Prepared" : "Raw";
@@ -223,23 +223,23 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
 
     /// <summary>Track-list quality badge. Same thresholds as TrackRepository.ApplyQualityTierFilter
     /// (and the "Lossless / 320k / Low" filter chips): FLAC/WAV is lossless, under 320 kbps is low.</summary>
-    public bool IsTierLossless
-    {
-        get
-        {
-            var fmt = Model.Format?.ToLowerInvariant();
-            return fmt == "flac" || fmt == "wav";
-        }
-    }
+    public bool IsTierLossless => Format is "flac" or "wav";
     public bool IsTierLowBitrate => !IsTierLossless && Model.Bitrate is > 0 and < 320;
+
+    /// <summary>"FLAC", "MP3 320", "320 kbps" when only the bitrate is known, empty when neither is —
+    /// the badge then hides (<see cref="HasQualityBadge"/>) instead of saying "UNKNOWN".</summary>
     public string QualityBadgeText
     {
         get
         {
-            var fmt = string.IsNullOrWhiteSpace(Model.Format) ? "—" : Model.Format.ToUpperInvariant();
-            return !IsTierLossless && Model.Bitrate is > 0 ? $"{fmt} {Model.Bitrate}" : fmt;
+            var fmt = Format.ToUpperInvariant();
+            bool hasBitrate = !IsTierLossless && Model.Bitrate is > 0;
+            if (fmt.Length == 0) return hasBitrate ? $"{Model.Bitrate} kbps" : string.Empty;
+            return hasBitrate ? $"{fmt} {Model.Bitrate}" : fmt;
         }
     }
+
+    public bool HasQualityBadge => QualityBadgeText.Length > 0;
 
     // 2026 Forensic UX: compact quality pill + detailed hover HUD.
     public string ForensicVerdictText => Model.Integrity switch
@@ -259,7 +259,7 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
             if (Model.FrequencyCutoff.HasValue && Model.FrequencyCutoff.Value > 0)
             {
                 var khz = Model.FrequencyCutoff.Value / 1000.0;
-                cutoffText = $"\nHard cutoff at {khz:F1}kHz detected.";
+                cutoffText = $"\nHard cutoff at {khz.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)} kHz detected.";
             }
 
             if (string.IsNullOrWhiteSpace(details))
@@ -542,12 +542,14 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
             var parts = new List<string>();
             if (Model.Bitrate.HasValue) parts.Add($"{Model.Bitrate}k");
             if (!string.IsNullOrEmpty(Format)) parts.Add(Format.ToUpper());
-            if (FileSizeBytes > 0) parts.Add($"{FileSizeBytes / 1024.0 / 1024.0:F1}MB");
+            if (FileSizeBytes > 0) parts.Add((FileSizeBytes / 1024.0 / 1024.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "MB");
             return string.Join(" • ", parts);
         }
     }
 
-    public string Format => Model.Format ?? "Unknown";
+    /// <summary>Lower-case format ("flac"), from the stored value or else the file extension; empty when
+    /// unknown. Never the literal "Unknown" (that rendered as an "UNKNOWN" badge), see AudioFileFormat.</summary>
+    public string Format => AudioFileFormat.Resolve(Model.Format, Model.ResolvedFilePath) ?? string.Empty;
     public IEnumerable<OrbitCue> Cues => _cues;
     public bool HasCues => _cues.Count > 0;
     public bool HasAnalysisData => HasBpm || HasKey || HasCues || HasGenre || SampleRate > 0 || EnergyCurvePoints.Count > 0;
@@ -564,8 +566,8 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
                 return Math.Clamp(a, 0.0, 1.0);
 
             // Heuristic fallback when no Essentia data is present
-            var loudnessNorm = Model.Loudness.HasValue
-                ? Math.Clamp((Model.Loudness.Value + 18.0) / 18.0, 0.0, 1.0)
+            var loudnessNorm = Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(Model.Loudness) is double lufs
+                ? Math.Clamp((lufs + 18.0) / 18.0, 0.0, 1.0)
                 : 0.5;
             return Math.Clamp((RadarEnergy * 0.65) + (loudnessNorm * 0.35), 0.0, 1.0);
         }
@@ -731,7 +733,9 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
             ? $"Analysis run: {dt.ToLocalTime():yyyy-MM-dd HH:mm:ss} UTC"
             : "No analysis recorded";
 
-    public string FileSizeDisplay => FileSizeBytes > 0 ? $"{FileSizeBytes / 1024.0 / 1024.0:F1} MB" : "—";
+    public string FileSizeDisplay => FileSizeBytes > 0
+        ? (FileSizeBytes / 1024.0 / 1024.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " MB"
+        : "—";
     public string BpmDisplay => Model.BPM.HasValue ? $"{Model.BPM:0}" : "—";
     public string KeyDisplay
     {
@@ -1016,7 +1020,7 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
     // Technical Stats
     public int SampleRate => Model.SpectralSampleRateHz ?? 0;
     public string SampleRateDisplay => Model.SpectralSampleRateHz.HasValue && Model.SpectralSampleRateHz.Value > 0
-        ? $"{Model.SpectralSampleRateHz.Value / 1000.0:F1} kHz"
+        ? (Model.SpectralSampleRateHz.Value / 1000.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " kHz"
         : "—";
 
     public string LastPlayedDisplay => Model.LastPlayedAt.HasValue
@@ -1050,10 +1054,12 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
     public bool IsHighRisk => Model.IsFlagged && State != PlaylistTrackState.Searching && State != PlaylistTrackState.Queued && State != PlaylistTrackState.Pending;
     public string? FlagReason => Model.FlagReason;
     
-    public string LoudnessDisplay => Model.Loudness.HasValue ? $"{Model.Loudness:F1} LUFS" : "—";
-    public string TruePeakDisplay => Model.TruePeak.HasValue ? $"{Model.TruePeak:F1} dBTP" : "—";
-    public string DynamicRangeDisplay => Model.DynamicRange.HasValue ? $"{Model.DynamicRange:F1} LU" : "—";
-    
+    // Invariant decimals: the current culture turned "-9.4 LUFS" into "-9,4 LUFS". Loudness ≥ 0 is a
+    // legacy Essentia 0–1 value, not LUFS, and shows "—" until the track is re-analysed.
+    public string LoudnessDisplay => Services.AudioAnalysis.IntegratedLoudnessMeter.Format(Model.Loudness);
+    public string TruePeakDisplay => Model.TruePeak is double tp ? tp.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " dBTP" : "—";
+    public string DynamicRangeDisplay => Model.DynamicRange is double dr ? dr.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " LU" : "—";
+
     public string IntegritySymbol => IntegrityBadge;
     public string IntegrityText => IntegrityTooltip;
     
@@ -1528,6 +1534,11 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
              // Model fields above were correctly refreshed.
              OnPropertyChanged(nameof(DurationDisplay));
              OnPropertyChanged(nameof(FormatDisplay));
+             OnPropertyChanged(nameof(Format));
+             OnPropertyChanged(nameof(QualityBadgeText));
+             OnPropertyChanged(nameof(HasQualityBadge));
+             OnPropertyChanged(nameof(IsTierLossless));
+             OnPropertyChanged(nameof(IsTierLowBitrate));
              OnPropertyChanged(nameof(SampleRate));
              OnPropertyChanged(nameof(SampleRateDisplay));
              OnPropertyChanged(nameof(SpectralAnalysisAvailable));
@@ -2020,6 +2031,7 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
                 OnPropertyChanged(nameof(LoudnessDisplay));
                 OnPropertyChanged(nameof(Format));
                 OnPropertyChanged(nameof(QualityBadgeText));
+                OnPropertyChanged(nameof(HasQualityBadge));
                 OnPropertyChanged(nameof(IsTierLossless));
                 OnPropertyChanged(nameof(IsTierLowBitrate));
             }

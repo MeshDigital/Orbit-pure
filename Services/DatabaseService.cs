@@ -1072,7 +1072,7 @@ public class DatabaseService
                         // created here silently kept the entity's 0/empty default, even when the
                         // matched LibraryEntries row (the same physical file) had the real values.
                         Bitrate = track.Bitrate > 0 ? track.Bitrate.Value : (entry?.Bitrate ?? 0),
-                        Format = !string.IsNullOrEmpty(track.Format) ? track.Format : entry?.Format,
+                        Format = SLSKDONET.Models.AudioFileFormat.Resolve(track.Format, null) ?? SLSKDONET.Models.AudioFileFormat.Resolve(entry?.Format, entry?.FilePath ?? track.ResolvedFilePath),
 
                         CuePointsJson = track.CuePointsJson,
                         AudioFingerprint = track.AudioFingerprint,
@@ -1151,7 +1151,7 @@ public class DatabaseService
                         // set here at all, so every re-sync of an existing project silently reset
                         // them to 0/empty on every track, even ones with a correct LibraryEntries match.
                         Bitrate = track.Bitrate > 0 ? track.Bitrate.Value : (entry?.Bitrate ?? 0),
-                        Format = !string.IsNullOrEmpty(track.Format) ? track.Format : entry?.Format,
+                        Format = SLSKDONET.Models.AudioFileFormat.Resolve(track.Format, null) ?? SLSKDONET.Models.AudioFileFormat.Resolve(entry?.Format, entry?.FilePath ?? track.ResolvedFilePath),
 
                         CuePointsJson = track.CuePointsJson,
                         AudioFingerprint = track.AudioFingerprint,
@@ -2403,7 +2403,7 @@ public class DatabaseService
             row.Valence = features.Valence;
             row.Arousal = features.Arousal;
             row.IsDjTool = features.IsDjTool;
-            row.Loudness = features.LoudnessLUFS;
+            row.Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(features.LoudnessLUFS);
             row.CuePointsJson = features.CuePointsJson;
             row.MoodTag = features.MoodTag;
             row.DetectedSubGenre = features.DetectedSubGenre;
@@ -2429,7 +2429,7 @@ public class DatabaseService
             row.Valence = features.Valence;
             row.Arousal = features.Arousal;
             row.IsDjTool = features.IsDjTool;
-            row.Loudness = features.LoudnessLUFS;
+            row.Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(features.LoudnessLUFS);
             row.CuePointsJson = features.CuePointsJson;
             row.MoodTag = features.MoodTag;
             row.DetectedSubGenre = features.DetectedSubGenre;

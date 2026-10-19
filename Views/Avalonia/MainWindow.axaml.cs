@@ -17,11 +17,9 @@ namespace SLSKDONET.Views.Avalonia
         // grip moves with the panel's edge, so each delta is relative to where it is now.
         private void OnContextPanelResizeDelta(object? sender, global::Avalonia.Input.VectorEventArgs e)
         {
+            // MainViewModel clamps to the window (FitContextPanelWidth), so the drag can't exceed it.
             if (DataContext is MainViewModel vm)
-            {
-                double max = Math.Max(MainViewModel.MinContextPanelWidth, Bounds.Width * 0.55);
-                vm.ContextPanelWidth = Math.Min(max, vm.ContextPanelWidth - e.Vector.X);
-            }
+                vm.ContextPanelWidth = vm.ContextPanelWidth - e.Vector.X;
         }
 
         private void OnContextPanelResizeCompleted(object? sender, global::Avalonia.Input.VectorEventArgs e)
@@ -217,7 +215,8 @@ namespace SLSKDONET.Views.Avalonia
             if (e.Property == BoundsProperty && DataContext is MainViewModel vm)
             {
                 var width = Bounds.Width;
-                
+                vm.WindowWidth = width; // the context panel's max width follows the window
+
                 // Auto-collapse navigation below 800px
                 if (width < 800 && !vm.IsNavigationCollapsed)
                     vm.IsNavigationCollapsed = true;
