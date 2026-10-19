@@ -52,6 +52,15 @@
             <Setter Property="Foreground" Value="{StaticResource BrushAccent}"/>
         </Style>
 
+        <!-- Toolbar search: 240 px, 160 px when the list is narrow (width set by style, not locally,
+             so the .narrow setter can win). -->
+        <Style Selector="TextBox.track-search">
+            <Setter Property="Width" Value="240"/>
+        </Style>
+        <Style Selector="TextBox.track-search.narrow">
+            <Setter Property="Width" Value="160"/>
+        </Style>
+
         <!-- Rows: 40px, hairline divider, theme hover/selected. -->
         <Style Selector="Border.track-row">
             <Setter Property="Background" Value="Transparent"/>
@@ -125,14 +134,19 @@
     <Grid RowDefinitions="Auto,Auto,Auto,*">
 
         <!-- ═══ TOOLBAR (the one row): search · status · quality · active-filter chips · Clear ··· Mix · Columns ═══ -->
+        <!-- Responsive by list width (TrackListViewModel.ShowTierChips / ShowStatusSegment): what
+             doesn't fit moves into the Filters menu instead of being clipped mid-word. -->
         <Border Grid.Row="0" Classes="toolbar">
-            <Grid ColumnDefinitions="*,Auto">
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" ClipToBounds="True">
-                    <TextBox Classes="search small" Width="240"
-                             Text="{Binding SearchText, Mode=TwoWay}"
-                             Watermark="Search artist, title, key"/>
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <!-- Search keeps its own column and a MinWidth, so its placeholder is never cut off. -->
+                <TextBox Grid.Column="0" Classes="search small track-search" MinWidth="160" VerticalAlignment="Center"
+                         Classes.narrow="{Binding IsToolbarNarrow}"
+                         Text="{Binding SearchText, Mode=TwoWay}"
+                         Watermark="Search tracks"
+                         ToolTip.Tip="Search by artist, title or key"/>
 
-                    <Border Classes="segmented" VerticalAlignment="Center">
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="8,0,0,0" VerticalAlignment="Center" ClipToBounds="True">
+                    <Border Classes="segmented" VerticalAlignment="Center" IsVisible="{Binding ShowStatusSegment}">
                         <StackPanel Orientation="Horizontal" Spacing="2">
                             <RadioButton Classes="chip" GroupName="TrackStatus" Content="All" IsChecked="{Binding IsFilterAll, Mode=TwoWay}"/>
                             <RadioButton Classes="chip" GroupName="TrackStatus" Content="Downloaded" IsChecked="{Binding IsFilterDownloaded, Mode=TwoWay}"/>
@@ -142,11 +156,32 @@
                     </Border>
 
                     <ToggleButton Classes="chip" Content="Lossless" IsChecked="{Binding IsTierLosslessFilter, Mode=TwoWay}"
-                                  ToolTip.Tip="FLAC and WAV only"/>
+                                  IsVisible="{Binding ShowTierChips}" ToolTip.Tip="FLAC and WAV only"/>
                     <ToggleButton Classes="chip" Content="320k" IsChecked="{Binding IsTierHighFilter, Mode=TwoWay}"
-                                  ToolTip.Tip="Lossy files at 320 kbps or higher"/>
+                                  IsVisible="{Binding ShowTierChips}" ToolTip.Tip="Lossy files at 320 kbps or higher"/>
                     <ToggleButton Classes="chip" Content="Low bitrate" IsChecked="{Binding IsTierLowFilter, Mode=TwoWay}"
-                                  ToolTip.Tip="Lossy files under 320 kbps"/>
+                                  IsVisible="{Binding ShowTierChips}" ToolTip.Tip="Lossy files under 320 kbps"/>
+
+                    <!-- Narrow list: the quality chips (and below 560 px the status segment) live here. -->
+                    <Button Classes="icon small" IsVisible="{Binding ShowFilterMenu}" Classes.active="{Binding HasActiveFilters}"
+                            ToolTip.Tip="Filters: status and quality">
+                        <PathIcon Data="{StaticResource icon_filter}" Width="16" Height="16"/>
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                                <MenuItem Header="All tracks" ToggleType="Radio" GroupName="TrackStatusMenu"
+                                          IsChecked="{Binding IsFilterAll, Mode=TwoWay}" IsVisible="{Binding IsToolbarNarrow}"/>
+                                <MenuItem Header="Downloaded" ToggleType="Radio" GroupName="TrackStatusMenu"
+                                          IsChecked="{Binding IsFilterDownloaded, Mode=TwoWay}" IsVisible="{Binding IsToolbarNarrow}"/>
+                                <MenuItem Header="Pending" ToggleType="Radio" GroupName="TrackStatusMenu"
+                                          IsChecked="{Binding IsFilterPending, Mode=TwoWay}" IsVisible="{Binding IsToolbarNarrow}"
+                                          ToolTip.Tip="Tracks that aren't downloaded yet"/>
+                                <Separator IsVisible="{Binding IsToolbarNarrow}"/>
+                                <MenuItem Header="Lossless (FLAC, WAV)" ToggleType="CheckBox" IsChecked="{Binding IsTierLosslessFilter, Mode=TwoWay}"/>
+                                <MenuItem Header="320 kbps and up" ToggleType="CheckBox" IsChecked="{Binding IsTierHighFilter, Mode=TwoWay}"/>
+                                <MenuItem Header="Low bitrate (under 320)" ToggleType="CheckBox" IsChecked="{Binding IsTierLowFilter, Mode=TwoWay}"/>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
 
                     <!-- Filters set from elsewhere (Camelot wheel, Find duplicates) show as removable chips. -->
                     <Button Classes="secondary small" Command="{Binding ClearCamelotKeyFilterCommand}"
@@ -169,13 +204,13 @@
                             IsVisible="{Binding HasActiveFilters}" ToolTip.Tip="Reset search and all filters"/>
                 </StackPanel>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="8,0,0,0">
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="8,0,0,0">
                     <!-- Mix: per-row transition badges between tracks (downloaded tracks only). -->
                     <ToggleButton Classes="chip" IsChecked="{Binding IsMixModeEnabled, Mode=TwoWay}"
                                   ToolTip.Tip="Mix mode: show transition badges between tracks (downloaded tracks only)">
                         <StackPanel Orientation="Horizontal" Spacing="4">
                             <PathIcon Data="{StaticResource icon_mix}" Width="14" Height="14"/>
-                            <TextBlock Text="Mix"/>
+                            <TextBlock Text="Mix" IsVisible="{Binding !IsToolbarNarrow}"/>
                         </StackPanel>
                     </ToggleButton>
                     <Button Classes="icon small" ToolTip.Tip="Choose columns">
@@ -471,7 +506,8 @@
 
                             <!-- Quality tier badge: format + bitrate -->
                             <Panel Grid.Column="7" Width="100" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowFormatColumn}">
-                                <Border Classes="tier" Classes.lossless="{Binding IsTierLossless}" Classes.low="{Binding IsTierLowBitrate}" Margin="12,0">
+                                <Border Classes="tier" Classes.lossless="{Binding IsTierLossless}" Classes.low="{Binding IsTierLowBitrate}" Margin="12,0"
+                                        IsVisible="{Binding HasQualityBadge}">
                                     <TextBlock Text="{Binding QualityBadgeText}" Classes="mono" FontSize="{StaticResource TextSizeCaption}"/>
                                 </Border>
                             </Panel>

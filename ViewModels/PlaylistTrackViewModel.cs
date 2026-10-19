@@ -95,7 +95,7 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
     // Phase 2: Pure UX Alignment - DataGrid Extras
     public DateTime? CompletedAt => Model.CompletedAt;
     public string CompletedAtDisplay => CompletedAt.HasValue ? CompletedAt.Value.ToString("yyyy-MM-dd HH:mm") : "—";
-    public string FormatDisplay => !string.IsNullOrEmpty(Format) ? Format.ToUpper() : "—";
+    public string FormatDisplay => !string.IsNullOrEmpty(Format) ? Format.ToUpperInvariant() : "—";
 
     public bool IsPrepared => Model.IsPrepared;
     public string PreparationStatus => IsPrepared ? "Prepared" : "Raw";
@@ -223,23 +223,23 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
 
     /// <summary>Track-list quality badge. Same thresholds as TrackRepository.ApplyQualityTierFilter
     /// (and the "Lossless / 320k / Low" filter chips): FLAC/WAV is lossless, under 320 kbps is low.</summary>
-    public bool IsTierLossless
-    {
-        get
-        {
-            var fmt = Model.Format?.ToLowerInvariant();
-            return fmt == "flac" || fmt == "wav";
-        }
-    }
+    public bool IsTierLossless => Format is "flac" or "wav";
     public bool IsTierLowBitrate => !IsTierLossless && Model.Bitrate is > 0 and < 320;
+
+    /// <summary>"FLAC", "MP3 320", "320 kbps" when only the bitrate is known, empty when neither is —
+    /// the badge then hides (<see cref="HasQualityBadge"/>) instead of saying "UNKNOWN".</summary>
     public string QualityBadgeText
     {
         get
         {
-            var fmt = string.IsNullOrWhiteSpace(Model.Format) ? "—" : Model.Format.ToUpperInvariant();
-            return !IsTierLossless && Model.Bitrate is > 0 ? $"{fmt} {Model.Bitrate}" : fmt;
+            var fmt = Format.ToUpperInvariant();
+            bool hasBitrate = !IsTierLossless && Model.Bitrate is > 0;
+            if (fmt.Length == 0) return hasBitrate ? $"{Model.Bitrate} kbps" : string.Empty;
+            return hasBitrate ? $"{fmt} {Model.Bitrate}" : fmt;
         }
     }
+
+    public bool HasQualityBadge => QualityBadgeText.Length > 0;
 
     // 2026 Forensic UX: compact quality pill + detailed hover HUD.
     public string ForensicVerdictText => Model.Integrity switch
@@ -547,7 +547,9 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
         }
     }
 
-    public string Format => Model.Format ?? "Unknown";
+    /// <summary>Lower-case format ("flac"), from the stored value or else the file extension; empty when
+    /// unknown. Never the literal "Unknown" (that rendered as an "UNKNOWN" badge), see AudioFileFormat.</summary>
+    public string Format => AudioFileFormat.Resolve(Model.Format, Model.ResolvedFilePath) ?? string.Empty;
     public IEnumerable<OrbitCue> Cues => _cues;
     public bool HasCues => _cues.Count > 0;
     public bool HasAnalysisData => HasBpm || HasKey || HasCues || HasGenre || SampleRate > 0 || EnergyCurvePoints.Count > 0;
@@ -1532,6 +1534,11 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
              // Model fields above were correctly refreshed.
              OnPropertyChanged(nameof(DurationDisplay));
              OnPropertyChanged(nameof(FormatDisplay));
+             OnPropertyChanged(nameof(Format));
+             OnPropertyChanged(nameof(QualityBadgeText));
+             OnPropertyChanged(nameof(HasQualityBadge));
+             OnPropertyChanged(nameof(IsTierLossless));
+             OnPropertyChanged(nameof(IsTierLowBitrate));
              OnPropertyChanged(nameof(SampleRate));
              OnPropertyChanged(nameof(SampleRateDisplay));
              OnPropertyChanged(nameof(SpectralAnalysisAvailable));
@@ -2024,6 +2031,7 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
                 OnPropertyChanged(nameof(LoudnessDisplay));
                 OnPropertyChanged(nameof(Format));
                 OnPropertyChanged(nameof(QualityBadgeText));
+                OnPropertyChanged(nameof(HasQualityBadge));
                 OnPropertyChanged(nameof(IsTierLossless));
                 OnPropertyChanged(nameof(IsTierLowBitrate));
             }

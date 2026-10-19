@@ -1201,7 +1201,7 @@ public class LibraryService : ILibraryService
                 FilePath = actualFilePath,
                 Bitrate = track.Bitrate,
                 DurationSeconds = track.Length,
-                Format = track.Format ?? "Unknown"
+                Format = SLSKDONET.Models.AudioFileFormat.Resolve(track.Format, actualFilePath) ?? string.Empty
             };
 
             await SaveOrUpdateLibraryEntryAsync(entry).ConfigureAwait(false);
@@ -1294,7 +1294,7 @@ public class LibraryService : ILibraryService
             SortOrder = entity.SortOrder,
             PreferredFormats = entity.PreferredFormats,
             MinBitrateOverride = entity.MinBitrateOverride,
-            Format = entity.Format,
+            Format = SLSKDONET.Models.AudioFileFormat.Resolve(entity.Format, entity.ResolvedFilePath),
             AvailabilityState = entity.AvailabilityState,
             SpotifyPlaylistId = entity.SpotifyPlaylistId,
             SpotifyUri = entity.SpotifyUri,
@@ -1508,7 +1508,7 @@ public class LibraryService : ILibraryService
             FilePath = entity.FilePath,
             Bitrate = entity.Bitrate,
             DurationSeconds = entity.DurationSeconds,
-            Format = entity.Format,
+            Format = SLSKDONET.Models.AudioFileFormat.Resolve(entity.Format, entity.FilePath),
             AvailabilityState = entity.AvailabilityState,
             SpotifyPlaylistId = entity.SpotifyPlaylistId,
             SpotifyUri = entity.SpotifyUri,

@@ -1300,7 +1300,7 @@ public class TrackRepository : ITrackRepository
             AddedAt = e.AddedAt,
             IsEnriched = e.IsEnriched,
             Bitrate = e.Bitrate,
-            Format = e.Format,
+            Format = SLSKDONET.Models.AudioFileFormat.Resolve(e.Format, e.FilePath),
             Integrity = e.Integrity,
             BitrateScore = e.Bitrate,
             DetectedSubGenre = e.AudioFeatures?.DetectedSubGenre ?? e.DetectedSubGenre,

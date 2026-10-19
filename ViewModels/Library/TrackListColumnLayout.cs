@@ -31,6 +31,15 @@ public static class TrackListColumnLayout
     /// the queue and smart-insert hover actions and a separate artist column.</summary>
     public const double AlwaysShownWidth = MinimumWidth + QueueWidth + InsertWidth + ArtistWidth;
 
+    /// <summary>The toolbar row above the list (search · status · quality chips · Mix · Columns) is
+    /// ~850 px wide in full. Below <see cref="TierChipsMinWidth"/> the three quality chips move into
+    /// the Filters menu; below <see cref="StatusSegmentMinWidth"/> the status segment follows, the
+    /// search box narrows and the Mix label hides. Unknown width (0) shows the full toolbar.</summary>
+    public const double TierChipsMinWidth = 880, StatusSegmentMinWidth = 560;
+
+    public static (bool TierChips, bool StatusSegment) FitToolbar(double availableWidth) =>
+        availableWidth <= 0 ? (true, true) : (availableWidth >= TierChipsMinWidth, availableWidth >= StatusSegmentMinWidth);
+
     public static TrackListColumns Fit(double availableWidth, bool wantFormat, bool wantForensics, bool wantDuration)
     {
         bool energy = true, format = wantFormat, forensics = wantForensics, duration = wantDuration, rating = true;
