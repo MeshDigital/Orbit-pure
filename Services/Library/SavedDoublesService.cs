@@ -26,7 +26,7 @@ public sealed class SavedDoublesService : ISavedDoublesService
     public SavedDoublesService(ILogger<SavedDoublesService> logger)
     {
         _logger = logger;
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var appData = SLSKDONET.Data.OrbitPaths.RoamingRoot;
         _path = Path.Combine(appData, "ORBIT", "saved_doubles.json");
     }
 

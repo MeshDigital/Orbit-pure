@@ -32,7 +32,7 @@ public sealed class KeyboardMappingService : IKeyboardMappingService, IDisposabl
         _logger = logger;
 
         _profilePath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            SLSKDONET.Data.OrbitPaths.RoamingRoot,
             "ORBIT-Pure",
             "keyboard-profile.json");
 

@@ -54,7 +54,7 @@ public sealed class BeatGridRecomputeService
     }
 
     private static string OrbitDataDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ORBIT");
+        Path.Combine(SLSKDONET.Data.OrbitPaths.RoamingRoot, "ORBIT");
 
     private static string MarkerPath => Path.Combine(OrbitDataDir, "Backups", $"{PassName}.done");
 

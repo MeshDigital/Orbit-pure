@@ -21,7 +21,7 @@ public class ColumnConfigurationService : IDisposable
     public ColumnConfigurationService(ILogger<ColumnConfigurationService> logger)
     {
         _logger = logger;
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var appData = SLSKDONET.Data.OrbitPaths.RoamingRoot;
         _configPath = Path.Combine(appData, "ORBIT", "column_config.json");
 
         _saveSubscription = _saveSubject

@@ -25,7 +25,7 @@ public class TrackAuditLogger : ITrackAuditLogger, IDisposable
         _logger = logger;
         _diagnostics = diagnostics;
         _baseLogsDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            SLSKDONET.Data.OrbitPaths.RoamingRoot,
             "ORBIT",
             "TrackLogs"
         );

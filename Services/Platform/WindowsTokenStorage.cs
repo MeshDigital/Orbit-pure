@@ -22,7 +22,7 @@ public class WindowsTokenStorage : ISecureTokenStorage
         _logger = logger;
         
         // Store in user's AppData\Local folder
-        var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var appDataPath = SLSKDONET.Data.OrbitPaths.LocalRoot;
         var appFolder = Path.Combine(appDataPath, "ORBIT");
         Directory.CreateDirectory(appFolder);
         

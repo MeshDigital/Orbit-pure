@@ -52,7 +52,7 @@ public sealed class DiscoveryCache
     {
         _logger = logger;
         _directory = directoryOverride ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ORBIT", "DiscoverCache");
+            SLSKDONET.Data.OrbitPaths.RoamingRoot, "ORBIT", "DiscoverCache");
     }
 
     public DiscoveryCacheEntry? Load(Guid playlistId)

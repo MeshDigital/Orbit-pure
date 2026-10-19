@@ -501,7 +501,11 @@ public partial class App : Application
                 appConfig = new AppConfig();
             }
             if (string.IsNullOrEmpty(appConfig.DownloadDirectory))
-                appConfig.DownloadDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "SLSKDONET");
+                appConfig.DownloadDirectory = AppConfig.FallbackDownloadDirectory;
+            // A --profile / --setup-preview instance usually runs next to the real ORBIT, which
+            // already holds the Soulseek listen port; give the preview its own free port.
+            if (SLSKDONET.Data.OrbitPaths.IsProfileOverridden)
+                appConfig.ListenPort = SLSKDONET.Services.Setup.PortProbe.FindFreePortFrom(appConfig.ListenPort);
             return appConfig;
         });
 

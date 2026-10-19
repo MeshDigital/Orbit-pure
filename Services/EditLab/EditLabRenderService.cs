@@ -51,9 +51,14 @@ public class EditLabRenderService
         _outputDirectoryOverride = outputDirectoryOverride;
     }
 
-    /// <summary>&lt;download folder&gt;/ORBIT Edits, or &lt;library dir&gt;/EditLab/Renders when no download folder is set.</summary>
+    /// <summary>
+    /// The configured Edit Lab output folder ([EditLab] OutputDirectory, set in Settings or the
+    /// setup wizard); otherwise &lt;download folder&gt;/ORBIT Edits, or &lt;library dir&gt;/EditLab/Renders
+    /// when no download folder is set.
+    /// </summary>
     public string OutputDirectory =>
         _outputDirectoryOverride
+        ?? (!string.IsNullOrWhiteSpace(_config?.EditLabOutputDirectory) ? _config!.EditLabOutputDirectory! : null)
         ?? (!string.IsNullOrWhiteSpace(_config?.DownloadDirectory) && Directory.Exists(_config!.DownloadDirectory)
             ? Path.Combine(_config.DownloadDirectory!, "ORBIT Edits")
             : Path.Combine(EditProjectStore.DefaultRoot(), "Renders"));
