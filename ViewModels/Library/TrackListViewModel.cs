@@ -721,6 +721,11 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     public bool ShowForensicsColumn => _columns.Forensics;
     public bool ShowDurationColumn => _columns.Duration;
     public bool ShowRatingColumn => _columns.Rating;
+    public bool ShowQueueAction => _columns.QueueAction;
+    public bool ShowInsertAction => _columns.InsertAction;
+    public bool ShowArtistColumn => _columns.ArtistColumn;
+    /// <summary>Narrow list: the artist is shown as a second line under the title instead.</summary>
+    public bool ShowArtistUnderTitle => !_columns.ArtistColumn;
 
     private void RefitColumns()
     {
@@ -732,6 +737,10 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(ShowForensicsColumn));
         this.RaisePropertyChanged(nameof(ShowDurationColumn));
         this.RaisePropertyChanged(nameof(ShowRatingColumn));
+        this.RaisePropertyChanged(nameof(ShowQueueAction));
+        this.RaisePropertyChanged(nameof(ShowInsertAction));
+        this.RaisePropertyChanged(nameof(ShowArtistColumn));
+        this.RaisePropertyChanged(nameof(ShowArtistUnderTitle));
     }
     
     // ListBox Selection Binding

@@ -211,16 +211,19 @@
             </Grid>
         </Border>
 
-        <!-- Column header. Widths must match the row template and TrackListColumnLayout. -->
-        <controls:VirtualGridHeader Grid.Row="2">
-            <controls:VirtualGridHeader.HeaderContent>
+        <!-- Column header. Same ColumnDefinitions as the row template and the widths in
+             TrackListColumnLayout. A plain Border, not VirtualGridHeader: that control's 16 px side
+             padding put every label 16 px right of its column. Optional columns are Auto + a
+             fixed-width Panel, so a hidden column takes no space. Title is the only star column and
+             keeps MinWidth 180. -->
+        <Border Grid.Row="2" Background="{StaticResource BrushBg2}" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
                 <Grid Height="32">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="60"/>
-                        <ColumnDefinition Width="44"/>
-                        <ColumnDefinition Width="32"/>
-                        <ColumnDefinition Width="150"/>
-                        <ColumnDefinition Width="*" MinWidth="150"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*" MinWidth="180"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="110"/>
                         <ColumnDefinition Width="Auto"/>
@@ -228,22 +231,37 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <Button Grid.Column="3" Classes="sort" Margin="12,0"
-                            Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Artist}">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <TextBlock Classes="col" Text="ARTIST"/>
-                            <PathIcon Data="{StaticResource icon_chevron_up}" IsVisible="{Binding IsSortedByArtistAscending}"/>
-                            <PathIcon Data="{StaticResource icon_chevron_down}" IsVisible="{Binding IsSortedByArtistDescending}"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Grid.Column="4" Classes="sort" Margin="12,0"
-                            Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Title}">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <TextBlock Classes="col" Text="TITLE"/>
-                            <PathIcon Data="{StaticResource icon_chevron_up}" IsVisible="{Binding IsSortedByTitleAscending}"/>
-                            <PathIcon Data="{StaticResource icon_chevron_down}" IsVisible="{Binding IsSortedByTitleDescending}"/>
-                        </StackPanel>
-                    </Button>
+                    <Panel Grid.Column="1" Width="44" IsVisible="{Binding ShowQueueAction}"/>
+                    <Panel Grid.Column="2" Width="32" IsVisible="{Binding ShowInsertAction}"/>
+                    <Panel Grid.Column="3" Width="150" IsVisible="{Binding ShowArtistColumn}">
+                        <Button Classes="sort" Margin="12,0"
+                                Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Artist}">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Classes="col" Text="ARTIST"/>
+                                <PathIcon Data="{StaticResource icon_chevron_up}" IsVisible="{Binding IsSortedByArtistAscending}"/>
+                                <PathIcon Data="{StaticResource icon_chevron_down}" IsVisible="{Binding IsSortedByArtistDescending}"/>
+                            </StackPanel>
+                        </Button>
+                    </Panel>
+                    <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8" Margin="12,0" ClipToBounds="True">
+                        <Button Classes="sort"
+                                Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Title}">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Classes="col" Text="TITLE"/>
+                                <PathIcon Data="{StaticResource icon_chevron_up}" IsVisible="{Binding IsSortedByTitleAscending}"/>
+                                <PathIcon Data="{StaticResource icon_chevron_down}" IsVisible="{Binding IsSortedByTitleDescending}"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Narrow list: the artist sits under the title, so its sort button moves here. -->
+                        <Button Classes="sort" IsVisible="{Binding ShowArtistUnderTitle}"
+                                Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Artist}">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Classes="col" Text="ARTIST"/>
+                                <PathIcon Data="{StaticResource icon_chevron_up}" IsVisible="{Binding IsSortedByArtistAscending}"/>
+                                <PathIcon Data="{StaticResource icon_chevron_down}" IsVisible="{Binding IsSortedByArtistDescending}"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
                     <Panel Grid.Column="5" Width="90" IsVisible="{Binding ShowEnergyColumn}">
                         <TextBlock Classes="col" Text="ENERGY" Margin="8,0"/>
                     </Panel>
@@ -276,8 +294,7 @@
                         <TextBlock Classes="col" Text="RATING" Margin="12,0"/>
                     </Panel>
                 </Grid>
-            </controls:VirtualGridHeader.HeaderContent>
-        </controls:VirtualGridHeader>
+        </Border>
 
         <!-- SelectionChanged is wired in code-behind (it used to be wired here as well, so every
              selection change ran UpdateSelection twice). -->
@@ -359,10 +376,10 @@
                         <Grid Grid.Row="0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="60"/>
-                                <ColumnDefinition Width="44"/>
-                                <ColumnDefinition Width="32"/>
-                                <ColumnDefinition Width="150"/>
-                                <ColumnDefinition Width="*" MinWidth="150"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*" MinWidth="180"/>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="110"/>
                                 <ColumnDefinition Width="Auto"/>
@@ -389,29 +406,41 @@
                                          ToolTip.Tip="{Binding StatusText}"/>
                             </Panel>
 
-                            <!-- Queue (hover) -->
-                            <Button Grid.Column="1" Classes="icon small row-action"
-                                    Command="{ReflectionBinding $parent[UserControl].DataContext.Operations.AddToQueueCommand}"
-                                    CommandParameter="{Binding}"
-                                    HorizontalAlignment="Left" Margin="8,0,0,0"
-                                    ToolTip.Tip="Add to queue (or the selected tracks)">
-                                <PathIcon Data="{StaticResource icon_add}" Width="14" Height="14"/>
-                            </Button>
+                            <!-- Queue (hover). A narrow list drops it; the context menu still has it. -->
+                            <Panel Grid.Column="1" Width="44" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowQueueAction}">
+                                <Button Classes="icon small row-action"
+                                        Command="{ReflectionBinding $parent[UserControl].DataContext.Operations.AddToQueueCommand}"
+                                        CommandParameter="{Binding}"
+                                        HorizontalAlignment="Left" Margin="8,0,0,0"
+                                        ToolTip.Tip="Add to queue (or the selected tracks)">
+                                    <PathIcon Data="{StaticResource icon_add}" Width="14" Height="14"/>
+                                </Button>
+                            </Panel>
 
                             <!-- Smart insert (hover): add a track that fits between this row and the next. -->
-                            <Button Grid.Column="2" Classes="icon small row-action insert-affordance"
-                                    Command="{ReflectionBinding $parent[views:LibraryPage].DataContext.PrepareSmartInsertAfterTrackCommand}"
-                                    CommandParameter="{Binding}"
-                                    HorizontalAlignment="Left"
-                                    ToolTip.Tip="Find a track that fits between this row and the next">
-                                <PathIcon Data="{StaticResource icon_wand}" Width="14" Height="14"/>
-                            </Button>
+                            <Panel Grid.Column="2" Width="32" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowInsertAction}">
+                                <Button Classes="icon small row-action insert-affordance"
+                                        Command="{ReflectionBinding $parent[views:LibraryPage].DataContext.PrepareSmartInsertAfterTrackCommand}"
+                                        CommandParameter="{Binding}"
+                                        HorizontalAlignment="Left"
+                                        ToolTip.Tip="Find a track that fits between this row and the next">
+                                    <PathIcon Data="{StaticResource icon_wand}" Width="14" Height="14"/>
+                                </Button>
+                            </Panel>
 
-                            <TextBlock Grid.Column="3" Text="{Binding Artist}" Classes="body-sm" Margin="12,0"
-                                       VerticalAlignment="Center" Foreground="{StaticResource BrushText1}" TextTrimming="CharacterEllipsis"/>
+                            <Panel Grid.Column="3" Width="150" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowArtistColumn}">
+                                <TextBlock Text="{Binding Artist}" Classes="body-sm" Margin="12,0"
+                                           VerticalAlignment="Center" Foreground="{StaticResource BrushText1}" TextTrimming="CharacterEllipsis"/>
+                            </Panel>
 
-                            <TextBlock Grid.Column="4" Text="{Binding Title}" Classes="body" Margin="12,0"
-                                       VerticalAlignment="Center" Foreground="{StaticResource BrushText0}" FontWeight="Medium" TextTrimming="CharacterEllipsis"/>
+                            <!-- Title. In a narrow list the artist folds onto a second line here. -->
+                            <StackPanel Grid.Column="4" Margin="12,0" VerticalAlignment="Center" Spacing="0">
+                                <TextBlock Text="{Binding Title}" Classes="body" Foreground="{StaticResource BrushText0}" FontWeight="Medium"
+                                           TextTrimming="CharacterEllipsis" MaxLines="1"/>
+                                <TextBlock Text="{Binding Artist}" Classes="caption" Foreground="{StaticResource BrushText1}"
+                                           TextTrimming="CharacterEllipsis" MaxLines="1"
+                                           IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowArtistUnderTitle}"/>
+                            </StackPanel>
 
                             <!-- Energy contour (analysed audio) -->
                             <Panel Grid.Column="5" Width="90" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowEnergyColumn}">

@@ -83,10 +83,12 @@
             <!-- The width binds to the column itself (not a child's Width) so the GridSplitter drag
                  round-trips into LibraryNavPanelWidth. MinWidth 260 keeps every playlist row fully
                  readable (art, name, stats, actions); it drops to 60 when the rail is collapsed so
-                 collapsing actually hands the space back to the track list. -->
+                 collapsing actually hands the space back to the track list. MaxWidth follows the page
+                 width (LibraryViewModel.FitNavPanelMaxWidth, at most a third of the page) so a wide
+                 panel plus the context panel can't squeeze the track list below a readable title. -->
             <ColumnDefinition Width="{Binding LibraryNavPanelWidth, Mode=TwoWay, Converter={StaticResource GridLengthPixelConverter}}"
                               MinWidth="{Binding IsNavigationCollapsed, Converter={StaticResource BoolToWidthConverter}, ConverterParameter='60,260'}"
-                              MaxWidth="560"/>
+                              MaxWidth="{Binding LibraryNavPanelMaxWidth}"/>
             <ColumnDefinition Width="4"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>

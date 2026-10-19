@@ -552,17 +552,41 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     /// between sessions. Bounded so the page beside it always keeps room for a track list.</summary>
     public double ContextPanelWidth
     {
-        get => Math.Clamp(_config.ContextPanelWidth, MinContextPanelWidth, MaxContextPanelWidth);
+        get => FitContextPanelWidth(_config.ContextPanelWidth, _windowWidth);
         set
         {
-            int width = (int)Math.Round(Math.Clamp(value, MinContextPanelWidth, MaxContextPanelWidth));
+            int width = (int)Math.Round(FitContextPanelWidth(value, _windowWidth));
             if (width == _config.ContextPanelWidth) return;
             _config.ContextPanelWidth = width;
             OnPropertyChanged(nameof(ContextPanelWidth));
         }
     }
 
-    public const double MinContextPanelWidth = 300, MaxContextPanelWidth = 800;
+    public const double MinContextPanelWidth = 300, MaxContextPanelWidth = 800, ContextPanelMaxWindowShare = 0.35;
+
+    /// <summary>The width the context panel is shown at: the saved width, but never more than 35% of
+    /// the window (and 300–800 px). A saved ~590 px panel on a ~1400 px window left the Library track
+    /// list ~320 px, too narrow for a title. The saved width is kept, so a wider window gets it back.</summary>
+    public static double FitContextPanelWidth(double savedWidth, double windowWidth)
+    {
+        double max = MaxContextPanelWidth;
+        if (windowWidth > 0)
+            max = Math.Min(max, Math.Max(MinContextPanelWidth, windowWidth * ContextPanelMaxWindowShare));
+        return Math.Clamp(savedWidth, MinContextPanelWidth, max);
+    }
+
+    private double _windowWidth;
+    /// <summary>Set by MainWindow on resize so <see cref="ContextPanelWidth"/> can follow the window.</summary>
+    public double WindowWidth
+    {
+        get => _windowWidth;
+        set
+        {
+            if (Math.Abs(_windowWidth - value) < 1) return;
+            _windowWidth = value;
+            OnPropertyChanged(nameof(ContextPanelWidth));
+        }
+    }
 
     /// <summary>Called when a resize drag ends, so dragging doesn't write the config on every pixel.</summary>
     public void SaveContextPanelWidth()

@@ -32,7 +32,7 @@ public partial class LibraryPage : UserControl
         DataContext = viewModel; // CRITICAL: Set DataContext from DI
         InitializeComponent();
         AttachLibraryViewModel(viewModel);
-        
+
         // Drag-drop onto the playlist tree (tracks into a playlist, playlists/folders into a folder)
         AddHandler(DragDrop.DragOverEvent, OnPlaylistDragOver);
         AddHandler(DragDrop.DropEvent, OnPlaylistDrop);
@@ -46,6 +46,13 @@ public partial class LibraryPage : UserControl
             playlistTreeView.AddHandler(PointerMovedEvent, OnPlaylistTreeItemPointerMoved, RoutingStrategies.Tunnel);
             playlistTreeView.AddHandler(PointerReleasedEvent, OnPlaylistTreeItemPointerReleased, RoutingStrategies.Tunnel);
         }
+    }
+
+    protected override void OnSizeChanged(SizeChangedEventArgs e)
+    {
+        base.OnSizeChanged(e);
+        // The playlist panel's max width is a share of the page (LibraryViewModel.FitNavPanelMaxWidth).
+        (DataContext as LibraryViewModel)?.OnLibraryPageResized(e.NewSize.Width);
     }
 
     private void OpenDiscover_Click(object? sender, RoutedEventArgs e)

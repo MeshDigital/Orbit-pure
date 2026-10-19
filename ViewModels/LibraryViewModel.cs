@@ -185,6 +185,32 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         set { SetProperty(ref _libraryNavPanelWidth, value); }
     }
 
+    public const double NavPanelMinExpandedWidth = 260, NavPanelAbsoluteMaxWidth = 560, NavPanelMaxShare = 0.32;
+
+    /// <summary>The widest the playlist panel may be on a Library page this wide: at most a third of
+    /// the page, never under its 260 px readable minimum or over 560 px. Without the page-relative cap
+    /// a wide panel plus the context panel left the track list ~320 px, too narrow for a title.</summary>
+    public static double FitNavPanelMaxWidth(double pageWidth) =>
+        pageWidth > 0
+            ? Math.Clamp(pageWidth * NavPanelMaxShare, NavPanelMinExpandedWidth, NavPanelAbsoluteMaxWidth)
+            : NavPanelAbsoluteMaxWidth;
+
+    private double _libraryNavPanelMaxWidth = NavPanelAbsoluteMaxWidth;
+    /// <summary>Bound to the playlist column's MaxWidth. The dragged width is kept as it is; the grid
+    /// just won't render it wider than this.</summary>
+    public double LibraryNavPanelMaxWidth
+    {
+        get => _libraryNavPanelMaxWidth;
+        private set => SetProperty(ref _libraryNavPanelMaxWidth, value);
+    }
+
+    /// <summary>Set by LibraryPage when it is resized.</summary>
+    public void OnLibraryPageResized(double pageWidth)
+    {
+        var max = FitNavPanelMaxWidth(pageWidth);
+        if (Math.Abs(max - _libraryNavPanelMaxWidth) >= 1) LibraryNavPanelMaxWidth = max;
+    }
+
     public double LibrarySmartInsertMinConfidence
     {
         get => Intelligence.LibrarySmartInsertMinConfidence;
