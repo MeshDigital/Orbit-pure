@@ -143,24 +143,23 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             {
                 oldCol.CollectionChanged -= OnFilteredTracksChanged;
             }
-            if (_filteredTracks is INotifyPropertyChanged oldNpc)
+            if (_filteredTracks is VirtualizedTrackCollection oldVtc)
             {
-                oldNpc.PropertyChanged -= OnFilteredTracksPropertyChanged;
+                oldVtc.PropertyChanged -= OnFilteredTracksPropertyChanged;
             }
 
             this.RaiseAndSetIfChanged(ref _filteredTracks, value);
             this.RaisePropertyChanged(nameof(IsLibraryEmpty));
-            this.RaisePropertyChanged(nameof(HasTrackLoadError));
-            this.RaisePropertyChanged(nameof(TrackLoadErrorMessage));
 
             if (_filteredTracks is INotifyCollectionChanged newCol)
             {
                 newCol.CollectionChanged += OnFilteredTracksChanged;
             }
-            if (_filteredTracks is INotifyPropertyChanged newNpc)
+            if (_filteredTracks is VirtualizedTrackCollection newVtc)
             {
-                newNpc.PropertyChanged += OnFilteredTracksPropertyChanged;
+                newVtc.PropertyChanged += OnFilteredTracksPropertyChanged;
             }
+            RaiseTrackLoadErrorChanged();
 
             UpdateLimitedTracks();
             // FilteredTracks — not CurrentProjectTracks — is what TrackListView.axaml's ItemsControl
@@ -179,23 +178,31 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         }
     }
 
-    /// <summary>The virtualised list couldn't load rows its count promised (see VirtualizedTrackCollection.HasLoadError).</summary>
-    public bool HasTrackLoadError => (FilteredTracks as VirtualizedTrackCollection)?.HasLoadError == true;
+    /// <summary>
+    /// Why the current list's tracks couldn't be loaded from the database, or null. Shown as the
+    /// list's error state (with Retry) instead of "0 tracks" or rows stuck on "Loading…".
+    /// </summary>
+    public string? TrackLoadErrorMessage =>
+        (FilteredTracks as VirtualizedTrackCollection)?.LoadErrorMessage is { } error
+            ? $"Couldn't load these tracks: {error}"
+            : null;
 
-    public string TrackLoadErrorMessage => (FilteredTracks as VirtualizedTrackCollection)?.LoadErrorMessage ?? string.Empty;
+    public bool HasTrackLoadError => TrackLoadErrorMessage != null;
 
-    private void OnFilteredTracksPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    public System.Windows.Input.ICommand RetryLoadTracksCommand { get; private set; } = null!;
+
+    private void OnFilteredTracksPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (!ReferenceEquals(sender, _filteredTracks)) return;
-        if (e.PropertyName is nameof(VirtualizedTrackCollection.HasLoadError) or nameof(VirtualizedTrackCollection.LoadErrorMessage))
-        {
-            this.RaisePropertyChanged(nameof(HasTrackLoadError));
-            this.RaisePropertyChanged(nameof(TrackLoadErrorMessage));
-        }
+        if (e.PropertyName == nameof(VirtualizedTrackCollection.LoadErrorMessage))
+            RaiseTrackLoadErrorChanged();
         else if (e.PropertyName == nameof(VirtualizedTrackCollection.Count))
-        {
             this.RaisePropertyChanged(nameof(IsLibraryEmpty));
-        }
+    }
+
+    private void RaiseTrackLoadErrorChanged()
+    {
+        this.RaisePropertyChanged(nameof(TrackLoadErrorMessage));
+        this.RaisePropertyChanged(nameof(HasTrackLoadError));
     }
 
     private void OnFilteredTracksChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -649,8 +656,6 @@ public class TrackListViewModel : ReactiveObject, IDisposable
 
     public System.Windows.Input.ICommand ClearFiltersCommand { get; private set; } = null!;
 
-    /// <summary>Error state "Retry": rebuilds the track list from the database.</summary>
-    public System.Windows.Input.ICommand RetryLoadTracksCommand { get; private set; } = null!;
     public System.Windows.Input.ICommand ClearCamelotKeyFilterCommand { get; private set; } = null!;
     public System.Windows.Input.ICommand ClearDuplicateFilterCommand { get; private set; } = null!;
 

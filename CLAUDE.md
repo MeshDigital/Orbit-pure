@@ -46,7 +46,9 @@ UI contract: `DOCS/UI_DESIGN_SYSTEM.md`.
 - A throwing constructor poisons a DI singleton for the app lifetime — non-critical services degrade, never throw.
 - Never set `IWavePlayer.Volume` (it is the Windows master volume on WASAPI); use `VolumeSampleProvider`.
 - Never seek `AudioFileReader` directly on FLAC/M4A; use `Services/Audio/ExactSeek`.
-- Schema changes: never `dotnet ef migrations add`; patch via `SchemaMigratorService` raw SQL.
+- Schema changes: never `dotnet ef migrations add`; patch via `SchemaMigratorService` raw SQL. `SchemaReconciler`
+  adds anything the EF model has that a DB lacks, and `FreshDatabaseSchemaParityTests` guards new installs
+  (see "Schema changes" in ARCHITECTURE.md).
 - Tests must use the isolated DB (`ORBIT_DB_PATH` + `TestDatabaseSetup`, `OrbitPaths.LibraryDbPath`).
   Never touch the user's `%AppData%/ORBIT/config.ini` or live `library.db`.
 - Don't launch/close the user's running ORBIT.exe unless a build genuinely needs the file unlocked.

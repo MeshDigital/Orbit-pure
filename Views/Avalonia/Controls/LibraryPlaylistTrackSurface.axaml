@@ -111,15 +111,29 @@
 
         <!-- Empty state — the ItemsRepeater below rendered nothing but blank space when the playlist
              had zero (filtered) tracks. -->
-        <StackPanel Grid.Row="1" Classes="empty-state"
-                    IsVisible="{Binding FilteredTracks.Count, Converter={StaticResource NumericIsZeroConverter}}">
+        <!-- Error: the track query failed — not "empty", and not rows stuck on loading. -->
+        <StackPanel Grid.Row="1" Classes="empty-state" IsVisible="{Binding HasTrackLoadError}">
+            <PathIcon Data="{StaticResource icon_alert}" Foreground="{StaticResource BrushError}"/>
+            <TextBlock Classes="h3" Text="Couldn't load your library"/>
+            <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center" Text="{Binding TrackLoadErrorMessage}"/>
+            <Button Classes="secondary" Content="Retry" Command="{Binding RetryLoadTracksCommand}"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Classes="empty-state">
+            <StackPanel.IsVisible>
+                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                    <Binding Path="FilteredTracks.Count" Converter="{StaticResource NumericIsZeroConverter}"/>
+                    <Binding Path="!HasTrackLoadError"/>
+                </MultiBinding>
+            </StackPanel.IsVisible>
             <PathIcon Data="{StaticResource icon_filter}"/>
             <TextBlock Classes="h3" Text="No tracks to show"/>
             <TextBlock Classes="caption" Text="This playlist is empty, or nothing matches the current filters."/>
             <Button Classes="secondary" Content="Clear filters" Command="{Binding ClearFiltersCommand}" IsVisible="{Binding HasActiveFilters}"/>
         </StackPanel>
 
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" ScrollChanged="OnTrackScrollChanged">
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" ScrollChanged="OnTrackScrollChanged"
+                      IsVisible="{Binding !HasTrackLoadError}">
             <ItemsRepeater ItemsSource="{Binding FilteredTracks}">
                 <ItemsRepeater.Layout>
                     <StackLayout Spacing="0"/>

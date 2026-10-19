@@ -335,6 +335,7 @@
              selection change ran UpdateSelection twice). -->
         <controls:VirtualGrid Grid.Row="3" Name="TrackGrid"
                               ItemsSource="{Binding FilteredTracks}"
+                              IsVisible="{Binding !HasTrackLoadError}"
                               SelectionMode="Multiple">
             <controls:VirtualGrid.ContextMenu>
                 <ContextMenu>
@@ -563,6 +564,14 @@
             </controls:VirtualGrid.ItemTemplate>
         </controls:VirtualGrid>
 
+        <!-- Error: the track query failed (not "empty", not "still loading") -->
+        <StackPanel Grid.Row="3" Classes="empty-state" IsVisible="{Binding HasTrackLoadError}">
+            <PathIcon Data="{StaticResource icon_alert}" Foreground="{StaticResource BrushError}"/>
+            <TextBlock Classes="h3" Text="Couldn't load your library"/>
+            <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center" Text="{Binding TrackLoadErrorMessage}"/>
+            <Button Classes="secondary" Content="Retry" Command="{Binding RetryLoadTracksCommand}"/>
+        </StackPanel>
+
         <!-- Empty: nothing in this playlist / library -->
         <StackPanel Grid.Row="3" Classes="empty-state">
             <StackPanel.IsVisible>
@@ -591,15 +600,6 @@
             <TextBlock Classes="h3" Text="No tracks match"/>
             <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center" Text="Nothing in this list matches the current search and filters."/>
             <Button Classes="secondary" Content="Clear filters" Command="{Binding ClearFiltersCommand}"/>
-        </StackPanel>
-
-        <!-- Error: the count found tracks the page query can't load (rows shrink to what did
-             load, so "Loading…" placeholders never sit forever). -->
-        <StackPanel Grid.Row="3" Classes="empty-state" IsVisible="{Binding HasTrackLoadError}" VerticalAlignment="Bottom" Margin="0,0,0,24">
-            <PathIcon Data="{StaticResource icon_alert}" Foreground="{StaticResource BrushError}"/>
-            <TextBlock Classes="h3" Text="Couldn't load these tracks"/>
-            <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center" Text="{Binding TrackLoadErrorMessage}"/>
-            <Button Classes="secondary" Content="Retry" Command="{Binding RetryLoadTracksCommand}"/>
         </StackPanel>
     </Grid>
 </UserControl>
