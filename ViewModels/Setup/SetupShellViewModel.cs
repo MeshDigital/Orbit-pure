@@ -19,6 +19,7 @@ public sealed class SetupShellViewModel : SetupObservable, IDisposable
     private readonly IDisposable? _tourSubscription;
     private readonly Action? _onWizardOpened;
     private readonly Action? _onWizardClosed;
+    private readonly Action<Action> _post;
     private SetupWizardViewModel? _wizard;
 
     public SetupShellViewModel(
@@ -28,8 +29,10 @@ public sealed class SetupShellViewModel : SetupObservable, IDisposable
         IEventBus? eventBus = null,
         Action? onWizardOpened = null,
         Action? onWizardClosed = null,
-        SLSKDONET.Views.INotificationService? notifications = null)
+        SLSKDONET.Views.INotificationService? notifications = null,
+        Action<Action>? postToUi = null)
     {
+        _post = postToUi ?? (action => Dispatcher.UIThread.Post(action));
         _wizardFactory = wizardFactory;
         _logger = logger;
         _onWizardOpened = onWizardOpened;
@@ -39,9 +42,9 @@ public sealed class SetupShellViewModel : SetupObservable, IDisposable
         if (eventBus != null)
         {
             _openSubscription = eventBus.GetEvent<OpenSetupWizardRequestedEvent>()
-                .Subscribe(_ => Dispatcher.UIThread.Post(OpenWizard));
+                .Subscribe(_ => _post(OpenWizard));
             _tourSubscription = eventBus.GetEvent<StartTourRequestedEvent>()
-                .Subscribe(_ => Dispatcher.UIThread.Post(StartTour));
+                .Subscribe(_ => _post(StartTour));
         }
     }
 
@@ -110,7 +113,7 @@ public sealed class SetupShellViewModel : SetupObservable, IDisposable
         }
 
         if (outcome == SetupWizardOutcome.FinishedStartTour)
-            Dispatcher.UIThread.Post(StartTour);
+            _post(StartTour);
     }
 
     public void Dispose()
