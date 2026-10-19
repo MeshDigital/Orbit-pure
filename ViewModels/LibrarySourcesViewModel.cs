@@ -122,6 +122,12 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
 
             _logger.LogInformation("Library folder watch {State}: {Path}", newValue ? "enabled" : "disabled", folderVm.FolderPath);
             _eventBus.Publish(new LibraryFoldersChangedEvent());
+
+            // The watcher only sees files that appear from now on. A folder that was never
+            // scanned gets its first, full import through the import sheet (the watcher holds
+            // its own events for that folder until it finishes).
+            if (newValue && folder.LastScannedAt == null)
+                await _importLauncher.StartImportAsync(new[] { folder.Id }, $"Importing {System.IO.Path.GetFileName(folder.FolderPath.TrimEnd('\\', '/'))}");
         }
         catch (Exception ex)
         {

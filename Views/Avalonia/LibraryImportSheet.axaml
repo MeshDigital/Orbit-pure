@@ -132,6 +132,9 @@
                     <TextBlock Classes="caption" IsVisible="{Binding HasUpgraded}" TextWrapping="Wrap"
                                Text="{Binding Upgraded, StringFormat='{}{0:N0} duplicates replaced a lower-quality copy (the old file is listed under Library Health → removal candidates).'}"/>
 
+                    <TextBlock Classes="caption error" IsVisible="{Binding HasFailed}" TextWrapping="Wrap"
+                               Text="{Binding Failed, StringFormat='{}{0:N0} files were read but could not be saved to the library. See Show details.'}"/>
+
                     <!-- Problems + details -->
                     <Border Classes="callout warning" IsVisible="{Binding HasIssues}">
                         <StackPanel Spacing="8">

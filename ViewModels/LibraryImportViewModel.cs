@@ -276,7 +276,9 @@ public sealed class LibraryImportViewModel : INotifyPropertyChanged, IDisposable
             if (_result.Error != null) return $"Something went wrong: {_result.Error} Tracks added before the error are kept.";
             var added = _result.Added == 1 ? "1 track" : $"{_result.Added:N0} tracks";
             if (_result.WasCancelled) return $"Stopped early. {added} added and kept in your library.";
-            if (_result.FilesFound == 0 && _result.Unsupported == 0) return "No music files were found in this folder.";
+            if (_result.FolderPaths.Count == 0) return "There are no library folders to scan yet. Add a music folder first.";
+            if (_result.FilesFound == 0 && _result.Unsupported == 0)
+                return _result.FolderPaths.Count == 1 ? "No music files were found in this folder." : "No music files were found in these folders.";
             if (_result.Added == 0) return "Nothing new: everything here is already in your library.";
             return $"{added} added to your library.";
         }

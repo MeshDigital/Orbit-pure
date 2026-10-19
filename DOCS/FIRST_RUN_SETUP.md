@@ -34,7 +34,7 @@ wizard, marks it completed and shows a toast that it can be reopened from Settin
 | Folders (recommended) | `[Download] Directory`, `SharedFolder`, `[Library] EnableLibrarySharing`, `[EditLab] OutputDirectory`; new Library Sources (with watch flag); creates missing folders | `ConfigSetupSettingsGateway`, `LibraryFolderSetupGateway` |
 | Connections | Spotify tokens, only when "Connect Spotify" is pressed | `SettingsViewModel.ConnectSpotifyAsync` (same flow as Settings) |
 | Audio and analysis | `[Playback] AudioOutputMode`, `AudioOutputDeviceName`, `[Analysis] AnalyzeNewDownloads` | `ConfigSetupSettingsGateway` (+ `IAudioPlayerService.ApplyOutputSettings`) |
-| Done | nothing; "Scan now" starts a Library Sources scan | `LibraryFolderScannerService` |
+| Done | nothing; "Scan now" opens the import sheet over every Library Source (phases, Cancel, Run in background, summary) | `ILibraryImportLauncher` → `LibraryImportViewModel` → `LibraryFolderScannerService.ImportFoldersAsync` |
 
 **Test connection** signs in for real through `IConnectionLifecycleService` (the same path as the
 login dialog), so a successful test leaves ORBIT connected. Next without a successful test runs
