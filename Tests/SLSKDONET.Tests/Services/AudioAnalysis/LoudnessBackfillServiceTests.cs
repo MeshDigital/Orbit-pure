@@ -127,6 +127,7 @@ public sealed class LoudnessBackfillServiceTests : IDisposable
         Seed("belowgate", -80f);       // under the absolute gate = unknown
         Seed("valid", -9.5f);          // real LUFS: leave alone
         Seed("gone", 0.8f, fileExists: false);
+        Seed("silent", SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.SilentMarker); // measured: silent, don't re-pick
 
         var service = CreateService(Constant(-10));
         var candidates = await service.FindCandidatesAsync();
@@ -173,7 +174,7 @@ public sealed class LoudnessBackfillServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Run_SilentFile_StoresUnknownLikeAnalysis_AndIsNotRetriedThisSession()
+    public async Task Run_SilentFile_StoresSilentMarker_AndIsNotRetried()
     {
         Seed("silent", 0.7f);
         var service = CreateService(Constant(null));
@@ -182,7 +183,7 @@ public sealed class LoudnessBackfillServiceTests : IDisposable
 
         Assert.Equal((1, 0, 1, 0), (result.Total, result.Measured, result.NoLoudness, result.Failed));
         var stored = Stored("silent");
-        Assert.Equal(0f, stored.Features);   // analysis's "not measured"
+        Assert.Equal(SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.SilentMarker, stored.Features); // "measured: silent", survives restarts
         Assert.Null(stored.Playlist);        // the legacy 0.7 copies are cleared
         Assert.Null(stored.Library);
         Assert.Null(stored.Track);

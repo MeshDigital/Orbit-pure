@@ -116,6 +116,17 @@ public static class IntegratedLoudnessMeter
     /// 0 default, and anything below −70 LUFS is under the absolute gate. Use this everywhere a stored
     /// loudness is shown or used for gain, so old rows don't show "0.8 LUFS" until re-analysed.
     /// </summary>
+    /// <summary>
+    /// Stored for a file that was measured but is silent / under the gate (no integrated loudness).
+    /// Distinct from 0 (legacy or never measured) so the backfill doesn't keep picking it up.
+    /// <see cref="AsLufs"/> still returns null for it: shown as "—", played at unity gain.
+    /// </summary>
+    public const float SilentMarker = -100f;
+
+    /// <summary>True when the stored value is a real measurement, including "measured: silent".</summary>
+    public static bool IsMeasured(double? stored) =>
+        AsLufs(stored) is not null || stored is double v && v <= SilentMarker + 0.5 && v >= SilentMarker - 0.5;
+
     public static double? AsLufs(double? stored) =>
         stored is double v && double.IsFinite(v) && v < 0 && v >= AbsoluteGateLufs ? v : null;
 

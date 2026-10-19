@@ -183,7 +183,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 // playback. 0 = not measured (the column is NOT NULL); readers treat ≥ 0 as unknown.
                 try
                 {
-                    features.LoudnessLUFS = (float)(IntegratedLoudnessMeter.MeasureIntegratedLufs(pcmSamples, pcmSampleRate, pcmChannels) ?? 0.0);
+                    features.LoudnessLUFS = (float)(IntegratedLoudnessMeter.MeasureIntegratedLufs(pcmSamples, pcmSampleRate, pcmChannels) ?? IntegratedLoudnessMeter.SilentMarker);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {

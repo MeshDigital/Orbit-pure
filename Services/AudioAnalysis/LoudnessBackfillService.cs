@@ -143,13 +143,14 @@ public sealed class LoudnessBackfillService : IDisposable
 
         // SQL narrows to "not in [-70, 0)"; AsLufs then applies the exact rule (non-finite included).
         var rows = await db.AudioFeatures.AsNoTracking()
-            .Where(f => !(f.LoudnessLUFS < 0f && f.LoudnessLUFS >= AbsoluteGateLufs))
+            .Where(f => !(f.LoudnessLUFS < 0f && f.LoudnessLUFS >= AbsoluteGateLufs)
+                        && !(f.LoudnessLUFS <= IntegratedLoudnessMeter.SilentMarker + 0.5f && f.LoudnessLUFS >= IntegratedLoudnessMeter.SilentMarker - 0.5f))
             .Select(f => new { f.TrackUniqueHash, f.LoudnessLUFS })
             .ToListAsync(cancellationToken).ConfigureAwait(false);
 
         var hashes = rows
             .Where(r => !string.IsNullOrEmpty(r.TrackUniqueHash)
-                        && IntegratedLoudnessMeter.AsLufs(r.LoudnessLUFS) is null
+                        && !IntegratedLoudnessMeter.IsMeasured(r.LoudnessLUFS)
                         && !_noLoudness.ContainsKey(r.TrackUniqueHash))
             .Select(r => r.TrackUniqueHash)
             .Distinct(StringComparer.Ordinal)
@@ -459,7 +460,7 @@ public sealed class LoudnessBackfillService : IDisposable
     {
         var featureValue = new Dictionary<string, float>(StringComparer.Ordinal);
         foreach (var (hash, lufs) in results)
-            featureValue[hash] = lufs is double v && double.IsFinite(v) ? (float)v : 0f;
+            featureValue[hash] = lufs is double v && double.IsFinite(v) ? (float)v : IntegratedLoudnessMeter.SilentMarker;
         var stored = featureValue.ToDictionary(kv => kv.Key, kv => IntegratedLoudnessMeter.AsLufs(kv.Value), StringComparer.Ordinal);
         var hashes = featureValue.Keys.ToList();
 
