@@ -143,13 +143,23 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             {
                 oldCol.CollectionChanged -= OnFilteredTracksChanged;
             }
+            if (_filteredTracks is INotifyPropertyChanged oldNpc)
+            {
+                oldNpc.PropertyChanged -= OnFilteredTracksPropertyChanged;
+            }
 
             this.RaiseAndSetIfChanged(ref _filteredTracks, value);
             this.RaisePropertyChanged(nameof(IsLibraryEmpty));
+            this.RaisePropertyChanged(nameof(HasTrackLoadError));
+            this.RaisePropertyChanged(nameof(TrackLoadErrorMessage));
 
             if (_filteredTracks is INotifyCollectionChanged newCol)
             {
                 newCol.CollectionChanged += OnFilteredTracksChanged;
+            }
+            if (_filteredTracks is INotifyPropertyChanged newNpc)
+            {
+                newNpc.PropertyChanged += OnFilteredTracksPropertyChanged;
             }
 
             UpdateLimitedTracks();
@@ -166,6 +176,25 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             // instead of the actually-bound collection) — same fix, same reasoning.
             ScheduleUpdateMixTransitionBadges();
             ScheduleUpdateHarmonicHighlights();
+        }
+    }
+
+    /// <summary>The virtualised list couldn't load rows its count promised (see VirtualizedTrackCollection.HasLoadError).</summary>
+    public bool HasTrackLoadError => (FilteredTracks as VirtualizedTrackCollection)?.HasLoadError == true;
+
+    public string TrackLoadErrorMessage => (FilteredTracks as VirtualizedTrackCollection)?.LoadErrorMessage ?? string.Empty;
+
+    private void OnFilteredTracksPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (!ReferenceEquals(sender, _filteredTracks)) return;
+        if (e.PropertyName is nameof(VirtualizedTrackCollection.HasLoadError) or nameof(VirtualizedTrackCollection.LoadErrorMessage))
+        {
+            this.RaisePropertyChanged(nameof(HasTrackLoadError));
+            this.RaisePropertyChanged(nameof(TrackLoadErrorMessage));
+        }
+        else if (e.PropertyName == nameof(VirtualizedTrackCollection.Count))
+        {
+            this.RaisePropertyChanged(nameof(IsLibraryEmpty));
         }
     }
 
@@ -619,6 +648,9 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         || StyleFilters.Any(f => f.IsSelected);
 
     public System.Windows.Input.ICommand ClearFiltersCommand { get; private set; } = null!;
+
+    /// <summary>Error state "Retry": rebuilds the track list from the database.</summary>
+    public System.Windows.Input.ICommand RetryLoadTracksCommand { get; private set; } = null!;
     public System.Windows.Input.ICommand ClearCamelotKeyFilterCommand { get; private set; } = null!;
     public System.Windows.Input.ICommand ClearDuplicateFilterCommand { get; private set; } = null!;
 
@@ -1000,6 +1032,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         AddToCurrentPlaylistCommand = ReactiveCommand.CreateFromTask<PlaylistTrackViewModel>(ExecuteAddToCurrentPlaylistAsync);
 
         ClearFiltersCommand = ReactiveCommand.Create(ClearFilters);
+        RetryLoadTracksCommand = ReactiveCommand.Create(RefreshFilteredTracks);
         ClearCamelotKeyFilterCommand = ReactiveCommand.Create(() => { CamelotKeyFilter = null; });
         ClearDuplicateFilterCommand = ReactiveCommand.Create(() => { DuplicateHashesFilter = null; RefreshFilteredTracks(); });
 

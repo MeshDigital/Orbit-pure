@@ -378,6 +378,18 @@ public class AnalysisTrackItem : ReactiveObject
             _analysisStatus = AnalysisRunStatus.Completed;
     }
 
+    /// <summary>Copies only the identity/metadata fields (not the analysis run state).</summary>
+    public void UpdateMetadataFrom(AnalysisTrackItem source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        Artist = source.Artist;
+        Title = source.Title;
+        Album = source.Album;
+        Bpm = source.Bpm;
+        MusicalKey = source.MusicalKey;
+        FilePath = source.FilePath;
+    }
+
     public void UpdateFrom(AnalysisTrackItem source)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -1506,7 +1518,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         if (track is null)
             return;
 
-        if (_libraryService is not null && track.Artist == "Selected Artist" && track.Title == "Selected Track")
+        if (_libraryService is not null && IsPendingMetadata(track))
         {
             try
             {
@@ -1657,17 +1669,81 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
         if (track == null)
         {
+            // Not loaded on this page yet (e.g. just imported). Show a neutral "Loading…" row and
+            // fill in the real artist/title in one batched lookup, instead of the old literal
+            // "Selected Artist — Selected Track" rows that a folder import left by the thousand.
             track = new AnalysisTrackItem(
                 evt.TrackGlobalId,
-                "Selected Artist",
-                "Selected Track");
+                PendingMetadataArtist,
+                PendingMetadataTitle);
 
             HookTrack(track);
             LibraryTracks.Add(track);
             ApplyFilter();
+            QueueMetadataLookup(evt.TrackGlobalId);
         }
 
         AddToQueue(track);
+    }
+
+    internal const string PendingMetadataArtist = "";
+    internal const string PendingMetadataTitle = "Loading track details…";
+
+    private readonly HashSet<string> _pendingMetadataLookups = new(StringComparer.OrdinalIgnoreCase);
+    private bool _metadataLookupScheduled;
+
+    private static bool IsPendingMetadata(AnalysisTrackItem track) =>
+        track.Artist == PendingMetadataArtist && track.Title == PendingMetadataTitle;
+
+    private void QueueMetadataLookup(string trackId)
+    {
+        if (_libraryService is null) return;
+        _pendingMetadataLookups.Add(trackId);
+        if (_metadataLookupScheduled) return;
+        _metadataLookupScheduled = true;
+        _ = ResolvePendingMetadataAsync();
+    }
+
+    /// <summary>Resolves every queued "Loading…" row with a few batched lookups (UI thread in, UI thread out).</summary>
+    private async Task ResolvePendingMetadataAsync()
+    {
+        try
+        {
+            // Let a burst of requests (an "Analyse 2,650 new tracks") collect first.
+            await Task.Delay(250).ConfigureAwait(true);
+            while (_pendingMetadataLookups.Count > 0 && _libraryService is not null)
+            {
+                var batch = _pendingMetadataLookups.Take(500).ToList();
+                foreach (var id in batch) _pendingMetadataLookups.Remove(id);
+
+                List<LibraryEntry> entries;
+                try
+                {
+                    entries = await _libraryService.GetLibraryEntriesByHashesAsync(batch).ConfigureAwait(true);
+                }
+                catch (Exception ex)
+                {
+                    Serilog.Log.Warning(ex, "AnalysisPage: metadata lookup for {Count} queued tracks failed", batch.Count);
+                    continue;
+                }
+
+                foreach (var entry in entries)
+                {
+                    var track = FindTrack(entry.UniqueHash);
+                    if (track is null || !IsPendingMetadata(track)) continue;
+                    track.UpdateMetadataFrom(MapLibraryEntryToTrack(entry));
+                }
+            }
+            ApplyFilter();
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "AnalysisPage: resolving queued track metadata failed");
+        }
+        finally
+        {
+            _metadataLookupScheduled = false;
+        }
     }
 
     private void OnFileIngestionQueued(FileIngestionQueuedEvent evt)

@@ -145,8 +145,103 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         }
         catch (Exception ex)
         {
+            // A count of -1 used to stick here: the grid then had no rows and no empty or error
+            // state either. Fall back to an empty list with a visible, retryable error.
             _logger.LogError(ex, "[VirtualizedTrackCollection] LoadCountAsync Failed");
+            _count = 0;
+            SetLoadError("The track list couldn't be loaded.");
+            Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(Count)));
         }
+    }
+
+    /// <summary>
+    /// True when rows the count promised can't be loaded (the page query keeps failing). The list
+    /// is shrunk to what did load, so no "Loading…" row is left that can never resolve, and the
+    /// view shows an error state with Retry instead.
+    /// </summary>
+    public bool HasLoadError { get; private set; }
+
+    public string? LoadErrorMessage { get; private set; }
+
+    private bool _reconcileInFlight;
+
+    private void SetLoadError(string message)
+    {
+        HasLoadError = true;
+        LoadErrorMessage = message;
+        Dispatcher.UIThread.Post(() =>
+        {
+            OnPropertyChanged(nameof(HasLoadError));
+            OnPropertyChanged(nameof(LoadErrorMessage));
+        });
+    }
+
+    /// <summary>
+    /// A page came back shorter than the count said it would. Re-count: if the rows are really
+    /// gone (deleted, or a write landed between the two queries) shrink to the new count; if the
+    /// count still claims rows the page query can't return, the page query is failing, so shrink
+    /// to what loaded and flag the error. Either way no placeholder row is left that can never load.
+    /// </summary>
+    private async Task ReconcileShortPageAsync(int startIndex, int fetched)
+    {
+        if (_reconcileInFlight) return;
+        _reconcileInFlight = true;
+        try
+        {
+            var reachable = startIndex + fetched;
+            int fresh;
+            try
+            {
+                fresh = await Task.Run(() => _libraryService.GetTrackCountAsync(_playlistId, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _qualityTier));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[VirtualizedTrackCollection] Re-count after a short page failed");
+                fresh = _count;
+            }
+
+            if (fresh <= reachable)
+            {
+                _logger.LogInformation("[VirtualizedTrackCollection] Rows changed under the list: count {Old} -> {New}", _count, Math.Max(fresh, reachable));
+                ShrinkTo(Math.Max(fresh, reachable));
+            }
+            else
+            {
+                _logger.LogWarning("[VirtualizedTrackCollection] Count says {Count} rows but a page at {Start} returned {Fetched}; showing what loaded and an error state", fresh, startIndex, fetched);
+                ShrinkTo(reachable);
+                SetLoadError("Some tracks couldn't be loaded from the library database.");
+            }
+        }
+        finally
+        {
+            _reconcileInFlight = false;
+        }
+    }
+
+    private void ShrinkTo(int newCount)
+    {
+        if (newCount < 0 || newCount >= _count) return;
+        _count = newCount;
+
+        if (_loadedItems.Count > newCount)
+        {
+            for (var i = newCount; i < _loadedItems.Count; i++)
+            {
+                var vm = _loadedItems[i];
+                if (vm == null) continue;
+                _viewModelCache.Remove(vm.GlobalId);
+                vm.Dispose();
+            }
+            _loadedItems.RemoveRange(newCount, _loadedItems.Count - newCount);
+        }
+        foreach (var pageIndex in _pages.Keys.Where(k => k * _pageSize >= newCount).ToList())
+            _pages.Remove(pageIndex);
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            OnPropertyChanged(nameof(Count));
+            CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        });
     }
 
     public PlaylistTrackViewModel this[int index]
@@ -324,12 +419,26 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             // it every page load froze the UI for the whole query, and for up to the 10s busy
             // timeout whenever a download/analysis/maintenance write held the DB lock. The await
             // resumes on the caller's context, so the non-thread-safe bookkeeping below stays put.
-            var tracks = await Task.Run(() => _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending, _qualityTier));
+            List<PlaylistTrack> tracks;
+            try
+            {
+                tracks = await Task.Run(() => _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending, _qualityTier));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[VirtualizedTrackCollection] Page fetch at {Start} failed", startIndex);
+                tracks = new List<PlaylistTrack>();
+            }
             var fetchMs = pageSw.ElapsedMilliseconds;
             var viewModels = tracks.Select(t => new PlaylistTrackViewModel(t, _eventBus, _libraryService, _artworkCache)).ToList();
             _logger.LogDebug("[PERF] VTC page load at {Start}: fetch {FetchMs}ms, build {Count} VMs {BuildMs}ms (caller ui={CallerUi}, after fetch ui={AfterUi})",
                 startIndex, fetchMs, viewModels.Count, pageSw.ElapsedMilliseconds - fetchMs, callerIsUi, Dispatcher.UIThread.CheckAccess());
             foreach (var vm in viewModels) _viewModelCache[vm.GlobalId] = vm;
+
+            // Short page: the rows the placeholders stand for may never arrive. Resolve that now
+            // (shrink, or an error state) instead of leaving "Loading…" rows up forever.
+            if (viewModels.Count < itemsToLoad)
+                await ReconcileShortPageAsync(startIndex, viewModels.Count);
 
             // A stale/mismatched _count (e.g. a count query and its paired data query
             // disagreeing on how many rows match the active filter) can make this legitimately
