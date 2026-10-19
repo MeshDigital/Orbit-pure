@@ -143,6 +143,10 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             {
                 oldCol.CollectionChanged -= OnFilteredTracksChanged;
             }
+            if (_filteredTracks is VirtualizedTrackCollection oldVtc)
+            {
+                oldVtc.PropertyChanged -= OnFilteredTracksPropertyChanged;
+            }
 
             this.RaiseAndSetIfChanged(ref _filteredTracks, value);
             this.RaisePropertyChanged(nameof(IsLibraryEmpty));
@@ -151,6 +155,11 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             {
                 newCol.CollectionChanged += OnFilteredTracksChanged;
             }
+            if (_filteredTracks is VirtualizedTrackCollection newVtc)
+            {
+                newVtc.PropertyChanged += OnFilteredTracksPropertyChanged;
+            }
+            RaiseTrackLoadErrorChanged();
 
             UpdateLimitedTracks();
             // FilteredTracks — not CurrentProjectTracks — is what TrackListView.axaml's ItemsControl
@@ -167,6 +176,31 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             ScheduleUpdateMixTransitionBadges();
             ScheduleUpdateHarmonicHighlights();
         }
+    }
+
+    /// <summary>
+    /// Why the current list's tracks couldn't be loaded from the database, or null. Shown as the
+    /// list's error state (with Retry) instead of "0 tracks" or rows stuck on "Loading…".
+    /// </summary>
+    public string? TrackLoadErrorMessage =>
+        (FilteredTracks as VirtualizedTrackCollection)?.LoadErrorMessage is { } error
+            ? $"Couldn't load these tracks: {error}"
+            : null;
+
+    public bool HasTrackLoadError => TrackLoadErrorMessage != null;
+
+    public System.Windows.Input.ICommand RetryLoadTracksCommand { get; private set; } = null!;
+
+    private void OnFilteredTracksPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(VirtualizedTrackCollection.LoadErrorMessage))
+            RaiseTrackLoadErrorChanged();
+    }
+
+    private void RaiseTrackLoadErrorChanged()
+    {
+        this.RaisePropertyChanged(nameof(TrackLoadErrorMessage));
+        this.RaisePropertyChanged(nameof(HasTrackLoadError));
     }
 
     private void OnFilteredTracksChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -985,6 +1019,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         AddToCurrentPlaylistCommand = ReactiveCommand.CreateFromTask<PlaylistTrackViewModel>(ExecuteAddToCurrentPlaylistAsync);
 
         ClearFiltersCommand = ReactiveCommand.Create(ClearFilters);
+        RetryLoadTracksCommand = ReactiveCommand.Create(RefreshFilteredTracks);
         ClearCamelotKeyFilterCommand = ReactiveCommand.Create(() => { CamelotKeyFilter = null; });
         ClearDuplicateFilterCommand = ReactiveCommand.Create(() => { DuplicateHashesFilter = null; RefreshFilteredTracks(); });
 

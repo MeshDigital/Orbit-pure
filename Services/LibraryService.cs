@@ -32,6 +32,11 @@ public class LibraryService : ILibraryService
 
     // Events now published via IEventBus (ProjectDeletedEvent, ProjectUpdatedEvent)
 
+    private volatile string? _lastTrackQueryError;
+
+    /// <inheritdoc />
+    public string? LastTrackQueryError => _lastTrackQueryError;
+
 
 
     public LibraryService(
@@ -984,16 +989,16 @@ public class LibraryService : ILibraryService
     {
         try
         {
-            if (playlistId == Guid.Empty)
-            {
-                return await _databaseService.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier).ConfigureAwait(false);
-            }
-
-            return await _databaseService.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier).ConfigureAwait(false);
+            var count = playlistId == Guid.Empty
+                ? await _databaseService.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier).ConfigureAwait(false)
+                : await _databaseService.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier).ConfigureAwait(false);
+            _lastTrackQueryError = null;
+            return count;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get track count for {PlaylistId}", playlistId);
+            _lastTrackQueryError = ex.Message;
             return 0;
         }
     }
@@ -1002,18 +1007,17 @@ public class LibraryService : ILibraryService
     {
         try
         {
-            if (playlistId == Guid.Empty)
-            {
-                var globalEntities = await _databaseService.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier).ConfigureAwait(false);
-                return globalEntities.Select(EntityToPlaylistTrack).ToList();
-            }
-
-            var entities = await _databaseService.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier).ConfigureAwait(false);
-            return entities.Select(EntityToPlaylistTrack).ToList();
+            var entities = playlistId == Guid.Empty
+                ? await _databaseService.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier).ConfigureAwait(false)
+                : await _databaseService.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier).ConfigureAwait(false);
+            var tracks = entities.Select(EntityToPlaylistTrack).ToList();
+            _lastTrackQueryError = null;
+            return tracks;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load paged playlist tracks for {PlaylistId}", playlistId);
+            _lastTrackQueryError = ex.Message;
             return new List<PlaylistTrack>();
         }
     }

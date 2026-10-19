@@ -133,6 +133,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             sw.Stop();
             _logger.LogInformation("[VirtualizedTrackCollection] Count query took {Ms}ms, returned {Count}", sw.ElapsedMilliseconds, count);
             _count = count;
+            ReportQueryOutcome(_libraryService.LastTrackQueryError);
             
             // PERFORMANCE FIX: Only notify Count change, NO Reset event here.
             // The Reset causes all 3 views (List/Cards/Pro) to recalculate, triggering massive page loads.
@@ -146,7 +147,34 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         catch (Exception ex)
         {
             _logger.LogError(ex, "[VirtualizedTrackCollection] LoadCountAsync Failed");
+            ReportQueryOutcome(ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Why the tracks couldn't be loaded, or null. The library service turns a failing query
+    /// into a 0 count / empty page, which on its own rendered as "0 tracks" or as rows stuck on
+    /// "Loading…" forever (2026-10-19, fresh-install schema drift); the track list binds this to
+    /// a real error state instead.
+    /// </summary>
+    public string? LoadErrorMessage { get; private set; }
+
+    public bool HasLoadError => LoadErrorMessage != null;
+
+    private void ReportQueryOutcome(string? error)
+    {
+        // A later successful page doesn't clear an earlier failure: the list is still incomplete.
+        if (error == null || LoadErrorMessage != null) return;
+
+        LoadErrorMessage = error;
+        void Notify()
+        {
+            OnPropertyChanged(nameof(LoadErrorMessage));
+            OnPropertyChanged(nameof(HasLoadError));
+        }
+
+        if (Dispatcher.UIThread.CheckAccess()) Notify();
+        else Dispatcher.UIThread.Post(Notify);
     }
 
     public PlaylistTrackViewModel this[int index]
@@ -325,6 +353,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             // timeout whenever a download/analysis/maintenance write held the DB lock. The await
             // resumes on the caller's context, so the non-thread-safe bookkeeping below stays put.
             var tracks = await Task.Run(() => _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending, _qualityTier));
+            if (tracks.Count == 0) ReportQueryOutcome(_libraryService.LastTrackQueryError);
             var fetchMs = pageSw.ElapsedMilliseconds;
             var viewModels = tracks.Select(t => new PlaylistTrackViewModel(t, _eventBus, _libraryService, _artworkCache)).ToList();
             _logger.LogDebug("[PERF] VTC page load at {Start}: fetch {FetchMs}ms, build {Count} VMs {BuildMs}ms (caller ui={CallerUi}, after fetch ui={AfterUi})",
@@ -449,6 +478,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             // timeout whenever a download/analysis/maintenance write held the DB lock. The await
             // resumes on the caller's context, so the non-thread-safe bookkeeping below stays put.
             var tracks = await Task.Run(() => _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending, _qualityTier));
+            if (tracks.Count == 0) ReportQueryOutcome(_libraryService.LastTrackQueryError);
             var fetchMs = pageSw.ElapsedMilliseconds;
             var viewModels = tracks.Select(t => new PlaylistTrackViewModel(t, _eventBus, _libraryService, _artworkCache)).ToList();
             _logger.LogDebug("[PERF] VTC page load at {Start}: fetch {FetchMs}ms, build {Count} VMs {BuildMs}ms (caller ui={CallerUi}, after fetch ui={AfterUi})",
