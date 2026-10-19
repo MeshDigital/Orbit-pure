@@ -1043,6 +1043,16 @@ public class TrackListViewModel : ReactiveObject, IDisposable
                 _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
         }));
 
+        // A folder import adds LibraryEntries in batches and publishes ONE completion event; All
+        // Tracks refreshes once on it (no per-file refresh storm, no "0 tracks" mid-import).
+        _disposables.Add(eventBus.GetEvent<LibraryImportCompletedEvent>().Subscribe(evt =>
+        {
+            if (!evt.Result.ChangedLibrary) return;
+            var currentProjectId = _mainViewModel?.LibraryViewModel?.SelectedProject?.Id;
+            if (currentProjectId == null || currentProjectId == Guid.Empty)
+                _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
+        }));
+
         // Camelot key filter from wheel click (toggle: click same key again to clear)
         _disposables.Add(eventBus.GetEvent<SetCamelotKeyFilterEvent>().Subscribe(evt =>
             CamelotKeyFilter = CamelotKeyFilter == evt.Key ? null : evt.Key));

@@ -50,8 +50,8 @@
             </ScrollViewer>
 
             <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,16,0,0">
-                <TextBlock Grid.Column="0" Classes="caption" Text="{Binding ScanStatus}" VerticalAlignment="Center"
-                           TextTrimming="CharacterEllipsis" IsVisible="{Binding !!ScanStatus}"/>
+                <TextBlock Grid.Column="0" Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0"
+                           Text="Adding or scanning opens the import, which shows each step and a summary."/>
                 <Button Grid.Column="1" Classes="secondary" Command="{Binding AddLibraryFolderCommand}" Margin="0,0,8,0">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <PathIcon Data="{StaticResource icon_add}" Width="14" Height="14"/>

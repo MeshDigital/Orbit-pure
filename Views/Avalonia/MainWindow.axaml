@@ -159,7 +159,8 @@
                 MinHeight="44"
                 BorderBrush="{StaticResource BrushBorder0}"
                 BorderThickness="0,0,0,1"
-                IsVisible="{Binding IsTopCommandBarVisible}">
+                IsVisible="{Binding IsTopCommandBarVisible}"
+                IsEnabled="{Binding !Import.IsOpen, FallbackValue=True}">
             <Grid ColumnDefinitions="Auto,*,Auto">
                 <!-- Left: nav toggle + connection status + always-visible transport -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
@@ -237,6 +238,19 @@
 
                 <!-- Right: activity counts + notifications + settings -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
+                    <!-- Folder import running in the background (or finished there): click for the sheet. -->
+                    <Button Classes="ghost small" Command="{Binding Import.ShowSheetCommand}"
+                            IsVisible="{Binding Import.IsChipVisible, FallbackValue=False}"
+                            ToolTip.Tip="Library import: click to see progress or the summary">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Ellipse Classes="status-dot accent pulse_amber" IsVisible="{Binding Import.ChipIsRunning, FallbackValue=False}"/>
+                            <PathIcon Data="{StaticResource icon_check}" Width="12" Height="12" Foreground="{StaticResource BrushSuccess}"
+                                      IsVisible="{Binding !Import.ChipIsRunning, FallbackValue=False}"/>
+                            <TextBlock Classes="mono" Text="{Binding Import.ChipText, FallbackValue=''}" VerticalAlignment="Center"/>
+                            <ProgressBar Classes="meter" Width="64" Maximum="100" Value="{Binding Import.ChipProgressValue, FallbackValue=0}"
+                                         IsVisible="{Binding Import.ChipIsRunning, FallbackValue=False}"/>
+                        </StackPanel>
+                    </Button>
                     <StackPanel Classes="stat" Orientation="Horizontal" Spacing="5" ToolTip.Tip="Downloads: in progress / failed">
                         <PathIcon Data="{StaticResource icon_download}"/>
                         <TextBlock Text="{Binding TodoCount}"/>
@@ -280,7 +294,7 @@
              5 = GridSplitter (4px) for Overlays
              6 = Overlays panel (toggleable, min 140px)
         -->
-        <Grid Grid.Row="1" x:Name="MainLayoutGrid">
+        <Grid Grid.Row="1" x:Name="MainLayoutGrid" IsEnabled="{Binding !Import.IsOpen, FallbackValue=True}">
             <Grid.ColumnDefinitions>
                 <!-- MinWidth used to be a static 56 with no exception for the "collapsed" state —
                      IsNavigationCollapsed is set by Zen Mode, Theater Mode, and the narrow-window
@@ -916,6 +930,14 @@
         <Panel Grid.RowSpan="3" ZIndex="1500" IsVisible="{Binding Setup.IsWizardOpen, FallbackValue=False}">
             <setupViews:SetupWizardView DataContext="{Binding Setup.Wizard}"/>
         </Panel>
+
+        <!-- Folder import sheet: over the shell and the setup wizard (its "Scan now" opens it),
+             below the tour and toasts. The scrim plus the disabled shell lock the app while the
+             initial import runs; "Run in background" swaps it for the top-bar chip. -->
+        <Grid Grid.RowSpan="3" ZIndex="1550" Background="{StaticResource BrushScrim}"
+              IsVisible="{Binding Import.IsOpen, FallbackValue=False}">
+            <views:LibraryImportSheet DataContext="{Binding Import}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16"/>
+        </Grid>
 
         <!-- Quick tour coach marks over the real navigation items -->
         <Panel Grid.RowSpan="3" ZIndex="1600" IsVisible="{Binding Setup.Tour.IsOpen, FallbackValue=False}">
