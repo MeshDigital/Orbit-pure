@@ -281,36 +281,47 @@ namespace SLSKDONET.Views.Avalonia
             }
         }
 
-        private bool _hasShownTrayHintThisSession;
-
         private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
             // Closing the window (X button, Alt+F4, taskbar close) hides to the tray instead of
-            // exiting, so the download engine keeps running unattended in the background — the
-            // tray icon already had Show/Hide/Exit as if this were the design, it just wasn't
-            // wired up. Only an explicit "Exit" from the tray menu actually shuts the app down.
+            // exiting, so the download engine keeps running unattended in the background — only
+            // the tray's "Quit ORBIT" shuts the app down. Settings → Advanced → "Close button
+            // minimises to tray" turns this off, and it is never done without a working tray
+            // icon (the window would be unreachable).
             if (App.Current is App exitCheckApp && !exitCheckApp.IsExitRequested)
             {
-                e.Cancel = true;
-                Hide();
+                var tray = exitCheckApp.Services?.GetService(typeof(SLSKDONET.Services.Shell.TrayIconController))
+                    as SLSKDONET.Services.Shell.TrayIconController;
 
-                if (!_hasShownTrayHintThisSession)
+                if (tray is { ShouldHideOnClose: true })
                 {
-                    _hasShownTrayHintThisSession = true;
-                    try
+                    e.Cancel = true;
+                    Hide();
+
+                    if (tray.TryClaimCloseHint())
                     {
-                        if (exitCheckApp.Services?.GetService(typeof(SLSKDONET.Services.WindowsToastService))
-                            is SLSKDONET.Services.WindowsToastService toastService)
+                        try
                         {
-                            toastService.ShowIfUnfocused(
-                                "ORBIT is still running",
-                                "Downloads continue in the background. Right-click the tray icon to reopen or exit.");
+                            if (exitCheckApp.Services?.GetService(typeof(SLSKDONET.Services.WindowsToastService))
+                                is SLSKDONET.Services.WindowsToastService toastService)
+                            {
+                                toastService.ShowIfUnfocused(
+                                    "ORBIT is still running",
+                                    "Downloads continue in the background. Click the tray icon to reopen ORBIT, or right-click it to quit. Change this in Settings, Advanced.");
+                            }
+                        }
+                        catch (Exception toastEx)
+                        {
+                            // Courtesy hint only; never worth failing the close over.
+                            Serilog.Log.Debug(toastEx, "Close-to-tray hint toast failed");
                         }
                     }
-                    catch { /* Toast is a courtesy hint, never worth failing the close over. */ }
+
+                    return;
                 }
 
-                return;
+                // Real quit (setting off, or no tray icon this session).
+                exitCheckApp.IsExitRequested = true;
             }
 
             // Save window state

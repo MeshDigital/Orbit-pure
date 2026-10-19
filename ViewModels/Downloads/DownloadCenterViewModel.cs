@@ -1846,6 +1846,43 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         _uiBatchTimer.Start();
     }
 
+    /// <summary>
+    /// Snapshot for the tray tooltip and the Windows taskbar progress bar (Services/Shell). UI
+    /// thread only, like every other read of these collections. "Failed" counts real failures and
+    /// stalls still listed in the Download Center — user cancellations are not something that
+    /// needs attention, so they don't turn the taskbar red.
+    /// </summary>
+    public SLSKDONET.Services.Shell.ShellDownloadState GetShellDownloadState()
+    {
+        double progressSum = 0;
+        int transferring = 0;
+        foreach (var d in _activeDownloads)
+        {
+            if (d.State != PlaylistTrackState.Downloading) continue;
+            transferring++;
+            progressSum += Math.Clamp(d.Progress, 0, 100) / 100.0;
+        }
+
+        int failed = 0;
+        foreach (var d in _downloadsSource.Items)
+        {
+            if ((d.State == PlaylistTrackState.Failed || d.State == PlaylistTrackState.Stalled) && !d.IsClearedFromDownloadCenter)
+                failed++;
+        }
+
+        var running = IsEngineRunning;
+        var toggle = running ? ToggleEnginePauseCommand : StartEngineCommand;
+        return new SLSKDONET.Services.Shell.ShellDownloadState(
+            Downloading: DownloadingCount,
+            Searching: SearchingCount,
+            Queued: QueuedCount,
+            Failed: failed,
+            EngineRunning: running,
+            EnginePaused: IsEnginePaused,
+            Progress: transferring == 0 ? 0 : progressSum / transferring,
+            CanToggleEngine: toggle.CanExecute(null));
+    }
+
     private void RefreshGlobalSpeed()
     {
         try

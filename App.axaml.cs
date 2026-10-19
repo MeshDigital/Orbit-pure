@@ -281,6 +281,17 @@ public partial class App : Application
                             Services.GetRequiredService<WindowsToastService>().Initialize(toastHandle);
 
                             Services.GetRequiredService<UiStallWatchdog>().Start();
+
+                            // Tray icon (live tooltip + menu) and the Windows taskbar button
+                            // (thumbnail Previous/Play/Next + download progress).
+                            try
+                            {
+                                Services.GetRequiredService<Services.Shell.TrayIconController>().Start(mainWindow);
+                            }
+                            catch (Exception shellEx)
+                            {
+                                Serilog.Log.Warning(shellEx, "Tray/taskbar integration failed to start (non-critical)");
+                            }
                         });
 
                         // --- THE BARRIER: WE ARE NOW DATA-SAFE ---
@@ -450,36 +461,6 @@ public partial class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
-    }
-
-    // Tray Icon Event Handlers
-    private void ShowWindow_Click(object? sender, EventArgs e)
-    {
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop && 
-            desktop.MainWindow != null)
-        {
-            desktop.MainWindow.Show();
-            desktop.MainWindow.WindowState = WindowState.Normal;
-            desktop.MainWindow.Activate();
-        }
-    }
-
-    private void HideWindow_Click(object? sender, EventArgs e)
-    {
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop && 
-            desktop.MainWindow != null)
-        {
-            desktop.MainWindow.Hide();
-        }
-    }
-
-    private void Exit_Click(object? sender, EventArgs e)
-    {
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            IsExitRequested = true;
-            desktop.Shutdown();
-        }
     }
 
     private static IServiceProvider ConfigureServices()
@@ -741,6 +722,11 @@ public partial class App : Application
         services.AddSingleton<RoomChatService>();
         services.AddSingleton<PeerVerificationChallengeService>();
         services.AddSingleton<WindowsToastService>();
+        // Tray icon + Windows taskbar button (thumbnail toolbar, download progress). Started from
+        // the startup barrier once the main window is open; all three constructors are no-throw.
+        services.AddSingleton<Services.Shell.ShellStateMonitor>();
+        services.AddSingleton<Services.Shell.WindowsTaskbarIntegration>();
+        services.AddSingleton<Services.Shell.TrayIconController>();
         services.AddTransient<UsersViewModel>();
         services.AddTransient<UserProfileViewModel>();
         services.AddTransient<RoomsViewModel>();

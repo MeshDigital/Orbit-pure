@@ -13,8 +13,11 @@ namespace SLSKDONET.Services;
 /// in-app-only popup invisible whenever the ORBIT window isn't on screen — this exists specifically
 /// so peer chat messages are noticed even while the app is minimized or in the background.
 ///
-/// Owns a small tray icon purely as the anchor Shell_NotifyIcon requires for a balloon; it isn't a
-/// general "minimize to tray" feature.
+/// Shell_NotifyIcon needs a notification-area icon to anchor a balloon. This service only adds
+/// one (with ORBIT's own icon) for the lifetime of a notification and removes it again when the
+/// balloon is clicked, dismissed or times out — previously it kept a second, generic
+/// IDI_APPLICATION icon in the tray permanently, next to the real ORBIT tray icon
+/// (Services/Shell/TrayIconController).
 /// </summary>
 public sealed class WindowsToastService : IDisposable
 {
@@ -36,6 +39,8 @@ public sealed class WindowsToastService : IDisposable
     // this purpose and guaranteed not to collide with any standard or Avalonia-internal message.
     private const int WM_APP = 0x8000;
     private const int TrayCallbackMessage = WM_APP + 1;
+    private const long NIN_BALLOONHIDE = 0x0400 + 3;      // WM_USER + 3 — balloon closed (icon removed / another balloon)
+    private const long NIN_BALLOONTIMEOUT = 0x0400 + 4;   // WM_USER + 4 — balloon timed out or the user dismissed it
     private const long NIN_BALLOONUSERCLICK = 0x0400 + 5; // WM_USER + 5 — fired when the balloon body itself is clicked
     private const int GWLP_WNDPROC = -4;
 
@@ -71,6 +76,13 @@ public sealed class WindowsToastService : IDisposable
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint ExtractIconEx(string lpszFile, int nIconIndex, IntPtr[]? phiconLarge, IntPtr[]? phiconSmall, uint nIcons);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DestroyIcon(IntPtr hIcon);
+
     private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll")]
@@ -90,7 +102,10 @@ public sealed class WindowsToastService : IDisposable
     private readonly IEventBus _eventBus;
     private readonly ILogger<WindowsToastService> _logger;
     private IntPtr _hwnd = IntPtr.Zero;
+    private bool _initialized;
     private bool _iconAdded;
+    private IntPtr _ownedIcon = IntPtr.Zero;
+    private DateTime _lastBalloonUtc = DateTime.MinValue;
     private const int IconUid = 1;
 
     // Held in a field, never a local — native code holds an unmanaged pointer to this delegate for
@@ -113,12 +128,29 @@ public sealed class WindowsToastService : IDisposable
     /// <summary>Must be called once, on the UI thread, after the main window's native handle exists.</summary>
     public void Initialize(IntPtr mainWindowHandle)
     {
-        if (!OperatingSystem.IsWindows() || _iconAdded || mainWindowHandle == IntPtr.Zero)
+        if (!OperatingSystem.IsWindows() || _initialized || mainWindowHandle == IntPtr.Zero)
             return;
 
         _hwnd = mainWindowHandle;
+        _initialized = true;
+        TrySubclassWndProc();
+    }
+
+    /// <summary>Adds the balloon's anchor icon if it isn't there yet. False when that fails.</summary>
+    private bool EnsureAnchorIcon()
+    {
+        if (_iconAdded) return true;
         try
         {
+            if (_ownedIcon == IntPtr.Zero)
+            {
+                // ORBIT's own icon, embedded in the exe (ApplicationIcon), at the small-icon size.
+                var small = new IntPtr[1];
+                var path = Environment.ProcessPath;
+                if (!string.IsNullOrEmpty(path) && ExtractIconEx(path, 0, null, small, 1) > 0)
+                    _ownedIcon = small[0];
+            }
+
             var data = new NOTIFYICONDATA
             {
                 cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
@@ -126,19 +158,33 @@ public sealed class WindowsToastService : IDisposable
                 uID = IconUid,
                 uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE,
                 uCallbackMessage = TrayCallbackMessage,
-                hIcon = LoadIcon(IntPtr.Zero, (IntPtr)IDI_APPLICATION),
+                hIcon = _ownedIcon != IntPtr.Zero ? _ownedIcon : LoadIcon(IntPtr.Zero, (IntPtr)IDI_APPLICATION),
                 szTip = "ORBIT",
             };
 
             _iconAdded = Shell_NotifyIcon(NIM_ADD, ref data);
             if (!_iconAdded)
-                _logger.LogDebug("[WindowsToast] Shell_NotifyIcon(NIM_ADD) failed — OS notifications unavailable this session");
-            else
-                TrySubclassWndProc();
+                _logger.LogDebug("[WindowsToast] Shell_NotifyIcon(NIM_ADD) failed — this OS notification is skipped");
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "[WindowsToast] Failed to register tray icon — OS notifications unavailable this session");
+            _logger.LogDebug(ex, "[WindowsToast] Failed to add the notification anchor icon");
+        }
+        return _iconAdded;
+    }
+
+    private void RemoveAnchorIcon()
+    {
+        if (!_iconAdded) return;
+        _iconAdded = false;
+        try
+        {
+            var data = new NOTIFYICONDATA { cbSize = Marshal.SizeOf<NOTIFYICONDATA>(), hWnd = _hwnd, uID = IconUid };
+            Shell_NotifyIcon(NIM_DELETE, ref data);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[WindowsToast] Removing the notification anchor icon failed");
         }
     }
 
@@ -174,19 +220,29 @@ public sealed class WindowsToastService : IDisposable
     /// </summary>
     private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
-        if (msg == TrayCallbackMessage && lParam.ToInt64() == NIN_BALLOONUSERCLICK)
+        if (msg == TrayCallbackMessage)
         {
-            try
+            var evt = lParam.ToInt64();
+            if (evt == NIN_BALLOONUSERCLICK)
             {
-                var username = _pendingNavUsername;
-                var roomName = _pendingNavRoomName;
-                if (!string.IsNullOrWhiteSpace(username) || !string.IsNullOrWhiteSpace(roomName))
-                    _eventBus.Publish(new OpenConversationRequestedEvent(username, roomName));
+                try
+                {
+                    var username = _pendingNavUsername;
+                    var roomName = _pendingNavRoomName;
+                    if (!string.IsNullOrWhiteSpace(username) || !string.IsNullOrWhiteSpace(roomName))
+                        _eventBus.Publish(new OpenConversationRequestedEvent(username, roomName));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[WindowsToast] Failed to handle balloon click");
+                }
             }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "[WindowsToast] Failed to handle balloon click");
-            }
+
+            // The anchor icon only exists for the notification's lifetime.
+            // A hide/timeout right after posting a newer balloon belongs to the one it replaced.
+            if (evt == NIN_BALLOONUSERCLICK
+                || ((evt is NIN_BALLOONTIMEOUT or NIN_BALLOONHIDE) && DateTime.UtcNow - _lastBalloonUtc > TimeSpan.FromSeconds(2)))
+                RemoveAnchorIcon();
         }
 
         return CallWindowProc(_originalWndProc, hWnd, msg, wParam, lParam);
@@ -202,12 +258,15 @@ public sealed class WindowsToastService : IDisposable
     /// </summary>
     public void ShowIfUnfocused(string title, string message, ToastSeverity severity = ToastSeverity.Info, string? navigateUsername = null, string? navigateRoomName = null)
     {
-        if (!_iconAdded)
+        if (!_initialized)
             return;
 
         try
         {
             if (GetForegroundWindow() == _hwnd)
+                return;
+
+            if (!EnsureAnchorIcon())
                 return;
 
             _pendingNavUsername = navigateUsername;
@@ -230,6 +289,7 @@ public sealed class WindowsToastService : IDisposable
                 },
             };
 
+            _lastBalloonUtc = DateTime.UtcNow;
             Shell_NotifyIcon(NIM_MODIFY, ref data);
         }
         catch (Exception ex)
@@ -243,7 +303,7 @@ public sealed class WindowsToastService : IDisposable
 
     public void Dispose()
     {
-        if (!_iconAdded)
+        if (!_initialized)
             return;
 
         if (_subclassed)
@@ -252,21 +312,20 @@ public sealed class WindowsToastService : IDisposable
             {
                 SetWindowLongPtr(_hwnd, GWLP_WNDPROC, _originalWndProc);
             }
-            catch
+            catch (Exception ex)
             {
                 // Best-effort — the window is going away regardless.
+                _logger.LogDebug(ex, "[WindowsToast] Restoring the original WndProc failed");
             }
             _subclassed = false;
         }
 
-        try
+        // Best-effort; the OS reclaims orphaned tray icons once the process exits regardless.
+        RemoveAnchorIcon();
+        if (_ownedIcon != IntPtr.Zero)
         {
-            var data = new NOTIFYICONDATA { cbSize = Marshal.SizeOf<NOTIFYICONDATA>(), hWnd = _hwnd, uID = IconUid };
-            Shell_NotifyIcon(NIM_DELETE, ref data);
-        }
-        catch
-        {
-            // Best-effort cleanup — the OS reclaims orphaned tray icons once the process exits regardless.
+            DestroyIcon(_ownedIcon);
+            _ownedIcon = IntPtr.Zero;
         }
     }
 }
