@@ -182,6 +182,53 @@ public partial class PlaylistTrackViewModel
     public ICommand OpenInEditLabCommand => _openInEditLabCommand ??=
         new RelayCommand(() => _eventBus?.Publish(new OpenInEditLabFromInspectorEvent(GlobalId)), () => IsCompleted);
 
+    // ── Loudness "Measure" link (tracks analysed before real LUFS metering) ───────────────────
+
+    private bool _isMeasuringLoudness;
+
+    /// <summary>True while this track's loudness is being measured (the link shows "Measuring…").</summary>
+    public bool IsMeasuringLoudness
+    {
+        get => _isMeasuringLoudness;
+        private set
+        {
+            if (_isMeasuringLoudness == value) return;
+            _isMeasuringLoudness = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CanMeasureLoudness));
+        }
+    }
+
+    /// <summary>Loudness shows "—" (legacy or never measured) but the file is here to measure.</summary>
+    public bool CanMeasureLoudness =>
+        !IsMeasuringLoudness
+        && IsCompleted
+        && Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(Model.Loudness) is null;
+
+    private ICommand? _measureLoudnessCommand;
+    /// <summary>Measures just this track's integrated loudness now (LoudnessBackfillService), without
+    /// a full re-analysis, and updates the inspector when it lands.</summary>
+    public ICommand MeasureLoudnessCommand => _measureLoudnessCommand ??=
+        new RelayCommand(MeasureLoudness);
+
+    private void MeasureLoudness()
+    {
+        if (_eventBus == null || string.IsNullOrEmpty(GlobalId) || !CanMeasureLoudness) return;
+        IsMeasuringLoudness = true;
+
+        var hash = GlobalId;
+        ListenForLoudnessResult(hash);
+        _eventBus.Publish(new MeasureTrackLoudnessRequestedEvent(hash));
+    }
+
+    private void ApplyLoudnessResult(TrackLoudnessMeasuredEvent result)
+    {
+        if (result.Success) Model.Loudness = result.Lufs;
+        IsMeasuringLoudness = false;
+        OnPropertyChanged(nameof(LoudnessDisplay));
+        OnPropertyChanged(nameof(CanMeasureLoudness));
+    }
+
     // ── Persistence feedback ──────────────────────────────────────────────────────────────────
 
     /// <summary>Writes a rating/like change and, on failure, reverts the in-memory value and

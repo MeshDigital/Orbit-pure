@@ -158,6 +158,8 @@
                                               ToolTip.Tip="Corrects tracks flagged as missing although the file exists on disk"/>
                                     <MenuItem Header="Backfill missing metadata" Command="{Binding BackfillDurationsCommand}"
                                               ToolTip.Tip="Reads real duration, bitrate and format for tracks that show '—' despite having a file"/>
+                                    <MenuItem Header="Measure missing loudness" Command="{Binding MeasureMissingLoudnessCommand}"
+                                              ToolTip.Tip="Measures integrated loudness (LUFS) for tracks analysed before real metering, without a full re-analysis. Opens the Analysis page to show progress."/>
                                 </MenuItem>
                                 <MenuItem Header="Set building">
                                     <MenuItem Header="Flow Builder" Command="{Binding OpenFlowBuilderCommand}"/>
