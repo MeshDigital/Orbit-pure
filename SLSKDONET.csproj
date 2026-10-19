@@ -140,10 +140,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="tray_icon.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
     <Content Include="app_icon.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
@@ -152,7 +148,8 @@
          avares://ORBIT/... in XAML — the root-level PNGs are not picked up by any default
          AvaloniaResource glob, confirmed by a startup FileNotFoundException without these. -->
     <AvaloniaResource Include="app_icon.png" />
-    <AvaloniaResource Include="tray_icon.png" />
+    <!-- Multi-resolution (16-256 px) icon for the taskbar button (Window.Icon) and the tray icon. -->
+    <AvaloniaResource Include="app_icon.ico" />
     <Content Include="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>

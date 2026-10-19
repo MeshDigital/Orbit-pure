@@ -160,6 +160,24 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>
+    /// Close button minimises ORBIT to the tray (downloads keep running) instead of quitting.
+    /// Read by MainWindow at close time, so it applies immediately.
+    /// </summary>
+    public bool CloseToTray
+    {
+        get => _config.CloseToTray;
+        set
+        {
+            if (_config.CloseToTray != value)
+            {
+                _config.CloseToTray = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
     /// <summary>Toggle for the live network-activity feed (Soulseek + HTTP + socket/DNS). Local-only.</summary>
     public bool EnableNetworkActivityMonitor
     {

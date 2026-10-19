@@ -188,6 +188,7 @@ public class ConfigManager
                 WindowX = double.TryParse(config["Window:X"], out var wx) ? wx : double.NaN,
                 WindowY = double.TryParse(config["Window:Y"], out var wy) ? wy : double.NaN,
                 WindowMaximized = bool.TryParse(config["Window:Maximized"], out var wm) && wm,
+                CloseToTray = !bool.TryParse(config["Window:CloseToTray"], out var ctt) || ctt, // Default true
 
                 // [Dashboard]
                 DashboardRightPanelWidth = double.TryParse(config["Dashboard:RightPanelWidth"], out var rpw) ? rpw : 320,
@@ -407,6 +408,7 @@ public class ConfigManager
         iniContent.AppendLine($"X = {config.WindowX}");
         iniContent.AppendLine($"Y = {config.WindowY}");
         iniContent.AppendLine($"Maximized = {config.WindowMaximized}");
+        iniContent.AppendLine($"CloseToTray = {config.CloseToTray}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[Dashboard]");

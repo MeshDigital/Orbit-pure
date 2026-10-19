@@ -126,20 +126,7 @@
              Themes/Controls.axaml; they conflicted with duplicate definitions in AvaloniaTheme.) -->
         <StyleInclude Source="avares://ORBIT/Themes/AvaloniaTheme.axaml"/>
     </Application.Styles>
-    
-    <!-- System Tray Icon -->
-    <TrayIcon.Icons>
-        <TrayIcons>
-            <TrayIcon ToolTipText="ORBIT - Soulseek Music Downloader" Icon="avares://ORBIT/tray_icon.png">
-                <TrayIcon.Menu>
-                    <NativeMenu>
-                        <NativeMenuItem Header="Show Window" Click="ShowWindow_Click"/>
-                        <NativeMenuItem Header="Hide Window" Click="HideWindow_Click"/>
-                        <NativeMenuItemSeparator/>
-                        <NativeMenuItem Header="Exit" Click="Exit_Click"/>
-                    </NativeMenu>
-                </TrayIcon.Menu>
-            </TrayIcon>
-        </TrayIcons>
-    </TrayIcon.Icons>
+
+    <!-- The tray icon is built in code (Services/Shell/TrayIconController.cs) once the main window
+         is open: its tooltip and menu labels follow live playback/download state. -->
 </Application>

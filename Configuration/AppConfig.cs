@@ -163,6 +163,12 @@ public class AppConfig
     public double WindowY { get; set; } = double.NaN;
     public bool WindowMaximized { get; set; } = false;
 
+    /// <summary>
+    /// Close button (X / Alt+F4) hides ORBIT to the tray so downloads keep running; only the tray's
+    /// "Quit ORBIT" exits. Off: the close button quits. Stored as [Window] CloseToTray.
+    /// </summary>
+    public bool CloseToTray { get; set; } = true;
+
     // Dashboard layout persistence (three-column shell state)
     public double DashboardRightPanelWidth { get; set; } = 320; // Width of the right panel in pixels
     public bool DashboardIsNavigationCollapsed { get; set; } = false; // Whether the left navigation is collapsed
