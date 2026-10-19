@@ -58,6 +58,30 @@ public class IntegratedLoudnessMeterTests
         Assert.Null(IntegratedLoudnessMeter.MeasureIntegratedLufs(new float[100], 44100, 1)); // under one 400 ms block
     }
 
+    [Fact]
+    public void Accumulator_FedInOddChunks_MatchesTheOneShotMeasurementExactly()
+    {
+        // The backfill streams FFmpeg output in arbitrary chunks (one may end mid-frame); the result
+        // must be identical to measuring the whole buffer at once, as full analysis does.
+        var buffer = Sine(440, 0.3, 44100, 6, 2);
+        for (int i = 0; i < buffer.Length; i += 7) buffer[i] *= 0.5f; // not a pure tone
+        var oneShot = IntegratedLoudnessMeter.MeasureIntegratedLufs(buffer, 44100, 2);
+
+        var accumulator = new IntegratedLoudnessMeter.Accumulator(44100, 2);
+        int offset = 0, size = 1;
+        while (offset < buffer.Length)
+        {
+            int n = Math.Min(size, buffer.Length - offset);
+            accumulator.Add(buffer.AsSpan(offset, n));
+            offset += n;
+            size = size * 3 + 1; // 1, 4, 13, 40, ... odd sizes split frames
+        }
+
+        Assert.NotNull(oneShot);
+        Assert.Equal(oneShot, accumulator.GetIntegratedLufs());
+        Assert.Equal(60, accumulator.SegmentCount); // 6 s of 100 ms segments
+    }
+
     [Theory]
     [InlineData(0.8, null)]       // legacy Essentia average_loudness (0–1), not LUFS
     [InlineData(0.0, null)]       // the NOT NULL column's default = never measured

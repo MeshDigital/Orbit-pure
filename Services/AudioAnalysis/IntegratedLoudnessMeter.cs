@@ -23,52 +23,91 @@ public static class IntegratedLoudnessMeter
     public static double? MeasureIntegratedLufs(ReadOnlySpan<float> interleaved, int sampleRate, int channels)
     {
         if (sampleRate < 8000 || channels < 1) return null;
-        int frames = interleaved.Length / channels;
-        int step = sampleRate / 10;              // 100 ms hop
-        int blockFrames = step * 4;              // 400 ms block
-        if (frames < blockFrames || step == 0) return null;
+        var accumulator = new Accumulator(sampleRate, channels);
+        accumulator.Add(interleaved);
+        return accumulator.GetIntegratedLufs();
+    }
 
-        // Mean square of the K-weighted signal per 100 ms segment, summed over channels.
-        int segments = frames / step;
-        var segmentEnergy = new double[segments];
-        var (shelf, highPass) = KWeighting(sampleRate);
-        for (int ch = 0; ch < channels; ch++)
+    /// <summary>
+    /// Streaming form of <see cref="MeasureIntegratedLufs"/>: feed interleaved PCM in chunks of any
+    /// size (a chunk may end mid-frame) and read the result at the end. Memory stays at one double
+    /// per 100 ms of audio, so a whole track never has to be held as a float[] (the loudness
+    /// backfill streams FFmpeg's output straight in). The one-shot form is built on this, so both
+    /// give identical results.
+    /// </summary>
+    public sealed class Accumulator
+    {
+        private readonly int _channels;
+        private readonly int _step;          // 100 ms hop, in frames
+        private readonly Biquad _shelf, _highPass;
+        private readonly BiquadState[] _s1, _s2;
+        private readonly double[] _channelSums;
+        private readonly System.Collections.Generic.List<double> _segmentEnergy = new();
+        private int _channel;                // channel of the next sample
+        private int _framesInSegment;
+
+        /// <exception cref="ArgumentOutOfRangeException">Sample rate below 8 kHz or no channels.</exception>
+        public Accumulator(int sampleRate, int channels)
         {
-            var s1 = new BiquadState();
-            var s2 = new BiquadState();
-            for (int seg = 0; seg < segments; seg++)
+            if (sampleRate < 8000) throw new ArgumentOutOfRangeException(nameof(sampleRate));
+            if (channels < 1) throw new ArgumentOutOfRangeException(nameof(channels));
+            _channels = channels;
+            _step = sampleRate / 10;
+            (_shelf, _highPass) = KWeighting(sampleRate);
+            _s1 = new BiquadState[channels];
+            _s2 = new BiquadState[channels];
+            _channelSums = new double[channels];
+        }
+
+        /// <summary>Complete 100 ms segments seen so far. A trailing partial segment is ignored, as
+        /// in BS.1770's block framing.</summary>
+        public int SegmentCount => _segmentEnergy.Count;
+
+        public void Add(ReadOnlySpan<float> interleaved)
+        {
+            for (int i = 0; i < interleaved.Length; i++)
             {
-                double sum = 0;
-                int start = seg * step;
-                for (int i = start; i < start + step; i++)
-                {
-                    double x = interleaved[i * channels + ch];
-                    double y = highPass.Process(shelf.Process(x, ref s1), ref s2);
-                    sum += y * y;
-                }
-                segmentEnergy[seg] += sum;
+                int ch = _channel;
+                double y = _highPass.Process(_shelf.Process(interleaved[i], ref _s1[ch]), ref _s2[ch]);
+                _channelSums[ch] += y * y;
+
+                if (++_channel < _channels) continue;
+                _channel = 0;
+                if (++_framesInSegment < _step) continue;
+
+                // Mean square of the K-weighted signal per 100 ms segment, summed over channels.
+                double energy = 0;
+                for (int c = 0; c < _channels; c++) { energy += _channelSums[c]; _channelSums[c] = 0; }
+                _segmentEnergy.Add(energy);
+                _framesInSegment = 0;
             }
         }
 
-        int blocks = segments - 3;
-        if (blocks <= 0) return null;
-        var blockPower = new double[blocks];
-        for (int b = 0; b < blocks; b++)
-            blockPower[b] = (segmentEnergy[b] + segmentEnergy[b + 1] + segmentEnergy[b + 2] + segmentEnergy[b + 3]) / blockFrames;
+        /// <summary>Gated integrated loudness of everything added so far, or null for silence or
+        /// less than one 400 ms block.</summary>
+        public double? GetIntegratedLufs()
+        {
+            int blockFrames = _step * 4;         // 400 ms block, 75% overlap
+            int blocks = _segmentEnergy.Count - 3;
+            if (blocks <= 0 || _step == 0) return null;
+            var blockPower = new double[blocks];
+            for (int b = 0; b < blocks; b++)
+                blockPower[b] = (_segmentEnergy[b] + _segmentEnergy[b + 1] + _segmentEnergy[b + 2] + _segmentEnergy[b + 3]) / blockFrames;
 
-        double absoluteGatePower = LufsToPower(AbsoluteGateLufs);
-        double sumAbs = 0; int countAbs = 0;
-        foreach (var p in blockPower)
-            if (p > absoluteGatePower) { sumAbs += p; countAbs++; }
-        if (countAbs == 0) return null;
+            double absoluteGatePower = LufsToPower(AbsoluteGateLufs);
+            double sumAbs = 0; int countAbs = 0;
+            foreach (var p in blockPower)
+                if (p > absoluteGatePower) { sumAbs += p; countAbs++; }
+            if (countAbs == 0) return null;
 
-        double relativeGatePower = LufsToPower(PowerToLufs(sumAbs / countAbs) + RelativeGateLu);
-        double sumRel = 0; int countRel = 0;
-        foreach (var p in blockPower)
-            if (p > absoluteGatePower && p > relativeGatePower) { sumRel += p; countRel++; }
-        if (countRel == 0) return null;
+            double relativeGatePower = LufsToPower(PowerToLufs(sumAbs / countAbs) + RelativeGateLu);
+            double sumRel = 0; int countRel = 0;
+            foreach (var p in blockPower)
+                if (p > absoluteGatePower && p > relativeGatePower) { sumRel += p; countRel++; }
+            if (countRel == 0) return null;
 
-        return PowerToLufs(sumRel / countRel);
+            return PowerToLufs(sumRel / countRel);
+        }
     }
 
     /// <summary>

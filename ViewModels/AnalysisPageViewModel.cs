@@ -1070,6 +1070,10 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
     // ── Constructor ──────────────────────────────────────────────────────────────
 
+    /// <summary>"N tracks need a loudness measurement" card. A DI singleton shared with the Library
+    /// tools menu, so it is not disposed here. Null in design/test construction (card hidden).</summary>
+    public LoudnessBackfillViewModel? LoudnessBackfill { get; }
+
     public AnalysisPageViewModel(
         IEventBus eventBus,
         ILifecycleProjectionService lifecycleProjectionService,
@@ -1077,9 +1081,11 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         IClipboardService? clipboardService = null,
         LibraryCorruptionScanService? corruptionScanService = null,
         CorruptFileRemediationService? remediationService = null,
-        AnalyzeTrackStructureJob? cueStructureJob = null)
+        AnalyzeTrackStructureJob? cueStructureJob = null,
+        LoudnessBackfillViewModel? loudnessBackfill = null)
     {
         _eventBus = eventBus;
+        LoudnessBackfill = loudnessBackfill;
         _libraryService = libraryService;
         _clipboardService = clipboardService;
         _lifecycleProjectionService = lifecycleProjectionService;

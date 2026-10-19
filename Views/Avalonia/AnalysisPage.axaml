@@ -223,6 +223,39 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Loudness backfill: tracks analysed before real LUFS metering. Hidden when none. -->
+                <Border Classes="callout info"
+                        IsVisible="{Binding LoudnessBackfill.IsVisible, FallbackValue=False}">
+                    <Grid DataContext="{Binding LoudnessBackfill}" x:DataType="vm:LoudnessBackfillViewModel"
+                          ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto">
+                        <PathIcon Grid.Column="0" Grid.RowSpan="2" Data="{StaticResource icon_waves}"
+                                  Foreground="{StaticResource BrushInfo}"
+                                  Width="{StaticResource IconSizeMd}" Height="{StaticResource IconSizeMd}"
+                                  VerticalAlignment="Top" Margin="0,0,12,0"/>
+                        <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                            <TextBlock Classes="body-sm" Text="{Binding NoticeText}" TextWrapping="Wrap"/>
+                            <TextBlock Classes="caption" Text="{Binding DetailText}" TextWrapping="Wrap"
+                                       IsVisible="{Binding IsIdle}"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0"
+                                    VerticalAlignment="Center">
+                            <Button Classes="secondary small" Content="Measure loudness"
+                                    Command="{Binding StartCommand}" IsVisible="{Binding IsIdle}"
+                                    ToolTip.Tip="Read each listed file once and store its integrated loudness (EBU R128). Runs in the background, two files at a time, and waits while the analysis queue is busy."/>
+                            <Button Classes="ghost small" Content="Cancel"
+                                    Command="{Binding CancelCommand}" IsVisible="{Binding IsRunning}"
+                                    ToolTip.Tip="Stop after the files in progress. What was measured is kept; run it again to continue."/>
+                        </StackPanel>
+                        <Grid Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" ColumnDefinitions="*,Auto"
+                              Margin="0,8,0,0" IsVisible="{Binding IsRunning}">
+                            <ProgressBar Grid.Column="0" Classes="meter info" VerticalAlignment="Center"
+                                         Value="{Binding Done}" Maximum="{Binding Total}"/>
+                            <TextBlock Grid.Column="1" Classes="mono" Text="{Binding ProgressText}"
+                                       VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        </Grid>
+                    </Grid>
+                </Border>
+
                 <!-- Integrity scan results (appears once a scan has run; started from the overflow menu) -->
                 <Border Classes="card" IsVisible="{Binding ShowIntegrityPanel}">
                     <StackPanel Spacing="8">

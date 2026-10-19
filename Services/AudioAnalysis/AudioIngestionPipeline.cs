@@ -95,6 +95,98 @@ public sealed class AudioIngestionPipeline
         return (buffer[..read], reader.WaveFormat.SampleRate, reader.WaveFormat.Channels);
     }
 
+    /// <summary>Receives one chunk of interleaved float PCM. A chunk may end mid-frame; the next
+    /// chunk continues with the following sample.</summary>
+    public delegate void PcmChunkHandler(ReadOnlySpan<float> interleaved);
+
+    /// <summary>
+    /// Same FFmpeg conversion as <see cref="DecodeToTempWavAsync"/> (44.1 kHz stereo 32-bit float,
+    /// any input format FFmpeg reads, FLAC/M4A included) but streamed over stdout into
+    /// <paramref name="onChunk"/>: no temp WAV on disk and no whole-track buffer in memory. Used by
+    /// the loudness backfill, which only needs one number per track. Decoding runs on a dedicated
+    /// below-normal-priority thread (FFmpeg itself runs below normal too) so a long batch never
+    /// competes with playback or the UI.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">FFmpeg not found or decode failed.</exception>
+    /// <exception cref="OperationCanceledException">Cancelled; the FFmpeg process is killed.</exception>
+    public Task DecodePcmStreamAsync(string filePath, PcmChunkHandler onChunk, CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(_ffmpegPath) && !ExistsOnPath(_ffmpegPath))
+            throw new InvalidOperationException(
+                $"FFmpeg not found at '{_ffmpegPath}'. Install FFmpeg and ensure it is on PATH.");
+
+        return Task.Factory.StartNew(
+            () => DecodePcmStream(filePath, onChunk, cancellationToken),
+            cancellationToken,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+    }
+
+    private void DecodePcmStream(string filePath, PcmChunkHandler onChunk, CancellationToken cancellationToken)
+    {
+        // LongRunning gives this its own thread, so lowering its priority doesn't leak into the pool.
+        Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
+
+        var psi = new ProcessStartInfo(_ffmpegPath, BuildFfmpegArgs(filePath, "pipe:1", rawStream: true))
+        {
+            RedirectStandardError  = true,
+            RedirectStandardOutput = true,
+            UseShellExecute        = false,
+            CreateNoWindow         = true,
+        };
+
+        using var process = new Process { StartInfo = psi };
+        var stderrBuilder = new StringBuilder();
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data != null) lock (stderrBuilder) stderrBuilder.AppendLine(e.Data);
+        };
+
+        process.Start();
+        try
+        {
+            process.PriorityClass = ProcessPriorityClass.BelowNormal;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+        {
+            _logger.LogDebug(ex, "[AudioIngestion] Could not lower FFmpeg priority for {File}", Path.GetFileName(filePath));
+        }
+        process.BeginErrorReadLine();
+
+        using var killOnCancel = cancellationToken.Register(() =>
+        {
+            try { process.Kill(entireProcessTree: true); }
+            catch (InvalidOperationException ex) { _logger.LogDebug(ex, "[AudioIngestion] FFmpeg had already exited on cancel"); }
+        });
+
+        var stdout = process.StandardOutput.BaseStream;
+        var buffer = new byte[1 << 16];
+        int carry = 0; // bytes of a float split across two reads
+        int read;
+        while ((read = stdout.Read(buffer, carry, buffer.Length - carry)) > 0)
+        {
+            int total = carry + read;
+            int usable = total - (total % sizeof(float));
+            if (usable > 0)
+                onChunk(System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(buffer.AsSpan(0, usable)));
+            carry = total - usable;
+            if (carry > 0) Buffer.BlockCopy(buffer, usable, buffer, 0, carry);
+        }
+
+        process.WaitForExit();
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (process.ExitCode != 0)
+        {
+            string stderr;
+            lock (stderrBuilder) stderr = stderrBuilder.ToString();
+            var summary = stderr.Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.Length > 0) ?? "no error output";
+            _logger.LogWarning("[AudioIngestion] FFmpeg exit={Code} streaming {File}: {Summary}",
+                process.ExitCode, Path.GetFileName(filePath), summary);
+            throw new InvalidOperationException($"FFmpeg exit {process.ExitCode}: {summary}");
+        }
+    }
+
     /// <summary>
     /// Fast corruption probe: decodes <paramref name="filePath"/> to /dev/null via FFmpeg.
     /// Works for every format. Returns (0, null) if clean, or (error line count, a concise error
@@ -138,13 +230,14 @@ public sealed class AudioIngestionPipeline
 
     // ──────────────────────────────────── helpers ──────────────────────────
 
-    private static string BuildFfmpegArgs(string input, string output)
+    private static string BuildFfmpegArgs(string input, string output, bool rawStream = false)
     {
         // -y          = overwrite output
         // -vn         = no video
         // -ar 44100   = resample to 44100 Hz
         // -ac 2       = stereo
         // -c:a pcm_f32le = 32-bit float little-endian PCM
+        // -f f32le    = headerless samples (stdout streaming; a pipe has no extension to infer from)
         var sb = new StringBuilder();
         sb.Append("-y -v error ");
         sb.Append($"-i \"{input}\" ");
@@ -152,7 +245,10 @@ public sealed class AudioIngestionPipeline
         sb.Append($"-ar {TargetSampleRate} ");
         sb.Append($"-ac {TargetChannels} ");
         sb.Append("-c:a pcm_f32le ");
-        sb.Append($"\"{output}\"");
+        if (rawStream)
+            sb.Append($"-f f32le {output}");
+        else
+            sb.Append($"\"{output}\"");
         return sb.ToString();
     }
 

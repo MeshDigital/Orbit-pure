@@ -852,6 +852,19 @@ namespace SLSKDONET.ViewModels
                 }
             }).DisposeWith(_disposables);
 
+            // Loudness backfill / inspector "Measure": queued rows can be separate view-model
+            // instances from the library list, so copy the new value onto them here. Normalised
+            // playback reads Model.Loudness when a track starts, so the next play uses it.
+            eventBus.GetEvent<TrackLoudnessMeasuredEvent>().Where(e => e.Success).Subscribe(evt =>
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    foreach (var queued in Queue)
+                        if (queued.Model is { } m && m.TrackUniqueHash == evt.TrackGlobalId)
+                            m.Loudness = evt.Lufs;
+                });
+            }).DisposeWith(_disposables);
+
             eventBus.GetEvent<AnalysisQueueStatusChangedEvent>().Subscribe(evt =>
             {
                 Dispatcher.UIThread.Post(() =>

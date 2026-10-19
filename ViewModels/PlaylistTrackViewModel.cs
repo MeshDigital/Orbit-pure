@@ -1347,6 +1347,17 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
         GC.SuppressFinalize(this);
     }
 
+    /// <summary>One-shot wait for the inspector's "Measure" result (Take(1) unsubscribes on it;
+    /// the composite disposes the subscription if this row goes away first).</summary>
+    private void ListenForLoudnessResult(string hash)
+    {
+        if (_eventBus == null) return;
+        _disposables.Add(System.Reactive.Linq.Observable.Take(
+                System.Reactive.Linq.Observable.Where(_eventBus.GetEvent<Models.TrackLoudnessMeasuredEvent>(), e => e.TrackGlobalId == hash),
+                1)
+            .Subscribe(e => Avalonia.Threading.Dispatcher.UIThread.Post(() => ApplyLoudnessResult(e))));
+    }
+
     protected virtual void Dispose(bool disposing)
     {
         if (_isDisposed) return;
@@ -1551,6 +1562,7 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
              OnPropertyChanged(nameof(Duration));
 
              OnPropertyChanged(nameof(LoudnessDisplay));
+             OnPropertyChanged(nameof(CanMeasureLoudness));
              OnPropertyChanged(nameof(TruePeakDisplay));
              OnPropertyChanged(nameof(DynamicRangeDisplay));
              OnPropertyChanged(nameof(ConfidenceDisplay));

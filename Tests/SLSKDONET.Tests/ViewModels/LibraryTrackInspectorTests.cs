@@ -146,6 +146,29 @@ public class LibraryTrackInspectorTests
     }
 
     [Fact]
+    public void MeasureLink_ShowsOnlyForLegacyLoudness_AndRequestsAMeasurement()
+    {
+        var bus = new EventBusService();
+        var requests = new List<MeasureTrackLoudnessRequestedEvent>();
+        using var sub = bus.GetEvent<MeasureTrackLoudnessRequestedEvent>().Subscribe(requests.Add);
+
+        var legacy = Track("lg", bus, configure: m => { m.Status = TrackStatus.Downloaded; m.Loudness = 0.8; });
+        var measured = Track("ok", bus, configure: m => { m.Status = TrackStatus.Downloaded; m.Loudness = -9.1; });
+        var notDownloaded = Track("nd", bus, configure: m => m.Loudness = 0.8);
+
+        Assert.True(legacy.CanMeasureLoudness);
+        Assert.False(measured.CanMeasureLoudness);
+        Assert.False(notDownloaded.CanMeasureLoudness); // no file to read
+
+        legacy.MeasureLoudnessCommand.Execute(null);
+        legacy.MeasureLoudnessCommand.Execute(null); // a second click while measuring is ignored
+
+        Assert.Equal(new[] { "lg" }, requests.Select(r => r.TrackGlobalId));
+        Assert.True(legacy.IsMeasuringLoudness);
+        Assert.False(legacy.CanMeasureLoudness);
+    }
+
+    [Fact]
     public void MultiSelectionSummary_DescribesTheSelection()
     {
         var tracks = new[]

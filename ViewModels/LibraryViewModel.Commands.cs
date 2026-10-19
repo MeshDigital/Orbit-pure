@@ -37,6 +37,7 @@ public partial class LibraryViewModel
     public ICommand RemoveDuplicateTracksCommand { get; set; } = null!;
     public ICommand FixMissingFileFlagsCommand { get; set; } = null!;
     public ICommand BackfillDurationsCommand { get; set; } = null!;
+    public ICommand MeasureMissingLoudnessCommand { get; set; } = null!;
     public ICommand AutoArrangePlaylistCommand { get; set; } = null!;
     public ICommand CombineSelectedPlaylistsCommand { get; set; } = null!;
     public ICommand ToggleEditModeCommand { get; set; } = null!;
@@ -125,6 +126,7 @@ public partial class LibraryViewModel
         RemoveDuplicateTracksCommand = new AsyncRelayCommand(ExecuteRemoveDuplicateTracksAsync);
         FixMissingFileFlagsCommand = new AsyncRelayCommand(ExecuteFixMissingFileFlagsAsync);
         BackfillDurationsCommand = new AsyncRelayCommand(ExecuteBackfillDurationsAsync);
+        MeasureMissingLoudnessCommand = new RelayCommand(ExecuteMeasureMissingLoudness);
         AutoArrangePlaylistCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteAutoArrangePlaylistAsync);
         CombineSelectedPlaylistsCommand = new AsyncRelayCommand(ExecuteCombineSelectedPlaylistsAsync);
         ToggleEditModeCommand = new RelayCommand(() => IsEditMode = !IsEditMode);
@@ -2742,6 +2744,22 @@ public partial class LibraryViewModel
     /// inherited them from the matching LibraryEntries row (DatabaseService.SavePlaylistJobWithTracksAsync
     /// was missing that field entirely). Reported directly by the user via screenshot.
     /// </summary>
+    /// <summary>
+    /// Starts the shared loudness backfill (the same job as the Analysis page's "Measure loudness"
+    /// card) and opens the Analysis page, where its progress and Cancel live.
+    /// </summary>
+    private void ExecuteMeasureMissingLoudness()
+    {
+        if (_serviceProvider?.GetService(typeof(LoudnessBackfillViewModel)) is not LoudnessBackfillViewModel backfill)
+        {
+            _notificationService.Show("Measure loudness", "The loudness backfill is unavailable.", NotificationType.Error);
+            return;
+        }
+
+        backfill.Start();
+        _navigationService.NavigateTo("Analysis");
+    }
+
     private async Task ExecuteBackfillDurationsAsync()
     {
         var backfillService = _serviceProvider?.GetService(typeof(Services.DurationBackfillService))
