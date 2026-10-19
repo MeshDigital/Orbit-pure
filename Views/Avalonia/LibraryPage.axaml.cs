@@ -55,6 +55,16 @@ public partial class LibraryPage : UserControl
         (DataContext as LibraryViewModel)?.OnLibraryPageResized(e.NewSize.Width);
     }
 
+    /// <summary>Below this width the playlist header drops its action labels (icon buttons with
+    /// tooltips remain), so the title and counts keep room to trim instead of being overlapped.</summary>
+    internal const double NarrowPlaylistHeaderWidth = 560;
+
+    private void OnPlaylistHeaderSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (sender is Control header)
+            header.Classes.Set("narrow", e.NewSize.Width < NarrowPlaylistHeaderWidth);
+    }
+
     private void OpenDiscover_Click(object? sender, RoutedEventArgs e)
     {
         if (DataContext is LibraryViewModel { SelectedProject: { } project } && project.Id != Guid.Empty)
