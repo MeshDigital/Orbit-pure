@@ -74,6 +74,7 @@ public class SchemaReconcilerTests : IDisposable
             CREATE TABLE ""audio_features"" (""Id"" TEXT NOT NULL PRIMARY KEY, ""TrackUniqueHash"" TEXT NOT NULL, ""Bpm"" REAL NOT NULL DEFAULT 0);
             CREATE INDEX ""IX_audio_features_TrackUniqueHash"" ON ""audio_features"" (""TrackUniqueHash"");
             INSERT INTO ""LibraryEntries"" VALUES ('hash-1', 'Old Artist', 'Old Title');
+            INSERT INTO ""LibraryEntries"" VALUES ('hash-2', 'Other Artist', 'Other Title');
             INSERT INTO ""audio_features"" (""Id"", ""TrackUniqueHash"", ""Bpm"") VALUES ('00000000-0000-0000-0000-000000000001', 'hash-1', 174.5);");
     }
 
@@ -101,7 +102,18 @@ public class SchemaReconcilerTests : IDisposable
         Assert.Equal(0.0, Convert.ToDouble(Scalar("SELECT Energy FROM audio_features WHERE TrackUniqueHash='hash-1'")));
         Assert.Equal(0L, Convert.ToInt64(Scalar("SELECT EnrichmentAttempts FROM LibraryEntries WHERE UniqueHash='hash-1'")));
 
+        // LibraryEntries.Id (an alternate key) didn't exist: existing rows got distinct Guids, not
+        // one shared zero Guid, so the unique key could be created and EF can track them all.
+        Assert.Equal(2L, Convert.ToInt64(Scalar("SELECT COUNT(DISTINCT Id) FROM LibraryEntries")));
+        Assert.Contains(first.CreatedIndexes, i => i.StartsWith("LibraryEntries.", StringComparison.Ordinal));
+
         // EF can now read and write the patched tables.
+        using (var context = CreateContext())
+        {
+            var all = context.LibraryEntries.ToList();
+            Assert.Equal(2, all.Count);
+            Assert.All(all, e => Assert.NotEqual(Guid.Empty, e.Id));
+        }
         using (var context = CreateContext())
         {
             var entry = context.LibraryEntries.Include(e => e.AudioFeatures).Single(e => e.UniqueHash == "hash-1");

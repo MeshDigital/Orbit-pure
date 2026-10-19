@@ -51,10 +51,18 @@ public static class SchemaReconciler
     public static SchemaReconciliationReport Reconcile(AppDbContext context, DbConnection connection, ILogger logger)
     {
         var report = new SchemaReconciliationReport();
+        bool? foreignKeysWereOn = null;
         try
         {
             if (connection.State != System.Data.ConnectionState.Open)
                 connection.Open();
+
+            // While a table is half-reconciled, a foreign key can point at a column that has no
+            // unique index yet ("foreign key mismatch"), which fails even an UPDATE of the parent.
+            // Nothing here inserts or deletes rows, so FK enforcement is paused for the pass.
+            foreignKeysWereOn = Convert.ToInt64(ExecuteScalar(connection, "PRAGMA foreign_keys;")) == 1;
+            if (foreignKeysWereOn == true)
+                ExecuteScalar(connection, "PRAGMA foreign_keys = OFF;");
 
             // The design-time model carries the full relational metadata (store types, defaults,
             // indexes) that the differ and SQL generator need; the runtime model is trimmed.
@@ -83,6 +91,14 @@ public static class SchemaReconciler
         {
             report.Failures.Add($"reconciliation aborted: {ex.Message}");
             logger.LogError(ex, "Schema reconciliation aborted");
+        }
+        finally
+        {
+            if (foreignKeysWereOn == true)
+            {
+                try { ExecuteScalar(connection, "PRAGMA foreign_keys = ON;"); }
+                catch (DbException ex) { logger.LogError(ex, "Schema reconciliation: could not re-enable foreign keys"); }
+            }
         }
 
         if (report.HasChanges || report.Failures.Count > 0)
@@ -181,12 +197,45 @@ public static class SchemaReconciler
             {
                 report.AddedColumns.Add($"{table.Name}.{column.Name}");
                 logger.LogWarning("Schema reconciliation: added missing column {Table}.{Column} ({Sql})", table.Name, column.Name, sql);
+                BackfillUniqueGuidColumn(table, column, connection, logger, report);
             }
             else
             {
                 report.Failures.Add($"add column {table.Name}.{column.Name}: {error}");
                 logger.LogError("Schema reconciliation: could not add column {Table}.{Column}: {Error}", table.Name, column.Name, error);
             }
+        }
+    }
+
+    /// <summary>
+    /// A just-added NOT NULL Guid column that is a key (e.g. the LibraryEntries.Id alternate key)
+    /// would give every existing row the same zero Guid — and EF cannot track two entities with the
+    /// same key. Fill only that new column with fresh random (v4) Guids instead.
+    /// </summary>
+    private static void BackfillUniqueGuidColumn(ITable table, IColumn column, DbConnection connection, ILogger logger, SchemaReconciliationReport report)
+    {
+        var providerType = Nullable.GetUnderlyingType(column.ProviderClrType) ?? column.ProviderClrType;
+        if (providerType != typeof(Guid) || column.IsNullable)
+            return;
+
+        var isKey = table.UniqueConstraints.Any(k => k.Columns.Contains(column))
+                    || table.Indexes.Any(i => i.IsUnique && i.Columns.Contains(column));
+        if (!isKey)
+            return;
+
+        // Same uppercase "D" text format EF Core's SQLite provider writes for Guid.
+        const string newGuid =
+            "upper(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' || " +
+            "substr('89AB', 1 + (abs(random()) % 4), 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6)))";
+        var sql = $"UPDATE {Quote(table.Name)} SET {Quote(column.Name)} = {newGuid};";
+        if (TryExecute(connection, sql, out var error))
+        {
+            logger.LogWarning("Schema reconciliation: filled new key column {Table}.{Column} with unique Guids", table.Name, column.Name);
+        }
+        else
+        {
+            report.Failures.Add($"backfill {table.Name}.{column.Name}: {error}");
+            logger.LogError("Schema reconciliation: could not fill new key column {Table}.{Column}: {Error}", table.Name, column.Name, error);
         }
     }
 
@@ -347,6 +396,13 @@ public static class SchemaReconciler
             error = ex.Message;
             return false;
         }
+    }
+
+    private static object? ExecuteScalar(DbConnection connection, string sql)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = sql;
+        return cmd.ExecuteScalar();
     }
 
     private static void AddParameter(DbCommand cmd, string name, object value)
