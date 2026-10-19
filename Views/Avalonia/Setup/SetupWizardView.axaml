@@ -1,0 +1,604 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:setup="clr-namespace:SLSKDONET.ViewModels.Setup"
+             mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
+             x:Class="SLSKDONET.Views.Avalonia.Setup.SetupWizardView"
+             x:DataType="setup:SetupWizardViewModel"
+             x:CompileBindings="True"
+             Focusable="True"
+             Background="{DynamicResource BrushScrimStrong}">
+
+    <!--
+      First-run setup wizard (DOCS/FIRST_RUN_SETUP.md). Full-window takeover over the shell.
+      Each step is a view model; the content area picks its template by type. Enter = the page's
+      primary action, Esc = "Skip setup?" prompt (handled in code-behind so focused buttons keep
+      their own Enter).
+    -->
+
+    <UserControl.Styles>
+        <Style Selector="PathIcon">
+            <Setter Property="Width" Value="{StaticResource IconSizeMd}"/>
+            <Setter Property="Height" Value="{StaticResource IconSizeMd}"/>
+        </Style>
+        <Style Selector="StackPanel.setup-section">
+            <Setter Property="Spacing" Value="{StaticResource SpaceSm}"/>
+        </Style>
+        <Style Selector="StackPanel.setup-section > Border.card">
+            <Setter Property="Padding" Value="16,12"/>
+        </Style>
+        <Style Selector="TextBlock.caption, TextBlock.body, TextBlock.body-sm">
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style Selector="ToggleSwitch">
+            <Setter Property="OnContent" Value="{x:Null}"/>
+            <Setter Property="OffContent" Value="{x:Null}"/>
+            <Setter Property="MinWidth" Value="0"/>
+        </Style>
+        <Style Selector="Grid.row">
+            <Setter Property="MinHeight" Value="32"/>
+        </Style>
+        <Style Selector="Grid.row > StackPanel.label">
+            <Setter Property="Spacing" Value="2"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,16,0"/>
+        </Style>
+        <!-- Step indicator -->
+        <Style Selector="Border.step-num">
+            <Setter Property="Width" Value="20"/>
+            <Setter Property="Height" Value="20"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusFull}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder1}"/>
+            <Setter Property="Background" Value="{StaticResource BrushBg3}"/>
+        </Style>
+        <Style Selector="Border.step-num.current">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+            <Setter Property="Background" Value="{StaticResource BrushAccentSubtle}"/>
+        </Style>
+        <Style Selector="Border.step-num.done">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccentBorder}"/>
+            <Setter Property="Background" Value="{StaticResource BrushAccentSubtle}"/>
+        </Style>
+        <Style Selector="TextBlock.step-label">
+            <Setter Property="FontSize" Value="{StaticResource TextSizeBodySm}"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText2}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="TextBlock.step-label.current">
+            <Setter Property="Foreground" Value="{StaticResource BrushText0}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid>
+        <Border Classes="dialog" Padding="0"
+                Width="760" MaxWidth="{Binding $parent[Grid].Bounds.Width}"
+                MaxHeight="680" Margin="16"
+                HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Grid RowDefinitions="Auto,*,Auto">
+
+                <!-- ── Header: step indicator + Skip setup ───────────────────── -->
+                <Border Grid.Row="0" Padding="24,16" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <ItemsControl ItemsSource="{Binding Indicators}" VerticalAlignment="Center">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="16"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="setup:SetupStepIndicator" x:DataType="setup:SetupStepIndicator">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Border Classes="step-num" Classes.current="{Binding IsCurrent}" Classes.done="{Binding IsDone}">
+                                            <Panel>
+                                                <TextBlock Classes="mono" FontSize="{StaticResource TextSizeCaption}" Text="{Binding Number}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                           IsVisible="{Binding !IsDone}"/>
+                                                <PathIcon Data="{StaticResource icon_check}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"
+                                                          Foreground="{StaticResource BrushAccent}" IsVisible="{Binding IsDone}"/>
+                                            </Panel>
+                                        </Border>
+                                        <TextBlock Classes="step-label" Classes.current="{Binding IsCurrent}" Text="{Binding Label}"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Button Grid.Column="1" Classes="ghost small" Content="Skip setup"
+                                Command="{Binding RequestSkipSetupCommand}"
+                                ToolTip.Tip="Skip setup (Esc). You can run it again from Settings."/>
+                    </Grid>
+                </Border>
+
+                <!-- ── Current step ──────────────────────────────────────────── -->
+                <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+                    <ContentControl Content="{Binding CurrentStep}" Margin="24,24,24,16">
+                        <ContentControl.DataTemplates>
+
+                            <!-- 1. Welcome -->
+                            <DataTemplate DataType="setup:WelcomeStepViewModel" x:DataType="setup:WelcomeStepViewModel">
+                                <StackPanel Spacing="16" Margin="0,24,0,8">
+                                    <PathIcon Data="{StaticResource icon_music}" Width="{StaticResource IconSizeXl}" Height="{StaticResource IconSizeXl}"
+                                              Foreground="{StaticResource BrushAccent}" HorizontalAlignment="Left"/>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="display" Text="{Binding Title}"/>
+                                        <TextBlock Classes="body" Foreground="{StaticResource BrushText1}" Text="{Binding Subtitle}"/>
+                                    </StackPanel>
+                                    <Border Classes="card" Padding="16,12" Margin="0,8,0,0">
+                                        <StackPanel Spacing="8">
+                                            <TextBlock Classes="section" Text="A FEW QUICK STEPS"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <PathIcon Data="{StaticResource icon_users}" Foreground="{StaticResource BrushText2}"/>
+                                                <TextBlock Classes="body" Text="Sign in to Soulseek, the network ORBIT searches and downloads from."/>
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <PathIcon Data="{StaticResource icon_folder}" Foreground="{StaticResource BrushText2}"/>
+                                                <TextBlock Classes="body" Text="Choose where downloads land and which music folders belong to your library."/>
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <PathIcon Data="{StaticResource icon_tune}" Foreground="{StaticResource BrushText2}"/>
+                                                <TextBlock Classes="body" Text="Optionally connect Spotify and check audio output and analysis."/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                    <TextBlock Classes="caption" Text="Takes about two minutes. Everything can be changed later in Settings."/>
+                                </StackPanel>
+                            </DataTemplate>
+
+                            <!-- 2. Soulseek -->
+                            <DataTemplate DataType="setup:SoulseekStepViewModel" x:DataType="setup:SoulseekStepViewModel">
+                                <StackPanel Spacing="16">
+                                    <StackPanel Spacing="4">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Classes="h2" Text="{Binding Title}"/>
+                                            <Border Classes="fact" VerticalAlignment="Center"><TextBlock Text="Recommended"/></Border>
+                                        </StackPanel>
+                                        <TextBlock Classes="body-sm" Foreground="{StaticResource BrushText1}" Text="{Binding Subtitle}"/>
+                                    </StackPanel>
+
+                                    <Border Classes="callout info">
+                                        <Grid ColumnDefinitions="Auto,*">
+                                            <PathIcon Data="{StaticResource icon_info}" Foreground="{StaticResource BrushInfo}" VerticalAlignment="Top" Margin="0,0,8,0"/>
+                                            <TextBlock Grid.Column="1" Classes="body-sm"
+                                                       Text="New to Soulseek? There is no sign-up page: choose a new username and password and the account is created the first time you sign in. If someone already owns the name, the test says so."/>
+                                        </Grid>
+                                    </Border>
+
+                                    <Border Classes="callout warning" IsVisible="{Binding IsPreviewProfile}">
+                                        <Grid ColumnDefinitions="Auto,*">
+                                            <PathIcon Data="{StaticResource icon_alert}" Foreground="{StaticResource BrushWarning}" VerticalAlignment="Top" Margin="0,0,8,0"/>
+                                            <TextBlock Grid.Column="1" Classes="body-sm"
+                                                       Text="Preview profile: signing in here with the account your main ORBIT uses disconnects that session. Use a throwaway name to try the step."/>
+                                        </Grid>
+                                    </Border>
+
+                                    <Grid ColumnDefinitions="*,16,*" RowDefinitions="Auto,Auto">
+                                        <TextBlock Classes="caption" Text="Username" Margin="0,0,0,4"/>
+                                        <TextBox Grid.Row="1" Text="{Binding Username, Mode=TwoWay}" Watermark="Username"
+                                                 AutomationProperties.Name="Soulseek username"/>
+                                        <TextBlock Grid.Column="2" Classes="caption" Text="Password" Margin="0,0,0,4"/>
+                                        <TextBox Grid.Row="1" Grid.Column="2" Text="{Binding Password, Mode=TwoWay}" Watermark="Password"
+                                                 PasswordChar="●" AutomationProperties.Name="Soulseek password"/>
+                                    </Grid>
+
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                        <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="Remember me and connect on startup"/>
+                                            <TextBlock Classes="caption" Text="The password is stored encrypted on this computer and only sent to the Soulseek server."/>
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding RememberAndAutoConnect, Mode=TwoWay}"
+                                                      AutomationProperties.Name="Remember me and connect on startup"/>
+                                    </Grid>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <Button Classes="secondary" Command="{Binding TestConnectionCommand}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <PathIcon Data="{StaticResource icon_sync}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                                                <TextBlock Text="Test connection"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsTesting}" VerticalAlignment="Center">
+                                            <ProgressBar Classes="meter" IsIndeterminate="True" Width="80" VerticalAlignment="Center"/>
+                                            <TextBlock Classes="caption" Text="Signing in…" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </StackPanel>
+
+                                    <Border Classes="callout" IsVisible="{Binding ResultIsSuccess}">
+                                        <Grid ColumnDefinitions="Auto,*">
+                                            <PathIcon Data="{StaticResource icon_check}" Foreground="{StaticResource BrushSuccess}" VerticalAlignment="Top" Margin="0,0,8,0"/>
+                                            <StackPanel Grid.Column="1" Spacing="2">
+                                                <TextBlock Classes="body" FontWeight="SemiBold" Text="{Binding ResultTitle}"/>
+                                                <TextBlock Classes="body-sm" Text="{Binding ResultMessage}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                    <Border Classes="callout error" IsVisible="{Binding ResultIsError}">
+                                        <Grid ColumnDefinitions="Auto,*">
+                                            <PathIcon Data="{StaticResource icon_alert}" Foreground="{StaticResource BrushError}" VerticalAlignment="Top" Margin="0,0,8,0"/>
+                                            <StackPanel Grid.Column="1" Spacing="2">
+                                                <TextBlock Classes="body" FontWeight="SemiBold" Text="{Binding ResultTitle}"/>
+                                                <TextBlock Classes="body-sm" Text="{Binding ResultMessage}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                    <Border Classes="callout error" IsVisible="{Binding HasError}">
+                                        <TextBlock Classes="body-sm" Text="{Binding ErrorMessage}"/>
+                                    </Border>
+                                </StackPanel>
+                            </DataTemplate>
+
+                            <!-- 3. Folders -->
+                            <DataTemplate DataType="setup:FoldersStepViewModel" x:DataType="setup:FoldersStepViewModel">
+                                <StackPanel Spacing="24">
+                                    <StackPanel Spacing="4">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Classes="h2" Text="{Binding Title}"/>
+                                            <Border Classes="fact" VerticalAlignment="Center"><TextBlock Text="Recommended"/></Border>
+                                        </StackPanel>
+                                        <TextBlock Classes="body-sm" Foreground="{StaticResource BrushText1}" Text="{Binding Subtitle}"/>
+                                    </StackPanel>
+
+                                    <Border Classes="callout error" IsVisible="{Binding HasError}">
+                                        <TextBlock Classes="body-sm" Text="{Binding ErrorMessage}"/>
+                                    </Border>
+
+                                    <!-- Download folder -->
+                                    <StackPanel Classes="setup-section">
+                                        <TextBlock Classes="section" Text="DOWNLOAD FOLDER"/>
+                                        <Border Classes="card">
+                                            <StackPanel Spacing="8">
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <TextBox Classes="mono" Text="{Binding DownloadDirectory, Mode=TwoWay}"
+                                                             Watermark="C:\Music\ORBIT" AutomationProperties.Name="Download folder"/>
+                                                    <Button Grid.Column="1" Classes="secondary" Content="Browse…" Margin="8,0,0,0"
+                                                            Command="{Binding BrowseDownloadCommand}"/>
+                                                </Grid>
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <Ellipse Classes="status-dot success"
+                                                             Classes.warning="{Binding DownloadCheckIsWarning}"
+                                                             Classes.error="{Binding DownloadCheckIsError}"
+                                                             VerticalAlignment="Center"/>
+                                                    <TextBlock Classes="caption mono" Text="{Binding DownloadCheck.Message}" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+
+                                    <!-- Library folders -->
+                                    <StackPanel Classes="setup-section">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Classes="section" Text="LIBRARY FOLDERS" VerticalAlignment="Center"/>
+                                            <Button Grid.Column="1" Classes="secondary small" Command="{Binding AddLibraryFolderCommand}">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <PathIcon Data="{StaticResource icon_folder_add}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                    <TextBlock Text="Add folder"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </Grid>
+                                        <TextBlock Classes="caption" Text="Folders that already hold music. Their tracks join the library; watched folders also import new files as they appear."/>
+                                        <Border Classes="card" Padding="4">
+                                            <Panel>
+                                                <ItemsControl ItemsSource="{Binding LibraryFolders}" IsVisible="{Binding HasLibraryFolders}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate DataType="setup:SetupLibraryFolderItem" x:DataType="setup:SetupLibraryFolderItem">
+                                                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" MinHeight="32" Margin="8,0">
+                                                                <PathIcon Data="{StaticResource icon_folder}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"
+                                                                          Foreground="{StaticResource BrushText2}" VerticalAlignment="Center"/>
+                                                                <StackPanel Grid.Column="1" Margin="8,0" VerticalAlignment="Center">
+                                                                    <TextBlock Classes="mono" Text="{Binding Path}" TextTrimming="CharacterEllipsis"/>
+                                                                    <TextBlock Classes="caption" Text="Already in your library" IsVisible="{Binding IsExisting}"/>
+                                                                </StackPanel>
+                                                                <CheckBox Grid.Column="2" Content="Watch" IsChecked="{Binding Watch, Mode=TwoWay}"
+                                                                          IsEnabled="{Binding IsNew}" VerticalAlignment="Center"
+                                                                          ToolTip.Tip="Import new files that appear in this folder automatically"/>
+                                                                <Button Grid.Column="3" Classes="icon small" Margin="8,0,0,0"
+                                                                        IsVisible="{Binding IsNew}"
+                                                                        Command="{Binding RemoveCommand}"
+                                                                        ToolTip.Tip="Remove from this list">
+                                                                    <PathIcon Data="{StaticResource icon_close}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                                </Button>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                                <TextBlock Classes="caption" Margin="12,12"
+                                                           Text="No library folders yet. Add the folders where your music collection lives, or skip this and only use downloads."
+                                                           IsVisible="{Binding !HasLibraryFolders}"/>
+                                            </Panel>
+                                        </Border>
+                                    </StackPanel>
+
+                                    <!-- Sharing -->
+                                    <StackPanel Classes="setup-section">
+                                        <TextBlock Classes="section" Text="SHARING ON SOULSEEK"/>
+                                        <Border Classes="card">
+                                            <StackPanel Spacing="12">
+                                                <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                                    <StackPanel Classes="label">
+                                                        <TextBlock Classes="body" Text="Share my music"/>
+                                                        <TextBlock Classes="caption" Text="Soulseek runs on people sharing. Peers see your download folder and library folders, and many only let you download if you share something back."/>
+                                                    </StackPanel>
+                                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding ShareOnSoulseek, Mode=TwoWay}"
+                                                                  AutomationProperties.Name="Share my music on Soulseek"/>
+                                                </Grid>
+                                                <Border Classes="divider"/>
+                                                <Grid Classes="row" ColumnDefinitions="*,Auto" IsEnabled="{Binding ShareOnSoulseek}">
+                                                    <StackPanel Classes="label">
+                                                        <TextBlock Classes="body" Text="Extra shared folder"/>
+                                                        <TextBlock Classes="caption mono" Text="{Binding ExtraSharedFolder}" IsVisible="{Binding HasExtraSharedFolder}" TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Classes="caption" Text="Optional. Shared on top of the folders above." IsVisible="{Binding !HasExtraSharedFolder}"/>
+                                                        <TextBlock Classes="caption error" Text="{Binding ExtraShareCheck.Message}" IsVisible="{Binding ExtraShareCheckIsError}"/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                                        <Button Classes="secondary small" Content="Browse…" Command="{Binding BrowseExtraShareCommand}"/>
+                                                        <Button Classes="icon small" Command="{Binding ClearExtraShareCommand}" IsVisible="{Binding HasExtraSharedFolder}"
+                                                                ToolTip.Tip="Don't share an extra folder">
+                                                            <PathIcon Data="{StaticResource icon_close}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                        </Button>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+
+                                    <!-- Edit Lab output -->
+                                    <StackPanel Classes="setup-section">
+                                        <TextBlock Classes="section" Text="EDIT LAB OUTPUT"/>
+                                        <Border Classes="card">
+                                            <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                                <StackPanel Classes="label">
+                                                    <TextBlock Classes="body" Text="Rendered edits are saved to"/>
+                                                    <TextBlock Classes="caption mono" Text="{Binding EditLabFolderDisplay}" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Classes="caption" Text="Follows the download folder." IsVisible="{Binding EditLabUsesDefault}"/>
+                                                    <TextBlock Classes="caption error" Text="{Binding EditLabCheck.Message}" IsVisible="{Binding EditLabCheckIsError}"/>
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                                    <Button Classes="ghost small" Content="Use default" Command="{Binding ResetEditLabCommand}"
+                                                            IsVisible="{Binding !EditLabUsesDefault}"/>
+                                                    <Button Classes="secondary small" Content="Browse…" Command="{Binding BrowseEditLabCommand}"/>
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                    </StackPanel>
+                                </StackPanel>
+                            </DataTemplate>
+
+                            <!-- 4. Optional connections -->
+                            <DataTemplate DataType="setup:ConnectionsStepViewModel" x:DataType="setup:ConnectionsStepViewModel">
+                                <StackPanel Spacing="16">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="h2" Text="{Binding Title}"/>
+                                        <TextBlock Classes="body-sm" Foreground="{StaticResource BrushText1}" Text="{Binding Subtitle}"/>
+                                    </StackPanel>
+                                    <Border Classes="card" Padding="16,12">
+                                        <Grid Classes="row" ColumnDefinitions="Auto,*,Auto">
+                                            <PathIcon Data="{StaticResource icons_spotify}" Width="{StaticResource IconSizeLg}" Height="{StaticResource IconSizeLg}"
+                                                      Foreground="{StaticResource BrushText1}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                            <StackPanel Grid.Column="1" Classes="label">
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <Ellipse Classes="status-dot" Classes.success="{Binding IsSpotifyConnected}" Classes.warning="{Binding IsConnecting}" VerticalAlignment="Center"/>
+                                                    <TextBlock Classes="body" FontWeight="SemiBold" Text="Spotify"/>
+                                                </StackPanel>
+                                                <TextBlock Classes="caption" Text="Connected. Private playlists and Liked Songs are available in Import." IsVisible="{Binding IsSpotifyConnected}"/>
+                                                <TextBlock Classes="caption" Text="Opens your browser to sign in. ORBIT only reads your library." IsVisible="{Binding IsSpotifyDisconnected}"/>
+                                                <TextBlock Classes="caption warning" Text="{Binding StatusMessage}" IsVisible="{Binding HasStatusMessage}"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <Button Classes="secondary" Command="{Binding ConnectSpotifyCommand}" IsVisible="{Binding IsSpotifyDisconnected}">
+                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                        <PathIcon Data="{StaticResource icons_spotify}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                                                        <TextBlock Text="Connect Spotify"/>
+                                                    </StackPanel>
+                                                </Button>
+                                                <ProgressBar Classes="meter" IsIndeterminate="True" Width="80" VerticalAlignment="Center" IsVisible="{Binding IsConnecting}"/>
+                                                <Button Classes="ghost small" Content="Cancel" Command="{Binding CancelSpotifyCommand}" IsVisible="{Binding IsConnecting}"/>
+                                                <PathIcon Data="{StaticResource icon_check}" Foreground="{StaticResource BrushSuccess}" IsVisible="{Binding IsSpotifyConnected}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                    <TextBlock Classes="caption" Text="Without Spotify you can still import pasted tracklists and CSV files."/>
+                                </StackPanel>
+                            </DataTemplate>
+
+                            <!-- 5. Audio and analysis -->
+                            <DataTemplate DataType="setup:AudioStepViewModel" x:DataType="setup:AudioStepViewModel">
+                                <StackPanel Spacing="24">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="h2" Text="{Binding Title}"/>
+                                        <TextBlock Classes="body-sm" Foreground="{StaticResource BrushText1}" Text="{Binding Subtitle}"/>
+                                    </StackPanel>
+
+                                    <Border Classes="callout error" IsVisible="{Binding HasError}">
+                                        <TextBlock Classes="body-sm" Text="{Binding ErrorMessage}"/>
+                                    </Border>
+
+                                    <StackPanel Classes="setup-section">
+                                        <TextBlock Classes="section" Text="AUDIO OUTPUT"/>
+                                        <Border Classes="card">
+                                            <StackPanel Spacing="12">
+                                                <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                                    <StackPanel Classes="label">
+                                                        <TextBlock Classes="body" Text="Driver"/>
+                                                        <TextBlock Classes="caption" Text="WASAPI suits most setups. ASIO for audio interfaces with their own driver."/>
+                                                    </StackPanel>
+                                                    <ComboBox Grid.Column="1" Width="280" ItemsSource="{Binding OutputModes}" SelectedItem="{Binding OutputMode, Mode=TwoWay}"
+                                                              AutomationProperties.Name="Audio driver"/>
+                                                </Grid>
+                                                <Border Classes="divider"/>
+                                                <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                                    <StackPanel Classes="label">
+                                                        <TextBlock Classes="body" Text="Device"/>
+                                                        <TextBlock Classes="caption" Text="WaveOut always plays through the system default." IsVisible="{Binding !HasDeviceChoice}"/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                                        <ComboBox Width="240" ItemsSource="{Binding Devices}" SelectedItem="{Binding OutputDevice, Mode=TwoWay}"
+                                                                  AutomationProperties.Name="Audio device"/>
+                                                        <Button Classes="icon" Command="{Binding RefreshDevicesCommand}" ToolTip.Tip="Refresh device list">
+                                                            <PathIcon Data="{StaticResource icon_sync}"/>
+                                                        </Button>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+
+                                    <StackPanel Classes="setup-section">
+                                        <TextBlock Classes="section" Text="ANALYSIS"/>
+                                        <Border Classes="card">
+                                            <StackPanel Spacing="12">
+                                                <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                                    <StackPanel Classes="label">
+                                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                            <Ellipse Classes="status-dot" Classes.success="{Binding FfmpegIsOk}" Classes.warning="{Binding FfmpegIsMissing}" VerticalAlignment="Center"/>
+                                                            <TextBlock Classes="body" Text="FFmpeg"/>
+                                                            <TextBlock Classes="caption mono" Text="{Binding FfmpegText}" VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                        <TextBlock Classes="caption" IsVisible="{Binding FfmpegIsMissing}"
+                                                                   Text="Needed for fake-lossless detection, spectral checks and some formats. Install it (Windows: gyan.dev full build, then add its bin folder to PATH), then check again."/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                                        <Button Classes="ghost small" Command="{Binding GetFfmpegCommand}" IsVisible="{Binding FfmpegIsMissing}">
+                                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                                <PathIcon Data="{StaticResource icon_open_external}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                                <TextBlock Text="Get FFmpeg"/>
+                                                            </StackPanel>
+                                                        </Button>
+                                                        <Button Classes="secondary small" Content="Check again" Command="{Binding CheckFfmpegCommand}"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                                <Border Classes="divider"/>
+                                                <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                                    <StackPanel Classes="label">
+                                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                            <Ellipse Classes="status-dot" Classes.success="{Binding ModelsAllPresent}" Classes.warning="{Binding ModelsIncomplete}" VerticalAlignment="Center"/>
+                                                            <TextBlock Classes="body" Text="AI models"/>
+                                                            <TextBlock Classes="caption mono" Text="{Binding ModelsText}" VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                        <TextBlock Classes="caption" Text="{Binding ModelsMissingText}"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                                <Border Classes="divider"/>
+                                                <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                                    <StackPanel Classes="label">
+                                                        <TextBlock Classes="body" Text="Analyse new downloads automatically"/>
+                                                        <TextBlock Classes="caption" Text="BPM, key, energy, loudness and cues for every finished download. Off: queue analysis yourself from the Library or Analysis page."/>
+                                                    </StackPanel>
+                                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding AnalyzeNewDownloads, Mode=TwoWay}"
+                                                                  AutomationProperties.Name="Analyse new downloads automatically"/>
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                </StackPanel>
+                            </DataTemplate>
+
+                            <!-- 6. Done -->
+                            <DataTemplate DataType="setup:DoneStepViewModel" x:DataType="setup:DoneStepViewModel">
+                                <StackPanel Spacing="16">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="h2" Text="{Binding Title}"/>
+                                        <TextBlock Classes="body-sm" Foreground="{StaticResource BrushText1}" Text="{Binding Subtitle}"/>
+                                    </StackPanel>
+                                    <Border Classes="card" Padding="4">
+                                        <ItemsControl ItemsSource="{Binding Summary}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="setup:SetupSummaryItem" x:DataType="setup:SetupSummaryItem">
+                                                    <Grid ColumnDefinitions="Auto,*" MinHeight="40" Margin="12,4">
+                                                        <Panel Width="16" VerticalAlignment="Center">
+                                                            <PathIcon Data="{StaticResource icon_check}" Foreground="{StaticResource BrushSuccess}" IsVisible="{Binding IsConfigured}"/>
+                                                            <PathIcon Data="{StaticResource icon_info}" Foreground="{StaticResource BrushText3}" IsVisible="{Binding !IsConfigured}"/>
+                                                        </Panel>
+                                                        <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" Spacing="2">
+                                                            <TextBlock Classes="body" FontWeight="SemiBold" Text="{Binding Title}"/>
+                                                            <TextBlock Classes="caption" Text="{Binding Detail}"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Border>
+
+                                    <Border Classes="callout" IsVisible="{Binding CanScanNow}">
+                                        <Grid ColumnDefinitions="Auto,*,Auto">
+                                            <PathIcon Data="{StaticResource icon_library}" Foreground="{StaticResource BrushAccent}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding ScanNowText}" VerticalAlignment="Center"/>
+                                            <Button Grid.Column="2" Classes="secondary small" Content="Scan now" Margin="12,0,0,0"
+                                                    Command="{Binding ScanNowCommand}"/>
+                                        </Grid>
+                                    </Border>
+                                    <TextBlock Classes="caption" IsVisible="{Binding ScanStarted}"
+                                               Text="Scanning in the background. A notification says when it's done."/>
+                                    <TextBlock Classes="caption" Text="Run setup again or take the tour any time from Settings → Advanced → Setup."/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ContentControl.DataTemplates>
+                    </ContentControl>
+                </ScrollViewer>
+
+                <!-- ── Footer ────────────────────────────────────────────────── -->
+                <Border Grid.Row="2" Padding="24,12" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,1,0,0">
+                    <Panel>
+                        <!-- Welcome -->
+                        <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding IsWelcome}">
+                            <Button Classes="ghost" Content="Skip" Command="{Binding ConfirmSkipSetupCommand}"
+                                    ToolTip.Tip="Skip setup. You can run it again from Settings → Advanced → Setup."/>
+                            <Button Grid.Column="1" Classes="primary" Content="Start setup (recommended)" Command="{Binding NextCommand}"/>
+                        </Grid>
+
+                        <!-- Steps 2–5 -->
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" IsVisible="{Binding ShowFooterNavigation}">
+                            <Button Classes="ghost" Command="{Binding BackCommand}">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <PathIcon Data="{StaticResource icon_chevron_left}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                                    <TextBlock Text="Back"/>
+                                </StackPanel>
+                            </Button>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="12,0" VerticalAlignment="Center"
+                                        IsVisible="{Binding CurrentStep.CanSkip}">
+                                <Button Classes="ghost small" Content="Skip this step" Command="{Binding SkipStepCommand}"
+                                        ToolTip.Tip="{Binding CurrentStep.SkipNote}"/>
+                            </StackPanel>
+                            <TextBlock Grid.Column="2" Classes="caption mono" Text="{Binding StepPositionText}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                            <Button Grid.Column="3" Classes="primary" Command="{Binding NextCommand}">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="{Binding NextLabel}"/>
+                                    <PathIcon Data="{StaticResource icon_chevron_right}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+
+                        <!-- Done -->
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" IsVisible="{Binding IsDone}">
+                            <Button Classes="ghost" Command="{Binding BackCommand}">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <PathIcon Data="{StaticResource icon_chevron_left}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                                    <TextBlock Text="Back"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Grid.Column="2" Classes="secondary" Content="Take the quick tour" Margin="0,0,8,0"
+                                    Command="{Binding FinishAndTourCommand}"/>
+                            <Button Grid.Column="3" Classes="primary" Content="Start using ORBIT" Command="{Binding FinishCommand}"/>
+                        </Grid>
+                    </Panel>
+                </Border>
+
+                <!-- ── Skip-setup confirmation (Esc) ─────────────────────────── -->
+                <Border Grid.RowSpan="3" Background="{StaticResource BrushScrim}" CornerRadius="{StaticResource RadiusXl}"
+                        IsVisible="{Binding IsSkipConfirmVisible}">
+                    <Border Classes="dialog" Width="400" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <StackPanel Spacing="12">
+                            <TextBlock Classes="h3" Text="Skip setup?"/>
+                            <TextBlock Classes="body-sm" Foreground="{StaticResource BrushText1}"
+                                       Text="Steps you already confirmed stay saved; nothing else changes. You can run setup again from Settings → Advanced → Setup."/>
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,8,0,0">
+                                <Button Classes="secondary" Content="Skip setup" Command="{Binding ConfirmSkipSetupCommand}"/>
+                                <Button Classes="primary" Content="Keep setting up" Command="{Binding CancelSkipSetupCommand}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

@@ -16,12 +16,16 @@ public sealed class SetupLibraryFolderItem : SetupObservable
 {
     private bool _watch;
 
-    public SetupLibraryFolderItem(string path, bool watch, bool isExisting)
+    public SetupLibraryFolderItem(string path, bool watch, bool isExisting, Action<SetupLibraryFolderItem>? remove = null)
     {
         Path = path;
         _watch = watch;
         IsExisting = isExisting;
+        RemoveCommand = new RelayCommand(() => remove?.Invoke(this), () => !isExisting && remove != null);
     }
+
+    /// <summary>Removes a not-yet-saved folder from the list (existing Library Sources are managed in Settings).</summary>
+    public ICommand RemoveCommand { get; }
 
     public string Path { get; }
 
@@ -257,7 +261,7 @@ public sealed class FoldersStepViewModel : SetupStepViewModel
             ErrorMessage = "That folder is already in the list.";
             return false;
         }
-        LibraryFolders.Add(new SetupLibraryFolderItem(path, watch: true, isExisting: false));
+        LibraryFolders.Add(new SetupLibraryFolderItem(path, watch: true, isExisting: false, remove: item => RemoveLibraryFolderCommand.Execute(item)));
         OnPropertyChanged(nameof(HasLibraryFolders));
         return true;
     }
