@@ -434,63 +434,63 @@
                     </DataTemplate>
                 </ContentControl.DataTemplates>
             </ContentControl>
+
+            <!-- ═══ SELECTION BAR ═══
+                 Appears only while tracks are selected: count, the three most common actions,
+                 everything else under "More". It lives in the track-list pane (it used to be centred
+                 on the whole page, so with a narrow list it floated over the playlist panel). The
+                 pane's width bounds it; the ScrollViewer is the fallback for a very narrow pane. -->
+            <Border Grid.Row="1" IsVisible="{Binding Tracks.HasSelectedTracks}"
+                    VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                    Background="{StaticResource BrushBg3}" BorderBrush="{StaticResource BrushBorder1}" BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusLg}" BoxShadow="{StaticResource ShadowLg}"
+                    Padding="12,8" Margin="16,0,16,24" ZIndex="100">
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Classes="mono" Foreground="{StaticResource BrushText0}" VerticalAlignment="Center" Margin="4,0,8,0"
+                                   Text="{Binding Tracks.SelectedTracks.Count, StringFormat='{}{0} selected'}"/>
+                        <Border Classes="divider vertical" Height="20"/>
+                        <Button Classes="primary small" Command="{Binding Tracks.Operations.PlayTrackCommand}"
+                                ToolTip.Tip="Clear the queue and play the selected tracks">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource icon_play}" Width="12" Height="12"/>
+                                <TextBlock Text="Play"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Classes="secondary small" Content="Add to queue" Command="{Binding Tracks.Operations.AddSelectedToQueueCommand}"/>
+                        <Button Classes="secondary small" Content="Add to playlist…" Command="{Binding BatchAddToPlaylistCommand}"/>
+                        <Button Classes="ghost small" ToolTip.Tip="More actions for the selection">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="More"/>
+                                <PathIcon Data="{StaticResource icon_chevron_down}" Width="12" Height="12"/>
+                            </StackPanel>
+                            <Button.Flyout>
+                                <MenuFlyout Placement="TopEdgeAlignedRight">
+                                    <MenuItem Header="Edit tags…" Command="{Binding BatchTagEditCommand}"/>
+                                    <MenuItem Header="Analyse" Command="{Binding BatchQueueAnalysisCommand}"
+                                              ToolTip.Tip="Queue the selected tracks for audio analysis"/>
+                                    <MenuItem Header="Download next" Command="{Binding Operations.DownloadNextCommand}"
+                                              ToolTip.Tip="Move the selected tracks that are still waiting to the front of the download queue"/>
+                                    <Separator/>
+                                    <MenuItem Header="Rename files…" Command="{Binding BulkRenameCommand}"
+                                              ToolTip.Tip="Rename the selected tracks' files by pattern"/>
+                                    <MenuItem Header="Move or copy files…" Command="{Binding BulkMoveOrCopyCommand}"/>
+                                    <Separator/>
+                                    <MenuItem Header="Export to Rekordbox XML…" Command="{Binding BatchExportRekordboxCommand}"/>
+                                    <MenuItem Header="Export to M3U…" Command="{Binding BatchExportM3uCommand}"
+                                              ToolTip.Tip="Rekordbox, VirtualDJ, Serato, any player"/>
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                        <Border Classes="divider vertical" Height="20"/>
+                        <Button Classes="icon small" Command="{Binding BatchClearSelectionCommand}" ToolTip.Tip="Clear selection (Esc)">
+                            <PathIcon Data="{StaticResource icon_close}" Width="14" Height="14"/>
+                        </Button>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
         </Grid>
     </Grid>
-
-    <!-- ═══ SELECTION BAR ═══
-         Appears only while tracks are selected: count, the three most common actions, everything
-         else under "More". MaxWidth follows the root panel so it never slides under the context
-         side panel; the ScrollViewer is the fallback for very narrow windows. -->
-    <Border IsVisible="{Binding Tracks.HasSelectedTracks}"
-            VerticalAlignment="Bottom" HorizontalAlignment="Center"
-            MaxWidth="{ReflectionBinding #RootPanel.Bounds.Width}"
-            Background="{StaticResource BrushBg3}" BorderBrush="{StaticResource BrushBorder1}" BorderThickness="1"
-            CornerRadius="{StaticResource RadiusLg}" BoxShadow="{StaticResource ShadowLg}"
-            Padding="12,8" Margin="16,0,16,24" ZIndex="100">
-        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <TextBlock Classes="mono" Foreground="{StaticResource BrushText0}" VerticalAlignment="Center" Margin="4,0,8,0"
-                           Text="{Binding Tracks.SelectedTracks.Count, StringFormat='{}{0} selected'}"/>
-                <Border Classes="divider vertical" Height="20"/>
-                <Button Classes="primary small" Command="{Binding Tracks.Operations.PlayTrackCommand}"
-                        ToolTip.Tip="Clear the queue and play the selected tracks">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <PathIcon Data="{StaticResource icon_play}" Width="12" Height="12"/>
-                        <TextBlock Text="Play"/>
-                    </StackPanel>
-                </Button>
-                <Button Classes="secondary small" Content="Add to queue" Command="{Binding Tracks.Operations.AddSelectedToQueueCommand}"/>
-                <Button Classes="secondary small" Content="Add to playlist…" Command="{Binding BatchAddToPlaylistCommand}"/>
-                <Button Classes="ghost small" ToolTip.Tip="More actions for the selection">
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                        <TextBlock Text="More"/>
-                        <PathIcon Data="{StaticResource icon_chevron_down}" Width="12" Height="12"/>
-                    </StackPanel>
-                    <Button.Flyout>
-                        <MenuFlyout Placement="TopEdgeAlignedRight">
-                            <MenuItem Header="Edit tags…" Command="{Binding BatchTagEditCommand}"/>
-                            <MenuItem Header="Analyse" Command="{Binding BatchQueueAnalysisCommand}"
-                                      ToolTip.Tip="Queue the selected tracks for audio analysis"/>
-                            <MenuItem Header="Download next" Command="{Binding Operations.DownloadNextCommand}"
-                                      ToolTip.Tip="Move the selected tracks that are still waiting to the front of the download queue"/>
-                            <Separator/>
-                            <MenuItem Header="Rename files…" Command="{Binding BulkRenameCommand}"
-                                      ToolTip.Tip="Rename the selected tracks' files by pattern"/>
-                            <MenuItem Header="Move or copy files…" Command="{Binding BulkMoveOrCopyCommand}"/>
-                            <Separator/>
-                            <MenuItem Header="Export to Rekordbox XML…" Command="{Binding BatchExportRekordboxCommand}"/>
-                            <MenuItem Header="Export to M3U…" Command="{Binding BatchExportM3uCommand}"
-                                      ToolTip.Tip="Rekordbox, VirtualDJ, Serato, any player"/>
-                        </MenuFlyout>
-                    </Button.Flyout>
-                </Button>
-                <Border Classes="divider vertical" Height="20"/>
-                <Button Classes="icon small" Command="{Binding BatchClearSelectionCommand}" ToolTip.Tip="Clear selection (Esc)">
-                    <PathIcon Data="{StaticResource icon_close}" Width="14" Height="14"/>
-                </Button>
-            </StackPanel>
-        </ScrollViewer>
-    </Border>
 
     <!-- ═══ OVERLAYS ═══ -->
 
