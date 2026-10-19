@@ -1077,7 +1077,7 @@
                     <StackPanel Classes="tab-body">
 
                         <StackPanel Classes="settings-section"
-                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Check for Updates GitHub Releases version Dependencies FFmpeg check download install'}">
+                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Check for Updates GitHub Releases version Dependencies FFmpeg check download install close button minimise minimize tray taskbar quit background'}">
                             <TextBlock Classes="section" Text="SYSTEM"/>
                             <Border Classes="card">
                                 <StackPanel>
@@ -1087,6 +1087,15 @@
                                             <TextBlock Classes="caption" Text="Looks at GitHub Releases at most every 12 hours and shows a notice when a newer version exists."/>
                                         </StackPanel>
                                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnableUpdateCheck, Mode=TwoWay}"/>
+                                    </Grid>
+                                    <Border Classes="divider"/>
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                        <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="Close button minimises to tray"/>
+                                            <TextBlock Classes="caption" Text="Closing the window keeps ORBIT running in the notification area so downloads continue. Quit from the tray icon's menu. Off: the close button quits ORBIT."/>
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CloseToTray, Mode=TwoWay}"
+                                                      AutomationProperties.Name="Close button minimises to tray"/>
                                     </Grid>
                                     <Border Classes="divider"/>
                                     <Grid Classes="row" ColumnDefinitions="*,Auto">
