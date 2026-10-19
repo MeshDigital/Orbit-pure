@@ -206,6 +206,12 @@ public class FreshDatabaseSchemaParityTests
         Assert.True(await db.GetTotalLibraryTrackCountAsync() >= 1);
         foreach (var sort in Enum.GetValues<SLSKDONET.Models.TrackSortColumn>())
             await db.GetPagedAllTracksAsync(0, 50, sortColumn: sort);
+        // Search goes through the raw-SQL FTS paths (LibraryEntriesFts / TracksFts).
+        await db.GetTotalLibraryTrackCountAsync(filter: "Artist");
+        await db.GetPagedAllTracksAsync(0, 50, filter: "Artist");
+        await db.GetPagedAllTracksAsync(0, 50, downloadedOnly: true);
+        await db.SearchLibraryEntriesWithStatusAsync("Artist");
+        await db.GetPagedPlaylistTracksAsync(jobId, 0, 50, filter: "Title");
         Assert.Equal(1, await db.GetPlaylistTrackCountAsync(jobId));
         Assert.Single(await db.GetPagedPlaylistTracksAsync(jobId, 0, 50));
         Assert.Single(await db.LoadPlaylistTracksAsync(jobId));
