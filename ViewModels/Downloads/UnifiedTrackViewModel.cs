@@ -1412,9 +1412,9 @@ public partial class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, 
     public string YearDisplay => Model.ReleaseDate.HasValue ? Model.ReleaseDate.Value.Year.ToString() : "";
     
     // Technical Audio Display
-    public string LoudnessDisplay => Model.Loudness.HasValue ? $"{Model.Loudness:F1} LUFS" : "—";
-    public string TruePeakDisplay => Model.TruePeak.HasValue ? $"{Model.TruePeak:F1} dBTP" : "—";
-    public string DynamicRangeDisplay => Model.DynamicRange.HasValue ? $"{Model.DynamicRange:F1} LU" : "—";
+    public string LoudnessDisplay => Services.AudioAnalysis.IntegratedLoudnessMeter.Format(Model.Loudness);
+    public string TruePeakDisplay => Model.TruePeak is double tp ? tp.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " dBTP" : "—";
+    public string DynamicRangeDisplay => Model.DynamicRange is double dr ? dr.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " LU" : "—";
 
     public bool IsEnriched => Model.IsEnriched;
     public bool IsPrepared => Model.IsPrepared;

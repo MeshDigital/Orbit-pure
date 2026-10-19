@@ -1308,7 +1308,7 @@ public class TrackRepository : ITrackRepository
             InstrumentalProbability = e.AudioFeatures?.InstrumentalProbability ?? e.InstrumentalProbability,
             PrimaryGenre = e.PrimaryGenre,
             AudioFeatures = e.AudioFeatures,
-            Loudness = e.Loudness,
+            Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(e.Loudness),
             TruePeak = e.TruePeak,
             DynamicRange = e.DynamicRange,
             IsTrustworthy = e.Integrity != Data.IntegrityLevel.Suspicious && e.Integrity != Data.IntegrityLevel.None,

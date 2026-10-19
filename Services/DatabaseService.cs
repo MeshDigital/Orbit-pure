@@ -2403,7 +2403,7 @@ public class DatabaseService
             row.Valence = features.Valence;
             row.Arousal = features.Arousal;
             row.IsDjTool = features.IsDjTool;
-            row.Loudness = features.LoudnessLUFS;
+            row.Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(features.LoudnessLUFS);
             row.CuePointsJson = features.CuePointsJson;
             row.MoodTag = features.MoodTag;
             row.DetectedSubGenre = features.DetectedSubGenre;
@@ -2429,7 +2429,7 @@ public class DatabaseService
             row.Valence = features.Valence;
             row.Arousal = features.Arousal;
             row.IsDjTool = features.IsDjTool;
-            row.Loudness = features.LoudnessLUFS;
+            row.Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(features.LoudnessLUFS);
             row.CuePointsJson = features.CuePointsJson;
             row.MoodTag = features.MoodTag;
             row.DetectedSubGenre = features.DetectedSubGenre;

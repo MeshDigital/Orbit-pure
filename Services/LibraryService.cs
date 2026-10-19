@@ -1375,7 +1375,7 @@ public class LibraryService : ILibraryService
             SpectralNoiseFloorDbfs = entity.SpectralNoiseFloorDbfs,
             
             // Phase 17: Technical Audio Analysis
-            Loudness = entity.Loudness,
+            Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.Loudness),
             TruePeak = entity.TruePeak,
             DynamicRange = entity.DynamicRange,
             
@@ -1474,7 +1474,7 @@ public class LibraryService : ILibraryService
             QualityDetails = track.QualityDetails,
             
             // Phase 17: Technical Audio Analysis
-            Loudness = track.Loudness,
+            Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(track.Loudness),
             TruePeak = track.TruePeak,
             DynamicRange = track.DynamicRange,
             InstrumentalProbability = track.InstrumentalProbability // Phase 18.2
@@ -1535,7 +1535,7 @@ public class LibraryService : ILibraryService
             IsEnriched = entity.IsEnriched,
             
             // Phase 17: Technical Audio Analysis
-            Loudness = entity.Loudness ?? (entity.AudioFeatures?.LoudnessLUFS > 0 ? (double?)entity.AudioFeatures.LoudnessLUFS : null),
+            Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.Loudness) ?? SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.AudioFeatures?.LoudnessLUFS),
             TruePeak = entity.TruePeak,
             DynamicRange = entity.DynamicRange,
             
@@ -1559,7 +1559,7 @@ public class LibraryService : ILibraryService
             BpmStability = entity.AudioFeatures?.BpmStability,
             CamelotKey = entity.AudioFeatures?.CamelotKey,
             ChordProgression = entity.AudioFeatures?.ChordProgression,
-            LoudnessLufs = entity.AudioFeatures?.LoudnessLUFS,
+            LoudnessLufs = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.AudioFeatures?.LoudnessLUFS),
             DropTimeSeconds = entity.AudioFeatures?.DropTimeSeconds,
             DropConfidence = entity.AudioFeatures?.DropConfidence,
             EnergyCurveJson = entity.AudioFeatures?.EnergyCurveJson,
@@ -1719,7 +1719,7 @@ public class LibraryService : ILibraryService
         entity.PrimaryGenre = entry.PrimaryGenre;
         
         // Phase 17: Technical Audio Analysis
-        entity.Loudness = entry.Loudness;
+        entity.Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entry.Loudness);
         entity.TruePeak = entry.TruePeak;
         entity.DynamicRange = entry.DynamicRange;
         

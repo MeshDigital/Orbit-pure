@@ -259,7 +259,7 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
             if (Model.FrequencyCutoff.HasValue && Model.FrequencyCutoff.Value > 0)
             {
                 var khz = Model.FrequencyCutoff.Value / 1000.0;
-                cutoffText = $"\nHard cutoff at {khz:F1}kHz detected.";
+                cutoffText = $"\nHard cutoff at {khz.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)} kHz detected.";
             }
 
             if (string.IsNullOrWhiteSpace(details))
@@ -542,7 +542,7 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
             var parts = new List<string>();
             if (Model.Bitrate.HasValue) parts.Add($"{Model.Bitrate}k");
             if (!string.IsNullOrEmpty(Format)) parts.Add(Format.ToUpper());
-            if (FileSizeBytes > 0) parts.Add($"{FileSizeBytes / 1024.0 / 1024.0:F1}MB");
+            if (FileSizeBytes > 0) parts.Add((FileSizeBytes / 1024.0 / 1024.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "MB");
             return string.Join(" • ", parts);
         }
     }
@@ -564,8 +564,8 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
                 return Math.Clamp(a, 0.0, 1.0);
 
             // Heuristic fallback when no Essentia data is present
-            var loudnessNorm = Model.Loudness.HasValue
-                ? Math.Clamp((Model.Loudness.Value + 18.0) / 18.0, 0.0, 1.0)
+            var loudnessNorm = Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(Model.Loudness) is double lufs
+                ? Math.Clamp((lufs + 18.0) / 18.0, 0.0, 1.0)
                 : 0.5;
             return Math.Clamp((RadarEnergy * 0.65) + (loudnessNorm * 0.35), 0.0, 1.0);
         }
@@ -731,7 +731,9 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
             ? $"Analysis run: {dt.ToLocalTime():yyyy-MM-dd HH:mm:ss} UTC"
             : "No analysis recorded";
 
-    public string FileSizeDisplay => FileSizeBytes > 0 ? $"{FileSizeBytes / 1024.0 / 1024.0:F1} MB" : "—";
+    public string FileSizeDisplay => FileSizeBytes > 0
+        ? (FileSizeBytes / 1024.0 / 1024.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " MB"
+        : "—";
     public string BpmDisplay => Model.BPM.HasValue ? $"{Model.BPM:0}" : "—";
     public string KeyDisplay
     {
@@ -1016,7 +1018,7 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
     // Technical Stats
     public int SampleRate => Model.SpectralSampleRateHz ?? 0;
     public string SampleRateDisplay => Model.SpectralSampleRateHz.HasValue && Model.SpectralSampleRateHz.Value > 0
-        ? $"{Model.SpectralSampleRateHz.Value / 1000.0:F1} kHz"
+        ? (Model.SpectralSampleRateHz.Value / 1000.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " kHz"
         : "—";
 
     public string LastPlayedDisplay => Model.LastPlayedAt.HasValue
@@ -1050,10 +1052,12 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
     public bool IsHighRisk => Model.IsFlagged && State != PlaylistTrackState.Searching && State != PlaylistTrackState.Queued && State != PlaylistTrackState.Pending;
     public string? FlagReason => Model.FlagReason;
     
-    public string LoudnessDisplay => Model.Loudness.HasValue ? $"{Model.Loudness:F1} LUFS" : "—";
-    public string TruePeakDisplay => Model.TruePeak.HasValue ? $"{Model.TruePeak:F1} dBTP" : "—";
-    public string DynamicRangeDisplay => Model.DynamicRange.HasValue ? $"{Model.DynamicRange:F1} LU" : "—";
-    
+    // Invariant decimals: the current culture turned "-9.4 LUFS" into "-9,4 LUFS". Loudness ≥ 0 is a
+    // legacy Essentia 0–1 value, not LUFS, and shows "—" until the track is re-analysed.
+    public string LoudnessDisplay => Services.AudioAnalysis.IntegratedLoudnessMeter.Format(Model.Loudness);
+    public string TruePeakDisplay => Model.TruePeak is double tp ? tp.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " dBTP" : "—";
+    public string DynamicRangeDisplay => Model.DynamicRange is double dr ? dr.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " LU" : "—";
+
     public string IntegritySymbol => IntegrityBadge;
     public string IntegrityText => IntegrityTooltip;
     

@@ -166,7 +166,7 @@ public partial class PlaylistTrackViewModel
     public bool HasQualityDetails => QualityDetailsDisplay.Length > 0;
 
     public string FrequencyCutoffDisplay => Model.FrequencyCutoff is > 0
-        ? $"{Model.FrequencyCutoff.Value / 1000.0:0.0} kHz"
+        ? (Model.FrequencyCutoff.Value / 1000.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " kHz"
         : "—";
 
     public bool HasForensics => HasQualityTier || HasSpectralVerdict || Model.FrequencyCutoff is > 0;
