@@ -27,13 +27,14 @@ public sealed class SetupShellViewModel : SetupObservable, IDisposable
         ILogger<SetupShellViewModel> logger,
         IEventBus? eventBus = null,
         Action? onWizardOpened = null,
-        Action? onWizardClosed = null)
+        Action? onWizardClosed = null,
+        SLSKDONET.Views.INotificationService? notifications = null)
     {
         _wizardFactory = wizardFactory;
         _logger = logger;
         _onWizardOpened = onWizardOpened;
         _onWizardClosed = onWizardClosed;
-        Tour = new QuickTourViewModel(state, logger);
+        Tour = new QuickTourViewModel(state, logger, notifications);
 
         if (eventBus != null)
         {

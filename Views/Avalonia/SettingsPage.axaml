@@ -291,6 +291,25 @@
                                     <Border Classes="divider"/>
                                     <Grid Classes="row" ColumnDefinitions="*,Auto">
                                         <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="Edit Lab output folder"/>
+                                            <TextBlock Classes="caption" Text="Where rendered edits are saved. By default a folder inside the download folder."/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                            <TextBox Classes="mono" Width="232" IsReadOnly="True"
+                                                     Text="{Binding EditLabOutputDirectoryDisplay, Mode=OneWay}"
+                                                     ToolTip.Tip="{Binding EditLabOutputDirectoryDisplay}"/>
+                                            <Button Classes="icon small" Command="{Binding ResetEditLabOutputDirectoryCommand}"
+                                                    IsVisible="{Binding HasCustomEditLabOutputDirectory}"
+                                                    ToolTip.Tip="Use the default (inside the download folder)">
+                                                <PathIcon Data="{StaticResource icon_undo}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                            </Button>
+                                            <Button Classes="secondary" Content="Browse…" Width="80"
+                                                    Command="{Binding BrowseEditLabOutputDirectoryCommand}"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <Border Classes="divider"/>
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                        <StackPanel Classes="label">
                                             <TextBlock Classes="body" Text="File name format"/>
                                             <TextBlock Classes="caption" Text="{}{artist} {title} {album} {filename} {bitrate} {format} {length} {user}"/>
                                         </StackPanel>
@@ -729,6 +748,21 @@
                         </StackPanel>
 
                         <StackPanel Classes="settings-section"
+                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Analysis analyse analyze new downloads automatically BPM key cues queue'}">
+                            <TextBlock Classes="section" Text="ANALYSIS"/>
+                            <Border Classes="card">
+                                <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                    <StackPanel Classes="label">
+                                        <TextBlock Classes="body" Text="Analyse new downloads automatically"/>
+                                        <TextBlock Classes="caption" Text="BPM, key, energy, loudness and cues for every finished download. Off: queue analysis yourself from the Library or Analysis page."/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding AnalyzeNewDownloads, Mode=TwoWay}"
+                                                  AutomationProperties.Name="Analyse new downloads automatically"/>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel Classes="settings-section"
                                     IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Library Sharing share folders reputation upload additional folder refresh frequent sources peers'}">
                             <TextBlock Classes="section" Text="SHARING"/>
                             <Border Classes="card">
@@ -1075,6 +1109,32 @@
             <TabItem Header="Advanced">
                 <ScrollViewer>
                     <StackPanel Classes="tab-body">
+
+                        <StackPanel Classes="settings-section"
+                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Setup wizard first run tour guide onboarding account folders welcome'}">
+                            <TextBlock Classes="section" Text="SETUP"/>
+                            <Border Classes="card">
+                                <StackPanel>
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                        <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="Setup wizard"/>
+                                            <TextBlock Classes="caption" Text="Soulseek account, folders, Spotify and audio in a few steps. Shows your current values; nothing changes until you confirm a step."/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Classes="secondary small" Content="Run setup again"
+                                                Command="{Binding RunSetupAgainCommand}"/>
+                                    </Grid>
+                                    <Border Classes="divider"/>
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                        <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="Quick tour"/>
+                                            <TextBlock Classes="caption" Text="A short walk through the main pages in the navigation sidebar."/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Classes="secondary small" Content="Take the tour"
+                                                Command="{Binding TakeTourCommand}"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
 
                         <StackPanel Classes="settings-section"
                                     IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Check for Updates GitHub Releases version Dependencies FFmpeg check download install close button minimise minimize tray taskbar quit background'}">

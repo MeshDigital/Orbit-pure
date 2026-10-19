@@ -785,7 +785,8 @@ public partial class App : Application
             {
                 sp.GetRequiredService<ConnectionViewModel>().ReloadFromConfig();
                 sp.GetRequiredService<SettingsViewModel>().RefreshFromConfig();
-            }));
+            },
+            notifications: sp.GetService<INotificationService>()));
         services.AddSingleton<BulkOperationViewModel>();
         services.AddSingleton<HomeViewModel>();
 

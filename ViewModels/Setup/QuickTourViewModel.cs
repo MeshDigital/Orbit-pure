@@ -37,16 +37,18 @@ public sealed class QuickTourViewModel : SetupObservable
 
     private readonly ISetupStateStore _state;
     private readonly ILogger _logger;
+    private readonly INotificationService? _notifications;
     private readonly RelayCommand _nextCommand;
     private readonly RelayCommand _backCommand;
     private List<(TourStep Step, string Target)> _active = new();
     private int _index;
     private bool _isOpen;
 
-    public QuickTourViewModel(ISetupStateStore state, ILogger logger)
+    public QuickTourViewModel(ISetupStateStore state, ILogger logger, INotificationService? notifications = null)
     {
         _state = state;
         _logger = logger;
+        _notifications = notifications;
         _nextCommand = new RelayCommand(Next, () => IsOpen);
         _backCommand = new RelayCommand(Back, () => IsOpen && !IsFirst);
         NextCommand = _nextCommand;
@@ -127,6 +129,7 @@ public sealed class QuickTourViewModel : SetupObservable
         if (_active.Count == 0)
         {
             _logger.LogInformation("Quick tour: no navigation item is visible, not starting");
+            _notifications?.Show("Nothing to show yet", "Open the navigation sidebar (Ctrl+N) and expand its groups, then take the tour again.", NotificationType.Information);
             return false;
         }
 
