@@ -442,8 +442,8 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     public bool HasLoadProgress => ExpectedTrackCount > 0;
     public double LoadProgressValue => ExpectedTrackCount <= 0 ? 0 : Math.Min(LoadedCount, ExpectedTrackCount);
     public string LoadProgressText => ExpectedTrackCount > 0
-        ? $"Loading tracks… {Math.Min(LoadedCount, ExpectedTrackCount):N0} of {ExpectedTrackCount:N0}"
-        : LoadedCount > 0 ? $"Loading tracks… {LoadedCount:N0}" : "Loading tracks…";
+        ? $"Loading tracks… {SLSKDONET.Utils.CountFormat.N(Math.Min(LoadedCount, ExpectedTrackCount))} of {SLSKDONET.Utils.CountFormat.N(ExpectedTrackCount)}"
+        : LoadedCount > 0 ? $"Loading tracks… {SLSKDONET.Utils.CountFormat.N(LoadedCount)}" : "Loading tracks…";
 
     private void RaiseProgressChanged()
     {
@@ -1438,7 +1438,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
 
     // ═════════════════════════════════ Helpers ═════════════════════════════════
 
-    private static string Plural(int n, string noun) => n == 1 ? $"1 {noun}" : $"{n:N0} {noun}s";
+    private static string Plural(int n, string noun) => n == 1 ? $"1 {noun}" : $"{SLSKDONET.Utils.CountFormat.N(n)} {noun}s";
 
     private static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..(max - 1)].TrimEnd() + "…";
@@ -1468,6 +1468,6 @@ public class MergeTargetOptionViewModel
     public PlaylistJob Job { get; }
     public string Title => Job.SourceTitle;
     public string Subtitle => string.IsNullOrWhiteSpace(Job.SourceType) ? string.Empty : Job.SourceType;
-    public string TrackCountText => Job.TotalTracks == 1 ? "1 track" : $"{Job.TotalTracks:N0} tracks";
+    public string TrackCountText => Job.TotalTracks == 1 ? "1 track" : $"{SLSKDONET.Utils.CountFormat.N(Job.TotalTracks)} tracks";
     public string Display => $"{Job.SourceTitle} ({TrackCountText})";
 }

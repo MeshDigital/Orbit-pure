@@ -270,15 +270,15 @@
                                                 <StackPanel IsVisible="{Binding SelectedProfile.WatchSnapshot, Converter={x:Static ObjectConverters.IsNotNull}}">
                                                     <Grid Classes="fact-row" ColumnDefinitions="*,Auto">
                                                         <TextBlock Classes="caption" Text="Average speed" VerticalAlignment="Center"/>
-                                                        <TextBlock Grid.Column="1" Classes="value-mono" Text="{Binding SelectedProfile.WatchSnapshot.AverageSpeed, StringFormat='{}{0:N0} B/s'}"/>
+                                                        <TextBlock Grid.Column="1" Classes="value-mono" Text="{Binding SelectedProfile.WatchSnapshot.AverageSpeed, Converter={StaticResource CountConverter}, ConverterParameter='{}{0} B/s'}"/>
                                                     </Grid>
                                                     <Grid Classes="fact-row" ColumnDefinitions="*,Auto">
                                                         <TextBlock Classes="caption" Text="Shared files" VerticalAlignment="Center"/>
-                                                        <TextBlock Grid.Column="1" Classes="value-mono" Text="{Binding SelectedProfile.WatchSnapshot.FileCount, StringFormat='{}{0:N0}'}"/>
+                                                        <TextBlock Grid.Column="1" Classes="value-mono" Text="{Binding SelectedProfile.WatchSnapshot.FileCount, Converter={StaticResource CountConverter}}"/>
                                                     </Grid>
                                                     <Grid Classes="fact-row" ColumnDefinitions="*,Auto">
                                                         <TextBlock Classes="caption" Text="Shared folders" VerticalAlignment="Center"/>
-                                                        <TextBlock Grid.Column="1" Classes="value-mono" Text="{Binding SelectedProfile.WatchSnapshot.DirectoryCount, StringFormat='{}{0:N0}'}"/>
+                                                        <TextBlock Grid.Column="1" Classes="value-mono" Text="{Binding SelectedProfile.WatchSnapshot.DirectoryCount, Converter={StaticResource CountConverter}}"/>
                                                     </Grid>
                                                     <Grid Classes="fact-row" ColumnDefinitions="*,Auto">
                                                         <TextBlock Classes="caption" Text="Country" VerticalAlignment="Center"/>

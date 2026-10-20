@@ -897,7 +897,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             IsListening = false;
             ResultsPerSecond = 0;
             EndActiveSearchSession(cancelNetwork: true);
-            StatusText = $"Showing the first {ex.HardResultCap:N0} results. Use a more specific search.";
+            StatusText = $"Showing the first {SLSKDONET.Utils.CountFormat.N(ex.HardResultCap)} results. Use a more specific search.";
             RaiseResultStateChanged();
         }
         catch (Exception ex)
