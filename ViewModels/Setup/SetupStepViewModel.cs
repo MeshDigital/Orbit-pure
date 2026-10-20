@@ -92,6 +92,9 @@ public abstract class SetupStepViewModel : SetupObservable
     /// <summary>Validates and saves the step. Returns false to stay on the step (with <see cref="ErrorMessage"/> set).</summary>
     public virtual Task<bool> CommitAsync() => Task.FromResult(true);
 
+    /// <summary>Called by the wizard each time this step becomes the current page.</summary>
+    public virtual void OnShown() { }
+
     /// <summary>One line for the Done summary.</summary>
     public virtual string SummaryTitle => ShortTitle;
 

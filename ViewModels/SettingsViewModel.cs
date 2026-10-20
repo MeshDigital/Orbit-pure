@@ -1863,7 +1863,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         ? "Sharing is disabled"
         : _shareFileCount == 0
             ? "No shared files detected — check the folder path"
-            : $"{_shareFileCount:N0} files shared · {_shareReputationLabel}";
+            : $"{SLSKDONET.Utils.CountFormat.N(_shareFileCount)} files shared · {_shareReputationLabel}";
 
     public ICommand RefreshShareNowCommand { get; private set; } = null!;
 
@@ -2545,8 +2545,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     {
         null => "Another import is running. Its progress is in the import sheet.",
         { Error: not null } => $"Scan stopped: {result.Error}",
-        { WasCancelled: true } => $"Scan cancelled. {result.Added:N0} new tracks kept.",
-        _ => $"Scan complete: {result.Added:N0} new, {result.AlreadyInLibrary + result.Duplicates:N0} already known, {result.ProblemCount:N0} not added.",
+        { WasCancelled: true } => $"Scan cancelled. {SLSKDONET.Utils.CountFormat.N(result.Added)} new tracks kept.",
+        _ => $"Scan complete: {SLSKDONET.Utils.CountFormat.N(result.Added)} new, {SLSKDONET.Utils.CountFormat.N(result.AlreadyInLibrary + result.Duplicates)} already known, {SLSKDONET.Utils.CountFormat.N(result.ProblemCount)} not added.",
     };
 
     private async Task ReconcileLibraryAsync()

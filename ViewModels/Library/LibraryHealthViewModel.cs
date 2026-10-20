@@ -60,10 +60,7 @@ public sealed class LibraryHealthViewModel : ReactiveObject
 {
     private const int LargestFilesLimit = 20;
 
-    private static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".aiff", ".aif", ".wma", ".ape",
-    };
+    private static IReadOnlySet<string> AudioExtensions => SLSKDONET.Services.Audio.AudioFormats.LocalAudioExtensions;
 
     private readonly ILogger<LibraryHealthViewModel> _logger;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;

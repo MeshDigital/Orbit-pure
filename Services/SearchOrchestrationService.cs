@@ -23,10 +23,7 @@ namespace SLSKDONET.Services;
 /// </summary>
 public class SearchOrchestrationService
 {
-    private static readonly HashSet<string> LosslessFormats = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "flac", "wav", "aif", "aiff", "ape", "alac"
-    };
+    private static IReadOnlySet<string> LosslessFormats => SLSKDONET.Services.Audio.AudioFormats.LosslessTokenSet;
 
     private static readonly string[] StrictLosslessNegativeTokens =
     {
@@ -373,8 +370,7 @@ public class SearchOrchestrationService
             return false;
         }
 
-        var isLossless = ext is "flac" or "wav" or "aif" or "aiff" or "ape" or "alac" ||
-                         format is "flac" or "wav" or "aif" or "aiff" or "ape" or "alac";
+        var isLossless = SLSKDONET.Services.Audio.AudioFormats.IsLossless(ext) || SLSKDONET.Services.Audio.AudioFormats.IsLossless(format);
 
         var effectiveMinBitrate = Math.Max(minBitrate, ScoringConstants.Availability.FastLaneMinBitrate);
         return isLossless || track.Bitrate >= effectiveMinBitrate;

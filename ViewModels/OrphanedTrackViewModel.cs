@@ -64,7 +64,7 @@ public class OrphanedTrackViewModel : INotifyPropertyChanged
     {
         var filters = new[]
         {
-            new Services.FileDialogFilter("Audio Files", new System.Collections.Generic.List<string> { "mp3", "flac", "wav", "m4a", "aiff", "ogg", "opus" }),
+            new Services.FileDialogFilter("Audio Files", System.Linq.Enumerable.ToList(SLSKDONET.Services.Audio.AudioFormats.ImportableTokens)),
             new Services.FileDialogFilter("All Files", new System.Collections.Generic.List<string> { "*" })
         };
 

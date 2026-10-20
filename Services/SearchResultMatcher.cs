@@ -268,7 +268,8 @@ public class SearchResultMatcher
         // 4. Purist Format Priority (AIFF=100, FLAC=90, WAV=80 baseline profile)
         // We apply this as a bounded bonus so metadata fit still matters, but format preference is explicit.
         double formatBonus = 0;
-        if (ext is ".aif" or ".aiff" || format is "aif" or "aiff")
+        if (SLSKDONET.Services.Audio.AudioFormats.Find(ext)?.Family == SLSKDONET.Services.Audio.AudioContainerFamily.Aiff ||
+            SLSKDONET.Services.Audio.AudioFormats.Find(format)?.Family == SLSKDONET.Services.Audio.AudioContainerFamily.Aiff)
         {
             formatBonus = 10;
             breakdown.Add("Format: AIFF priority (+10)");
@@ -329,8 +330,7 @@ public class SearchResultMatcher
         => Math.Max(0, _config.SearchLengthToleranceSeconds);
 
     private static bool IsLossyCandidate(string ext, string format)
-        => ext is ".mp3" or ".m4a" or ".mp4" or ".ogg" or ".wma" ||
-           format is "mp3" or "m4a" or "mp4" or "ogg" or "wma";
+        => SLSKDONET.Services.Audio.AudioFormats.IsLossy(ext) || SLSKDONET.Services.Audio.AudioFormats.IsLossy(format);
 
     private static double CalculateContextScore(Track candidate, List<string> breakdown)
     {

@@ -153,11 +153,12 @@ public sealed class CachedStemSeparator : IStemSeparator
     {
         try
         {
-            using var reader = new NAudio.Wave.AudioFileReader(filePath);
+            using var reader = SLSKDONET.Services.Audio.PlayableAudio.Open(filePath, out _);
             return (float)reader.TotalTime.TotalSeconds;
         }
-        catch
+        catch (Exception ex)
         {
+            Serilog.Log.Debug(ex, "[StemCache] Couldn't read the duration of {File}", filePath);
             return 0f;
         }
     }

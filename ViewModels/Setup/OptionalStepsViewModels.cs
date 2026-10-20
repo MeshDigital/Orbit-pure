@@ -81,8 +81,29 @@ public sealed class ConnectionsStepViewModel : SetupStepViewModel, IDisposable
 
     public bool HasStatusMessage => !string.IsNullOrEmpty(StatusMessage);
 
+    /// <summary>
+    /// How long after the page appears a Connect press is taken as carried over from the previous
+    /// page (the click or Enter that pressed Next, a double-click, a held Enter) rather than meant.
+    /// Spotify sign-in opens the user's browser, so it must only ever start from a deliberate press.
+    /// </summary>
+    internal TimeSpan ArmDelay { get; set; } = TimeSpan.FromMilliseconds(600);
+
+    internal Func<DateTime> UtcNow { get; set; } = () => DateTime.UtcNow;
+
+    private DateTime _shownAtUtc = DateTime.MinValue;
+
+    public override void OnShown() => _shownAtUtc = UtcNow();
+
     public async Task ConnectAsync()
     {
+        var sinceShown = UtcNow() - _shownAtUtc;
+        if (sinceShown < ArmDelay)
+        {
+            _logger.LogInformation("Setup: ignored a Spotify Connect {Ms:0} ms after the Connections page appeared (input carried over from the previous page)",
+                sinceShown.TotalMilliseconds);
+            return;
+        }
+
         IsConnecting = true;
         StatusMessage = "Finish signing in in your browser window.";
         try

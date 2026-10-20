@@ -1539,8 +1539,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         // TrackRepository.ApplyQualityTierFilter, kept in sync deliberately.
         if (!string.IsNullOrEmpty(QualityTierFilter))
         {
-            var fmtUpper = track.Model.Format?.ToUpperInvariant() ?? string.Empty;
-            bool isLossless = fmtUpper == "FLAC" || fmtUpper == "WAV";
+            bool isLossless = SLSKDONET.Services.Audio.AudioFormats.IsLossless(track.Model.Format);
             bool tierMatch = QualityTierFilter switch
             {
                 "Gold" => isLossless,
@@ -1560,7 +1559,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             if (IsFilterFlac && fmt == "FLAC") formatMatch = true;
             if (IsFilterMp3 && fmt == "MP3") formatMatch = true;
             if (IsFilterWav && fmt == "WAV") formatMatch = true;
-            if (IsFilterLossless && (fmt == "FLAC" || fmt == "WAV" || fmt == "AIFF" || fmt == "ALAC")) formatMatch = true;
+            if (IsFilterLossless && SLSKDONET.Services.Audio.AudioFormats.IsLossless(fmt)) formatMatch = true;
             if (!formatMatch) return false;
         }
 

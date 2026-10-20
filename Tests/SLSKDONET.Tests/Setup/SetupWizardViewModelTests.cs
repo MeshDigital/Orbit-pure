@@ -30,7 +30,7 @@ public class SetupWizardViewModelTests
 
         await wizard.NextAsync();
         Assert.Same(wizard.Soulseek, wizard.CurrentStep);
-        Assert.Equal("Step 1 of 4", wizard.StepPositionText);
+        Assert.Equal("Step 2 of 6", wizard.StepPositionText); // same numbering as the header
         Assert.True(wizard.Indicators[0].IsDone);
         Assert.True(wizard.Indicators[1].IsCurrent);
 
@@ -265,6 +265,7 @@ public class SetupWizardViewModelTests
         wizard.Folders.DownloadDirectory = sandbox.Dir("dl");
         wizard.Folders.AddLibraryFolder(library);
         await wizard.NextAsync();
+        wizard.Connections.ArmDelay = TimeSpan.Zero; // pressed straight away; see ConnectionsStepTests
         wizard.Connections.ConnectSpotifyCommand.Execute(null);
         await Task.Yield();
         await wizard.NextAsync();

@@ -82,8 +82,7 @@ public static class SearchCandidateFitScorer
 
         var ext = candidate.GetExtension().ToLowerInvariant();
         var format = (candidate.Format ?? string.Empty).ToLowerInvariant();
-        var isLossless = ext is "flac" or "wav" or "aif" or "aiff" or "ape" or "alac" ||
-                         format is "flac" or "wav" or "aif" or "aiff" or "ape" or "alac";
+        var isLossless = SLSKDONET.Services.Audio.AudioFormats.IsLossless(ext) || SLSKDONET.Services.Audio.AudioFormats.IsLossless(format);
 
         if (isLossless)
         {

@@ -32,7 +32,10 @@ public class SearchFilterViewModel : ReactiveObject
     }
 
     // Formats
-    public ObservableCollection<string> SelectedFormats { get; } = new(new[] { "MP3", "FLAC", "WAV" });
+    /// <summary>Format chips shown by default: everything ORBIT imports from Soulseek's common formats.</summary>
+    private static readonly string[] DefaultFormats = { "MP3", "FLAC", "WAV", "AIFF" };
+
+    public ObservableCollection<string> SelectedFormats { get; } = new(DefaultFormats);
 
     private bool _useHighReliability;
     /// <summary>"Short queue" chip: hide peers with more than 50 files queued.</summary>
@@ -90,13 +93,20 @@ public class SearchFilterViewModel : ReactiveObject
         set => ToggleFormat("WAV", value);
     }
 
+    /// <summary>AIFF chip: .aif, .aiff and .aifc results (were hidden as "Format filtered out (AIF)").</summary>
+    public bool FilterAiff
+    {
+        get => SelectedFormats.Contains("AIFF");
+        set => ToggleFormat("AIFF", value);
+    }
+
     /// <summary>Number of filters that differ from the defaults (drives the conditional Clear).</summary>
     public int ActiveFilterCount
     {
         get
         {
             var count = 0;
-            if (SelectedFormats.Count != 3) count++;
+            if (SelectedFormats.Count != DefaultFormats.Length) count++;
             if (MinBitrate != DefaultMinBitrate) count++;
             if (IsStrict) count++;
             if (UseHighReliability) count++;
@@ -114,6 +124,7 @@ public class SearchFilterViewModel : ReactiveObject
             this.RaisePropertyChanged(nameof(FilterMp3));
             this.RaisePropertyChanged(nameof(FilterFlac));
             this.RaisePropertyChanged(nameof(FilterWav));
+            this.RaisePropertyChanged(nameof(FilterAiff));
             RaiseActiveFilterChanged();
         };
 
@@ -190,9 +201,7 @@ public class SearchFilterViewModel : ReactiveObject
 
         // Prefer the filename extension, fall back to the model format; unknown formats pass.
         var ext = System.IO.Path.GetExtension(result.Model.Filename)?.TrimStart('.');
-        var formatToken = !string.IsNullOrWhiteSpace(ext)
-            ? ext.ToUpperInvariant()
-            : (result.Model.Format ?? string.Empty).Trim().ToUpperInvariant();
+        var formatToken = ChipFormat(!string.IsNullOrWhiteSpace(ext) ? ext : result.Model.Format);
         if (!string.IsNullOrWhiteSpace(formatToken) && !s.Formats.Contains(formatToken))
             return $"Format filtered out ({formatToken})";
 
@@ -242,12 +251,18 @@ public class SearchFilterViewModel : ReactiveObject
         BouncerMode = BouncerMode.Standard;
     }
 
+    /// <summary>The chip a file format belongs to: AIF/AIFC count as AIFF, WAVE as WAV (from the format table).</summary>
+    internal static string ChipFormat(string? extensionOrFormat)
+    {
+        var info = SLSKDONET.Services.Audio.AudioFormats.Find(extensionOrFormat);
+        if (info != null) return info.DisplayName.ToUpperInvariant();
+        return (extensionOrFormat ?? string.Empty).Trim().TrimStart('.').ToUpperInvariant();
+    }
+
     private void ResetFormats()
     {
-        if (SelectedFormats.Count == 3) return;
+        if (SelectedFormats.Count == DefaultFormats.Length && DefaultFormats.All(SelectedFormats.Contains)) return;
         SelectedFormats.Clear();
-        SelectedFormats.Add("MP3");
-        SelectedFormats.Add("FLAC");
-        SelectedFormats.Add("WAV");
+        foreach (var format in DefaultFormats) SelectedFormats.Add(format);
     }
 }

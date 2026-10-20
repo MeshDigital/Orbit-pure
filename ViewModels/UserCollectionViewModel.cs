@@ -13,10 +13,7 @@ namespace SLSKDONET.ViewModels;
 
 public class UserCollectionViewModel : ReactiveObject
 {
-    private static readonly HashSet<string> MusicExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "aif", "aiff", "ape", "alac", "wma"
-    };
+    private static IReadOnlySet<string> MusicExtensions => SLSKDONET.Services.Audio.AudioFormats.AllTokens; // bare tokens ("aiff"), Soulseek shares
 
     private readonly List<Track> _allShares = new();
 

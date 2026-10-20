@@ -226,8 +226,8 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
     public bool IsIntegritySuspicious => Model.Integrity == Data.IntegrityLevel.Suspicious;
 
     /// <summary>Track-list quality badge. Same thresholds as TrackRepository.ApplyQualityTierFilter
-    /// (and the "Lossless / 320k / Low" filter chips): FLAC/WAV is lossless, under 320 kbps is low.</summary>
-    public bool IsTierLossless => Format is "flac" or "wav";
+    /// (and the "Lossless / 320k / Low" filter chips): FLAC/WAV/AIFF is lossless, under 320 kbps is low.</summary>
+    public bool IsTierLossless => SLSKDONET.Services.Audio.AudioFormats.IsLossless(Format);
     public bool IsTierLowBitrate => !IsTierLossless && Model.Bitrate is > 0 and < 320;
 
     /// <summary>"FLAC", "MP3 320", "320 kbps" when only the bitrate is known, empty when neither is —

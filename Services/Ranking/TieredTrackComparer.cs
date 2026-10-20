@@ -29,8 +29,7 @@ public enum TrackTier
 /// </summary>
 public sealed class TieredTrackComparer : IComparer<Track>
 {
-    private static readonly HashSet<string> _losslessFormats =
-        new(StringComparer.OrdinalIgnoreCase) { "flac", "wav", "aif", "aiff", "ape", "alac" };
+    private static IReadOnlySet<string> _losslessFormats => SLSKDONET.Services.Audio.AudioFormats.LosslessTokenSet;
 
     private readonly SearchPolicy _policy;
     private readonly Track _searchTrack;

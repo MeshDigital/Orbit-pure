@@ -270,7 +270,7 @@ public sealed class LibraryFolderWatchService : IDisposable
                 var noun = result.Added == 1 ? "new track" : "new tracks";
                 _eventBus.Publish(new ToastRequestedEvent(
                     "Watch folder",
-                    $"{result.Added:N0} {noun} added from Watch folder {folderName}.",
+                    $"{SLSKDONET.Utils.CountFormat.N(result.Added)} {noun} added from Watch folder {folderName}.",
                     NotificationType.Success,
                     TimeSpan.FromSeconds(5)));
             }
@@ -278,7 +278,7 @@ public sealed class LibraryFolderWatchService : IDisposable
             {
                 _eventBus.Publish(new ToastRequestedEvent(
                     "Watch folder",
-                    $"{result.Unreadable + result.Failed:N0} new file(s) couldn't be added. They may be corrupt or still copying.",
+                    $"{SLSKDONET.Utils.CountFormat.N(result.Unreadable + result.Failed)} new file(s) couldn't be added. They may be corrupt or still copying.",
                     NotificationType.Warning,
                     TimeSpan.FromSeconds(6)));
             }

@@ -20,6 +20,7 @@
         <converters:BoolToColorConverter x:Key="BoolToColorConverter"/>
         <converters:BoolToPlayPauseIconConverter x:Key="BoolToPlayPauseIconConverter"/>
         <conv_root:BoolOpacityConverter x:Key="BoolToOpacityConverter"/>
+        <conv_root:CountConverter x:Key="CountConverter"/>
         <conv_root:LogLevelColorConverter x:Key="LogLevelColorConverter"/>
         <converters:BoolToWidthConverter x:Key="BoolToWidthConverter"/>
         <conv_root:BoolToStringConverter x:Key="BoolToStringConverter"/>
