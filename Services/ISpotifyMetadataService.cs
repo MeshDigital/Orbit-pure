@@ -15,7 +15,7 @@ public interface ISpotifyMetadataService
 
     /// <summary>
     /// Enriches a PlaylistTrack with Spotify metadata (ID, Art, Key, BPM).
-    /// Used by MetadataEnrichmentOrchestrator.
+    /// Library-wide enrichment uses Enrichment.Providers.SpotifyProvider instead (no audio features).
     /// </summary>
     Task<bool> EnrichTrackAsync(PlaylistTrack track);
 

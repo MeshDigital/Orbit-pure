@@ -32,7 +32,8 @@ namespace SLSKDONET.Services;
 /// <summary>
 /// Orchestrates the download process for projects and individual tracks.
 /// "The Conductor" - manages the state machine and queue.
-/// Delegates search to DownloadDiscoveryService and enrichment to MetadataEnrichmentOrchestrator.
+/// Delegates search to DownloadDiscoveryService. Metadata enrichment of finished downloads is not
+/// done here: Enrichment.MetadataEnrichmentOrchestrator picks them up from FileIngestionCompletedEvent.
 /// </summary>
 public class DownloadManager : INotifyPropertyChanged, IDisposable
 {

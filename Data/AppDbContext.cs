@@ -50,6 +50,8 @@ public class AppDbContext : DbContext
     public DbSet<Entities.RoomMessageEntity> RoomMessages { get; set; } // Social: Soulseek chat rooms
     public DbSet<Entities.RekordboxExportCueSyncEntity> RekordboxExportCueSync { get; set; } // Rekordbox export: three-way cue merge tracking
     public DbSet<Entities.PlaylistTrackTransitionEntity> PlaylistTrackTransitions { get; set; } // Mix: saved per-track-pair transition config
+    public DbSet<Entities.MetadataLookupCacheEntity> MetadataLookupCache { get; set; } // Enrichment: cached provider lookups
+    public DbSet<Entities.MetadataProvenanceEntity> MetadataProvenance { get; set; } // Enrichment: per-field source of stored metadata
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -168,6 +170,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PlaylistJobEntity>()
             .HasIndex(j => j.CreatedAt)
             .HasDatabaseName("IX_PlaylistJob_CreatedAt");
+
+        modelBuilder.Entity<Entities.MetadataLookupCacheEntity>()
+            .HasKey(e => new { e.Provider, e.CacheKey });
+        modelBuilder.Entity<Entities.MetadataProvenanceEntity>()
+            .HasKey(e => new { e.TrackUniqueHash, e.Field });
 
         modelBuilder.Entity<Entities.RekordboxExportCueSyncEntity>()
             .HasIndex(e => new { e.TargetPath, e.TrackUniqueHash })

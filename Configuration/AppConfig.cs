@@ -203,6 +203,15 @@ public class AppConfig
     public bool DiscoverUseDeezer { get; set; } = true;
     public bool EnableFlowBuilderSuggestedFlowTelemetry { get; set; } = true;
 
+    // Library metadata enrichment (Services/Enrichment). API keys are NOT here: they live in the
+    // DPAPI-encrypted MetadataCredentialStore.
+    /// <summary>Enrich new imports/downloads automatically in the background.</summary>
+    public bool EnrichmentAutoRun { get; set; } = true;
+    /// <summary>Provider order, cheapest/most trusted first (comma-separated provider names).</summary>
+    public string EnrichmentProviderOrder { get; set; } = "tags,deezer,musicbrainz,discogs,acoustid,spotify,beatport";
+    /// <summary>Enabled providers. Beatport is off by default (scraped pages, easily rate-limited).</summary>
+    public string EnrichmentEnabledProviders { get; set; } = "tags,deezer,musicbrainz,discogs,acoustid,spotify";
+
     // Frequent Sources (privacy-first, local-only, opt-in)
     public bool EnableFrequentSources { get; set; } = false;
     public string FrequentSourcesStagingPath { get; set; } = string.Empty;

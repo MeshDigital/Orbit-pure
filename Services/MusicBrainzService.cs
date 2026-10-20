@@ -34,7 +34,12 @@ public class MusicBrainzService : IMusicBrainzService
     private readonly HttpClient _httpClient;
 
     private const string BaseUrl = "https://musicbrainz.org/ws/2/";
-    private const string UserAgent = "ORBIT-Music-Engine/1.0.0 ( https://github.com/MeshDigital/ORBIT )";
+    /// <summary>
+    /// MusicBrainz requires a meaningful User-Agent (application/version ( contact )); requests
+    /// without one are throttled hard. Shared with the enrichment pipeline's MusicBrainzProvider.
+    /// </summary>
+    public static readonly string UserAgent =
+        $"ORBIT/{typeof(MusicBrainzService).Assembly.GetName().Version?.ToString(3) ?? "0.9"} ( https://github.com/MeshDigital/ORBIT )";
 
     // Respect MusicBrainz guidelines: max 1 request per second.
     private readonly SemaphoreSlim _rateLimitSemaphore = new(1, 1);
