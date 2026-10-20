@@ -435,20 +435,7 @@ public class PlaylistExportService
     /// here despite some third-party tools assuming otherwise. Unrecognized extensions get a
     /// best-effort "{EXT} File" label rather than a silently wrong guess.
     /// </summary>
-    private static string ResolveKind(string filePath)
-    {
-        var ext = Path.GetExtension(filePath).TrimStart('.').ToUpperInvariant();
-        return ext switch
-        {
-            "MP3" => "MP3 File",
-            "WAV" => "WAV File",
-            "AIFF" or "AIF" => "AIFF File",
-            "FLAC" => "FLAC File",
-            "M4A" or "AAC" => "M4A File",
-            "" => "Unknown File Type",
-            _ => $"{ext} File",
-        };
-    }
+    internal static string ResolveKind(string filePath) => SLSKDONET.Services.Audio.AudioFormats.RekordboxKind(filePath);
 
     /// <summary>
     /// Resolves a deterministic Rekordbox TrackID for <paramref name="track"/> so the same track

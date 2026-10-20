@@ -37,10 +37,7 @@ public sealed class ShareIndexService
     private static readonly TimeSpan FolderListCacheInterval = TimeSpan.FromSeconds(30);
 
     /// <summary>Audio formats worth sharing on Soulseek.</summary>
-    public static readonly IReadOnlySet<string> SharedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mp3", ".flac", ".wav", ".aiff", ".aif", ".m4a", ".aac", ".ogg", ".opus", ".wma", ".alac", ".ape", ".wv",
-    };
+    public static IReadOnlySet<string> SharedExtensions => SLSKDONET.Services.Audio.AudioFormats.LocalAudioExtensions;
 
     private readonly AppConfig _config;
     private readonly IDbContextFactory<AppDbContext>? _dbFactory;

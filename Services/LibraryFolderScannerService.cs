@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
+using SLSKDONET.Services.Audio;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -541,24 +542,27 @@ public class LibraryFolderScannerService
             string album;
             int duration, bitrate, sampleRate, bitsPerSample;
             double? tagBpm = null;
+            string? tagKey;
 
             try
             {
-                using var file = TagLib.File.Create(filePath);
-                artist = string.IsNullOrWhiteSpace(file.Tag.FirstPerformer) ? "Unknown Artist" : file.Tag.FirstPerformer;
-                title = string.IsNullOrWhiteSpace(file.Tag.Title) ? Path.GetFileNameWithoutExtension(filePath) : file.Tag.Title;
-                album = file.Tag.Album ?? string.Empty;
-                duration = (int)file.Properties.Duration.TotalSeconds;
-                bitrate = file.Properties.AudioBitrate;
-                sampleRate = file.Properties.AudioSampleRate;
-                bitsPerSample = file.Properties.BitsPerSample;
+                // TagLib#, or the AIFF header reader for AIFF-C files TagLib# rejects.
+                var facts = AudioTagReader.Read(filePath);
+                artist = string.IsNullOrWhiteSpace(facts.Artist) ? "Unknown Artist" : facts.Artist;
+                title = string.IsNullOrWhiteSpace(facts.Title) ? Path.GetFileNameWithoutExtension(filePath) : facts.Title;
+                album = facts.Album ?? string.Empty;
+                duration = (int)facts.Duration.TotalSeconds;
+                bitrate = facts.BitrateKbps;
+                sampleRate = facts.SampleRate;
+                bitsPerSample = facts.BitsPerSample;
+                // Rekordbox / Mixed In Key write the key tag (ID3 TKEY, also inside AIFF); shown until analysis runs.
+                tagKey = string.IsNullOrWhiteSpace(facts.Key) || facts.Key.Trim().Length > 8 ? null : facts.Key.Trim();
 
                 // Trust a file-embedded BPM tag (written by Rekordbox/Serato/etc.) over ORBIT's own
                 // Essentia analysis, which has a quantization bias on breakbeat/DNB content.
                 // Sanity-bounded to BpmDetectionService's [60,220] range so a placeholder tag isn't trusted.
-                var rawTagBpm = file.Tag.BeatsPerMinute;
-                if (rawTagBpm is >= 60 and <= 220)
-                    tagBpm = rawTagBpm;
+                if (facts.Bpm is >= 60 and <= 220)
+                    tagBpm = facts.Bpm;
             }
             catch (Exception ex) when (ex is TagLib.CorruptFileException or TagLib.UnsupportedFormatException or IOException or ArgumentException or IndexOutOfRangeException or NullReferenceException or OverflowException or InvalidOperationException)
             {
@@ -588,7 +592,8 @@ public class LibraryFolderScannerService
                 QualityDetails = $"scanner:v2;score={qualityScore};format={format};bitrate={bitrate};samplerate={sampleRate};bitdepth={bitsPerSample}",
                 TagBPM = tagBpm,
                 // Seed the primary BPM from the tag; analysis won't overwrite it once TagBPM is set.
-                BPM = tagBpm
+                BPM = tagBpm,
+                MusicalKey = tagKey
             };
         }
         catch (Exception ex)
@@ -808,13 +813,13 @@ public class LibraryFolderScannerService
         int score = fmt switch
         {
             "flac" => 500,
-            "wav" => 470,
-            "aiff" => 460,
-            "aif" => 460,
+            "wav" or "wave" => 470,
+            "aiff" or "aif" or "aifc" => 460,
             "m4a" => 260,
             "aac" => 250,
-            "ogg" => 240,
+            "ogg" or "oga" or "opus" => 240,
             "mp3" => 200,
+            _ when AudioFormats.IsLossless(fmt) => 450,
             _ => 150
         };
 

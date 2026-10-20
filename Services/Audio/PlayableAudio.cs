@@ -66,8 +66,8 @@ public static class PlayableAudio
             {
                 Directory.CreateDirectory(CacheDirectory);
                 var temp = wav + ".tmp.wav";
-                // Lossy sources gain nothing from more than 16 bits; FLAC may be 24-bit.
-                var codec = info.Extension.Equals(".flac", StringComparison.OrdinalIgnoreCase) ? "pcm_s24le" : "pcm_s16le";
+                // Lossy sources gain nothing from more than 16 bits; FLAC/AIFF-C/APE may be 24-bit.
+                var codec = AudioFormats.IsLossless(info.Extension) ? "pcm_s24le" : "pcm_s16le";
                 var sw = Stopwatch.StartNew();
                 RunFfmpeg($"-v error -y -i \"{path}\" -vn -map 0:a:0 -c:a {codec} \"{temp}\"");
                 File.Move(temp, wav, overwrite: true);
