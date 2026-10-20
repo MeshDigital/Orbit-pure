@@ -408,7 +408,7 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
         if (_manualRun || _runDone >= 25)
         {
             var blocked = _providers.Where(p => p.Runtime.Breaker.IsDisabledForSession).Select(p => p.DisplayName).ToList();
-            var message = $"{_runEnriched:N0} of {_runDone:N0} tracks got new metadata.";
+            var message = $"{SLSKDONET.Utils.CountFormat.N(_runEnriched)} of {SLSKDONET.Utils.CountFormat.N(_runDone)} tracks got new metadata.";
             if (blocked.Count > 0) message += $" {string.Join(", ", blocked)} refused access and was switched off for this session.";
             _eventBus.Publish(new ToastRequestedEvent(cancelled ? "Enrichment cancelled" : "Library enrichment finished", message,
                 blocked.Count > 0 ? NotificationType.Warning : NotificationType.Success, null));

@@ -62,7 +62,7 @@ public sealed class EnrichmentProviderRowViewModel : ReactiveObject
         _ => "Ready",
     };
 
-    internal static string N(int v) => v.ToString("N0", CultureInfo.CurrentCulture);
+    internal static string N(int v) => SLSKDONET.Utils.CountFormat.N(v);
 }
 
 /// <summary>

@@ -46,7 +46,8 @@ public sealed class LocalTagsProvider : IMetadataProvider
                 Runtime.CountMatch();
                 return ProviderLookup.Match(c);
             }
-            catch (Exception ex) when (ex is TagLib.CorruptFileException or TagLib.UnsupportedFormatException or IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is TagLib.CorruptFileException or TagLib.UnsupportedFormatException or IOException or UnauthorizedAccessException
+                                        or ArgumentException or IndexOutOfRangeException or OverflowException)
             {
                 _logger.LogDebug(ex, "[Enrichment] Tags unreadable for {Path}", track.FilePath);
                 return ProviderLookup.NoMatch();
@@ -57,9 +58,26 @@ public sealed class LocalTagsProvider : IMetadataProvider
     /// <summary>Reads the tags of one file. Public for tests.</summary>
     public static MetadataCandidate Read(string path)
     {
+        // AIFF-C: TagLib# rejects the form type, so read its embedded "ID3 " chunk directly
+        // (same approach as Services/Audio/AudioTagReader).
+        bool aiff = Audio.AudioFormats.Find(Path.GetExtension(path))?.Family == Audio.AudioContainerFamily.Aiff;
+        if (aiff && Audio.AiffHeader.TryRead(path, out var header) && header.IsAifc)
+        {
+            var aifc = new MetadataCandidate { Confidence = 1.0, DurationSeconds = header.Duration.TotalSeconds > 0 ? header.Duration.TotalSeconds : null };
+            if (header.Id3Tag is { Length: > 10 } id3) FromTag(new TagLib.Id3v2.Tag(new TagLib.ByteVector(id3)), aifc);
+            return aifc;
+        }
+
         using var file = TagLib.File.Create(path);
-        var tag = file.Tag;
         var c = new MetadataCandidate { Confidence = 1.0 };
+        FromTag(file.Tag, c);
+        var seconds = file.Properties?.Duration.TotalSeconds ?? 0;
+        if (seconds > 0) c.DurationSeconds = seconds;
+        return c;
+    }
+
+    private static void FromTag(TagLib.Tag tag, MetadataCandidate c)
+    {
 
         var picture = tag.Pictures?.FirstOrDefault(p => p.Type == TagLib.PictureType.FrontCover) ?? tag.Pictures?.FirstOrDefault();
         if (picture?.Data?.Data is { Length: > 64 } bytes) c.ArtworkBytes = bytes;
@@ -73,8 +91,5 @@ public sealed class LocalTagsProvider : IMetadataProvider
         if (!string.IsNullOrWhiteSpace(tag.ISRC)) c.Isrc = tag.ISRC;
         if (tag.BeatsPerMinute > 0) c.BpmHint = tag.BeatsPerMinute;
         if (!string.IsNullOrWhiteSpace(tag.InitialKey)) c.KeyHint = tag.InitialKey;
-        var seconds = file.Properties?.Duration.TotalSeconds ?? 0;
-        if (seconds > 0) c.DurationSeconds = seconds;
-        return c;
     }
 }
