@@ -27,7 +27,9 @@ public sealed record EnrichmentSettings(bool AutoRun, IReadOnlyList<string> Orde
         (csv ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(s => s.ToLowerInvariant()).Distinct().ToList();
 
-    public bool IsEnabled(string provider) => Enabled.Contains(provider);
+    /// <summary>File tags are free and local, so they are always on.</summary>
+    public bool IsEnabled(string provider) =>
+        Enabled.Contains(provider) || string.Equals(provider, MetadataMerger.TagsSource, StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>Result of enriching one track (exposed for tests).</summary>
@@ -481,7 +483,15 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
         DateTime? deferUntil = null;
         var wanted = WantedFields(track, settings);
 
-        foreach (var provider in Ordered(settings))
+        var ordered = Ordered(settings).ToList();
+        // A file with no usable artist/title: ask the identifiers (AcoustID) right after the tags,
+        // so the text-search providers further down can use the identity they recover.
+        if (track.HasWeakIdentity)
+            ordered = ordered
+                .OrderBy(p => p.Name == MetadataMerger.TagsSource ? 0 : p.Supplies.HasFlag(MetadataField.Identity) ? 1 : 2)
+                .ToList();
+
+        foreach (var provider in ordered)
         {
             var missing = MetadataMerger.Missing(track, wanted, provenance);
             if (missing == MetadataField.None) break; // early stop: everything wanted is filled
