@@ -346,6 +346,9 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         {
             if (evt.Result.ChangedLibrary) _ = RefreshAllTracksCountsAsync();
         }));
+        // ...and grow with the import while it runs (batches land every few seconds).
+        _disposables.Add(System.Reactive.Linq.Observable.Sample(eventBus.GetEvent<LibraryEntriesAddedEvent>(), TimeSpan.FromSeconds(3))
+            .Subscribe(evt => { _ = RefreshAllTracksCountsAsync(); }));
     }
 
     /// <summary>

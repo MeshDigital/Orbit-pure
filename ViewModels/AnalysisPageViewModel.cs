@@ -1874,7 +1874,11 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             // One shared full-library scan (entries + File.Exists sweep) instead of loading
             // and re-checking existence twice — ComputeSnapshotAsync does this same work
             // internally to derive the lifecycle metrics, so reuse its result here too.
-            var snapshot = await _lifecycleProjectionService.ComputeSnapshotAsync().ConfigureAwait(false);
+            // ConfigureAwait(true): the rest fills LibraryTracks, which the page is bound to. With
+            // (false) the import-completed reload resumed on a pool thread and filled the bound
+            // ObservableCollection from there ("call from invalid thread" → the page showed
+            // "Couldn't load your library" right after a folder import).
+            var snapshot = await _lifecycleProjectionService.ComputeSnapshotAsync().ConfigureAwait(true);
             var existingEntries = snapshot.ExistingEntries;
             ApplyLifecycleMetrics(snapshot.Metrics);
 
