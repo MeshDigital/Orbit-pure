@@ -36,8 +36,6 @@ public sealed class PostDownloadSpectralScanService : IDisposable
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _scannedPaths =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private static readonly System.Collections.Generic.HashSet<string> LosslessExtensions =
-        new(StringComparer.OrdinalIgnoreCase) { ".flac", ".wav", ".aiff", ".aif", ".ape", ".wv" };
 
     private readonly IAudioIntegrityService _integrityService;
     private readonly DatabaseService _databaseService;
@@ -110,7 +108,7 @@ public sealed class PostDownloadSpectralScanService : IDisposable
 
             // Only scan lossless formats — MP3/AAC are always lossy by definition.
             var ext = Path.GetExtension(filePath);
-            if (!LosslessExtensions.Contains(ext))
+            if (!SLSKDONET.Services.Audio.AudioFormats.IsLossless(ext))
                 return;
 
             // De-duplicate: skip if already scanned in this session.

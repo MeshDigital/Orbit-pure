@@ -24,11 +24,9 @@ namespace SLSKDONET.Services.Audio;
 /// </summary>
 public static class ExactSeek
 {
-    private static readonly string[] NativelyExactExtensions = { ".wav", ".wave", ".mp3", ".aif", ".aiff" };
-
     /// <summary>True when the file is decoded by Media Foundation and needs <see cref="Seek"/> to land exactly.</summary>
     public static bool NeedsDecodeForward(string path) =>
-        Array.IndexOf(NativelyExactExtensions, Path.GetExtension(path).ToLowerInvariant()) < 0;
+        !AudioFormats.CanDecodeNatively(path); // WAV/MP3/plain AIFF, see AudioFormats.NativeDecode
 
     /// <summary>Positions <paramref name="reader"/> exactly at <paramref name="seconds"/>. Blocking — call off the UI thread for Media Foundation formats.</summary>
     public static void Seek(AudioFileReader reader, string path, double seconds)

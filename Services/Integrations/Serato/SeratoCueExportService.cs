@@ -31,8 +31,12 @@ public sealed record SeratoExportResult(bool Success, int CuesWritten, int Loops
 public sealed class SeratoCueExportService
 {
     public const int Slots = 8;
-    private static readonly HashSet<string> Id3Extensions = new(StringComparer.OrdinalIgnoreCase) { ".mp3", ".aif", ".aiff", ".wav" };
-    private static readonly HashSet<string> VorbisExtensions = new(StringComparer.OrdinalIgnoreCase) { ".flac", ".ogg", ".opus" };
+    // From the format table: Serato reads Markers2 from the ID3 GEOB frame in MP3/AIFF/WAV and from a
+    // Vorbis comment in FLAC/Ogg/Opus. M4A (an MP4 atom), WMA and AIFF-C (no tag TagLib# can write) are skipped.
+    private static bool IsId3(string path) => SLSKDONET.Services.Audio.AudioFormats.Find(Path.GetExtension(path)) is
+        { Tags: SLSKDONET.Services.Audio.AudioTagLayout.Id3v2, CanWriteTags: true, Family: not SLSKDONET.Services.Audio.AudioContainerFamily.Mp4 };
+    private static bool IsVorbis(string path) => SLSKDONET.Services.Audio.AudioFormats.Find(Path.GetExtension(path)) is
+        { Tags: SLSKDONET.Services.Audio.AudioTagLayout.Xiph, CanWriteTags: true };
 
     private readonly ICuePointService _cues;
     private readonly IFileWriteService _fileWrite;
@@ -46,12 +50,16 @@ public sealed class SeratoCueExportService
     }
 
     public static bool IsSupported(string path) =>
-        Id3Extensions.Contains(Path.GetExtension(path)) || VorbisExtensions.Contains(Path.GetExtension(path));
+        IsId3(path) || IsVorbis(path);
 
     public async Task<SeratoExportResult> WriteAsync(string filePath, string trackHash, SeratoWriteMode mode, CancellationToken ct = default)
     {
         if (!File.Exists(filePath)) return new(false, 0, 0, 0, "File not found");
-        if (!IsSupported(filePath)) return new(false, 0, 0, 0, $"{Path.GetExtension(filePath)} files can't carry Serato cues here");
+        if (!IsSupported(filePath))
+        {
+            _logger.LogInformation("[Serato] Skipped {File}: Serato cues can't be written into {Ext} files", Path.GetFileName(filePath), Path.GetExtension(filePath));
+            return new(false, 0, 0, 0, $"{Path.GetExtension(filePath)} files can't carry Serato cues here");
+        }
         var cues = await _cues.GetByTrackIdAsync(trackHash).ConfigureAwait(false);
         if (cues.Count == 0) return new(false, 0, 0, 0, "No cues to write");
 
@@ -71,7 +79,7 @@ public sealed class SeratoCueExportService
     /// <summary>Tags <paramref name="tempPath"/> in place (format from <paramref name="originalPath"/>). Internal for tests.</summary>
     internal static SeratoExportResult WriteTags(string tempPath, string originalPath, IReadOnlyList<CuePointEntity> cues, SeratoWriteMode mode)
     {
-        bool id3 = Id3Extensions.Contains(Path.GetExtension(originalPath));
+        bool id3 = IsId3(originalPath);
         using var file = TagLib.File.Create(new TagLib.File.LocalFileAbstraction(tempPath), MimeFor(originalPath), TagLib.ReadStyle.Average);
 
         List<SeratoEntry> existing;
@@ -176,5 +184,5 @@ public sealed class SeratoCueExportService
     }
 
     // TagLib# registers every format under "taglib/<extension>".
-    private static string MimeFor(string path) => "taglib/" + Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
+    private static string MimeFor(string path) => SLSKDONET.Services.Audio.AudioFormats.TagLibMimeType(path);
 }

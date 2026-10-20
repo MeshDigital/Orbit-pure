@@ -31,10 +31,7 @@ public partial class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, 
     private static readonly Regex WinnerUserRegex = new(@"(?:winner:|match from|Selected\s+)(?<user>[A-Za-z0-9_\-\.]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex StructuredFieldRegex = new(@"(?<key>[a-zA-Z]+):\s*(?<value>[^|]+)", RegexOptions.Compiled);
     private static readonly Regex FromUserRegex = new(@"from\s+(?<user>[A-Za-z0-9_\-\.]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    private static readonly HashSet<string> LosslessFormats = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "flac", "wav", "aif", "aiff", "ape", "alac"
-    };
+    private static IReadOnlySet<string> LosslessFormats => SLSKDONET.Services.Audio.AudioFormats.LosslessTokenSet;
 
     private readonly DownloadManager _downloadManager;
     private readonly IEventBus _eventBus;

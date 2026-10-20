@@ -1087,15 +1087,7 @@ public class DownloadDiscoveryService
 
     private static bool IsLosslessFormat(string? format)
     {
-        if (string.IsNullOrWhiteSpace(format))
-            return false;
-
-        return format.Equals("flac", StringComparison.OrdinalIgnoreCase) ||
-               format.Equals("wav", StringComparison.OrdinalIgnoreCase) ||
-               format.Equals("aif", StringComparison.OrdinalIgnoreCase) ||
-               format.Equals("aiff", StringComparison.OrdinalIgnoreCase) ||
-               format.Equals("ape", StringComparison.OrdinalIgnoreCase) ||
-               format.Equals("alac", StringComparison.OrdinalIgnoreCase);
+        return SLSKDONET.Services.Audio.AudioFormats.IsLossless(format);
     }
 
     private static string? BuildDiscoveryReason(Track track, string? scoreBreakdown, bool useFastLane, int queueLength)

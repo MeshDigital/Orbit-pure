@@ -128,7 +128,7 @@ public sealed class DemucsOnnxSeparator : IStemSeparator, IDisposable
         float[] audio;
         int sampleRate, channels, totalFrames;
 
-        using (var reader = new NAudio.Wave.AudioFileReader(inputPath))
+        using (var reader = SLSKDONET.Services.Audio.PlayableAudio.Open(inputPath, out _)) // AIFF-C/Opus/odd FLAC: ffmpeg-decoded copy
         {
             sampleRate  = reader.WaveFormat.SampleRate;
             channels    = reader.WaveFormat.Channels;

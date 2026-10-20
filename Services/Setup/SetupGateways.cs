@@ -362,7 +362,7 @@ public sealed class LibraryFolderSetupGateway : ILibraryFolderSetupGateway
             {
                 var result = await _scanner.ImportFoldersAsync(new LibraryImportRequest());
                 _eventBus.Publish(new ToastRequestedEvent("Library scan finished",
-                    $"{result.Added:N0} tracks added from {result.FilesFound:N0} files.", NotificationType.Success, TimeSpan.FromSeconds(6)));
+                    $"{SLSKDONET.Utils.CountFormat.N(result.Added)} tracks added from {SLSKDONET.Utils.CountFormat.N(result.FilesFound)} files.", NotificationType.Success, TimeSpan.FromSeconds(6)));
             }
             catch (Exception ex)
             {

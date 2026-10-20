@@ -69,9 +69,11 @@ internal sealed class FakeSpotify : ISpotifySetupGateway
 {
     public bool IsConnected { get; set; }
     public event EventHandler<bool>? ConnectionChanged;
+    public int ConnectCalls { get; private set; }
     public Task<SpotifyConnectResult> ConnectAsync()
     {
         IsConnected = true;
+        ConnectCalls++;
         ConnectionChanged?.Invoke(this, true);
         return Task.FromResult(new SpotifyConnectResult(true, "Connected"));
     }

@@ -29,7 +29,7 @@ public class RecentImportItemViewModel
 
     public string Title => Job.SourceTitle;
     public string SourceType => Job.SourceType;
-    public string TrackCountText => Job.TotalTracks == 1 ? "1 track" : $"{Job.TotalTracks:N0} tracks";
+    public string TrackCountText => Job.TotalTracks == 1 ? "1 track" : $"{SLSKDONET.Utils.CountFormat.N(Job.TotalTracks)} tracks";
     public string DateText => Job.CreatedAt.ToLocalTime().ToString("d MMM yyyy");
     public bool IsSpotify => Job.SourceType.Contains("Spotify", StringComparison.OrdinalIgnoreCase);
     public bool IsCsv => Job.SourceType.Contains("CSV", StringComparison.OrdinalIgnoreCase);

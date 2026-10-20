@@ -86,10 +86,10 @@
                                        Text="{Binding CurrentFile}" TextTrimming="CharacterEllipsis" Margin="0,0,12,0"
                                        ToolTip.Tip="{Binding CurrentFile}"/>
                             <TextBlock Grid.Column="1" Classes="mono" Foreground="{StaticResource BrushText1}" IsVisible="{Binding IsProgressPhase}">
-                                <Run Text="{Binding Processed, StringFormat='{}{0:N0}'}"/><Run Text=" / "/><Run Text="{Binding Total, StringFormat='{}{0:N0}'}"/>
+                                <Run Text="{Binding Processed, Converter={StaticResource CountConverter}}"/><Run Text=" / "/><Run Text="{Binding Total, Converter={StaticResource CountConverter}}"/>
                             </TextBlock>
                             <TextBlock Grid.Column="1" Classes="mono" Foreground="{StaticResource BrushText1}" IsVisible="{Binding IsScanningPhase}"
-                                       Text="{Binding FilesFound, StringFormat='{}{0:N0} files found'}"/>
+                                       Text="{Binding FilesFound, Converter={StaticResource CountConverter}, ConverterParameter='{}{0} files found'}"/>
                         </Grid>
                     </StackPanel>
 
@@ -110,30 +110,30 @@
                     <!-- Counters (mono so they don't jitter while they climb) -->
                     <UniformGrid Columns="4">
                         <StackPanel Spacing="2" Margin="0,0,8,0">
-                            <TextBlock Classes="stat-value" Text="{Binding Added, StringFormat='{}{0:N0}'}"/>
+                            <TextBlock Classes="stat-value" Text="{Binding Added, Converter={StaticResource CountConverter}}"/>
                             <TextBlock Classes="caption" Text="New"/>
                         </StackPanel>
                         <StackPanel Spacing="2" Margin="0,0,8,0" ToolTip.Tip="The same file is already in your library">
-                            <TextBlock Classes="stat-value" Text="{Binding AlreadyInLibrary, StringFormat='{}{0:N0}'}"/>
+                            <TextBlock Classes="stat-value" Text="{Binding AlreadyInLibrary, Converter={StaticResource CountConverter}}"/>
                             <TextBlock Classes="caption" Text="Already in library"/>
                         </StackPanel>
                         <StackPanel Spacing="2" Margin="0,0,8,0" ToolTip.Tip="Another copy of a track you already have (same artist and title)">
-                            <TextBlock Classes="stat-value" Text="{Binding Duplicates, StringFormat='{}{0:N0}'}"/>
+                            <TextBlock Classes="stat-value" Text="{Binding Duplicates, Converter={StaticResource CountConverter}}"/>
                             <TextBlock Classes="caption" Text="Duplicates"/>
                         </StackPanel>
                         <StackPanel Spacing="2" ToolTip.Tip="Unreadable or corrupt files, and audio formats ORBIT can't import yet">
                             <TextBlock Classes="stat-value">
-                                <Run Text="{Binding Unreadable, StringFormat='{}{0:N0}'}"/><Run Text=" · " Foreground="{StaticResource BrushText3}"/><Run Text="{Binding Unsupported, StringFormat='{}{0:N0}'}"/>
+                                <Run Text="{Binding Unreadable, Converter={StaticResource CountConverter}}"/><Run Text=" · " Foreground="{StaticResource BrushText3}"/><Run Text="{Binding Unsupported, Converter={StaticResource CountConverter}}"/>
                             </TextBlock>
                             <TextBlock Classes="caption" Text="Unreadable · unsupported"/>
                         </StackPanel>
                     </UniformGrid>
 
                     <TextBlock Classes="caption" IsVisible="{Binding HasUpgraded}" TextWrapping="Wrap"
-                               Text="{Binding Upgraded, StringFormat='{}{0:N0} duplicates replaced a lower-quality copy (the old file is listed under Library Health → removal candidates).'}"/>
+                               Text="{Binding Upgraded, Converter={StaticResource CountConverter}, ConverterParameter='{}{0} duplicates replaced a lower-quality copy (the old file is listed under Library Health → removal candidates).'}"/>
 
                     <TextBlock Classes="caption error" IsVisible="{Binding HasFailed}" TextWrapping="Wrap"
-                               Text="{Binding Failed, StringFormat='{}{0:N0} files were read but could not be saved to the library. See Show details.'}"/>
+                               Text="{Binding Failed, Converter={StaticResource CountConverter}, ConverterParameter='{}{0} files were read but could not be saved to the library. See Show details.'}"/>
 
                     <!-- Problems + details -->
                     <Border Classes="callout warning" IsVisible="{Binding HasIssues}">
@@ -163,7 +163,7 @@
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
                                         <TextBlock Classes="caption" IsVisible="{Binding HasHiddenIssues}"
-                                                   Text="{Binding HiddenIssueCount, StringFormat='…and {0:N0} more (see the log for the full list).'}"/>
+                                                   Text="{Binding HiddenIssueCount, Converter={StaticResource CountConverter}, ConverterParameter='{}…and {0} more (see the log for the full list).'}"/>
                                     </StackPanel>
                                 </ScrollViewer>
                             </Border>

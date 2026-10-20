@@ -129,6 +129,7 @@ public sealed class SetupWizardViewModel : SetupObservable, IDisposable
                 OnPropertyChanged(nameof(NextLabel));
                 UpdateIndicators();
                 RaiseCommandStates();
+                CurrentStep.OnShown();
             }
         }
     }
@@ -142,8 +143,10 @@ public sealed class SetupWizardViewModel : SetupObservable, IDisposable
     /// <summary>Back / Skip this step / Next row (the Welcome and Done pages have their own buttons).</summary>
     public bool ShowFooterNavigation => !IsWelcome && !IsDone;
 
-    /// <summary>"Step 2 of 4" across the four setup steps between Welcome and Done.</summary>
-    public string StepPositionText => IsWelcome || IsDone ? string.Empty : $"Step {CurrentIndex} of {Steps.Count - 2}";
+    /// <summary>"Step 3 of 6": the same numbering as the header's step indicator (Welcome is step 1).
+    /// It used to count only the four middle steps, so Folders read "Step 2 of 4" under a header
+    /// that numbered it 3.</summary>
+    public string StepPositionText => IsWelcome || IsDone ? string.Empty : $"Step {CurrentIndex + 1} of {Steps.Count}";
 
     public string NextLabel => CurrentStep == Soulseek && !Soulseek.ResultIsSuccess ? "Sign in and continue" : "Next";
 

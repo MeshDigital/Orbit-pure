@@ -25,14 +25,11 @@ public class SafetyFilterService : ISafetyFilterService
     private readonly ILogger<SafetyFilterService> _logger;
     private readonly AppConfig _config;
     private readonly string[] _bannedExtensions = new[] { ".exe", ".zip", ".rar", ".lnk", ".bat", ".cmd", ".vbs", ".dmg", ".iso" };
-    private static readonly HashSet<string> _losslessWhitelist = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".flac", ".aif", ".aiff", ".wav"
-    };
-    private static readonly HashSet<string> _lossyBlacklist = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mp3", ".m4a", ".mp4", ".ogg", ".wma"
-    };
+    // From the format table: lossless formats ORBIT imports (FLAC/WAV/AIFF), and lossy ones it can use.
+    private static bool IsAllowedLossless(string ext) =>
+        SLSKDONET.Services.Audio.AudioFormats.Find(ext) is { IsLossless: true, IsImportable: true };
+    private static bool IsUsableLossy(string ext) =>
+        SLSKDONET.Services.Audio.AudioFormats.Find(ext) is { IsLossless: false, Support: not SLSKDONET.Services.Audio.AudioFormatSupport.Recognised };
 
     public SafetyFilterService(ILogger<SafetyFilterService> logger, AppConfig config)
     {
@@ -88,12 +85,12 @@ public class SafetyFilterService : ISafetyFilterService
         }
 
         // 1B. Purist First Barrier: hard extension allow/deny
-        if (!allowLossy && _lossyBlacklist.Contains(ext))
+        if (!allowLossy && SLSKDONET.Services.Audio.AudioFormats.IsLossy(ext))
         {
             return new SafetyCheckResult(false, "Lossy Extension Rejected", $"Extension '{ext}' is blacklisted for lossless hunting.");
         }
 
-        if (!_losslessWhitelist.Contains(ext) && (!allowLossy || !_lossyBlacklist.Contains(ext)))
+        if (!IsAllowedLossless(ext) && (!allowLossy || !IsUsableLossy(ext)))
         {
             return new SafetyCheckResult(false, "Unsupported Extension", $"Extension '{ext}' is outside the allowed audio whitelist.");
         }

@@ -14,7 +14,7 @@ namespace SLSKDONET.ViewModels
     /// </summary>
     public class AnalyzedSearchResultViewModel : ReactiveObject
     {
-        private static readonly string[] LosslessFormats = { "FLAC", "WAV", "AIFF", "AIF", "ALAC", "APE", "WV" };
+        
 
         private readonly SearchResult _result;
         private bool _isFilteredOut;
@@ -67,7 +67,7 @@ namespace SLSKDONET.ViewModels
 
         // Quality tier (format + bitrate) — a small fixed-width badge on the row.
         public string FormatLabel => string.IsNullOrWhiteSpace(_result.FileFormat) ? "?" : _result.FileFormat;
-        public bool IsLossless => LosslessFormats.Contains(FormatLabel, StringComparer.OrdinalIgnoreCase);
+        public bool IsLossless => SLSKDONET.Services.Audio.AudioFormats.IsLossless(FormatLabel);
         /// <summary>Known lossy bitrate under 256 kbps.</summary>
         public bool IsLowQuality => !IsLossless && BitRate > 0 && BitRate < 256;
         public string BitrateDisplay => BitRate > 0 ? BitRate.ToString() : "—";

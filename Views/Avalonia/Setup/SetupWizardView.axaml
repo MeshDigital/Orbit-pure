@@ -14,7 +14,8 @@
       First-run setup wizard (DOCS/FIRST_RUN_SETUP.md). Full-window takeover over the shell.
       Each step is a view model; the content area picks its template by type. Enter = the page's
       primary action, Esc = "Skip setup?" prompt (handled in code-behind so focused buttons keep
-      their own Enter).
+      their own Enter). Each page focuses its primary button (or the first empty field) when it
+      appears, so Enter and Esc work without clicking first.
     -->
 
     <UserControl.Styles>
@@ -543,7 +544,7 @@
                         <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding IsWelcome}">
                             <Button Classes="ghost" Content="Skip" Command="{Binding ConfirmSkipSetupCommand}"
                                     ToolTip.Tip="Skip setup. You can run it again from Settings → Advanced → Setup."/>
-                            <Button Grid.Column="1" Classes="primary" Content="Start setup (recommended)" Command="{Binding NextCommand}"/>
+                            <Button x:Name="StartSetupButton" Grid.Column="1" Classes="primary" Content="Start setup (recommended)" Command="{Binding NextCommand}"/>
                         </Grid>
 
                         <!-- Steps 2–5 -->
@@ -560,7 +561,7 @@
                                         ToolTip.Tip="{Binding CurrentStep.SkipNote}"/>
                             </StackPanel>
                             <TextBlock Grid.Column="2" Classes="caption mono" Text="{Binding StepPositionText}" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                            <Button Grid.Column="3" Classes="primary" Command="{Binding NextCommand}">
+                            <Button x:Name="NextButton" Grid.Column="3" Classes="primary" Command="{Binding NextCommand}">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <TextBlock Text="{Binding NextLabel}"/>
                                     <PathIcon Data="{StaticResource icon_chevron_right}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
@@ -578,7 +579,7 @@
                             </Button>
                             <Button Grid.Column="2" Classes="secondary" Content="Take the quick tour" Margin="0,0,8,0"
                                     Command="{Binding FinishAndTourCommand}"/>
-                            <Button Grid.Column="3" Classes="primary" Content="Start using ORBIT" Command="{Binding FinishCommand}"/>
+                            <Button x:Name="FinishButton" Grid.Column="3" Classes="primary" Content="Start using ORBIT" Command="{Binding FinishCommand}"/>
                         </Grid>
                     </Panel>
                 </Border>
@@ -593,7 +594,7 @@
                                        Text="Steps you already confirmed stay saved; nothing else changes. You can run setup again from Settings → Advanced → Setup."/>
                             <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,8,0,0">
                                 <Button Classes="secondary" Content="Skip setup" Command="{Binding ConfirmSkipSetupCommand}"/>
-                                <Button Classes="primary" Content="Keep setting up" Command="{Binding CancelSkipSetupCommand}"/>
+                                <Button x:Name="KeepSetupButton" Classes="primary" Content="Keep setting up" Command="{Binding CancelSkipSetupCommand}"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>

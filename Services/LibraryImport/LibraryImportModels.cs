@@ -122,23 +122,17 @@ public sealed class LibraryImportResult
     public bool ChangedLibrary => Added > 0 || Upgraded > 0;
 }
 
-/// <summary>Which files the importer brings in, and which audio-looking files it reports as unsupported.</summary>
+/// <summary>Which files the importer brings in, and which audio-looking files it reports as
+/// unsupported. Backed by <see cref="SLSKDONET.Services.Audio.AudioFormats"/>, the one format table.</summary>
 public static class LibraryAudioFormats
 {
     public enum Kind { NotAudio, Supported, Unsupported }
 
     /// <summary>Formats ORBIT plays, tags and analyses.</summary>
-    public static readonly IReadOnlySet<string> Supported = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg",
-    };
+    public static IReadOnlySet<string> Supported => SLSKDONET.Services.Audio.AudioFormats.ImportableExtensions;
 
     /// <summary>Audio formats found in music folders that ORBIT can't import yet; counted, not added.</summary>
-    public static readonly IReadOnlySet<string> KnownUnsupported = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        ".opus", ".wma", ".ape", ".aiff", ".aif", ".aifc", ".alac", ".wv", ".dsf", ".dff",
-        ".mka", ".mpc", ".tta", ".m4b", ".caf", ".mp2", ".ac3", ".amr",
-    };
+    public static IReadOnlySet<string> KnownUnsupported => SLSKDONET.Services.Audio.AudioFormats.RecognisedOnlyExtensions;
 
     public static Kind Classify(string path)
     {

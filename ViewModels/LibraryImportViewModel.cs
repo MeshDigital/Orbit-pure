@@ -243,10 +243,10 @@ public sealed class LibraryImportViewModel : INotifyPropertyChanged, IDisposable
 
     public string ChipText => IsRunning
         ? Phase == LibraryImportPhase.Scanning
-            ? $"Importing · {FilesFound:N0} found"
-            : $"Importing · {Processed:N0} / {Total:N0}"
+            ? $"Importing · {SLSKDONET.Utils.CountFormat.N(FilesFound)} found"
+            : $"Importing · {SLSKDONET.Utils.CountFormat.N(Processed)} / {SLSKDONET.Utils.CountFormat.N(Total)}"
         : IsCompleted
-            ? $"Import done · {Added:N0} added"
+            ? $"Import done · {SLSKDONET.Utils.CountFormat.N(Added)} added"
             : string.Empty;
 
     public bool IsDetailsVisible { get => _isDetailsVisible; private set => Set(ref _isDetailsVisible, value, nameof(IsDetailsVisible), nameof(DetailsToggleText)); }
@@ -274,7 +274,7 @@ public sealed class LibraryImportViewModel : INotifyPropertyChanged, IDisposable
         {
             if (_result == null) return string.Empty;
             if (_result.Error != null) return $"Something went wrong: {_result.Error} Tracks added before the error are kept.";
-            var added = _result.Added == 1 ? "1 track" : $"{_result.Added:N0} tracks";
+            var added = _result.Added == 1 ? "1 track" : $"{SLSKDONET.Utils.CountFormat.N(_result.Added)} tracks";
             if (_result.WasCancelled) return $"Stopped early. {added} added and kept in your library.";
             if (_result.FolderPaths.Count == 0) return "There are no library folders to scan yet. Add a music folder first.";
             if (_result.FilesFound == 0 && _result.Unsupported == 0)
@@ -289,7 +289,7 @@ public sealed class LibraryImportViewModel : INotifyPropertyChanged, IDisposable
     public bool ShowAnalyse => IsCompleted && Added > 0;
     public string AnalyseText => AnalysisQueued
         ? "Analysis queued"
-        : Added == 1 ? "Analyse 1 new track" : $"Analyse {Added:N0} new tracks";
+        : Added == 1 ? "Analyse 1 new track" : $"Analyse {SLSKDONET.Utils.CountFormat.N(Added)} new tracks";
 
     // ───────────────────────────── ILibraryImportLauncher ─────────────────────────────
 
@@ -495,11 +495,11 @@ public sealed class LibraryImportViewModel : INotifyPropertyChanged, IDisposable
                 : step.Number == current ? ImportStepState.Active : ImportStepState.Pending;
         }
 
-        Steps[0].Detail = FilesFound == 1 ? "1 file" : $"{FilesFound:N0} files";
+        Steps[0].Detail = FilesFound == 1 ? "1 file" : $"{SLSKDONET.Utils.CountFormat.N(FilesFound)} files";
         Steps[1].Detail = Phase == LibraryImportPhase.Reading && IsRunning
-            ? $"{Processed:N0} / {Total:N0}"
-            : Phase > LibraryImportPhase.Reading || IsCompleted ? (Unreadable > 0 ? $"{Unreadable:N0} unreadable" : "checked") : string.Empty;
-        Steps[2].Detail = Phase >= LibraryImportPhase.Adding || IsCompleted ? $"{Added:N0} new" : string.Empty;
+            ? $"{SLSKDONET.Utils.CountFormat.N(Processed)} / {SLSKDONET.Utils.CountFormat.N(Total)}"
+            : Phase > LibraryImportPhase.Reading || IsCompleted ? (Unreadable > 0 ? $"{SLSKDONET.Utils.CountFormat.N(Unreadable)} unreadable" : "checked") : string.Empty;
+        Steps[2].Detail = Phase >= LibraryImportPhase.Adding || IsCompleted ? $"{SLSKDONET.Utils.CountFormat.N(Added)} new" : string.Empty;
         Steps[3].Detail = string.Empty;
     }
 
@@ -576,7 +576,7 @@ public sealed class LibraryImportViewModel : INotifyPropertyChanged, IDisposable
                 Toast("Couldn't queue analysis", ex.Message, NotificationType.Error);
             }
         });
-        Toast("Analysis queued", $"{hashes.Count:N0} new tracks are queued. Follow progress on the Analysis page.", NotificationType.Information);
+        Toast("Analysis queued", $"{SLSKDONET.Utils.CountFormat.N(hashes.Count)} new tracks are queued. Follow progress on the Analysis page.", NotificationType.Information);
     }
 
     private void RaiseCommandStates()

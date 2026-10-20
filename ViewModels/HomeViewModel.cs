@@ -104,7 +104,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
 
     public double IntelligenceAnalyzedPercent => _intelligenceTotalTracks > 0
         ? Math.Round((double)_intelligenceAnalyzedTracks / _intelligenceTotalTracks * 100, 1) : 0;
-    public string IntelligenceAnalyzedText => $"{_intelligenceAnalyzedTracks:N0} of {_intelligenceTotalTracks:N0} tracks";
+    public string IntelligenceAnalyzedText => $"{SLSKDONET.Utils.CountFormat.N(_intelligenceAnalyzedTracks)} of {SLSKDONET.Utils.CountFormat.N(_intelligenceTotalTracks)} tracks";
     public double IntelligenceFlacPercent => _intelligenceTotalTracks > 0
         ? (double)_intelligenceFlacCount / _intelligenceTotalTracks * 100 : 0;
     public double IntelligenceMp3Percent => _intelligenceTotalTracks > 0
