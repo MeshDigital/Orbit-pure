@@ -70,6 +70,7 @@ public static class PlayableAudio
                 var codec = AudioFormats.IsLossless(info.Extension) ? "pcm_s24le" : "pcm_s16le";
                 var sw = Stopwatch.StartNew();
                 RunFfmpeg($"-v error -y -i \"{path}\" -vn -map 0:a:0 -c:a {codec} \"{temp}\"");
+                UnwrapExtensibleFormat(temp);
                 File.Move(temp, wav, overwrite: true);
                 Serilog.Log.Information("[PlayableAudio] Decoded {File} in {Ms} ms ({Mb:0.0} MB cached)",
                     info.Name, sw.ElapsedMilliseconds, new FileInfo(wav).Length / 1e6);
@@ -77,12 +78,62 @@ public static class PlayableAudio
             }
             else
             {
+                UnwrapExtensibleFormat(wav); // copies cached before the header fix
                 File.SetLastAccessTimeUtc(wav, DateTime.UtcNow);
             }
         }
 
         Resolved[path] = wav;
         return wav;
+    }
+
+    /// <summary>
+    /// ffmpeg writes WAVE_FORMAT_EXTENSIBLE for anything over 16 bits or 48 kHz. NAudio's
+    /// AudioFileReader only accepts plain PCM/float and hands EXTENSIBLE to an ACM converter that
+    /// fails ("NoDriver calling acmFormatSuggest"), so every 24-bit fallback copy (FLAC, AIFF-C)
+    /// could not be opened. The header is rewritten to the plain format tag its sub-format names;
+    /// the samples are unchanged. Internal for tests.
+    /// </summary>
+    internal static void UnwrapExtensibleFormat(string wavPath)
+    {
+        try
+        {
+            UnwrapExtensibleFormatCore(wavPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Open by a player right now (already fixed, or fixed on the next open).
+            Serilog.Log.Warning(ex, "[PlayableAudio] Couldn't rewrite the WAV header of {File}", Path.GetFileName(wavPath));
+        }
+    }
+
+    private static void UnwrapExtensibleFormatCore(string wavPath)
+    {
+        using var stream = new FileStream(wavPath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+        var head = new byte[12];
+        if (stream.Read(head, 0, 12) != 12 || Encoding.ASCII.GetString(head, 0, 4) != "RIFF" || Encoding.ASCII.GetString(head, 8, 4) != "WAVE")
+            return;
+
+        var chunk = new byte[8];
+        while (stream.Read(chunk, 0, 8) == 8)
+        {
+            var size = BitConverter.ToUInt32(chunk, 4);
+            if (Encoding.ASCII.GetString(chunk, 0, 4) != "fmt ")
+            {
+                stream.Position += size + (size & 1);
+                continue;
+            }
+            if (size < 40) return;
+            var fmt = new byte[40];
+            if (stream.Read(fmt, 0, 40) != 40) return;
+            if (BitConverter.ToUInt16(fmt, 0) != 0xFFFE) return;
+            // The sub-format GUID (offset 24) starts with the plain format tag: 1 = PCM, 3 = IEEE float.
+            var subFormat = BitConverter.ToUInt16(fmt, 24);
+            if (subFormat is not (1 or 3)) return;
+            stream.Position -= 40;
+            stream.Write(BitConverter.GetBytes(subFormat), 0, 2);
+            return;
+        }
     }
 
     private static void RunFfmpeg(string arguments)

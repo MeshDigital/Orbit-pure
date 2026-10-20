@@ -358,10 +358,12 @@ public class TrackRepository : ITrackRepository
     /// </summary>
     internal static IQueryable<PlaylistTrackEntity> ApplyQualityTierFilter(IQueryable<PlaylistTrackEntity> query, string? qualityTier)
     {
+        // Lossless = every lossless token in the format table (FLAC, WAV, AIFF/AIF/AIFC, ALAC...); SQL IN list.
+        var lossless = SLSKDONET.Services.Audio.AudioFormats.LosslessTokens.ToArray();
         return qualityTier switch
         {
-            "Gold" => query.Where(t => t.Format != null && (t.Format.ToLower() == "flac" || t.Format.ToLower() == "wav")),
-            "Silver" => query.Where(t => t.Bitrate >= 320 && (t.Format == null || (t.Format.ToLower() != "flac" && t.Format.ToLower() != "wav"))),
+            "Gold" => query.Where(t => t.Format != null && lossless.Contains(t.Format.ToLower())),
+            "Silver" => query.Where(t => t.Bitrate >= 320 && (t.Format == null || !lossless.Contains(t.Format.ToLower()))),
             "Bronze" => query.Where(t => t.Bitrate < 320 && t.Bitrate > 0),
             _ => query
         };
@@ -369,10 +371,12 @@ public class TrackRepository : ITrackRepository
 
     internal static IQueryable<LibraryEntryEntity> ApplyQualityTierFilter(IQueryable<LibraryEntryEntity> query, string? qualityTier)
     {
+        // Lossless = every lossless token in the format table (FLAC, WAV, AIFF/AIF/AIFC, ALAC...); SQL IN list.
+        var lossless = SLSKDONET.Services.Audio.AudioFormats.LosslessTokens.ToArray();
         return qualityTier switch
         {
-            "Gold" => query.Where(t => t.Format != null && (t.Format.ToLower() == "flac" || t.Format.ToLower() == "wav")),
-            "Silver" => query.Where(t => t.Bitrate >= 320 && (t.Format == null || (t.Format.ToLower() != "flac" && t.Format.ToLower() != "wav"))),
+            "Gold" => query.Where(t => t.Format != null && lossless.Contains(t.Format.ToLower())),
+            "Silver" => query.Where(t => t.Bitrate >= 320 && (t.Format == null || !lossless.Contains(t.Format.ToLower()))),
             "Bronze" => query.Where(t => t.Bitrate < 320 && t.Bitrate > 0),
             _ => query
         };

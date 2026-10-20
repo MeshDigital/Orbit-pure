@@ -118,6 +118,9 @@ public static class AudioFormats
     /// <summary>Lossless tokens without the dot ("flac", "wav", "aif", "aiff"…). Safe for EF <c>Contains</c> (lower-case).</summary>
     public static readonly IReadOnlyList<string> LosslessTokens = All.Where(f => f.IsLossless).Select(f => f.Token).ToArray();
 
+    /// <summary><see cref="LosslessTokens"/> as a case-insensitive set.</summary>
+    public static readonly IReadOnlySet<string> LosslessTokenSet = Set(LosslessTokens);
+
     /// <summary>Lossy tokens without the dot ("mp3", "m4a"…).</summary>
     public static readonly IReadOnlyList<string> LossyTokens = All.Where(f => !f.IsLossless).Select(f => f.Token).ToArray();
 

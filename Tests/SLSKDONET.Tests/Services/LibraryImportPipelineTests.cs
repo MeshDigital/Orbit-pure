@@ -58,7 +58,7 @@ public class LibraryImportPipelineTests : IDisposable
         WriteWav("a.wav", $"Track A {unique}", "Artist");
         WriteWav(Path.Combine("sub", "b.wav"), $"Track B {unique}", "Artist");
         WriteWav("b copy.wav", $"Track B {unique}", "Artist");               // same track identity as b.wav
-        File.WriteAllBytes(Path.Combine(_folder, "song.opus"), new byte[64]);   // audio, but not importable
+        File.WriteAllBytes(Path.Combine(_folder, "song.ape"), new byte[64]);    // audio, but not importable
         File.WriteAllBytes(Path.Combine(_folder, "cover.jpg"), new byte[64]);   // not audio: ignored entirely
         File.WriteAllBytes(Path.Combine(_folder, "broken.flac"), RandomBytes(4096)); // corrupt
         File.WriteAllBytes(Path.Combine(_folder, "empty.mp3"), Array.Empty<byte>()); // 0 bytes
@@ -77,7 +77,7 @@ public class LibraryImportPipelineTests : IDisposable
         Assert.Equal(1, result.Unsupported);
         Assert.Equal(2, result.Unreadable);
         Assert.Equal(0, result.Failed);
-        Assert.Contains(result.Issues, i => i.Kind == LibraryImportIssueKind.Unsupported && i.Path.EndsWith("song.opus"));
+        Assert.Contains(result.Issues, i => i.Kind == LibraryImportIssueKind.Unsupported && i.Path.EndsWith("song.ape"));
         Assert.Contains(result.Issues, i => i.Kind == LibraryImportIssueKind.Unreadable && i.Path.EndsWith("broken.flac"));
         Assert.Contains(result.Issues, i => i.Kind == LibraryImportIssueKind.Unreadable && i.Path.EndsWith("empty.mp3"));
         Assert.Equal(2, CountEntriesInFolder());

@@ -129,6 +129,8 @@ public class PlaylistExportTrackMetadataTests : IDisposable
     [InlineData("track.wav", "WAV File")]
     [InlineData("track.m4a", "M4A File")]
     [InlineData("track.aiff", "AIFF File")]
+    [InlineData("track.aif", "AIFF File")]
+    [InlineData("track.aifc", "AIFF File")]
     [InlineData("track.ogg", "OGG File")]
     public async Task ExportToRekordboxXmlAsync_Kind_ReflectsRealFileExtension(string fileName, string expectedKind)
     {

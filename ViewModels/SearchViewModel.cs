@@ -359,6 +359,21 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         }
     }
 
+    public bool IsAiffEnabled
+    {
+        get => FilterViewModel.FilterAiff;
+        set
+        {
+            FilterViewModel.FilterAiff = value;
+            this.RaisePropertyChanged();
+            if (!_isApplyingPreset)
+            {
+                OnRankingWeightsChanged();
+                SyncQualityPresetFromCurrentSettings();
+            }
+        }
+    }
+
     public bool IsWavEnabled
     {
         get => FilterViewModel.FilterWav;
@@ -670,6 +685,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             FilterViewModel.FilterFlac = parsed.Formats.Contains("FLAC");
             FilterViewModel.FilterMp3 = parsed.Formats.Contains("MP3");
             FilterViewModel.FilterWav = parsed.Formats.Contains("WAV");
+            FilterViewModel.FilterAiff = parsed.Formats.Contains("AIFF");
         }
         if (parsed.MinBitrate.HasValue)
         {
@@ -1252,6 +1268,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                     FilterViewModel.FilterFlac = false;
                     FilterViewModel.FilterMp3 = true;
                     FilterViewModel.FilterWav = true;
+                    FilterViewModel.FilterAiff = true;
                     break;
                 case "Quick Grab":
                     _config.CustomWeights.QualityWeight = 1.5;
@@ -1262,6 +1279,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                     FilterViewModel.FilterFlac = true;
                     FilterViewModel.FilterMp3 = true;
                     FilterViewModel.FilterWav = true;
+                    FilterViewModel.FilterAiff = true;
                     break;
                 case "High Fidelity":
                     _config.CustomWeights.QualityWeight = 2.0;
@@ -1272,6 +1290,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                     FilterViewModel.FilterFlac = true;
                     FilterViewModel.FilterMp3 = false;
                     FilterViewModel.FilterWav = true;
+                    FilterViewModel.FilterAiff = true;
                     break;
                 case "Balanced":
                 default:
@@ -1283,6 +1302,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                     FilterViewModel.FilterFlac = true;
                     FilterViewModel.FilterMp3 = true;
                     FilterViewModel.FilterWav = true;
+                    FilterViewModel.FilterAiff = true;
                     break;
             }
         }
@@ -1297,6 +1317,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(IsFlacEnabled));
         this.RaisePropertyChanged(nameof(IsMp3Enabled));
         this.RaisePropertyChanged(nameof(IsWavEnabled));
+        this.RaisePropertyChanged(nameof(IsAiffEnabled));
 
         OnRankingWeightsChanged();
     }
@@ -1318,7 +1339,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             Math.Abs(MatchWeight - 1.0) < 0.001 &&
             IsFlacEnabled &&
             IsMp3Enabled &&
-            IsWavEnabled)
+            IsWavEnabled &&
+            IsAiffEnabled)
         {
             return 0;
         }
@@ -1328,7 +1350,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             Math.Abs(MatchWeight - 1.0) < 0.001 &&
             IsFlacEnabled &&
             IsMp3Enabled &&
-            IsWavEnabled)
+            IsWavEnabled &&
+            IsAiffEnabled)
         {
             return 1;
         }
@@ -1338,7 +1361,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             Math.Abs(MatchWeight - 2.0) < 0.001 &&
             !IsFlacEnabled &&
             IsMp3Enabled &&
-            IsWavEnabled)
+            IsWavEnabled &&
+            IsAiffEnabled)
         {
             return 2;
         }
@@ -1348,7 +1372,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             Math.Abs(MatchWeight - 1.0) < 0.001 &&
             IsFlacEnabled &&
             !IsMp3Enabled &&
-            IsWavEnabled)
+            IsWavEnabled &&
+            IsAiffEnabled)
         {
             return 3;
         }
@@ -1385,6 +1410,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             FilterViewModel.FilterMp3 = true;
             FilterViewModel.FilterFlac = true;
             FilterViewModel.FilterWav = true;
+            FilterViewModel.FilterAiff = true;
         });
 
         StatusText = "Relaxed filters for the cached result set. Hidden matches are now visible without a new network search.";
@@ -1557,7 +1583,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         if (IsFlacEnabled) list.Add("flac");
         if (IsMp3Enabled) list.Add("mp3");
         if (IsWavEnabled) list.Add("wav");
-        if (list.Count == 0) list.AddRange(new[] { "mp3", "flac", "wav" }); 
+        if (IsAiffEnabled) { list.Add("aiff"); list.Add("aif"); }
+        if (list.Count == 0) list.AddRange(new[] { "mp3", "flac", "wav", "aiff", "aif" });
         return list;
     }
 

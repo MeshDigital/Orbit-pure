@@ -14,10 +14,7 @@ namespace SLSKDONET.Services;
 /// </summary>
 public static class ResultSorter
 {
-    private static readonly HashSet<string> LosslessFormats = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "flac", "wav", "aif", "aiff", "ape", "alac"
-    };
+    private static IReadOnlySet<string> LosslessFormats => SLSKDONET.Services.Audio.AudioFormats.LosslessTokenSet;
 
     private static AppConfig? _config;
     

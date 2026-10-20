@@ -13,10 +13,7 @@ namespace SLSKDONET.Models;
 /// </summary>
 public static class AudioFileFormat
 {
-    private static readonly HashSet<string> KnownAudioFormats = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "mp3", "flac", "wav", "aiff", "aif", "m4a", "aac", "alac", "ogg", "oga", "opus", "wma", "ape", "wv", "mp4",
-    };
+    private static IReadOnlySet<string> KnownAudioFormats => SLSKDONET.Services.Audio.AudioFormats.AllTokens;
 
     private static readonly HashSet<string> Placeholders = new(StringComparer.OrdinalIgnoreCase)
     {

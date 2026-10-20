@@ -5,7 +5,7 @@ using System.Linq;
 namespace SLSKDONET.ViewModels;
 
 /// <summary>
-/// Pulls filter shortcuts out of an ad-hoc search query: "flac" / "mp3" / "wav" select formats
+/// Pulls filter shortcuts out of an ad-hoc search query: "flac" / "mp3" / "wav" / "aiff" select formats
 /// (several may be combined), "&gt;256" or "256+" sets a minimum bitrate. Everything else is the
 /// network query. Pure and stateless so it can be unit tested.
 /// </summary>
@@ -13,7 +13,11 @@ public static class SearchQueryTokenParser
 {
     public sealed record Result(string Query, IReadOnlySet<string>? Formats, int? MinBitrate);
 
-    private static readonly HashSet<string> FormatTokens = new(StringComparer.OrdinalIgnoreCase) { "flac", "mp3", "wav" };
+    // Query word -> format chip. "aif"/"aiff" select the AIFF chip.
+    private static readonly Dictionary<string, string> FormatTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["flac"] = "FLAC", ["mp3"] = "MP3", ["wav"] = "WAV", ["aiff"] = "AIFF", ["aif"] = "AIFF",
+    };
 
     public static Result Parse(string? query)
     {
@@ -26,10 +30,10 @@ public static class SearchQueryTokenParser
 
         foreach (var token in query.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
-            if (FormatTokens.Contains(token))
+            if (FormatTokens.TryGetValue(token, out var chip))
             {
                 formats ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                formats.Add(token.ToUpperInvariant());
+                formats.Add(chip);
                 continue;
             }
 

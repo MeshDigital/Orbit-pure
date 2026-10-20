@@ -212,6 +212,7 @@
                         <ToggleButton Classes="chip" Content="MP3" IsChecked="{Binding IsMp3Enabled}" ToolTip.Tip="Show MP3 files"/>
                         <ToggleButton Classes="chip" Content="FLAC" IsChecked="{Binding IsFlacEnabled}" ToolTip.Tip="Show FLAC files"/>
                         <ToggleButton Classes="chip" Content="WAV" IsChecked="{Binding IsWavEnabled}" ToolTip.Tip="Show WAV files"/>
+                        <ToggleButton Classes="chip" Content="AIFF" IsChecked="{Binding IsAiffEnabled}" ToolTip.Tip="Show AIFF files (.aif, .aiff)"/>
 
                         <Border Classes="divider vertical" Height="16" Margin="4,0"/>
 

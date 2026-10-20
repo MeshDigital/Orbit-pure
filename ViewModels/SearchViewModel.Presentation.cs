@@ -353,6 +353,9 @@ public partial class SearchViewModel
                 case nameof(SearchFilterViewModel.FilterWav):
                     this.RaisePropertyChanged(nameof(IsWavEnabled));
                     break;
+                case nameof(SearchFilterViewModel.FilterAiff):
+                    this.RaisePropertyChanged(nameof(IsAiffEnabled));
+                    break;
                 case nameof(SearchFilterViewModel.MinBitrate):
                     this.RaisePropertyChanged(nameof(MinBitrate));
                     this.RaisePropertyChanged(nameof(MinBitrateLabel));
