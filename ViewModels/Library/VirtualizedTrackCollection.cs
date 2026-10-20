@@ -108,6 +108,13 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         // a full reload. Reuses OnMetadataUpdated's existing full-refetch-from-DB logic rather than
         // adding a second near-identical refresh path.
         _disposables.Add(_eventBus.GetEvent<Models.TrackAnalysisUpdatedEvent>().Subscribe(evt => DispatchToViewModel(evt.TrackGlobalId, vm => vm.OnMetadataUpdated(new Models.TrackMetadataUpdatedEvent(evt.TrackGlobalId)))));
+        // Library enrichment publishes one event per batch of tracks; refresh only rows that are
+        // materialized (cover art, album, label appear in place without a full reload).
+        _disposables.Add(_eventBus.GetEvent<Services.Enrichment.TracksEnrichedEvent>().Subscribe(evt =>
+        {
+            foreach (var hash in evt.TrackHashes)
+                DispatchToViewModel(hash, vm => vm.OnMetadataUpdated(new Models.TrackMetadataUpdatedEvent(hash)));
+        }));
         _disposables.Add(_eventBus.GetEvent<Events.TrackDetailedStatusEvent>().Subscribe(evt => DispatchToViewModel(evt.TrackHash, vm => vm.OnDetailedStatus(evt))));
     }
 

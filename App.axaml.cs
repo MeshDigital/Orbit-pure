@@ -67,6 +67,8 @@ public partial class App : Application
             _ = Services.GetRequiredService<Services.AnalysisQueueService>();
             // Same for the loudness backfill: it listens for the inspector's single-track "Measure".
             _ = Services.GetRequiredService<Services.AudioAnalysis.LoudnessBackfillService>();
+            // And library metadata enrichment: it listens for imports/downloads and resumes its queue.
+            _ = Services.GetRequiredService<Services.Enrichment.MetadataEnrichmentOrchestrator>();
 
             // Eagerly activate the network activity monitor so it's observing from startup, not
             // only once something (e.g. the Settings page) happens to resolve it first.
@@ -904,6 +906,53 @@ public partial class App : Application
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.AudioAnalysis.LoudnessBackfillService>>(),
                 sp.GetService<Services.AnalysisQueueService>()));
         services.AddSingleton<ViewModels.LoudnessBackfillViewModel>();
+
+        // ── Library metadata enrichment (Services/Enrichment, DOCS/METADATA_ENRICHMENT.md) ──
+        services.AddHttpClient("enrichment", c => c.Timeout = TimeSpan.FromSeconds(20));
+        services.AddSingleton<Services.Enrichment.EnrichmentStore>();
+        services.AddSingleton<Services.Enrichment.IMetadataLookupCache>(sp => sp.GetRequiredService<Services.Enrichment.EnrichmentStore>());
+        services.AddSingleton(sp => new Services.Enrichment.MetadataCredentialStore(
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.MetadataCredentialStore>>()));
+        static System.Net.Http.HttpClient EnrichmentHttp(IServiceProvider sp) =>
+            sp.GetRequiredService<System.Net.Http.IHttpClientFactory>().CreateClient("enrichment");
+        services.AddSingleton<Services.Enrichment.IMetadataProvider, Services.Enrichment.Providers.LocalTagsProvider>();
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.DeezerProvider(
+            EnrichmentHttp(sp), sp.GetRequiredService<Services.Enrichment.IMetadataLookupCache>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.Providers.DeezerProvider>>()));
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.MusicBrainzProvider(
+            EnrichmentHttp(sp), sp.GetRequiredService<Services.Enrichment.IMetadataLookupCache>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.Providers.MusicBrainzProvider>>()));
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.DiscogsProvider(
+            EnrichmentHttp(sp), sp.GetRequiredService<Services.Enrichment.IMetadataLookupCache>(),
+            sp.GetRequiredService<Services.Enrichment.MetadataCredentialStore>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.Providers.DiscogsProvider>>()));
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.AcoustIdProvider(
+            EnrichmentHttp(sp), sp.GetRequiredService<Services.Enrichment.IMetadataLookupCache>(),
+            sp.GetRequiredService<Services.Enrichment.MetadataCredentialStore>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.Providers.AcoustIdProvider>>()));
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.SpotifyProvider(
+            sp.GetRequiredService<SpotifyEnrichmentService>(), sp.GetRequiredService<SpotifyAuthService>()));
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.BeatportProvider(
+            sp.GetRequiredService<Services.Discovery.BeatportCatalogClient>()));
+        services.AddSingleton(sp =>
+        {
+            var config = sp.GetRequiredService<AppConfig>();
+            return new Services.Enrichment.MetadataEnrichmentOrchestrator(
+                sp.GetRequiredService<IDbContextFactory<AppDbContext>>(),
+                sp.GetRequiredService<Services.Enrichment.EnrichmentStore>(),
+                sp.GetServices<Services.Enrichment.IMetadataProvider>(),
+                sp.GetRequiredService<IEventBus>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.MetadataEnrichmentOrchestrator>>(),
+                () => SLSKDONET.Services.Enrichment.EnrichmentSettings.From(config),
+                sp.GetService<ArtworkCacheService>(),
+                () => sp.GetService<Services.AnalysisQueueService>()?.PendingCount > 0,
+                () => sp.GetService<IAudioPlayerService>()?.IsPlaying == true,
+                SLSKDONET.Services.Enrichment.MetadataEnrichmentOrchestrator.DefaultWorkers,
+                TimeSpan.FromSeconds(3),
+                startupResumeDelay: TimeSpan.FromSeconds(45));
+        });
+        services.AddSingleton<ViewModels.EnrichmentViewModel>();
+        services.AddSingleton<ViewModels.MetadataSourcesSettingsViewModel>();
 
         // ── Task 1.5: Beatgrid Detection ──────────────────────────────────
         services.AddSingleton<Services.AudioAnalysis.BeatgridDetectionService>();

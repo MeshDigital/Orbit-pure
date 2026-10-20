@@ -26,6 +26,86 @@ public partial class PlaylistTrackViewModel
 
     private static int s_lastInspectorTab = InspectorTabOverview;
 
+    // ── Metadata sources (library enrichment provenance) ─────────────────────────────────────
+
+    private string? _metadataSourcesText;
+    private bool _metadataSourcesRequested;
+
+    /// <summary>"Cover Deezer · Label MusicBrainz · Genre Discogs", loaded on first read.</summary>
+    public string? MetadataSourcesText
+    {
+        get
+        {
+            if (!_metadataSourcesRequested && _libraryService != null && !string.IsNullOrEmpty(GlobalId))
+            {
+                _metadataSourcesRequested = true;
+                _ = LoadMetadataSourcesAsync();
+            }
+            return _metadataSourcesText;
+        }
+    }
+
+    public bool HasMetadataSources => !string.IsNullOrEmpty(_metadataSourcesText);
+
+    /// <summary>Re-read on the next binding pass (after enrichment changed the track).</summary>
+    internal void InvalidateMetadataSources()
+    {
+        _metadataSourcesRequested = false;
+        OnPropertyChanged(nameof(MetadataSourcesText));
+    }
+
+    private async Task LoadMetadataSourcesAsync()
+    {
+        try
+        {
+            var service = _libraryService!;
+            var hash = GlobalId;
+            var provenance = await Task.Run(() => service.GetMetadataProvenanceAsync(hash)).ConfigureAwait(false);
+            var text = FormatMetadataSources(provenance);
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                _metadataSourcesText = text;
+                OnPropertyChanged(nameof(MetadataSourcesText));
+                OnPropertyChanged(nameof(HasMetadataSources));
+            });
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "Could not load metadata sources for track {GlobalId}", GlobalId);
+        }
+    }
+
+    private static readonly (string Field, string Label)[] SourceFields =
+    {
+        ("artwork", "Cover"), ("album", "Album"), ("label", "Label"), ("genre", "Genre"), ("releaseDate", "Year"), ("isrc", "ISRC"),
+        ("artist", "Artist"), ("title", "Title"),
+    };
+
+    /// <summary>Provenance rows → one line. "user" and file-tag sources are named plainly.</summary>
+    internal static string? FormatMetadataSources(IReadOnlyDictionary<string, string> provenance)
+    {
+        var parts = new List<string>();
+        foreach (var (field, label) in SourceFields)
+        {
+            if (!provenance.TryGetValue(field, out var source) || string.IsNullOrWhiteSpace(source)) continue;
+            parts.Add($"{label} {SourceDisplayName(source)}");
+        }
+        return parts.Count == 0 ? null : string.Join(" · ", parts);
+    }
+
+    internal static string SourceDisplayName(string source) => source.ToLowerInvariant() switch
+    {
+        "tags" => "file tags",
+        "user" => "you",
+        "deezer" => "Deezer",
+        "musicbrainz" => "MusicBrainz",
+        "discogs" => "Discogs",
+        "acoustid" => "AcoustID",
+        "spotify" => "Spotify",
+        "beatport" => "Beatport",
+        _ => source,
+    };
+
     // ── Cues (from the real CuePoints table) ──────────────────────────────────────────────────
 
     /// <summary>True once <see cref="ApplyStoredCues"/> replaced the legacy CuePointsJson cues with

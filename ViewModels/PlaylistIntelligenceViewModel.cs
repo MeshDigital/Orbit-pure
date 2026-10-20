@@ -642,34 +642,26 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
 
         List<PlaylistTrack> tracks;
         var inMemory = _library.Tracks.CurrentProjectTracks;
-        if (inMemory.Count > 0)
+        var project = _library.SelectedProject;
+        var source = ResolveOverviewSource(project, inMemory.Count);
+        try
         {
-            tracks = inMemory.Select(t => t.Model).ToList();
+            // Task.Run: this is usually called on the UI thread (playlist selection), and Sqlite's
+            // "async" load + EF materialization runs synchronously on the caller — ~0.3s for a
+            // 2k-track playlist, far longer whenever a write holds the DB lock.
+            tracks = source switch
+            {
+                OverviewSource.InMemory => inMemory.Select(t => t.Model).ToList(),
+                OverviewSource.AllLibrary => await Task.Run(() => _library.LibraryService.LoadLibraryOverviewTracksAsync(likedOnly: false)),
+                OverviewSource.Liked => await Task.Run(() => _library.LibraryService.LoadLibraryOverviewTracksAsync(likedOnly: true)),
+                OverviewSource.Playlist => await Task.Run(() => _library.LibraryService.LoadPlaylistTracksAsync(project!.Id)),
+                _ => new List<PlaylistTrack>(),
+            };
         }
-        else
+        catch (Exception ex)
         {
-            var projectId = _library.SelectedProject?.Id;
-            if (projectId is null || projectId == Guid.Empty)
-            {
-                tracks = new List<PlaylistTrack>();
-            }
-            else
-            {
-                try
-                {
-                    // Task.Run: this is usually called on the UI thread (playlist selection), and
-                    // Sqlite's "async" load + EF materialization of the whole playlist runs
-                    // synchronously on the caller — ~0.3s for a 2k-track playlist, far longer
-                    // whenever a write holds the DB lock.
-                    var id = projectId.Value;
-                    tracks = await Task.Run(() => _library.LibraryService.LoadPlaylistTracksAsync(id));
-                }
-                catch (Exception ex)
-                {
-                    _library.Logger.LogWarning(ex, "Failed to load tracks for Playlist Overview (playlist {PlaylistId})", projectId.Value);
-                    return;
-                }
-            }
+            _library.Logger.LogWarning(ex, "Failed to load tracks for Playlist Overview ({Source}, {PlaylistId})", source, project?.Id);
+            return;
         }
         var loadMs = sw.ElapsedMilliseconds;
 
@@ -680,6 +672,23 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
         await Dispatcher.UIThread.InvokeAsync(() => ApplyOverviewSnapshot(snapshot));
         _library.Logger.LogDebug("[PERF] Overview stats: {Count} tracks, load {LoadMs}ms, total {TotalMs}ms",
             tracks.Count, loadMs, sw.ElapsedMilliseconds);
+    }
+
+    /// <summary>Where the overview's tracks come from for the current selection.</summary>
+    public enum OverviewSource { None, InMemory, AllLibrary, Liked, Playlist }
+
+    /// <summary>
+    /// "All Tracks" is the Guid.Empty pseudo-project backed by LibraryEntries, and Liked Songs is a
+    /// smart playlist with no PlaylistTracks rows; both used to fall through to an empty list.
+    /// Smart crates fill CurrentProjectTracks in memory; every other playlist reads its rows.
+    /// </summary>
+    public static OverviewSource ResolveOverviewSource(PlaylistJob? project, int inMemoryCount)
+    {
+        if (inMemoryCount > 0) return OverviewSource.InMemory;
+        if (project == null) return OverviewSource.None;
+        if (project.Id == Guid.Empty) return OverviewSource.AllLibrary;
+        if (string.Equals(project.SourceType, "Smart:Liked", StringComparison.OrdinalIgnoreCase)) return OverviewSource.Liked;
+        return OverviewSource.Playlist;
     }
 
     private sealed record OverviewSnapshot(
@@ -741,14 +750,20 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
                 .Select(t => t.Artist)
                 .Where(a => !string.IsNullOrWhiteSpace(a) && !string.Equals(a, "Unknown Artist", StringComparison.Ordinal)),
                 top: 5),
-            BuildOverviewStatBars(tracks
-                .Select(t => !string.IsNullOrEmpty(t.DetectedSubGenre) ? t.DetectedSubGenre : t.PrimaryGenre),
-                top: 5),
+            BuildOverviewStatBars(tracks.Select(OverviewGenre), top: 5),
             BuildOverviewStatBars(tracks
                 .Where(t => !string.IsNullOrEmpty(t.MusicalKey))
                 .Select(t => SLSKDONET.Utils.KeyConverter.ToCamelot(t.MusicalKey)),
                 top: 8),
             BuildOverviewBpmBrackets(bpms));
+    }
+
+    /// <summary>Analysed sub-genre, else the AI primary genre, else the first tag/enrichment genre.</summary>
+    internal static string? OverviewGenre(PlaylistTrack t)
+    {
+        if (!string.IsNullOrEmpty(t.DetectedSubGenre)) return t.DetectedSubGenre;
+        if (!string.IsNullOrEmpty(t.PrimaryGenre)) return t.PrimaryGenre;
+        return t.Genres?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
     }
 
     private void ApplyOverviewSnapshot(OverviewSnapshot s)
@@ -825,8 +840,17 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
             : $"{span.Minutes}m {span.Seconds}s";
     }
 
+    private bool IsWholeLibrarySelected => _library.SelectedProject is { Id: var id } && id == Guid.Empty;
+
+    public string OverviewEmptyTitle => IsWholeLibrarySelected ? "No tracks in your library yet" : "No tracks in this playlist yet";
+    public string OverviewEmptyCaption => IsWholeLibrarySelected
+        ? "Import a folder or download tracks; stats appear here."
+        : "Stats appear once the playlist has tracks.";
+
     private void RaiseOverviewStateChanged()
     {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OverviewEmptyTitle)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OverviewEmptyCaption)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasOverviewData)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OverviewTrackCount)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OverviewDurationDisplay)));

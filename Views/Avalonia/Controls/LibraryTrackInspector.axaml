@@ -449,6 +449,13 @@
                             <TextBlock Classes="section" Text="SOURCE"/>
                             <TextBlock Classes="body-sm" Text="{Binding Source}" TextWrapping="Wrap"/>
                         </StackPanel>
+
+                        <!-- Where enriched metadata came from (MetadataProvenance). Hidden until a source is recorded. -->
+                        <StackPanel Spacing="4" IsVisible="{Binding HasMetadataSources}">
+                            <TextBlock Classes="section" Text="METADATA SOURCES"/>
+                            <TextBlock Classes="caption" Text="{Binding MetadataSourcesText}" TextWrapping="Wrap"
+                                       ToolTip.Tip="Filled by library enrichment. Fields you edit yourself are never overwritten."/>
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

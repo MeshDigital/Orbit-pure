@@ -240,6 +240,12 @@ public class ConfigManager
                 ContextPanelWidth = int.TryParse(config["Layout:ContextPanelWidth"], out var cpw) ? cpw : 400,
                 DiscoverUseDeezer = !bool.TryParse(config["Discover:UseDeezer"], out var dud) || dud,
 
+                // [Enrichment]
+                EnrichmentAutoRun = !bool.TryParse(config["Enrichment:AutoRun"], out var ear) || ear,
+                EnrichmentProviderOrder = string.IsNullOrWhiteSpace(config["Enrichment:ProviderOrder"])
+                    ? "tags,deezer,musicbrainz,discogs,acoustid,spotify,beatport" : config["Enrichment:ProviderOrder"]!,
+                EnrichmentEnabledProviders = config["Enrichment:EnabledProviders"] ?? "tags,deezer,musicbrainz,discogs,acoustid,spotify",
+
                 // [FrequentSources]
                 EnableFrequentSources = bool.TryParse(config["FrequentSources:EnableFrequentSources"], out var efs) && efs,
                 FrequentSourcesStagingPath = config["FrequentSources:StagingPath"] ?? string.Empty,
@@ -477,6 +483,12 @@ public class ConfigManager
         iniContent.AppendLine("[Discover]");
         iniContent.AppendLine($"UseBeatport = {config.DiscoverUseBeatport}");
         iniContent.AppendLine($"UseDeezer = {config.DiscoverUseDeezer}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[Enrichment]");
+        iniContent.AppendLine($"AutoRun = {config.EnrichmentAutoRun}");
+        iniContent.AppendLine($"ProviderOrder = {config.EnrichmentProviderOrder}");
+        iniContent.AppendLine($"EnabledProviders = {config.EnrichmentEnabledProviders}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[FrequentSources]");

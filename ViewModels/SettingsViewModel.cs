@@ -1595,14 +1595,16 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         set => SetProperty(ref _enrichStatus, value);
     }
 
-    private bool _isEnriching;
-    public bool IsEnriching
-    {
-        get => _isEnriching;
-        set { SetProperty(ref _isEnriching, value); OnPropertyChanged(nameof(CanEnrich)); }
-    }
+    private readonly EnrichmentViewModel? _enrichment;
 
-    public bool CanEnrich => !_isEnriching;
+    /// <summary>Settings → Connection → Metadata sources (null in design/test construction).</summary>
+    public MetadataSourcesSettingsViewModel? MetadataSources { get; }
+    public bool HasMetadataSources => MetadataSources != null;
+
+    /// <summary>True while the library enrichment run (MetadataEnrichmentOrchestrator) works.</summary>
+    public bool IsEnriching => _enrichment?.IsRunning == true;
+
+    public bool CanEnrich => _enrichment != null && !_enrichment.IsRunning;
 
     private bool _isReconciling;
     public bool IsReconciling
@@ -1902,10 +1904,25 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         IDialogService? dialogService = null,
         NetworkActivityMonitor? networkActivityMonitor = null,
         EngineDiagnosticsService? engineDiagnosticsService = null,
-        ILibraryImportLauncher? importLauncher = null)
+        ILibraryImportLauncher? importLauncher = null,
+        EnrichmentViewModel? enrichment = null,
+        MetadataSourcesSettingsViewModel? metadataSources = null)
     {
         _logger = logger;
         _config = config;
+        _enrichment = enrichment;
+        MetadataSources = metadataSources;
+        if (_enrichment != null)
+            _enrichment.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName is nameof(EnrichmentViewModel.IsRunning) or nameof(EnrichmentViewModel.NoticeText))
+                {
+                    OnPropertyChanged(nameof(CanEnrich));
+                    OnPropertyChanged(nameof(IsEnriching));
+                    EnrichStatus = _enrichment.IsRunning ? _enrichment.NoticeText + " · progress on the Analysis page" : _enrichment.NoticeText;
+                    (EnrichMissingMetadataCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+                }
+            };
         _importLauncher = importLauncher;
         _networkActivityMonitor = networkActivityMonitor;
         _engineDiagnosticsService = engineDiagnosticsService;
@@ -2439,99 +2456,34 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-
-    
+    /// <summary>
+    /// "Enrich library metadata": queues every LibraryEntries and download track still missing cover
+    /// art / album / label / year / genre into the background enrichment pipeline (file tags,
+    /// Deezer, MusicBrainz, … per Settings → Connection → Metadata sources). Replaces the old
+    /// 100-PlaylistTracks-per-click Spotify loop that never touched folder-imported tracks.
+    /// </summary>
     private async Task EnrichMissingMetadataAsync()
     {
-        if (IsEnriching) return;
-        IsEnriching = true;
-        EnrichStatus = "Looking for unenriched tracks...";
-        ((AsyncRelayCommand)EnrichMissingMetadataCommand).RaiseCanExecuteChanged();
+        if (_enrichment == null)
+        {
+            EnrichStatus = "Library enrichment is unavailable.";
+            _eventBus.Publish(new ToastRequestedEvent("Enrich library", EnrichStatus, NotificationType.Error, null));
+            return;
+        }
         try
         {
-            const int BatchSize = 100;
-            const int DelayMs = 300;
-
-            var entities = await _databaseService.GetPlaylistTracksNeedingEnrichmentAsync(BatchSize);
-            if (entities.Count == 0)
-            {
-                EnrichStatus = "✅ All tracks already have metadata";
-                await Task.Delay(3000);
-                EnrichStatus = string.Empty;
-                return;
-            }
-
-            EnrichStatus = $"Enriching {entities.Count} tracks...";
-            int enriched = 0;
-            int failed = 0;
-
-            foreach (var entity in entities)
-            {
-                try
-                {
-                    var pt = new Models.PlaylistTrack
-                    {
-                        Id = entity.Id,
-                        PlaylistId = entity.PlaylistId,
-                        Artist = entity.Artist ?? string.Empty,
-                        Title = entity.Title ?? string.Empty,
-                        Album = entity.Album,
-                        TrackUniqueHash = entity.TrackUniqueHash,
-                        Status = entity.Status,
-                        SpotifyTrackId = entity.SpotifyTrackId,
-                        AlbumArtUrl = entity.AlbumArtUrl,
-                        CanonicalDuration = entity.CanonicalDuration,
-                        BPM = entity.BPM,
-                        MusicalKey = entity.MusicalKey,
-                    };
-
-                    if (await _spotifyMetadataService.EnrichTrackAsync(pt))
-                    {
-                        var result = new Services.Models.TrackEnrichmentResult
-                        {
-                            Success = true,
-                            SpotifyId = pt.SpotifyTrackId ?? string.Empty,
-                            SpotifyAlbumId = pt.SpotifyAlbumId,
-                            SpotifyArtistId = pt.SpotifyArtistId,
-                            AlbumArtUrl = pt.AlbumArtUrl ?? string.Empty,
-                            ISRC = pt.ISRC,
-                            Bpm = (float)(pt.BPM ?? 0),
-                            MusicalKey = pt.MusicalKey,
-                            Energy = (float)(pt.Energy ?? 0),
-                        };
-                        await _databaseService.UpdatePlaylistTrackEnrichmentAsync(entity.Id, result);
-                        enriched++;
-                        EnrichStatus = $"Enriched {enriched}/{entities.Count}...";
-                    }
-                    else
-                    {
-                        failed++;
-                    }
-
-                    await Task.Delay(DelayMs);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Enrichment failed for {Artist} - {Title}", entity.Artist, entity.Title);
-                    failed++;
-                }
-            }
-
-            EnrichStatus = $"✅ Enrichment done — {enriched} updated, {failed} not found";
-            _logger.LogInformation("Bulk enrichment complete: {Enriched} updated, {Failed} not found out of {Total}", enriched, failed, entities.Count);
-            await Task.Delay(5000);
-            EnrichStatus = string.Empty;
+            await _enrichment.StartAsync();
+            EnrichStatus = _enrichment.IsRunning ? "Running in the background · progress on the Analysis page" : _enrichment.NoticeText;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Bulk metadata enrichment failed");
-            EnrichStatus = "❌ Enrichment failed";
-            await Task.Delay(3000);
-            EnrichStatus = string.Empty;
+            _logger.LogError(ex, "Could not start library enrichment");
+            EnrichStatus = "Could not start: " + ex.Message;
+            _eventBus.Publish(new ToastRequestedEvent("Enrich library", EnrichStatus, NotificationType.Error, null));
         }
         finally
         {
-            IsEnriching = false;
+            OnPropertyChanged(nameof(CanEnrich));
             ((AsyncRelayCommand)EnrichMissingMetadataCommand).RaiseCanExecuteChanged();
         }
     }

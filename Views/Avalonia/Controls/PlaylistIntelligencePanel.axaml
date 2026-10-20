@@ -101,8 +101,8 @@
                 <StackPanel IsVisible="{Binding IsLibraryIntelligenceOverviewActive}" Spacing="12">
                     <StackPanel Classes="empty-state" IsVisible="{Binding !HasOverviewData}">
                         <PathIcon Data="{StaticResource icon_chart}"/>
-                        <TextBlock Classes="h3" Text="No tracks in this playlist yet"/>
-                        <TextBlock Classes="caption" Text="Stats appear once the playlist has tracks." TextAlignment="Center"/>
+                        <TextBlock Classes="h3" Text="{Binding OverviewEmptyTitle}"/>
+                        <TextBlock Classes="caption" Text="{Binding OverviewEmptyCaption}" TextAlignment="Center"/>
                     </StackPanel>
 
                     <StackPanel IsVisible="{Binding HasOverviewData}" Spacing="12">

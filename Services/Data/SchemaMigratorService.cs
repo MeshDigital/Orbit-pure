@@ -3056,6 +3056,50 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // 38. Library metadata enrichment (Services/Enrichment): a resumable queue on the
+            // existing EnrichmentTasks table (priority + deferral), a lookup cache so re-runs don't
+            // hit Deezer/MusicBrainz/Discogs again, and per-field provenance so enrichment never
+            // overwrites a user edit and the inspector can say where a value came from.
+            if (TableExists("EnrichmentTasks") && !ColumnExists("EnrichmentTasks", "Priority"))
+            {
+                _logger.LogInformation("Patching Schema: Adding Priority/NextAttemptAt to EnrichmentTasks...");
+                command.CommandText = @"ALTER TABLE ""EnrichmentTasks"" ADD COLUMN ""Priority"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("EnrichmentTasks") && !ColumnExists("EnrichmentTasks", "NextAttemptAt"))
+            {
+                command.CommandText = @"ALTER TABLE ""EnrichmentTasks"" ADD COLUMN ""NextAttemptAt"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!TableExists("MetadataLookupCache"))
+            {
+                _logger.LogInformation("Patching Schema: Creating MetadataLookupCache table...");
+                command.CommandText = @"
+                    CREATE TABLE ""MetadataLookupCache"" (
+                        ""Provider"" TEXT NOT NULL,
+                        ""CacheKey"" TEXT NOT NULL,
+                        ""StatusCode"" INTEGER NOT NULL DEFAULT 0,
+                        ""Payload"" TEXT NULL,
+                        ""CreatedAtUtc"" TEXT NOT NULL,
+                        CONSTRAINT ""PK_MetadataLookupCache"" PRIMARY KEY (""Provider"", ""CacheKey"")
+                    );";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!TableExists("MetadataProvenance"))
+            {
+                _logger.LogInformation("Patching Schema: Creating MetadataProvenance table...");
+                command.CommandText = @"
+                    CREATE TABLE ""MetadataProvenance"" (
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""Field"" TEXT NOT NULL,
+                        ""Source"" TEXT NOT NULL,
+                        ""Confidence"" REAL NOT NULL DEFAULT 0,
+                        ""UpdatedAtUtc"" TEXT NOT NULL,
+                        CONSTRAINT ""PK_MetadataProvenance"" PRIMARY KEY (""TrackUniqueHash"", ""Field"")
+                    );";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

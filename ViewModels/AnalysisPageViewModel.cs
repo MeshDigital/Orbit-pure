@@ -1077,6 +1077,10 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     /// tools menu, so it is not disposed here. Null in design/test construction (card hidden).</summary>
     public LoudnessBackfillViewModel? LoudnessBackfill { get; }
 
+    /// <summary>Library metadata enrichment card (shared DI singleton, not disposed here). Null in tests.</summary>
+    public EnrichmentViewModel? Enrichment { get; }
+    public bool HasEnrichment => Enrichment != null;
+
     public AnalysisPageViewModel(
         IEventBus eventBus,
         ILifecycleProjectionService lifecycleProjectionService,
@@ -1085,10 +1089,12 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         LibraryCorruptionScanService? corruptionScanService = null,
         CorruptFileRemediationService? remediationService = null,
         AnalyzeTrackStructureJob? cueStructureJob = null,
-        LoudnessBackfillViewModel? loudnessBackfill = null)
+        LoudnessBackfillViewModel? loudnessBackfill = null,
+        EnrichmentViewModel? enrichment = null)
     {
         _eventBus = eventBus;
         LoudnessBackfill = loudnessBackfill;
+        Enrichment = enrichment;
         _libraryService = libraryService;
         _clipboardService = clipboardService;
         _lifecycleProjectionService = lifecycleProjectionService;

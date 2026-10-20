@@ -256,6 +256,56 @@
                     </Grid>
                 </Border>
 
+                <!-- Library metadata enrichment (Services/Enrichment): count, progress, per-provider status. -->
+                <Border Classes="card" IsVisible="{Binding HasEnrichment}">
+                    <StackPanel DataContext="{Binding Enrichment}" x:DataType="vm:EnrichmentViewModel" Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <PathIcon Grid.Column="0" Data="{StaticResource icon_wand}" Foreground="{StaticResource BrushAccent}"
+                                      Width="{StaticResource IconSizeMd}" Height="{StaticResource IconSizeMd}"
+                                      VerticalAlignment="Top" Margin="0,2,12,0"/>
+                            <StackPanel Grid.Column="1" Spacing="4">
+                                <TextBlock Classes="section" Text="ENRICHMENT"/>
+                                <TextBlock Classes="body-sm" Text="{Binding NoticeText}" TextWrapping="Wrap"/>
+                                <TextBlock Classes="caption" Text="{Binding DetailText}" TextWrapping="Wrap" IsVisible="{Binding IsIdle}"/>
+                                <TextBlock Classes="caption error" Text="{Binding LastError}" TextWrapping="Wrap" IsVisible="{Binding HasError}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0" VerticalAlignment="Top">
+                                <Button Classes="secondary small" Content="Enrich library" Command="{Binding StartCommand}"
+                                        IsVisible="{Binding CanStart}"
+                                        ToolTip.Tip="Look up every track still missing cover art, album, label, year or genre. Runs in the background at each source's rate limit and waits while the analysis queue is busy."/>
+                                <Button Classes="ghost small" Content="Pause" Command="{Binding PauseCommand}"
+                                        IsVisible="{Binding IsRunning}" ToolTip.Tip="Pause after the tracks in progress; the queue is kept."/>
+                                <Button Classes="secondary small" Content="Resume" Command="{Binding ResumeCommand}"
+                                        IsVisible="{Binding IsPaused}" ToolTip.Tip="Continue where it stopped."/>
+                                <Button Classes="ghost small" Content="Cancel" Command="{Binding CancelCommand}"
+                                        IsVisible="{Binding ShowProgress}"
+                                        ToolTip.Tip="Stop and drop the remaining queue. Metadata found so far is kept; run it again to continue."/>
+                            </StackPanel>
+                        </Grid>
+                        <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding ShowProgress}">
+                            <ProgressBar Grid.Column="0" Classes="meter" VerticalAlignment="Center"
+                                         Value="{Binding Done}" Maximum="{Binding Total}"/>
+                            <TextBlock Grid.Column="1" Classes="mono" Text="{Binding ProgressText}"
+                                       VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        </Grid>
+                        <ItemsControl ItemsSource="{Binding Providers}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:EnrichmentProviderRowViewModel">
+                                    <Grid ColumnDefinitions="Auto,120,*,Auto" Margin="0,2">
+                                        <Ellipse Grid.Column="0" Classes="status-dot" Classes.success="{Binding IsOk}"
+                                                 Classes.warning="{Binding IsWarning}" Classes.error="{Binding IsError}"
+                                                 VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding DisplayName}" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Classes="caption" Text="{Binding StatusText}" VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding StatusText}"/>
+                                        <TextBlock Grid.Column="3" Classes="mono" Text="{Binding CountsText}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
                 <!-- Integrity scan results (appears once a scan has run; started from the overflow menu) -->
                 <Border Classes="card" IsVisible="{Binding ShowIntegrityPanel}">
                     <StackPanel Spacing="8">
