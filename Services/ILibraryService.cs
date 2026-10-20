@@ -203,6 +203,13 @@ public interface ILibraryService
     Task<List<PlaylistTrack>> LoadPlaylistTracksAsync(Guid playlistId);
 
     /// <summary>
+    /// Lean whole-library rows (or only liked tracks) for the Playlist Intelligence overview of
+    /// "All Tracks" / "Liked Songs", which have no PlaylistTracks rows of their own.
+    /// </summary>
+    Task<List<PlaylistTrack>> LoadLibraryOverviewTracksAsync(bool likedOnly = false) =>
+        Task.FromResult(new List<PlaylistTrack>());
+
+    /// <summary>
     /// Loads ALL tracks from all active playlists.
     /// Used for "All Tracks" view.
     /// </summary>

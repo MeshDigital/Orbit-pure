@@ -957,6 +957,12 @@ public class LibraryService : ILibraryService
         }
     }
 
+    public async Task<List<PlaylistTrack>> LoadLibraryOverviewTracksAsync(bool likedOnly = false)
+    {
+        await using var db = new AppDbContext();
+        return await Library.LibraryOverviewQuery.LoadAsync(db, likedOnly).ConfigureAwait(false);
+    }
+
     public async Task<PlaylistTrack?> GetPlaylistTrackByHashAsync(Guid playlistId, string trackHash)
     {
         try

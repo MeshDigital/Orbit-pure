@@ -671,6 +671,13 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
             if (SelectedProject != null && evt.Tracks.Any(t => t.Track.PlaylistId == SelectedProject.Id))
                 _ = Intelligence.RefreshOverviewStatsAsync();
         }));
+        // "All Tracks" overview: a folder import or a batch of enriched metadata (genres) changes
+        // the whole-library stats; throttled so a long enrichment run doesn't recompute constantly.
+        _disposables.Add(_eventBus.GetEvent<LibraryImportCompletedEvent>().Select(_ => System.Reactive.Unit.Default)
+            .Merge(_eventBus.GetEvent<Services.Enrichment.TracksEnrichedEvent>().Select(_ => System.Reactive.Unit.Default))
+            .Throttle(TimeSpan.FromSeconds(5))
+            .Where(_ => SelectedProject is { Id: var id } && id == Guid.Empty)
+            .Subscribe(unit => { _ = Intelligence.RefreshOverviewStatsAsync(); }));
         _disposables.Add(_eventBus.GetEvent<RemoveTrackFromInspectorEvent>().Subscribe(_ =>
             Dispatcher.UIThread.InvokeAsync(() => Operations.RemoveTrackCommand.Execute(null))));
         _disposables.Add(_eventBus.GetEvent<EditTagsFromInspectorEvent>().Subscribe(_ =>
