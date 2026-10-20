@@ -1490,7 +1490,8 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
              OnPropertyChanged(nameof(MetadataStatus));
              OnPropertyChanged(nameof(MetadataStatusColor));
              OnPropertyChanged(nameof(MetadataStatusSymbol));
-             
+             InvalidateMetadataSources();
+
              // Notify Extended Props
              OnPropertyChanged(nameof(BPM));
              OnPropertyChanged(nameof(MusicalKey));

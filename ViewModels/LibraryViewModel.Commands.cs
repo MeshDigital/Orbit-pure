@@ -38,6 +38,7 @@ public partial class LibraryViewModel
     public ICommand FixMissingFileFlagsCommand { get; set; } = null!;
     public ICommand BackfillDurationsCommand { get; set; } = null!;
     public ICommand MeasureMissingLoudnessCommand { get; set; } = null!;
+    public ICommand EnrichLibraryMetadataCommand { get; set; } = null!;
     public ICommand AutoArrangePlaylistCommand { get; set; } = null!;
     public ICommand CombineSelectedPlaylistsCommand { get; set; } = null!;
     public ICommand ToggleEditModeCommand { get; set; } = null!;
@@ -127,6 +128,7 @@ public partial class LibraryViewModel
         FixMissingFileFlagsCommand = new AsyncRelayCommand(ExecuteFixMissingFileFlagsAsync);
         BackfillDurationsCommand = new AsyncRelayCommand(ExecuteBackfillDurationsAsync);
         MeasureMissingLoudnessCommand = new RelayCommand(ExecuteMeasureMissingLoudness);
+        EnrichLibraryMetadataCommand = new AsyncRelayCommand(ExecuteEnrichLibraryMetadataAsync);
         AutoArrangePlaylistCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteAutoArrangePlaylistAsync);
         CombineSelectedPlaylistsCommand = new AsyncRelayCommand(ExecuteCombineSelectedPlaylistsAsync);
         ToggleEditModeCommand = new RelayCommand(() => IsEditMode = !IsEditMode);
@@ -2329,6 +2331,9 @@ public partial class LibraryViewModel
             await context.SaveChangesAsync();
         });
 
+        await MarkUserEditedForEnrichmentAsync(selected.Select(t => t.Model.TrackUniqueHash), result.Artist, result.Title,
+            result.Album, result.Genre, releaseDate.HasValue);
+
         var failedCount = selected.Count - dbUpdateSuccessCount;
         var message = $"Successfully edited metadata tags for {dbUpdateSuccessCount} track(s) in DB (and {tagUpdateSuccessCount} physical files).";
         if (failedCount > 0)
@@ -2358,6 +2363,33 @@ public partial class LibraryViewModel
     /// dialog, this applies across the whole selection. Same collision rule as that rename: skip +
     /// report rather than overwrite.
     /// </summary>
+    /// <summary>
+    /// Records the fields the user just edited as user-owned (MetadataProvenance source "user"), so
+    /// library enrichment never overwrites them. A failure is logged and surfaced; the edit itself
+    /// already succeeded.
+    /// </summary>
+    private async Task MarkUserEditedForEnrichmentAsync(IEnumerable<string?> hashes, string? artist, string? title, string? album, string? genre, bool year)
+    {
+        var fields = new List<string>();
+        if (!string.IsNullOrWhiteSpace(artist)) fields.Add(Services.Enrichment.MetadataMerger.Fields.Artist);
+        if (!string.IsNullOrWhiteSpace(title)) fields.Add(Services.Enrichment.MetadataMerger.Fields.Title);
+        if (!string.IsNullOrWhiteSpace(album)) fields.Add(Services.Enrichment.MetadataMerger.Fields.Album);
+        if (!string.IsNullOrWhiteSpace(genre)) fields.Add(Services.Enrichment.MetadataMerger.Fields.Genre);
+        if (year) fields.Add(Services.Enrichment.MetadataMerger.Fields.ReleaseDate);
+        var list = hashes.Where(h => !string.IsNullOrEmpty(h)).Select(h => h!).Distinct().ToList();
+        if (fields.Count == 0 || list.Count == 0) return;
+        if (_serviceProvider?.GetService(typeof(Services.Enrichment.EnrichmentStore)) is not Services.Enrichment.EnrichmentStore store) return;
+        try
+        {
+            await store.MarkUserEditedAsync(list, fields);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not record user-edited fields for {Count} tracks", list.Count);
+            _notificationService.Show("Metadata edit", "Your edit was saved, but enrichment may refill these fields later: " + ex.Message, NotificationType.Warning);
+        }
+    }
+
     private async Task ExecuteBulkRenameAsync()
     {
         var selected = Tracks.SelectedTracks.ToList();
@@ -2758,6 +2790,29 @@ public partial class LibraryViewModel
 
         backfill.Start();
         _navigationService.NavigateTo("Analysis");
+    }
+
+    /// <summary>
+    /// Starts library metadata enrichment (the Analysis page's Enrichment card) and opens the
+    /// Analysis page, where its progress, per-source status and Pause/Cancel live.
+    /// </summary>
+    private async Task ExecuteEnrichLibraryMetadataAsync()
+    {
+        if (_serviceProvider?.GetService(typeof(EnrichmentViewModel)) is not EnrichmentViewModel enrichment)
+        {
+            _notificationService.Show("Enrich library", "Library enrichment is unavailable.", NotificationType.Error);
+            return;
+        }
+        try
+        {
+            await enrichment.StartAsync();
+            _navigationService.NavigateTo("Analysis");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not start library enrichment");
+            _notificationService.Show("Enrich library", "Could not start: " + ex.Message, NotificationType.Error);
+        }
     }
 
     private async Task ExecuteBackfillDurationsAsync()

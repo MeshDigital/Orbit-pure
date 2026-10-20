@@ -160,6 +160,8 @@
                                               ToolTip.Tip="Reads real duration, bitrate and format for tracks that show '—' despite having a file"/>
                                     <MenuItem Header="Measure missing loudness" Command="{Binding MeasureMissingLoudnessCommand}"
                                               ToolTip.Tip="Measures integrated loudness (LUFS) for tracks analysed before real metering, without a full re-analysis. Opens the Analysis page to show progress."/>
+                                    <MenuItem Header="Enrich library metadata" Command="{Binding EnrichLibraryMetadataCommand}"
+                                              ToolTip.Tip="Looks up cover art, album, label, year and genre for tracks missing them (file tags, Deezer, MusicBrainz, and the sources in Settings). Opens the Analysis page to show progress."/>
                                 </MenuItem>
                                 <MenuItem Header="Set building">
                                     <MenuItem Header="Flow Builder" Command="{Binding OpenFlowBuilderCommand}"/>

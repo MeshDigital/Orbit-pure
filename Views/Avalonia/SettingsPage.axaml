@@ -261,6 +261,89 @@
                             </Border>
                         </StackPanel>
 
+                        <!-- Library metadata enrichment sources (Services/Enrichment). Keys are DPAPI-encrypted, not in config.ini. -->
+                        <StackPanel Classes="settings-section">
+                            <StackPanel.IsVisible>
+                                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                    <Binding Path="HasMetadataSources"/>
+                                    <Binding Path="SettingsSearchText" Converter="{StaticResource Match}"
+                                             ConverterParameter="Metadata sources enrichment cover art artwork album label genre style deezer musicbrainz discogs acoustid fpcalc beatport token key"/>
+                                </MultiBinding>
+                            </StackPanel.IsVisible>
+                            <TextBlock Classes="section" Text="METADATA SOURCES"/>
+                            <Border Classes="card">
+                                <StackPanel DataContext="{Binding MetadataSources}" x:DataType="vm:MetadataSourcesSettingsViewModel">
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                        <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="Enrich new tracks automatically"/>
+                                            <TextBlock Classes="caption" TextWrapping="Wrap"
+                                                       Text="After a folder import or a download, look up cover art, album, label, year and genre in the background. Your edits and analysed BPM/key are never overwritten."/>
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoRun, Mode=TwoWay}"/>
+                                    </Grid>
+                                    <Border Classes="divider"/>
+                                    <TextBlock Classes="caption" Margin="0,8,0,4" TextWrapping="Wrap"
+                                               Text="Sources are asked in this order, and only for fields that are still empty."/>
+                                    <ItemsControl ItemsSource="{Binding Sources}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:MetadataSourceRowViewModel">
+                                                <Grid Classes="row" ColumnDefinitions="*,Auto,Auto">
+                                                    <StackPanel Classes="label">
+                                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                            <TextBlock Classes="body" Text="{Binding DisplayName}"/>
+                                                            <TextBlock Classes="caption warning" Text="Experimental" IsVisible="{Binding IsExperimental}"
+                                                                       VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                        <TextBlock Classes="caption" Text="{Binding Description}" TextWrapping="Wrap"/>
+                                                        <TextBlock Classes="caption muted" Text="{Binding StatusText}"/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="8,0">
+                                                        <Button Classes="icon small" Command="{Binding MoveUpCommand}" ToolTip.Tip="Ask this source earlier">
+                                                            <PathIcon Data="{StaticResource icon_chevron_up}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                                                        </Button>
+                                                        <Button Classes="icon small" Command="{Binding MoveDownCommand}" ToolTip.Tip="Ask this source later">
+                                                            <PathIcon Data="{StaticResource icon_chevron_down}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                                                        </Button>
+                                                    </StackPanel>
+                                                    <ToggleSwitch Grid.Column="2" IsChecked="{Binding IsEnabled, Mode=TwoWay}" IsEnabled="{Binding CanToggle}"
+                                                                  ToolTip.Tip="Use this source"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Border Classes="divider"/>
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto,Auto">
+                                        <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="Discogs token"/>
+                                            <TextBlock Classes="caption" TextWrapping="Wrap"
+                                                       Text="Free personal access token from discogs.com → Settings → Developers. Gives genre and style (electronic subgenres). 60 requests per minute."/>
+                                        </StackPanel>
+                                        <TextBox Grid.Column="1" Classes="field mono" PasswordChar="•" Width="220"
+                                                 Text="{Binding DiscogsToken}" Watermark="{Binding DiscogsTokenWatermark}"/>
+                                        <Button Grid.Column="2" Classes="secondary small" Content="Save" Margin="8,0,0,0"
+                                                Command="{Binding SaveDiscogsTokenCommand}"
+                                                ToolTip.Tip="Save the token encrypted for your Windows account. Save an empty field to remove it."/>
+                                    </Grid>
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto,Auto">
+                                        <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="AcoustID key"/>
+                                            <TextBlock Classes="caption" TextWrapping="Wrap"
+                                                       Text="Free application key from acoustid.org. Identifies files with no usable artist or title by their sound. 3 requests per second."/>
+                                            <TextBlock Classes="caption" Text="{Binding FpcalcStatus}" TextWrapping="Wrap"
+                                                       Classes.warning="{Binding !HasFpcalc}"/>
+                                        </StackPanel>
+                                        <TextBox Grid.Column="1" Classes="field mono" PasswordChar="•" Width="220"
+                                                 Text="{Binding AcoustIdKey}" Watermark="{Binding AcoustIdKeyWatermark}"/>
+                                        <Button Grid.Column="2" Classes="secondary small" Content="Save" Margin="8,0,0,0"
+                                                Command="{Binding SaveAcoustIdKeyCommand}"
+                                                ToolTip.Tip="Save the key encrypted for your Windows account. Save an empty field to remove it."/>
+                                    </Grid>
+                                    <TextBlock Classes="caption" Text="{Binding KeyStatus}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                               IsVisible="{Binding HasKeyStatus}"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -881,7 +964,9 @@
                                     </Grid>
                                     <Grid Classes="row" ColumnDefinitions="*,Auto">
                                         <StackPanel Classes="label">
-                                            <TextBlock Classes="body" Text="Enrich missing metadata"/>
+                                            <TextBlock Classes="body" Text="Enrich library metadata"/>
+                                            <TextBlock Classes="caption" TextWrapping="Wrap"
+                                                       Text="Cover art, album, label, year and genre for every track still missing them, from the sources under Connection → Metadata sources."/>
                                             <TextBlock Classes="caption" Text="{Binding EnrichStatus}"
                                                        IsVisible="{Binding EnrichStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                                         </StackPanel>

@@ -40,9 +40,9 @@ public sealed class MetadataPatch
 ///   is dropped; only the file's own tag BPM fills the <c>TagBPM</c> side column when it is empty.</item>
 /// <item>A field the user edited (provenance source "user") is never written.</item>
 /// <item>An empty field is filled by the first provider that has it (providers run cheapest first).</item>
-/// <item>A filled field without enrichment provenance (it came from the file at import, or from an
-///   older code path) is left alone. A field an earlier enrichment wrote is replaced only by a
-///   clearly more confident answer (+0.1), e.g. an ISRC-exact match over a fuzzy search.</item>
+/// <item>A field that already has a value is never replaced, whoever wrote it (file tags at
+///   import, an earlier enrichment, or the user outside the batch editor). Within one pass the
+///   first, cheapest provider in the configured order wins.</item>
 /// <item>Artist/title are replaced only for placeholder identities ("Unknown Artist", a file-name
 ///   title), and only at ≥ 0.85 confidence (AcoustID fingerprint, ISRC lookup).</item>
 /// <item>Answers under <see cref="MinConfidence"/> are ignored.</item>
@@ -55,8 +55,6 @@ public static class MetadataMerger
     public const string TagsSource = "tags";
     public const double MinConfidence = 0.6;
     public const double IdentityMinConfidence = 0.85;
-    private const double UpgradeMargin = 0.1;
-    private const double StyleBonus = 0.15;
 
     public static class Fields
     {
@@ -65,6 +63,7 @@ public static class MetadataMerger
         public const string Album = "album";
         public const string Label = "label";
         public const string Genre = "genre";
+        public const string Style = "style";
         public const string Isrc = "isrc";
         public const string MusicBrainzId = "musicbrainzId";
         public const string SpotifyId = "spotifyId";
@@ -74,9 +73,24 @@ public static class MetadataMerger
         public const string TagBpm = "tagBpm";
     }
 
-    /// <summary>The wanted fields still empty on <paramref name="track"/>.</summary>
-    public static MetadataField Missing(EnrichmentTrack track, MetadataField wanted)
+    /// <summary>
+    /// True when a style-level genre could still be added: the genre is empty, or it was written
+    /// by a web enrichment provider without styles (not by tags, the user, or an import).
+    /// </summary>
+    public static bool IsStyleMissing(EnrichmentTrack track, IDictionary<string, MetadataProvenanceEntity>? provenance)
     {
+        if (string.IsNullOrWhiteSpace(track.Genres)) return true;
+        if (provenance == null || provenance.ContainsKey(Fields.Style)) return false;
+        if (!provenance.TryGetValue(Fields.Genre, out var genre)) return false; // origin unknown: leave it
+        return !string.Equals(genre.Source, UserSource, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(genre.Source, TagsSource, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The wanted fields still empty on <paramref name="track"/>.</summary>
+    public static MetadataField Missing(EnrichmentTrack track, MetadataField wanted,
+        IDictionary<string, MetadataProvenanceEntity>? provenance = null)
+    {
+        var styleMissing = wanted.HasFlag(MetadataField.Style) && IsStyleMissing(track, provenance);
         var missing = MetadataField.None;
         if (wanted.HasFlag(MetadataField.Artwork) && string.IsNullOrWhiteSpace(track.AlbumArtUrl)) missing |= MetadataField.Artwork;
         if (wanted.HasFlag(MetadataField.Album) && string.IsNullOrWhiteSpace(track.Album)) missing |= MetadataField.Album;
@@ -85,6 +99,7 @@ public static class MetadataMerger
         if (wanted.HasFlag(MetadataField.Isrc) && string.IsNullOrWhiteSpace(track.Isrc)) missing |= MetadataField.Isrc;
         if (wanted.HasFlag(MetadataField.Genre) && string.IsNullOrWhiteSpace(track.Genres)) missing |= MetadataField.Genre;
         if (wanted.HasFlag(MetadataField.Identity) && track.HasWeakIdentity) missing |= MetadataField.Identity;
+        if (styleMissing) missing |= MetadataField.Style;
         return missing;
     }
 
@@ -111,9 +126,9 @@ public static class MetadataMerger
         {
             provenance.TryGetValue(field, out var prov);
             if (prov != null && string.Equals(prov.Source, UserSource, StringComparison.OrdinalIgnoreCase)) return false;
-            if (isEmpty) return true;
-            if (prov == null || string.Equals(prov.Source, TagsSource, StringComparison.OrdinalIgnoreCase)) return false;
-            return conf > prov.Confidence + UpgradeMargin;
+            // Fill-empty only: a stored value may be a user edit made outside the batch editor
+            // (which records "user" provenance), so nothing non-empty is ever replaced.
+            return isEmpty;
         }
 
         void Record(string field, double conf)
@@ -171,13 +186,19 @@ public static class MetadataMerger
         var genreText = GenreText(candidate);
         if (genreText != null)
         {
-            var genreConfidence = candidate.Styles.Count > 0 ? Math.Min(1.0, confidence + StyleBonus) : confidence;
-            if (Take(Fields.Genre, string.IsNullOrWhiteSpace(track.Genres), genreConfidence))
+            // The one exception to fill-empty: Discogs styles may replace a broad genre ("Dance")
+            // that an earlier enrichment provider wrote, never one from tags, the user or import.
+            var upgradeToStyles = candidate.Styles.Count > 0 && IsStyleMissing(track, provenance);
+            if (Take(Fields.Genre, string.IsNullOrWhiteSpace(track.Genres) || upgradeToStyles, confidence))
             {
                 track.Genres = patch.Genres = genreText;
-                Record(Fields.Genre, genreConfidence);
+                Record(Fields.Genre, confidence);
                 written |= MetadataField.Genre;
-                if (candidate.Styles.Count > 0) written |= MetadataField.Style;
+                if (candidate.Styles.Count > 0)
+                {
+                    Record(Fields.Style, confidence);
+                    written |= MetadataField.Style;
+                }
             }
         }
 

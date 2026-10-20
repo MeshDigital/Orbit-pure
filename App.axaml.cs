@@ -952,6 +952,7 @@ public partial class App : Application
                 startupResumeDelay: TimeSpan.FromSeconds(45));
         });
         services.AddSingleton<ViewModels.EnrichmentViewModel>();
+        services.AddSingleton<ViewModels.MetadataSourcesSettingsViewModel>();
 
         // ── Task 1.5: Beatgrid Detection ──────────────────────────────────
         services.AddSingleton<Services.AudioAnalysis.BeatgridDetectionService>();

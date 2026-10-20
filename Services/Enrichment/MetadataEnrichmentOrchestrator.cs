@@ -459,6 +459,11 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
         var wanted = MetadataField.Artwork | MetadataField.Album | MetadataField.Label | MetadataField.ReleaseDate |
                      MetadataField.Isrc | MetadataField.Genre;
         if (track.HasWeakIdentity) wanted |= MetadataField.Identity;
+        // Style-level genres only when a provider that has them (Discogs) can actually run;
+        // otherwise every track would keep "missing" a field nobody can fill.
+        if (_providers.Any(p => p.Supplies.HasFlag(MetadataField.Style) && settings.IsEnabled(p.Name) &&
+                                p.GetAvailability() == ProviderAvailability.Ready))
+            wanted |= MetadataField.Style;
         return wanted;
     }
 
@@ -478,7 +483,7 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
 
         foreach (var provider in Ordered(settings))
         {
-            var missing = MetadataMerger.Missing(track, wanted);
+            var missing = MetadataMerger.Missing(track, wanted, provenance);
             if (missing == MetadataField.None) break; // early stop: everything wanted is filled
             if ((provider.Supplies & missing) == MetadataField.None) continue;
             if (provider.GetAvailability() != ProviderAvailability.Ready) continue;
@@ -506,7 +511,7 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
             switch (lookup.Status)
             {
                 case LookupStatus.Matched when lookup.Candidate is { } candidate:
-                    await PrepareArtworkAsync(candidate, MetadataMerger.Missing(track, wanted), ct).ConfigureAwait(false);
+                    await PrepareArtworkAsync(candidate, MetadataMerger.Missing(track, wanted, provenance), ct).ConfigureAwait(false);
                     MetadataMerger.Apply(track, provenance, candidate, provider.Name, patch);
                     ids.Isrc ??= MetadataMerger.NormalizeIsrc(candidate.Isrc);
                     ids.MusicBrainzRecordingId ??= candidate.MusicBrainzRecordingId;
@@ -524,7 +529,7 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
         }
 
         // Only defer when something is still missing (a paused provider might have filled it).
-        if (MetadataMerger.Missing(track, wanted) == MetadataField.None) deferUntil = null;
+        if (MetadataMerger.Missing(track, wanted, provenance) == MetadataField.None) deferUntil = null;
         return new TrackEnrichmentOutcome(patch, deferUntil, asked);
     }
 

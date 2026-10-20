@@ -963,6 +963,16 @@ public class LibraryService : ILibraryService
         return await Library.LibraryOverviewQuery.LoadAsync(db, likedOnly).ConfigureAwait(false);
     }
 
+    public async Task<Dictionary<string, string>> GetMetadataProvenanceAsync(string trackHash)
+    {
+        await using var db = new AppDbContext();
+        var rows = await db.MetadataProvenance.AsNoTracking()
+            .Where(p => p.TrackUniqueHash == trackHash)
+            .Select(p => new { p.Field, p.Source })
+            .ToListAsync().ConfigureAwait(false);
+        return rows.ToDictionary(r => r.Field, r => r.Source, StringComparer.OrdinalIgnoreCase);
+    }
+
     public async Task<PlaylistTrack?> GetPlaylistTrackByHashAsync(Guid playlistId, string trackHash)
     {
         try
