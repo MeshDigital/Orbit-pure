@@ -51,14 +51,21 @@ public sealed record TrackEnrichmentOutcome(MetadataPatch Patch, DateTime? Defer
 ///   edits). Artwork is downloaded into <see cref="ArtworkCacheService"/> before its URL is stored.</item>
 /// <item><b>Triggers</b>: a folder import completing, a download landing in the library, the
 ///   manual "Enrich library" action, and resuming a leftover queue at startup.</item>
-/// <item><b>Politeness</b>: waits while the analysis queue has work, drops to one track at a
-///   time while audio plays, and publishes <see cref="TracksEnrichedEvent"/> in batches.</item>
+/// <item><b>Politeness</b>: one track at a time while the analysis queue has work or audio
+///   plays, two while a folder import is writing rows, and <see cref="TracksEnrichedEvent"/> in
+///   batches. (It used to stop completely while analysis had work, so after "Analyse 3,000 new
+///   tracks" enrichment sat at 0 for the whole analysis run.)</item>
+/// <item><b>Imports</b>: an automatic run starts when an import completes. A run the user started
+///   mid-import picks up each batch as it lands (<see cref="LibraryEntriesAddedEvent"/>); the
+///   completion trigger then skips tracks it already did, so nothing is enriched twice.</item>
 /// </list>
 /// A DI singleton whose constructor never throws.
 /// </summary>
 public sealed class MetadataEnrichmentOrchestrator : IDisposable
 {
     public const int DefaultWorkers = 4;
+    /// <summary>Tracks in flight while a folder import is still adding rows.</summary>
+    public const int WorkersDuringImport = 2;
     public const int MaxDeferrals = 3;
     public static readonly TimeSpan RetryCooldown = TimeSpan.FromDays(7);
     private static readonly TimeSpan EventFlushInterval = TimeSpan.FromSeconds(1.5);
@@ -73,6 +80,7 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
     private readonly Func<EnrichmentSettings> _settings;
     private readonly Func<bool> _isAnalysisBusy;
     private readonly Func<bool> _isPlaying;
+    private readonly Func<bool> _isImportRunning;
     private readonly int _workers;
     private readonly TimeSpan _busyPoll;
     private readonly List<IDisposable> _subscriptions = new();
@@ -83,7 +91,7 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
     private CancellationTokenSource? _runCts;
     private Task? _runTask;
     private volatile bool _paused;
-    private volatile bool _waitingForAnalysis;
+    private volatile bool _slowedForAnalysis;
     private TaskCompletionSource _resume = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private DateTime _lastFlush = DateTime.UtcNow;
     private DateTime _lastProgress = DateTime.MinValue;
@@ -103,10 +111,11 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
         SLSKDONET.Configuration.AppConfig config,
         ArtworkCacheService? artwork = null,
         AnalysisQueueService? analysisQueue = null,
-        IAudioPlayerService? player = null)
+        IAudioPlayerService? player = null,
+        LibraryFolderScannerService? scanner = null)
         : this(factory, store, providers, eventBus, logger, () => EnrichmentSettings.From(config), artwork,
                () => analysisQueue?.PendingCount > 0, () => player?.IsPlaying == true, DefaultWorkers, TimeSpan.FromSeconds(3),
-               startupResumeDelay: TimeSpan.FromSeconds(45))
+               startupResumeDelay: TimeSpan.FromSeconds(45), isImportRunning: () => scanner?.IsAnyImportRunning == true)
     {
     }
 
@@ -122,7 +131,8 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
         Func<bool> isPlaying,
         int workers,
         TimeSpan busyPoll,
-        TimeSpan? startupResumeDelay)
+        TimeSpan? startupResumeDelay,
+        Func<bool>? isImportRunning = null)
     {
         _factory = factory;
         _store = store;
@@ -133,6 +143,7 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
         _artwork = artwork;
         _isAnalysisBusy = isAnalysisBusy;
         _isPlaying = isPlaying;
+        _isImportRunning = isImportRunning ?? (() => false);
         _workers = Math.Max(1, workers);
         _busyPoll = busyPoll;
         _resume.TrySetResult();
@@ -141,6 +152,7 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
         {
             _subscriptions.Add(_eventBus.GetEvent<LibraryImportCompletedEvent>().Subscribe(evt => _ = OnImportCompletedAsync(evt)));
             _subscriptions.Add(_eventBus.GetEvent<FileIngestionCompletedEvent>().Subscribe(evt => _ = OnTrackIngestedAsync(evt.TrackUniqueHash)));
+            _subscriptions.Add(_eventBus.GetEvent<LibraryEntriesAddedEvent>().Subscribe(evt => _ = OnEntriesAddedAsync(evt)));
         }
         catch (Exception ex)
         {
@@ -204,13 +216,38 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
         try
         {
             if (!_settings().AutoRun || evt.Result.AddedTrackHashes.Count == 0) return;
-            var added = await _store.EnqueueAsync(evt.Result.AddedTrackHashes, priority: 1).ConfigureAwait(false);
+            // A run started mid-import already did (or queued) part of these: skip what it finished.
+            var added = await _store.EnqueueAsync(evt.Result.AddedTrackHashes, priority: 1, skipFinishedWithin: RetryCooldown).ConfigureAwait(false);
             _logger.LogInformation("[Enrichment] Folder import added {Count} tracks; {Added} queued for metadata", evt.Result.AddedTrackHashes.Count, added);
             Start();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[Enrichment] Could not queue the imported tracks");
+        }
+    }
+
+    /// <summary>
+    /// A batch of rows landed while an import is still running. Only followed when a run is
+    /// active (the user pressed Start mid-import, or a run was already going); otherwise the
+    /// completion trigger queues the whole import once, so enrichment never fights the import.
+    /// </summary>
+    private async Task OnEntriesAddedAsync(LibraryEntriesAddedEvent evt)
+    {
+        try
+        {
+            if (evt.TrackHashes.Count == 0 || !(_running || _paused)) return;
+            var added = await _store.EnqueueAsync(evt.TrackHashes, priority: 1, skipFinishedWithin: RetryCooldown).ConfigureAwait(false);
+            if (added > 0)
+            {
+                Interlocked.Add(ref _runTotal, added);
+                _logger.LogInformation("[Enrichment] {Added} tracks from the running import joined the current run", added);
+            }
+            Start();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Enrichment] Could not queue tracks from the running import");
         }
     }
 
@@ -338,15 +375,12 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
                     continue;
                 }
 
-                if (_isAnalysisBusy())
-                {
-                    if (!_waitingForAnalysis) { _waitingForAnalysis = true; PublishProgress(force: true); }
-                    await Task.Delay(_busyPoll, ct).ConfigureAwait(false);
-                    continue;
-                }
-                if (_waitingForAnalysis) { _waitingForAnalysis = false; PublishProgress(force: true); }
+                // Network-bound enrichment and CPU-bound analysis can share the machine: slow down
+                // to one track at a time instead of stopping for the whole analysis run.
+                var analysisBusy = _isAnalysisBusy();
+                if (analysisBusy != _slowedForAnalysis) { _slowedForAnalysis = analysisBusy; PublishProgress(force: true); }
 
-                var parallel = _isPlaying() ? 1 : _workers;
+                var parallel = _isPlaying() || analysisBusy ? 1 : _isImportRunning() ? Math.Min(_workers, WorkersDuringImport) : _workers;
                 var batch = await _store.ClaimAsync(parallel * 2, DateTime.UtcNow, ct).ConfigureAwait(false);
                 if (batch.Count == 0)
                 {
@@ -383,7 +417,7 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
         finally
         {
             FlushChanged(force: true);
-            _waitingForAnalysis = false;
+            _slowedForAnalysis = false;
             _running = false;
             try { _pending = await _store.CountPendingAsync().ConfigureAwait(false); }
             catch (Exception ex) { _logger.LogWarning(ex, "[Enrichment] Could not count the remaining queue"); }
@@ -477,7 +511,7 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
     {
         var settings = _settings();
         var provenance = await _store.GetProvenanceAsync(track.Hash, ct).ConfigureAwait(false);
-        var patch = new MetadataPatch(track.Hash);
+        var patch = new MetadataPatch(track.Hash) { GenresBefore = track.Genres };
         var ids = new KnownIds { Isrc = track.Isrc, MusicBrainzRecordingId = track.MusicBrainzId, SpotifyTrackId = track.SpotifyTrackId };
         var asked = new List<string>();
         DateTime? deferUntil = null;
@@ -616,63 +650,98 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
     /// Writes a patch to every stored copy of the track (LibraryEntries, PlaylistTracks, Tracks)
     /// and records provenance. Marks the attempt even when nothing was found, so the 7-day
     /// cooldown applies.
+    /// <para>
+    /// The patch was worked out from a snapshot read seconds (or, behind a rate limit, minutes)
+    /// earlier, while the import, analysis, the tag editor or another enrichment pass may have
+    /// written the same row since. So the write re-reads the row inside one IMMEDIATE
+    /// transaction (it holds the write lock from the first read, so no other writer can slip in
+    /// between) and applies fill-empty against the current values: a field somebody filled in
+    /// the meantime is kept, and only fields actually written get provenance. It used to assign
+    /// every patch field unconditionally. BPM/key/energy are never in a patch.
+    /// </para>
     /// </summary>
     internal async Task WriteAsync(MetadataPatch patch, CancellationToken ct)
     {
-        await using (var db = _factory.CreateDbContext())
+        var written = await SqliteBusyRetry.RunAsync(() => WriteOnceAsync(patch, ct), _logger, "enrichment write", ct).ConfigureAwait(false);
+        if (written.Count > 0)
         {
-            var now = DateTime.UtcNow.ToString("O");
-            var entry = await db.LibraryEntries.FirstOrDefaultAsync(e => e.UniqueHash == patch.Hash, ct).ConfigureAwait(false);
-            if (entry != null)
+            var rows = patch.Provenance.Values.Where(p => written.Contains(p.Field)).ToList();
+            await _store.UpsertProvenanceAsync(rows, ct).ConfigureAwait(false); // retries busy itself
+        }
+    }
+
+    /// <summary>One attempt; returns the provenance fields that were really written to LibraryEntries.</summary>
+    private async Task<HashSet<string>> WriteOnceAsync(MetadataPatch patch, CancellationToken ct)
+    {
+        var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        await using var db = _factory.CreateDbContext();
+        await using var tx = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false); // BEGIN IMMEDIATE on SQLite
+        var now = DateTime.UtcNow.ToString("O");
+        var entry = await db.LibraryEntries.FirstOrDefaultAsync(e => e.UniqueHash == patch.Hash, ct).ConfigureAwait(false);
+        if (entry != null)
+        {
+            entry.EnrichmentAttempts++;
+            entry.LastEnrichmentAttempt = now;
+
+            bool Fill(string field, bool isEmpty)
             {
-                entry.EnrichmentAttempts++;
-                entry.LastEnrichmentAttempt = now;
-                if (!patch.IsEmpty) entry.IsEnriched = true;
-                if (patch.Artist != null) entry.Artist = patch.Artist;
-                if (patch.Title != null) entry.Title = patch.Title;
-                if (patch.Album != null) entry.Album = patch.Album;
-                if (patch.Label != null) entry.Label = patch.Label;
-                if (patch.Genres != null) entry.Genres = patch.Genres;
-                if (patch.Isrc != null) entry.ISRC = patch.Isrc;
-                if (patch.MusicBrainzId != null) entry.MusicBrainzId = patch.MusicBrainzId;
-                if (patch.SpotifyTrackId != null) entry.SpotifyTrackId = patch.SpotifyTrackId;
-                if (patch.AlbumArtUrl != null) entry.AlbumArtUrl = patch.AlbumArtUrl;
-                if (patch.ReleaseDate != null) entry.ReleaseDate = patch.ReleaseDate;
-                if (patch.DurationSeconds != null && entry.DurationSeconds is null or <= 0) entry.DurationSeconds = patch.DurationSeconds;
-                if (patch.TagBpm != null && entry.TagBPM is null) entry.TagBPM = patch.TagBpm;
+                if (!isEmpty || !patch.Provenance.ContainsKey(field)) return false;
+                written.Add(field);
+                return true;
             }
 
-            if (!patch.IsEmpty)
+            if (patch.Artist != null && Fill(MetadataMerger.Fields.Artist, EnrichmentTrack.IsPlaceholderArtist(entry.Artist))) entry.Artist = patch.Artist;
+            if (patch.Title != null && Fill(MetadataMerger.Fields.Title, string.IsNullOrWhiteSpace(entry.Title) ||
+                    (!string.IsNullOrWhiteSpace(entry.FilePath) && string.Equals(entry.Title.Trim(), System.IO.Path.GetFileNameWithoutExtension(entry.FilePath), StringComparison.OrdinalIgnoreCase))))
+                entry.Title = patch.Title;
+            if (patch.Album != null && Fill(MetadataMerger.Fields.Album, string.IsNullOrWhiteSpace(entry.Album))) entry.Album = patch.Album;
+            if (patch.Label != null && Fill(MetadataMerger.Fields.Label, string.IsNullOrWhiteSpace(entry.Label))) entry.Label = patch.Label;
+            // Styles may replace a broad web genre, but only the exact value the merger saw.
+            if (patch.Genres != null && Fill(MetadataMerger.Fields.Genre, string.IsNullOrWhiteSpace(entry.Genres) ||
+                    (patch.Provenance.ContainsKey(MetadataMerger.Fields.Style) && patch.GenresBefore != null && string.Equals(entry.Genres, patch.GenresBefore, StringComparison.Ordinal))))
             {
-                foreach (var pt in await db.PlaylistTracks.Where(p => p.TrackUniqueHash == patch.Hash).ToListAsync(ct).ConfigureAwait(false))
-                {
-                    pt.IsEnriched = true;
-                    if (patch.Artist != null && EnrichmentTrack.IsPlaceholderArtist(pt.Artist)) pt.Artist = patch.Artist;
-                    if (patch.Title != null && string.IsNullOrWhiteSpace(pt.Title)) pt.Title = patch.Title;
-                    if (patch.Album != null && string.IsNullOrWhiteSpace(pt.Album)) pt.Album = patch.Album;
-                    if (patch.Label != null && string.IsNullOrWhiteSpace(pt.Label)) pt.Label = patch.Label;
-                    if (patch.Genres != null && string.IsNullOrWhiteSpace(pt.Genres)) pt.Genres = patch.Genres;
-                    if (patch.Isrc != null && string.IsNullOrWhiteSpace(pt.ISRC)) pt.ISRC = patch.Isrc;
-                    if (patch.MusicBrainzId != null && string.IsNullOrWhiteSpace(pt.MusicBrainzId)) pt.MusicBrainzId = patch.MusicBrainzId;
-                    if (patch.AlbumArtUrl != null && string.IsNullOrWhiteSpace(pt.AlbumArtUrl)) pt.AlbumArtUrl = patch.AlbumArtUrl;
-                    if (patch.ReleaseDate != null && pt.ReleaseDate == null) pt.ReleaseDate = patch.ReleaseDate;
-                }
-                foreach (var t in await db.Tracks.Where(t => t.GlobalId == patch.Hash).ToListAsync(ct).ConfigureAwait(false))
-                {
-                    t.IsEnriched = true;
-                    if (patch.Label != null && string.IsNullOrWhiteSpace(t.Label)) t.Label = patch.Label;
-                    if (patch.Genres != null && string.IsNullOrWhiteSpace(t.Genres)) t.Genres = patch.Genres;
-                    if (patch.Isrc != null && string.IsNullOrWhiteSpace(t.ISRC)) t.ISRC = patch.Isrc;
-                    if (patch.MusicBrainzId != null && string.IsNullOrWhiteSpace(t.MusicBrainzId)) t.MusicBrainzId = patch.MusicBrainzId;
-                    if (patch.AlbumArtUrl != null && string.IsNullOrWhiteSpace(t.AlbumArtUrl)) t.AlbumArtUrl = patch.AlbumArtUrl;
-                    if (patch.ReleaseDate != null && t.ReleaseDate == null) t.ReleaseDate = patch.ReleaseDate;
-                }
+                entry.Genres = patch.Genres;
+                if (patch.Provenance.ContainsKey(MetadataMerger.Fields.Style)) written.Add(MetadataMerger.Fields.Style);
             }
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            if (patch.Isrc != null && Fill(MetadataMerger.Fields.Isrc, string.IsNullOrWhiteSpace(entry.ISRC))) entry.ISRC = patch.Isrc;
+            if (patch.MusicBrainzId != null && Fill(MetadataMerger.Fields.MusicBrainzId, string.IsNullOrWhiteSpace(entry.MusicBrainzId))) entry.MusicBrainzId = patch.MusicBrainzId;
+            if (patch.SpotifyTrackId != null && Fill(MetadataMerger.Fields.SpotifyId, string.IsNullOrWhiteSpace(entry.SpotifyTrackId))) entry.SpotifyTrackId = patch.SpotifyTrackId;
+            if (patch.AlbumArtUrl != null && Fill(MetadataMerger.Fields.Artwork, string.IsNullOrWhiteSpace(entry.AlbumArtUrl))) entry.AlbumArtUrl = patch.AlbumArtUrl;
+            if (patch.ReleaseDate != null && Fill(MetadataMerger.Fields.ReleaseDate, entry.ReleaseDate == null)) entry.ReleaseDate = patch.ReleaseDate;
+            if (patch.DurationSeconds != null && Fill(MetadataMerger.Fields.Duration, entry.DurationSeconds is null or <= 0)) entry.DurationSeconds = patch.DurationSeconds;
+            if (patch.TagBpm != null && Fill(MetadataMerger.Fields.TagBpm, entry.TagBPM is null)) entry.TagBPM = patch.TagBpm;
+            if (written.Count > 0) entry.IsEnriched = true;
         }
 
         if (!patch.IsEmpty)
-            await _store.UpsertProvenanceAsync(patch.Provenance.Values.ToList(), ct).ConfigureAwait(false);
+        {
+            foreach (var pt in await db.PlaylistTracks.Where(p => p.TrackUniqueHash == patch.Hash).ToListAsync(ct).ConfigureAwait(false))
+            {
+                pt.IsEnriched = true;
+                if (patch.Artist != null && EnrichmentTrack.IsPlaceholderArtist(pt.Artist)) pt.Artist = patch.Artist;
+                if (patch.Title != null && string.IsNullOrWhiteSpace(pt.Title)) pt.Title = patch.Title;
+                if (patch.Album != null && string.IsNullOrWhiteSpace(pt.Album)) pt.Album = patch.Album;
+                if (patch.Label != null && string.IsNullOrWhiteSpace(pt.Label)) pt.Label = patch.Label;
+                if (patch.Genres != null && string.IsNullOrWhiteSpace(pt.Genres)) pt.Genres = patch.Genres;
+                if (patch.Isrc != null && string.IsNullOrWhiteSpace(pt.ISRC)) pt.ISRC = patch.Isrc;
+                if (patch.MusicBrainzId != null && string.IsNullOrWhiteSpace(pt.MusicBrainzId)) pt.MusicBrainzId = patch.MusicBrainzId;
+                if (patch.AlbumArtUrl != null && string.IsNullOrWhiteSpace(pt.AlbumArtUrl)) pt.AlbumArtUrl = patch.AlbumArtUrl;
+                if (patch.ReleaseDate != null && pt.ReleaseDate == null) pt.ReleaseDate = patch.ReleaseDate;
+            }
+            foreach (var t in await db.Tracks.Where(t => t.GlobalId == patch.Hash).ToListAsync(ct).ConfigureAwait(false))
+            {
+                t.IsEnriched = true;
+                if (patch.Label != null && string.IsNullOrWhiteSpace(t.Label)) t.Label = patch.Label;
+                if (patch.Genres != null && string.IsNullOrWhiteSpace(t.Genres)) t.Genres = patch.Genres;
+                if (patch.Isrc != null && string.IsNullOrWhiteSpace(t.ISRC)) t.ISRC = patch.Isrc;
+                if (patch.MusicBrainzId != null && string.IsNullOrWhiteSpace(t.MusicBrainzId)) t.MusicBrainzId = patch.MusicBrainzId;
+                if (patch.AlbumArtUrl != null && string.IsNullOrWhiteSpace(t.AlbumArtUrl)) t.AlbumArtUrl = patch.AlbumArtUrl;
+                if (patch.ReleaseDate != null && t.ReleaseDate == null) t.ReleaseDate = patch.ReleaseDate;
+            }
+        }
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        await tx.CommitAsync(ct).ConfigureAwait(false);
+        return written;
     }
 
     // ── Events ───────────────────────────────────────────────────────────────
@@ -704,7 +773,8 @@ public sealed class MetadataEnrichmentOrchestrator : IDisposable
             if (p.Runtime.Breaker.IsDisabledForSession) availability = ProviderAvailability.Blocked;
             return p.Runtime.Snapshot(p.DisplayName, availability);
         }).ToList();
-        return new EnrichmentProgress(IsRunning, _paused, _waitingForAnalysis, _runTotal, _runDone, _runEnriched, _pending, providers);
+        return new EnrichmentProgress(IsRunning, _paused, _slowedForAnalysis, Volatile.Read(ref _runTotal), Volatile.Read(ref _runDone),
+            Volatile.Read(ref _runEnriched), _pending, providers);
     }
 
     private void PublishProgress(bool force)

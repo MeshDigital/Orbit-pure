@@ -434,16 +434,27 @@ public class LibraryFolderScannerService
     {
         try
         {
-            using var context = new AppDbContext();
-            context.LibraryEntries.AddRange(batch);
-            await context.SaveChangesAsync().ConfigureAwait(false);
+            // One short transaction per batch; a transient lock (enrichment / analysis writing at
+            // the same moment) is retried on a fresh context instead of losing the whole batch.
+            await SqliteBusyRetry.RunAsync(async () =>
+            {
+                using var context = new AppDbContext();
+                context.LibraryEntries.AddRange(batch);
+                await context.SaveChangesAsync().ConfigureAwait(false);
+            }, _logger, "library import batch").ConfigureAwait(false);
 
+            var hashes = new List<string>(batch.Count);
             foreach (var entry in batch)
             {
                 result.AddedEntryIds.Add(entry.Id);
-                if (!string.IsNullOrWhiteSpace(entry.UniqueHash)) result.AddedTrackHashes.Add(entry.UniqueHash);
+                if (!string.IsNullOrWhiteSpace(entry.UniqueHash))
+                {
+                    result.AddedTrackHashes.Add(entry.UniqueHash);
+                    hashes.Add(entry.UniqueHash);
+                }
             }
             state.Added += batch.Count;
+            PublishBatchAdded(hashes, result.Trigger);
         }
         catch (Exception ex)
         {
@@ -455,6 +466,21 @@ public class LibraryFolderScannerService
         }
         state.Processed += batch.Count;
         batch.Clear();
+    }
+
+    /// <summary>Tells the Library and a running enrichment that these rows exist now (mid-import).</summary>
+    private void PublishBatchAdded(List<string> hashes, LibraryImportTrigger trigger)
+    {
+        if (_eventBus == null || hashes.Count == 0) return;
+        try
+        {
+            _eventBus.Publish(new LibraryEntriesAddedEvent(hashes, trigger));
+        }
+        catch (Exception ex)
+        {
+            // A subscriber failing must never fail the import; the completion event still refreshes.
+            _logger.LogWarning(ex, "A LibraryEntriesAddedEvent subscriber threw");
+        }
     }
 
     private async Task UpdateFolderMetadataAsync(List<LibraryFolderEntity> folders, int[] perFolderFound, bool completed)

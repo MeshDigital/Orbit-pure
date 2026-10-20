@@ -949,7 +949,8 @@ public partial class App : Application
                 () => sp.GetService<IAudioPlayerService>()?.IsPlaying == true,
                 SLSKDONET.Services.Enrichment.MetadataEnrichmentOrchestrator.DefaultWorkers,
                 TimeSpan.FromSeconds(3),
-                startupResumeDelay: TimeSpan.FromSeconds(45));
+                startupResumeDelay: TimeSpan.FromSeconds(45),
+                isImportRunning: () => sp.GetService<LibraryFolderScannerService>()?.IsAnyImportRunning == true);
         });
         services.AddSingleton<ViewModels.EnrichmentViewModel>();
         services.AddSingleton<ViewModels.MetadataSourcesSettingsViewModel>();

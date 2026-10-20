@@ -286,21 +286,37 @@ public sealed class MetadataEnrichmentOrchestratorTests : IDisposable
     }
 
     [Fact]
-    public async Task WaitsWhileTheAnalysisQueueIsBusy()
+    public async Task KeepsGoingOneTrackAtATime_WhileTheAnalysisQueueIsBusy()
     {
-        _db.AddEntry("w1", "A", "B");
-        var deezer = new FakeProvider("deezer", MetadataField.Label, (_, _) => ProviderLookup.Match(new MetadataCandidate { Label = "L" }));
-        var busy = true;
-        var orchestrator = Create(Store(), new IMetadataProvider[] { deezer }, busy: () => Volatile.Read(ref busy));
+        // It used to stop completely while analysis had work, so "Analyse 3,000 new tracks"
+        // froze enrichment for the whole analysis run. Now it shares the machine: one in flight.
+        for (int i = 0; i < 4; i++) _db.AddEntry("w" + i, "A", "B" + i);
+        var inFlight = 0;
+        var maxInFlight = 0;
+        var deezer = new FakeProvider("deezer", MetadataField.Label, (_, _) =>
+        {
+            var now = Interlocked.Increment(ref inFlight);
+            InterlockedMax(ref maxInFlight, now);
+            Thread.Sleep(30);
+            Interlocked.Decrement(ref inFlight);
+            return ProviderLookup.Match(new MetadataCandidate { Label = "L" });
+        });
+        var slowed = new List<bool>();
+        using var sub = _bus.GetEvent<EnrichmentProgressEvent>().Subscribe(e => { lock (slowed) slowed.Add(e.Progress.IsSlowedForAnalysis); });
+        var orchestrator = Create(Store(), new IMetadataProvider[] { deezer }, busy: () => true);
 
         await orchestrator.EnrichLibraryAsync();
-        await Task.Delay(200);
-        Assert.Equal(0, deezer.Calls);
-        Assert.True(orchestrator.CurrentProgress().IsWaitingForAnalysis);
-
-        Volatile.Write(ref busy, false);
         await orchestrator.WaitForIdleAsync();
-        Assert.Equal(1, deezer.Calls);
+
+        Assert.Equal(4, deezer.Calls);
+        Assert.Equal(1, maxInFlight);
+        lock (slowed) Assert.Contains(true, slowed);
+    }
+
+    private static void InterlockedMax(ref int target, int value)
+    {
+        int current;
+        while ((current = Volatile.Read(ref target)) < value && Interlocked.CompareExchange(ref target, value, current) != current) { }
     }
 
     [Fact]
