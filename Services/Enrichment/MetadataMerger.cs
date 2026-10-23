@@ -24,6 +24,12 @@ public sealed class MetadataPatch
     public int? DurationSeconds { get; set; }
     public double? TagBpm { get; set; }
 
+    /// <summary>
+    /// The stored genre the merger looked at. A Discogs style may only replace the stored genre
+    /// when it is still exactly this value at write time (nobody changed it in between).
+    /// </summary>
+    public string? GenresBefore { get; init; }
+
     /// <summary>Provenance rows for every field set above.</summary>
     public Dictionary<string, MetadataProvenanceEntity> Provenance { get; } = new(StringComparer.OrdinalIgnoreCase);
 

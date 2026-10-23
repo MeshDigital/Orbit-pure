@@ -774,6 +774,7 @@ public partial class App : Application
         services.AddSingleton<Services.Setup.ILibraryFolderSetupGateway, Services.Setup.LibraryFolderSetupGateway>();
         services.AddSingleton<Services.Setup.ISpotifySetupGateway, ViewModels.Setup.SettingsSpotifySetupGateway>();
         services.AddSingleton<Services.Setup.IAudioSetupGateway, ViewModels.Setup.SettingsAudioSetupGateway>();
+        services.AddSingleton<Services.Setup.ISetupEnrichmentGateway, Services.Setup.EnrichmentSetupGateway>();
         services.AddSingleton<Services.Setup.FirstRunCoordinator>();
         services.AddTransient<ViewModels.Setup.SetupWizardViewModel>();
         services.AddSingleton(sp => new ViewModels.Setup.SetupShellViewModel(
@@ -787,6 +788,7 @@ public partial class App : Application
             {
                 sp.GetRequiredService<ConnectionViewModel>().ReloadFromConfig();
                 sp.GetRequiredService<SettingsViewModel>().RefreshFromConfig();
+                sp.GetRequiredService<ViewModels.MetadataSourcesSettingsViewModel>().RefreshFromConfig();
             },
             notifications: sp.GetService<INotificationService>()));
         services.AddSingleton<BulkOperationViewModel>();
@@ -949,10 +951,18 @@ public partial class App : Application
                 () => sp.GetService<IAudioPlayerService>()?.IsPlaying == true,
                 SLSKDONET.Services.Enrichment.MetadataEnrichmentOrchestrator.DefaultWorkers,
                 TimeSpan.FromSeconds(3),
-                startupResumeDelay: TimeSpan.FromSeconds(45));
+                startupResumeDelay: TimeSpan.FromSeconds(45),
+                isImportRunning: () => sp.GetService<LibraryFolderScannerService>()?.IsAnyImportRunning == true);
         });
         services.AddSingleton<ViewModels.EnrichmentViewModel>();
         services.AddSingleton<ViewModels.MetadataSourcesSettingsViewModel>();
+        // The one background-activity chip/flyout (top bar + setup wizard header).
+        services.AddSingleton(sp => new ViewModels.Activity.BackgroundActivityHubViewModel(
+            sp.GetRequiredService<IEventBus>(),
+            sp.GetService<ViewModels.LibraryImportViewModel>(),
+            new ViewModels.Activity.OrchestratorEnrichmentActivityControl(sp.GetRequiredService<Services.Enrichment.MetadataEnrichmentOrchestrator>()),
+            page => sp.GetRequiredService<INavigationService>().NavigateTo(page),
+            sp.GetService<ILogger<ViewModels.Activity.BackgroundActivityHubViewModel>>()));
 
         // ── Task 1.5: Beatgrid Detection ──────────────────────────────────
         services.AddSingleton<Services.AudioAnalysis.BeatgridDetectionService>();

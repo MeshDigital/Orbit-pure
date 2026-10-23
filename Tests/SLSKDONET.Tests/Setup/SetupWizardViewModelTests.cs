@@ -264,6 +264,7 @@ public class SetupWizardViewModelTests
         await wizard.SkipStepAsync();
         wizard.Folders.DownloadDirectory = sandbox.Dir("dl");
         wizard.Folders.AddLibraryFolder(library);
+        wizard.Folders.ImportNow = false; // scan from the Done page instead (the default imports on Next)
         await wizard.NextAsync();
         wizard.Connections.ArmDelay = TimeSpan.Zero; // pressed straight away; see ConnectionsStepTests
         wizard.Connections.ConnectSpotifyCommand.Execute(null);

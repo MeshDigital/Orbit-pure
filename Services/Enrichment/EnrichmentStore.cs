@@ -49,8 +49,13 @@ public sealed class EnrichmentStore : IMetadataLookupCache
 
     // ── Queue ────────────────────────────────────────────────────────────────
 
-    /// <summary>Queues tracks that aren't queued yet. Returns how many were added.</summary>
-    public async Task<int> EnqueueAsync(IEnumerable<string> hashes, int priority, CancellationToken ct = default)
+    /// <summary>
+    /// Queues tracks that aren't queued yet. Returns how many were added. With
+    /// <paramref name="skipFinishedWithin"/>, a track whose task completed (or failed) that
+    /// recently is skipped too: an import's completion trigger must not re-queue the tracks a run
+    /// started mid-import already enriched.
+    /// </summary>
+    public async Task<int> EnqueueAsync(IEnumerable<string> hashes, int priority, CancellationToken ct = default, TimeSpan? skipFinishedWithin = null)
     {
         var wanted = hashes.Where(h => !string.IsNullOrWhiteSpace(h)).Distinct(StringComparer.Ordinal).ToList();
         if (wanted.Count == 0) return 0;
@@ -58,43 +63,57 @@ public sealed class EnrichmentStore : IMetadataLookupCache
         await _writeGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await using var db = _factory.CreateDbContext();
-            var active = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var chunk in wanted.Chunk(500))
+            return await SqliteBusyRetry.RunAsync(async () =>
             {
-                var ids = chunk.ToList();
-                var existing = await db.EnrichmentTasks
-                    .Where(t => ids.Contains(t.TrackId) && (t.Status == EnrichmentStatus.Queued || t.Status == EnrichmentStatus.Processing))
-                    .Select(t => new { t.TrackId, t.Id, t.Priority })
-                    .ToListAsync(ct).ConfigureAwait(false);
-                foreach (var e in existing)
+                await using var db = _factory.CreateDbContext();
+                var active = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var chunk in wanted.Chunk(500))
                 {
-                    active.Add(e.TrackId);
-                    if (e.Priority < priority)
+                    var ids = chunk.ToList();
+                    var existing = await db.EnrichmentTasks
+                        .Where(t => ids.Contains(t.TrackId) && (t.Status == EnrichmentStatus.Queued || t.Status == EnrichmentStatus.Processing))
+                        .Select(t => new { t.TrackId, t.Id, t.Priority })
+                        .ToListAsync(ct).ConfigureAwait(false);
+                    foreach (var e in existing)
                     {
-                        var row = await db.EnrichmentTasks.FindAsync(new object[] { e.Id }, ct).ConfigureAwait(false);
-                        if (row != null) row.Priority = priority;
+                        active.Add(e.TrackId);
+                        if (e.Priority < priority)
+                        {
+                            var row = await db.EnrichmentTasks.FindAsync(new object[] { e.Id }, ct).ConfigureAwait(false);
+                            if (row != null) row.Priority = priority;
+                        }
+                    }
+
+                    if (skipFinishedWithin is { } window)
+                    {
+                        var since = DateTime.UtcNow - window;
+                        var finished = await db.EnrichmentTasks
+                            .Where(t => ids.Contains(t.TrackId) && (t.Status == EnrichmentStatus.Completed || t.Status == EnrichmentStatus.Failed)
+                                        && t.UpdatedAt != null && t.UpdatedAt >= since)
+                            .Select(t => t.TrackId)
+                            .ToListAsync(ct).ConfigureAwait(false);
+                        foreach (var id in finished) active.Add(id);
                     }
                 }
-            }
 
-            var now = DateTime.UtcNow;
-            int added = 0;
-            foreach (var hash in wanted)
-            {
-                if (active.Contains(hash)) continue;
-                db.EnrichmentTasks.Add(new EnrichmentTaskEntity
+                var now = DateTime.UtcNow;
+                int added = 0;
+                foreach (var hash in wanted)
                 {
-                    Id = Guid.NewGuid(),
-                    TrackId = hash,
-                    Status = EnrichmentStatus.Queued,
-                    Priority = priority,
-                    CreatedAt = now,
-                });
-                added++;
-            }
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return added;
+                    if (active.Contains(hash)) continue;
+                    db.EnrichmentTasks.Add(new EnrichmentTaskEntity
+                    {
+                        Id = Guid.NewGuid(),
+                        TrackId = hash,
+                        Status = EnrichmentStatus.Queued,
+                        Priority = priority,
+                        CreatedAt = now,
+                    });
+                    added++;
+                }
+                await db.SaveChangesAsync(ct).ConfigureAwait(false);
+                return added;
+            }, _logger, "enrichment queue write", ct).ConfigureAwait(false);
         }
         finally
         {
@@ -111,19 +130,22 @@ public sealed class EnrichmentStore : IMetadataLookupCache
         await _writeGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await using var db = _factory.CreateDbContext();
-            var due = await db.EnrichmentTasks
-                .Where(t => t.Status == EnrichmentStatus.Queued && (t.NextAttemptAt == null || t.NextAttemptAt <= nowUtc))
-                .OrderByDescending(t => t.Priority).ThenBy(t => t.CreatedAt)
-                .Take(max)
-                .ToListAsync(ct).ConfigureAwait(false);
-            foreach (var t in due)
+            return await SqliteBusyRetry.RunAsync(async () =>
             {
-                t.Status = EnrichmentStatus.Processing;
-                t.UpdatedAt = nowUtc;
-            }
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return due;
+                await using var db = _factory.CreateDbContext();
+                var due = await db.EnrichmentTasks
+                    .Where(t => t.Status == EnrichmentStatus.Queued && (t.NextAttemptAt == null || t.NextAttemptAt <= nowUtc))
+                    .OrderByDescending(t => t.Priority).ThenBy(t => t.CreatedAt)
+                    .Take(max)
+                    .ToListAsync(ct).ConfigureAwait(false);
+                foreach (var t in due)
+                {
+                    t.Status = EnrichmentStatus.Processing;
+                    t.UpdatedAt = nowUtc;
+                }
+                await db.SaveChangesAsync(ct).ConfigureAwait(false);
+                return due;
+            }, _logger, "enrichment queue write", ct).ConfigureAwait(false);
         }
         finally
         {
@@ -156,11 +178,14 @@ public sealed class EnrichmentStore : IMetadataLookupCache
         await _writeGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await using var db = _factory.CreateDbContext();
-            var stuck = await db.EnrichmentTasks.Where(t => t.Status == EnrichmentStatus.Processing).ToListAsync(ct).ConfigureAwait(false);
-            foreach (var t in stuck) t.Status = EnrichmentStatus.Queued;
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return stuck.Count;
+            return await SqliteBusyRetry.RunAsync(async () =>
+            {
+                await using var db = _factory.CreateDbContext();
+                var stuck = await db.EnrichmentTasks.Where(t => t.Status == EnrichmentStatus.Processing).ToListAsync(ct).ConfigureAwait(false);
+                foreach (var t in stuck) t.Status = EnrichmentStatus.Queued;
+                await db.SaveChangesAsync(ct).ConfigureAwait(false);
+                return stuck.Count;
+            }, _logger, "enrichment queue write", ct).ConfigureAwait(false);
         }
         finally
         {
@@ -174,11 +199,14 @@ public sealed class EnrichmentStore : IMetadataLookupCache
         await _writeGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await using var db = _factory.CreateDbContext();
-            var queued = await db.EnrichmentTasks.Where(t => t.Status == EnrichmentStatus.Queued).ToListAsync(ct).ConfigureAwait(false);
-            db.EnrichmentTasks.RemoveRange(queued);
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return queued.Count;
+            return await SqliteBusyRetry.RunAsync(async () =>
+            {
+                await using var db = _factory.CreateDbContext();
+                var queued = await db.EnrichmentTasks.Where(t => t.Status == EnrichmentStatus.Queued).ToListAsync(ct).ConfigureAwait(false);
+                db.EnrichmentTasks.RemoveRange(queued);
+                await db.SaveChangesAsync(ct).ConfigureAwait(false);
+                return queued.Count;
+            }, _logger, "enrichment queue write", ct).ConfigureAwait(false);
         }
         finally
         {
@@ -210,12 +238,15 @@ public sealed class EnrichmentStore : IMetadataLookupCache
         await _writeGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await using var db = _factory.CreateDbContext();
-            var task = await db.EnrichmentTasks.FindAsync(new object[] { id }, ct).ConfigureAwait(false);
-            if (task == null) return;
-            change(task);
-            task.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            await SqliteBusyRetry.RunAsync(async () =>
+            {
+                await using var db = _factory.CreateDbContext();
+                var task = await db.EnrichmentTasks.FindAsync(new object[] { id }, ct).ConfigureAwait(false);
+                if (task == null) return;
+                change(task);
+                task.UpdatedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            }, _logger, "enrichment queue write", ct).ConfigureAwait(false);
         }
         finally
         {
@@ -303,19 +334,22 @@ public sealed class EnrichmentStore : IMetadataLookupCache
         await _writeGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await using var db = _factory.CreateDbContext();
-            foreach (var r in rows)
+            await SqliteBusyRetry.RunAsync(async () =>
             {
-                var existing = await db.MetadataProvenance.FindAsync(new object[] { r.TrackUniqueHash, r.Field }, ct).ConfigureAwait(false);
-                if (existing == null) db.MetadataProvenance.Add(r);
-                else
+                await using var db = _factory.CreateDbContext();
+                foreach (var r in rows)
                 {
-                    existing.Source = r.Source;
-                    existing.Confidence = r.Confidence;
-                    existing.UpdatedAtUtc = r.UpdatedAtUtc;
+                    var existing = await db.MetadataProvenance.FindAsync(new object[] { r.TrackUniqueHash, r.Field }, ct).ConfigureAwait(false);
+                    if (existing == null) db.MetadataProvenance.Add(r);
+                    else
+                    {
+                        existing.Source = r.Source;
+                        existing.Confidence = r.Confidence;
+                        existing.UpdatedAtUtc = r.UpdatedAtUtc;
+                    }
                 }
-            }
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+                await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            }, _logger, "enrichment queue write", ct).ConfigureAwait(false);
         }
         finally
         {

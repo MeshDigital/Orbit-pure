@@ -50,6 +50,23 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     public HierarchicalLibraryViewModel Hierarchical { get; }
     
     private readonly System.Reactive.Subjects.Subject<System.Reactive.Unit> _refreshRequestSubject = new();
+    private readonly System.Reactive.Subjects.Subject<System.Reactive.Unit> _liveRowsRequest = new();
+
+    /// <summary>All Tracks is on screen: show rows an import committed since the last look.</summary>
+    internal async Task ShowNewlyImportedRowsAsync()
+    {
+        try
+        {
+            var currentProjectId = _mainViewModel?.LibraryViewModel?.SelectedProject?.Id;
+            if (currentProjectId != null && currentProjectId != Guid.Empty) return;
+            if (FilteredTracks is VirtualizedTrackCollection vtc && await vtc.RefreshForNewRowsAsync())
+                _updateLimitedTracksRequest.OnNext(System.Reactive.Unit.Default);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Showing newly imported rows failed");
+        }
+    }
 
     private ObservableCollection<PlaylistTrackViewModel> _currentProjectTracks = new();
     public ObservableCollection<PlaylistTrackViewModel> CurrentProjectTracks
@@ -1102,9 +1119,24 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         {
             if (!evt.Result.ChangedLibrary) return;
             var currentProjectId = _mainViewModel?.LibraryViewModel?.SelectedProject?.Id;
-            if (currentProjectId == null || currentProjectId == Guid.Empty)
+            if (currentProjectId != null && currentProjectId != Guid.Empty) return;
+            // Rows were already shown live as batches landed; only an upgrade (a better copy
+            // replacing an existing row's file) needs the full reload.
+            if (evt.Result.Upgraded == 0 && FilteredTracks is VirtualizedTrackCollection)
+                _liveRowsRequest.OnNext(System.Reactive.Unit.Default);
+            else
                 _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
         }));
+
+        // While a folder import runs, its committed batches appear in All Tracks every ~2 s with
+        // their tag (or file-name) titles, in place: no full reload, visible rows keep their view
+        // models, newest-first lists keep selection and scroll offset.
+        _disposables.Add(eventBus.GetEvent<LibraryEntriesAddedEvent>()
+            .Select(_ => System.Reactive.Unit.Default)
+            .Merge(_liveRowsRequest)
+            .Sample(TimeSpan.FromSeconds(2))
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(unit => { _ = ShowNewlyImportedRowsAsync(); }));
 
         // Camelot key filter from wheel click (toggle: click same key again to clear)
         _disposables.Add(eventBus.GetEvent<SetCamelotKeyFilterEvent>().Subscribe(evt =>

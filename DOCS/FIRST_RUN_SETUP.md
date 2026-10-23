@@ -33,6 +33,7 @@ wizard, marks it completed and shows a toast that it can be reopened from Settin
 | Soulseek (recommended) | `[Soulseek] Username`, `RememberPassword`, `AutoConnectEnabled`; stored password (or deletes it) | `SoulseekSetupGateway` → `ConfigManager`, `ISoulseekCredentialService` |
 | Folders (recommended) | `[Download] Directory`, `SharedFolder`, `[Library] EnableLibrarySharing`, `[EditLab] OutputDirectory`; new Library Sources (with watch flag); creates missing folders | `ConfigSetupSettingsGateway`, `LibraryFolderSetupGateway` |
 | Connections | Spotify tokens, only when "Connect Spotify" is pressed | `SettingsViewModel.ConnectSpotifyAsync` (same flow as Settings) |
+| Metadata and artwork | `[Enrichment] EnabledProviders`, `ProviderOrder`, `AutoRun`; Discogs token / AcoustID key in the DPAPI key store | `EnrichmentSetupGateway` (same keys as Settings → Connection → Metadata sources) |
 | Audio and analysis | `[Playback] AudioOutputMode`, `AudioOutputDeviceName`, `[Analysis] AnalyzeNewDownloads` | `ConfigSetupSettingsGateway` (+ `IAudioPlayerService.ApplyOutputSettings`) |
 | Done | nothing; "Scan now" opens the import sheet over every Library Source (phases, Cancel, Run in background, summary) | `ILibraryImportLauncher` → `LibraryImportViewModel` → `LibraryFolderScannerService.ImportFoldersAsync` |
 
@@ -58,6 +59,50 @@ post-download analysis request in `DownloadManager`).
 FFmpeg uses the Settings check and "Get FFmpeg" link. The analysis models ship in
 `Tools/Essentia/models`; ORBIT has no download step for them, so the wizard reports which are
 missing (`AnalysisModelInventory`) instead of offering a fake fix.
+
+## Import and enrichment during setup
+
+- **Folders**: with new library folders, "Import these folders when I press Next" (default on)
+  starts the import in the **background** (`ILibraryImportLauncher.StartBackgroundImportAsync`,
+  no locking sheet). The wizard carries on; Done then doesn't offer a second "Scan now".
+- **Metadata and artwork** (after Connections, step 5 of 7): per source a toggle and one
+  "gives · needs · limit" line (file tags always on; Deezer and MusicBrainz + Cover Art Archive
+  on; Discogs token with "Get a token"; AcoustID key + fpcalc state; Spotify shows the state
+  the Connections step left; Beatport off, experimental) and "Enrich automatically after
+  imports". Saved on Next. **Start now** is enabled once the library has tracks (the count
+  follows a running import); it saves first, then starts the orchestrator and shows the meter,
+  done/total, per-source status (matched / waiting / paused for its rate limit / disabled) and
+  Pause / Resume inline. Leaving the step or closing the wizard never stops it.
+- **Done**: "Start enrichment" if it wasn't started, and "Running in the background" with live
+  counts for import / enrichment / analysis, plus where to follow them later.
+
+## Background activity
+
+`ViewModels/Activity/BackgroundActivityHubViewModel` is the one indicator for long-running
+jobs: library import, metadata enrichment, analysis and loudness backfill. A top-bar chip
+(`Views/Avalonia/Controls/BackgroundActivityChip`, also in the wizard header) with a flyout per
+job: progress, counts, status, Pause/Resume (enrichment) and Open (import summary sheet /
+Analysis page). It replaces the import sheet's own "Run in background" chip. Sources publish
+from their own threads; the hub keeps the latest snapshot and applies it on the UI thread at
+most every 250 ms.
+
+## Stability with everything running
+
+The sequence Folders → import 3,000+ tracks → keep going → Start enrichment → finish → tour →
+browse the Library while import, analysis and enrichment run:
+
+- The scanner publishes `LibraryEntriesAddedEvent` per committed batch (500 rows). All Tracks
+  shows them every ~2 s with tag (or file-name) titles: visible pages are re-read at their new
+  offsets before the swap, rows keep their view model, newest-first raises Add at 0 (selection
+  and scroll stay). Header counts follow every ~3 s.
+- Enrichment / analysis / loudness row updates are coalesced per list: one batched query off
+  the UI thread and one UI post per 250 ms. The row cache is thread-safe.
+- Enrichment writes re-read the row in one IMMEDIATE transaction and fill only fields still
+  empty (never BPM/key/energy). SQLITE_BUSY/LOCKED on import batches and enrichment writes is
+  retried on a fresh context (`Data/SqliteBusyRetry`).
+- A run started mid-import follows the import's batches; the completion trigger skips tracks
+  finished in the last 7 days, so nothing is queued twice. While an import writes rows
+  enrichment runs two at a time, while analysis has work one at a time (it used to stop).
 
 ## Quick tour
 

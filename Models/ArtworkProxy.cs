@@ -73,10 +73,11 @@ public class ArtworkProxy : INotifyPropertyChanged
                 _isLoading = false;
             });
         }
-        catch
+        catch (Exception ex)
         {
              _isLoading = false;
-             // On failure, Image remains null (placeholder will show)
+             // On failure, Image remains null (the placeholder shows); say why in the log.
+             Serilog.Log.Debug(ex, "Artwork could not be loaded for {Source}", _urlOrPath);
         }
     }
 

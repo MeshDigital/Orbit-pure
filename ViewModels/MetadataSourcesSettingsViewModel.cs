@@ -51,6 +51,14 @@ public sealed class MetadataSourceRowViewModel : ReactiveObject
         }
     }
 
+    /// <summary>Takes the value from config.ini without saving it again (after the setup wizard wrote it).</summary>
+    internal void LoadEnabled(bool value)
+    {
+        if (IsAlwaysOn) return;
+        this.RaiseAndSetIfChanged(ref _isEnabled, value, nameof(IsEnabled));
+        RefreshStatus();
+    }
+
     public string StatusText { get => _statusText; private set => this.RaiseAndSetIfChanged(ref _statusText, value); }
     public bool CanMoveUp { get => _canMoveUp; set => this.RaiseAndSetIfChanged(ref _canMoveUp, value); }
     public bool CanMoveDown { get => _canMoveDown; set => this.RaiseAndSetIfChanged(ref _canMoveDown, value); }
@@ -127,6 +135,18 @@ public sealed class MetadataSourcesSettingsViewModel : ReactiveObject, IDisposab
     private readonly IDisposable _progressSubscription;
 
     public void Dispose() => _progressSubscription.Dispose();
+
+    /// <summary>The setup wizard's Metadata step writes the same [Enrichment] keys; show them here.</summary>
+    public void RefreshFromConfig()
+    {
+        var settings = EnrichmentSettings.From(_config);
+        foreach (var row in Sources) row.LoadEnabled(settings.IsEnabled(row.Name));
+        this.RaisePropertyChanged(nameof(AutoRun));
+        this.RaisePropertyChanged(nameof(HasDiscogsToken));
+        this.RaisePropertyChanged(nameof(HasAcoustIdKey));
+        this.RaisePropertyChanged(nameof(DiscogsTokenWatermark));
+        this.RaisePropertyChanged(nameof(AcoustIdKeyWatermark));
+    }
 
     public ObservableCollection<MetadataSourceRowViewModel> Sources { get; } = new();
 

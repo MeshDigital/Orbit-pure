@@ -8,3 +8,11 @@ namespace SLSKDONET.Models;
 /// events it held back while the import ran.
 /// </summary>
 public record LibraryImportCompletedEvent(LibraryImportResult Result);
+
+/// <summary>
+/// Published after each batch of LibraryEntries a folder import has committed (≈ every
+/// <see cref="LibraryImportRequest.BatchSize"/> rows), so the Library can show the new rows while
+/// the import is still running and a running enrichment can pick them up. Carries only hashes;
+/// subscribers coalesce (the Library refreshes at most every couple of seconds).
+/// </summary>
+public record LibraryEntriesAddedEvent(System.Collections.Generic.IReadOnlyList<string> TrackHashes, LibraryImportTrigger Trigger);

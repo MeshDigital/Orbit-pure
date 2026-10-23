@@ -1,0 +1,71 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:activity="clr-namespace:SLSKDONET.ViewModels.Activity"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.BackgroundActivityChip"
+             x:DataType="activity:BackgroundActivityHubViewModel"
+             x:CompileBindings="True"
+             IsVisible="{Binding IsVisible, FallbackValue=False}">
+
+    <!--
+      The one background-activity indicator (DOCS/FIRST_RUN_SETUP.md, "Background activity").
+      Top bar and setup wizard header. Click: a flyout with every long-running job.
+    -->
+    <Button Classes="ghost small" ToolTip.Tip="Background activity: import, analysis, metadata enrichment, loudness">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <Ellipse Classes="status-dot accent pulse_amber" VerticalAlignment="Center" IsVisible="{Binding IsAnyRunning}"/>
+            <PathIcon Data="{StaticResource icon_check}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"
+                      Foreground="{StaticResource BrushSuccess}" IsVisible="{Binding IsNothingRunning}"/>
+            <TextBlock Classes="mono" Text="{Binding ChipText}" VerticalAlignment="Center" MaxWidth="260" TextTrimming="CharacterEllipsis"/>
+            <ProgressBar Classes="meter" Width="64" Maximum="100" Value="{Binding ChipProgress}" VerticalAlignment="Center"
+                         IsVisible="{Binding IsAnyRunning}"/>
+            <PathIcon Data="{StaticResource icon_chevron_down}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"
+                      Foreground="{StaticResource BrushText2}"/>
+        </StackPanel>
+        <Button.Flyout>
+            <Flyout Placement="BottomEdgeAlignedRight">
+                <StackPanel Width="380" Spacing="8" Margin="4">
+                    <TextBlock Classes="section" Text="BACKGROUND ACTIVITY"/>
+                    <ItemsControl ItemsSource="{Binding Items}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Spacing="8"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="activity:BackgroundActivityItemViewModel">
+                                <Border Classes="card" IsVisible="{Binding IsVisible}">
+                                    <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="*,Auto">
+                                        <TextBlock Classes="body" FontWeight="SemiBold" Text="{Binding Title}" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Classes="caption mono" Text="{Binding CountsText}" VerticalAlignment="Center"/>
+                                        <ProgressBar Grid.Row="1" Grid.ColumnSpan="2" Classes="meter" Maximum="100" Margin="0,8,0,0"
+                                                     Value="{Binding Progress}" IsIndeterminate="{Binding IsIndeterminate}"/>
+                                        <TextBlock Grid.Row="2" Classes="caption" Text="{Binding Status}" VerticalAlignment="Center"
+                                                   TextWrapping="Wrap" Margin="0,8,8,0"/>
+                                        <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="4" Margin="0,8,0,0">
+                                            <Button Classes="ghost small" Command="{Binding PauseCommand}" IsVisible="{Binding ShowPause}"
+                                                    ToolTip.Tip="Pause; it resumes where it stopped">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <PathIcon Data="{StaticResource icon_pause}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                    <TextBlock Text="Pause"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Classes="ghost small" Command="{Binding ResumeCommand}" IsVisible="{Binding ShowResume}"
+                                                    ToolTip.Tip="Resume">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <PathIcon Data="{StaticResource icon_play}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                    <TextBlock Text="Resume"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Classes="secondary small" Content="{Binding OpenLabel}" Command="{Binding OpenCommand}"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Classes="caption" Text="Nothing is running right now." IsVisible="{Binding IsNothingRunning}"/>
+                </StackPanel>
+            </Flyout>
+        </Button.Flyout>
+    </Button>
+</UserControl>

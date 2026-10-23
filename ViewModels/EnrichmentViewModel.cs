@@ -150,7 +150,7 @@ public sealed class EnrichmentViewModel : ReactiveObject, IDisposable
         {
             if (IsPaused) return "Enrichment paused";
             if (IsRunning)
-                return IsWaitingForAnalysis ? "Enriching metadata · waiting while the analysis queue runs" : "Enriching metadata";
+                return IsWaitingForAnalysis ? "Enriching metadata · one track at a time while analysis runs" : "Enriching metadata";
             if (NeedsCount == 0) return "Library metadata is complete";
             return NeedsCount == 1 ? "1 track needs metadata" : $"{EnrichmentProviderRowViewModel.N(NeedsCount)} tracks need metadata";
         }
@@ -204,7 +204,7 @@ public sealed class EnrichmentViewModel : ReactiveObject, IDisposable
         Total = p.Total;
         Enriched = p.Enriched;
         Pending = p.Pending;
-        IsWaitingForAnalysis = p.IsWaitingForAnalysis;
+        IsWaitingForAnalysis = p.IsSlowedForAnalysis;
         IsPaused = p.IsPaused;
         IsRunning = p.IsRunning;
         foreach (var snapshot in p.Providers)

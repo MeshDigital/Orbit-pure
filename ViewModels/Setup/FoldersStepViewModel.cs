@@ -80,6 +80,8 @@ public sealed class FoldersStepViewModel : SetupStepViewModel
         {
             if (item is { IsNew: true }) LibraryFolders.Remove(item);
             OnPropertyChanged(nameof(HasLibraryFolders));
+        OnPropertyChanged(nameof(HasNewLibraryFolders));
+        OnPropertyChanged(nameof(CanChooseImportNow));
         });
         BrowseExtraShareCommand = new AsyncRelayCommand(BrowseExtraShareAsync);
         ClearExtraShareCommand = new RelayCommand(() => ExtraSharedFolder = null);
@@ -106,6 +108,25 @@ public sealed class FoldersStepViewModel : SetupStepViewModel
 
     public ObservableCollection<SetupLibraryFolderItem> LibraryFolders { get; } = new();
     public bool HasLibraryFolders => LibraryFolders.Count > 0;
+    public bool HasNewLibraryFolders => LibraryFolders.Any(f => f.IsNew);
+
+    private bool _importNow = true;
+    private bool _importStarted;
+
+    /// <summary>Start importing the new library folders when Next is pressed (background, default on).</summary>
+    public bool ImportNow { get => _importNow; set => SetProperty(ref _importNow, value); }
+
+    /// <summary>This wizard run already started the import (Done then doesn't offer "Scan now").</summary>
+    public bool ImportStarted
+    {
+        get => _importStarted;
+        private set
+        {
+            if (SetProperty(ref _importStarted, value)) OnPropertyChanged(nameof(CanChooseImportNow));
+        }
+    }
+
+    public bool CanChooseImportNow => HasNewLibraryFolders && !ImportStarted;
 
     /// <summary>Library folders this run added (the Done page offers "Scan now" for them).</summary>
     public int AddedLibraryFolderCount
@@ -242,6 +263,8 @@ public sealed class FoldersStepViewModel : SetupStepViewModel
             ErrorMessage = "Your existing library folders couldn't be loaded. New folders can still be added.";
         }
         OnPropertyChanged(nameof(HasLibraryFolders));
+        OnPropertyChanged(nameof(HasNewLibraryFolders));
+        OnPropertyChanged(nameof(CanChooseImportNow));
     }
 
     /// <summary>Adds a library folder chosen in a picker (also used by tests).</summary>
@@ -263,6 +286,8 @@ public sealed class FoldersStepViewModel : SetupStepViewModel
         }
         LibraryFolders.Add(new SetupLibraryFolderItem(path, watch: true, isExisting: false, remove: item => RemoveLibraryFolderCommand.Execute(item)));
         OnPropertyChanged(nameof(HasLibraryFolders));
+        OnPropertyChanged(nameof(HasNewLibraryFolders));
+        OnPropertyChanged(nameof(CanChooseImportNow));
         return true;
     }
 
@@ -317,6 +342,14 @@ public sealed class FoldersStepViewModel : SetupStepViewModel
             var confirmed = LibraryFolders.Select(f => new LibraryFolderSetupEntry(f.Path, f.Watch)).ToList();
             if (confirmed.Count > 0)
                 AddedLibraryFolderCount += await _libraryFolders.AddAsync(confirmed);
+            // "Import now": the import runs in the background (activity chip) while the wizard
+            // carries on; rows show up in the Library as each batch lands.
+            if (ImportNow && LibraryFolders.Any(f => f.IsNew) && !ImportStarted)
+            {
+                _libraryFolders.StartBackgroundScan();
+                ImportStarted = true;
+                _logger.LogInformation("Setup: library import started in the background from the Folders step");
+            }
             DownloadCheck = _folders.Check(download);
             return true;
         }

@@ -195,7 +195,8 @@ public sealed record ProviderStatusSnapshot(
 public sealed record EnrichmentProgress(
     bool IsRunning,
     bool IsPaused,
-    bool IsWaitingForAnalysis,
+    /// <summary>The analysis queue has work, so enrichment runs one track at a time.</summary>
+    bool IsSlowedForAnalysis,
     int Total,
     int Done,
     int Enriched,

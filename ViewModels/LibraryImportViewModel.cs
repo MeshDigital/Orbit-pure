@@ -350,6 +350,12 @@ public sealed class LibraryImportViewModel : INotifyPropertyChanged, IDisposable
         return Task.FromResult(true);
     }
 
+    public Task<bool> StartBackgroundImportAsync(IReadOnlyList<Guid>? folderIds = null, string? title = null)
+    {
+        if (!IsOpen) IsInBackground = true; // BeginRun keeps a background run in the background
+        return StartImportAsync(folderIds, title);
+    }
+
     public async Task<LibraryImportResult?> RunImportAsync(IReadOnlyList<Guid>? folderIds = null, string? title = null)
     {
         if (_disposed) return null;
@@ -469,7 +475,7 @@ public sealed class LibraryImportViewModel : INotifyPropertyChanged, IDisposable
 
         if (IsInBackground)
         {
-            Toast(SummaryTitle, SummaryLine + " Click the import chip in the top bar for the summary.",
+            Toast(SummaryTitle, SummaryLine + " Open the summary from the activity chip in the top bar.",
                 result.Error != null ? NotificationType.Error : NotificationType.Success);
         }
 

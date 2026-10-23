@@ -1384,29 +1384,55 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
     internal void OnMetadataUpdated(Models.TrackMetadataUpdatedEvent evt)
     {
         if (evt.TrackGlobalId != GlobalId) return;
-        
-        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+        _ = RefreshFromLibraryAsync(reloadTechnical: true);
+    }
+
+    /// <summary>
+    /// Re-reads this row and applies it. The query runs off the UI thread (Sqlite's "async"
+    /// calls run synchronously on the caller, and this used to run inside
+    /// Dispatcher.UIThread.InvokeAsync, so every enrichment/analysis update of a visible row was a
+    /// blocking query on the UI thread). Collections that refresh many rows at once use
+    /// <see cref="ApplyRefreshed"/> with one batched query instead.
+    /// <para>
+    /// GetPagedPlaylistTracksAsync routes "All Tracks" rows (PlaylistId == Guid.Empty, no real
+    /// PlaylistTracks row) to the LibraryEntries adapter, so one single-hash query covers both.
+    /// </para>
+    /// </summary>
+    internal async Task RefreshFromLibraryAsync(bool reloadTechnical)
+    {
+        try
         {
+            PlaylistTrack? updated = null;
+            if (_libraryService != null)
+            {
+                var playlistId = Model.PlaylistId;
+                var hash = GlobalId;
+                var refetched = await Task.Run(() => _libraryService.GetPagedPlaylistTracksAsync(playlistId, 0, 1, hashFilter: new[] { hash })).ConfigureAwait(false);
+                updated = refetched.FirstOrDefault();
+            }
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => ApplyRefreshed(updated, reloadTechnical));
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "Re-reading row {GlobalId} after a metadata update failed", GlobalId);
+        }
+    }
+
+    /// <summary>
+    /// Applies freshly read track data in place (UI thread). <paramref name="reloadTechnical"/>
+    /// also reloads waveform/cue data, which only analysis changes; enrichment updates
+    /// (cover, album, label, genre) skip that query.
+    /// </summary>
+    internal void ApplyRefreshed(PlaylistTrack? updatedTrack, bool reloadTechnical = true)
+    {
+        if (_isDisposed) return;
           try
           {
              _isAnalyzing = false; // Clear analyzing flag
-
-             // Reload track data from database to get updated metadata.
-             // GetPlaylistTrackByHashAsync queries the real PlaylistTracks table scoped by
-             // PlaylistId — but "All Tracks" rows carry the synthetic sentinel PlaylistId ==
-             // Guid.Empty (TrackRepository.GetPagedAllTracksAsync), which no real PlaylistTracks
-             // row ever has, so that lookup always returned null there — refresh silently no-op'd
-             // for the primary Library browsing mode. GetPagedPlaylistTracksAsync already knows
-             // how to route Guid.Empty to the LibraryEntries-backed adapter instead, so reuse it
-             // with a single-hash filter rather than duplicating that routing here.
-             if (_libraryService != null)
              {
-                 var refetched = await _libraryService.GetPagedPlaylistTracksAsync(
-                     Model.PlaylistId, 0, 1, hashFilter: new[] { GlobalId });
-                 var updatedTrack = refetched.FirstOrDefault();
-
                  if (updatedTrack != null)
                  {
+                     var previousArtwork = _artwork == null ? null : Model.AlbumArtUrl;
                      // Update model with fresh data
                      Model.AlbumArtUrl = updatedTrack.AlbumArtUrl;
                      Model.SpotifyTrackId = updatedTrack.SpotifyTrackId;
@@ -1466,8 +1492,10 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
                      Model.TruePeak = updatedTrack.TruePeak;
                      Model.DynamicRange = updatedTrack.DynamicRange;
                      
-                      // Load artwork if URL is available
-                      if (!string.IsNullOrWhiteSpace(updatedTrack.AlbumArtUrl))
+                      // New artwork only when the source changed: rebuilding the proxy for every
+                      // refresh re-decoded the same cover and flashed the row on each update.
+                      if (!string.IsNullOrWhiteSpace(updatedTrack.AlbumArtUrl) &&
+                          !string.Equals(previousArtwork, updatedTrack.AlbumArtUrl, StringComparison.Ordinal))
                       {
                           // Refresh proxy
                           _artwork = new ArtworkProxy(_artworkCacheService!, updatedTrack.AlbumArtUrl);
@@ -1562,8 +1590,11 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
              // CRITICAL: Reload technical data (waveforms) from TechnicalDetails table. The
              // loaded-once guard has to be reset first — otherwise this call returned instantly
              // and cues/energy curve stayed at their pre-analysis values until an app restart.
-             _technicalDataLoaded = false;
-             _ = LoadTechnicalDataAsync();
+             if (reloadTechnical)
+             {
+                 _technicalDataLoaded = false;
+                 _ = LoadTechnicalDataAsync();
+             }
              OnPropertyChanged(nameof(Duration));
 
              OnPropertyChanged(nameof(LoudnessDisplay));
@@ -1594,13 +1625,10 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
           }
           catch (Exception ex)
           {
-              // This whole handler runs fire-and-forget from Dispatcher.UIThread.InvokeAsync
-              // (OnMetadataUpdated itself doesn't await it) — an unobserved exception here used
-              // to vanish silently, permanently leaving the Inspector showing stale/pre-analysis
-              // data with no error anywhere to explain why.
+              // Callers fire and forget; an unobserved exception here used to vanish silently,
+              // permanently leaving the Inspector showing stale/pre-analysis data.
               Serilog.Log.Warning(ex, "OnMetadataUpdated refresh failed for track {GlobalId}", GlobalId);
           }
-        });
     }
 
     internal void OnStateChanged(TrackStateChangedEvent evt)

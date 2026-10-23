@@ -59,6 +59,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>The folder import sheet / top-bar chip (Library folders, Settings and setup "Scan now").</summary>
     public SLSKDONET.ViewModels.LibraryImportViewModel? Import { get; }
+
+    /// <summary>The one background-activity chip (import, analysis, enrichment, loudness).</summary>
+    public SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? Activity { get; }
     public HomeViewModel HomeViewModel { get; }
     public TimelineViewModel TimelineViewModel { get; }
     public StatusBarViewModel StatusBar { get; }
@@ -124,7 +127,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         PerformanceTracker perfTracker,
         FlowBuilderViewModel flowBuilderViewModel,
         SLSKDONET.ViewModels.Setup.SetupShellViewModel? setup = null,
-        SLSKDONET.ViewModels.LibraryImportViewModel? import = null)
+        SLSKDONET.ViewModels.LibraryImportViewModel? import = null,
+        SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? activity = null)
 
     {
         _logger = logger;
@@ -149,6 +153,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         Sidebar = sidebarViewModel;
         Setup = setup;
         Import = import;
+        Activity = activity;
         _rightPanelService = rightPanelService;
         PerfTracker = perfTracker;
 
