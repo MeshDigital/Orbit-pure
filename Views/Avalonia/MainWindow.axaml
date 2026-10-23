@@ -238,19 +238,9 @@
 
                 <!-- Right: activity counts + notifications + settings -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
-                    <!-- Folder import running in the background (or finished there): click for the sheet. -->
-                    <Button Classes="ghost small" Command="{Binding Import.ShowSheetCommand}"
-                            IsVisible="{Binding Import.IsChipVisible, FallbackValue=False}"
-                            ToolTip.Tip="Library import: click to see progress or the summary">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Ellipse Classes="status-dot accent pulse_amber" IsVisible="{Binding Import.ChipIsRunning, FallbackValue=False}"/>
-                            <PathIcon Data="{StaticResource icon_check}" Width="12" Height="12" Foreground="{StaticResource BrushSuccess}"
-                                      IsVisible="{Binding !Import.ChipIsRunning, FallbackValue=False}"/>
-                            <TextBlock Classes="mono" Text="{Binding Import.ChipText, FallbackValue=''}" VerticalAlignment="Center"/>
-                            <ProgressBar Classes="meter" Width="64" Maximum="100" Value="{Binding Import.ChipProgressValue, FallbackValue=0}"
-                                         IsVisible="{Binding Import.ChipIsRunning, FallbackValue=False}"/>
-                        </StackPanel>
-                    </Button>
+                    <!-- Background activity: import, analysis, enrichment, loudness in one chip + flyout
+                         (replaces the import sheet's own "Run in background" chip). -->
+                    <controls:BackgroundActivityChip DataContext="{Binding Activity}"/>
                     <StackPanel Classes="stat" Orientation="Horizontal" Spacing="5" ToolTip.Tip="Downloads: in progress / failed">
                         <PathIcon Data="{StaticResource icon_download}"/>
                         <TextBlock Text="{Binding TodoCount}"/>

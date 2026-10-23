@@ -954,6 +954,13 @@ public partial class App : Application
         });
         services.AddSingleton<ViewModels.EnrichmentViewModel>();
         services.AddSingleton<ViewModels.MetadataSourcesSettingsViewModel>();
+        // The one background-activity chip/flyout (top bar + setup wizard header).
+        services.AddSingleton(sp => new ViewModels.Activity.BackgroundActivityHubViewModel(
+            sp.GetRequiredService<IEventBus>(),
+            sp.GetService<ViewModels.LibraryImportViewModel>(),
+            new ViewModels.Activity.OrchestratorEnrichmentActivityControl(sp.GetRequiredService<Services.Enrichment.MetadataEnrichmentOrchestrator>()),
+            page => sp.GetRequiredService<INavigationService>().NavigateTo(page),
+            sp.GetService<ILogger<ViewModels.Activity.BackgroundActivityHubViewModel>>()));
 
         // ── Task 1.5: Beatgrid Detection ──────────────────────────────────
         services.AddSingleton<Services.AudioAnalysis.BeatgridDetectionService>();
