@@ -774,6 +774,7 @@ public partial class App : Application
         services.AddSingleton<Services.Setup.ILibraryFolderSetupGateway, Services.Setup.LibraryFolderSetupGateway>();
         services.AddSingleton<Services.Setup.ISpotifySetupGateway, ViewModels.Setup.SettingsSpotifySetupGateway>();
         services.AddSingleton<Services.Setup.IAudioSetupGateway, ViewModels.Setup.SettingsAudioSetupGateway>();
+        services.AddSingleton<Services.Setup.ISetupEnrichmentGateway, Services.Setup.EnrichmentSetupGateway>();
         services.AddSingleton<Services.Setup.FirstRunCoordinator>();
         services.AddTransient<ViewModels.Setup.SetupWizardViewModel>();
         services.AddSingleton(sp => new ViewModels.Setup.SetupShellViewModel(
@@ -787,6 +788,7 @@ public partial class App : Application
             {
                 sp.GetRequiredService<ConnectionViewModel>().ReloadFromConfig();
                 sp.GetRequiredService<SettingsViewModel>().RefreshFromConfig();
+                sp.GetRequiredService<ViewModels.MetadataSourcesSettingsViewModel>().RefreshFromConfig();
             },
             notifications: sp.GetService<INotificationService>()));
         services.AddSingleton<BulkOperationViewModel>();

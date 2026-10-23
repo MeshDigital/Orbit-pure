@@ -51,20 +51,30 @@ public sealed class SetupWizardViewModel : SetupObservable, IDisposable
         ISpotifySetupGateway spotify,
         IAudioSetupGateway audio,
         ILogger<SetupWizardViewModel> logger,
-        INotificationService? notifications = null)
+        INotificationService? notifications = null,
+        ISetupEnrichmentGateway? enrichment = null,
+        SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? activity = null,
+        Action<Action>? postToUi = null)
     {
         _state = state;
         _notifications = notifications;
         _logger = logger;
+        Activity = activity;
 
         Welcome = new WelcomeStepViewModel();
         Soulseek = new SoulseekStepViewModel(soulseek, logger);
         Folders = new FoldersStepViewModel(settings, libraryFolders, folders, folderPicker, logger);
         Connections = new ConnectionsStepViewModel(spotify, logger);
+        Metadata = enrichment == null ? null : new MetadataStepViewModel(enrichment, logger, postToUi);
         Audio = new AudioStepViewModel(audio, settings, logger);
-        Done = new DoneStepViewModel(libraryFolders);
+        Done = new DoneStepViewModel(libraryFolders) { Metadata = Metadata, Activity = activity };
 
-        Steps = new ReadOnlyCollection<SetupStepViewModel>(new SetupStepViewModel[] { Welcome, Soulseek, Folders, Connections, Audio, Done });
+        // Metadata comes after Connections: its Spotify row shows the state that step left.
+        var steps = new List<SetupStepViewModel> { Welcome, Soulseek, Folders, Connections };
+        if (Metadata != null) steps.Add(Metadata);
+        steps.Add(Audio);
+        steps.Add(Done);
+        Steps = new ReadOnlyCollection<SetupStepViewModel>(steps);
         Indicators = new ReadOnlyCollection<SetupStepIndicator>(Steps.Select((s, i) => new SetupStepIndicator(i + 1, s)).ToList());
 
         _nextCommand = new AsyncRelayCommand(NextAsync, () => !IsBusy && !IsLast);
@@ -90,6 +100,12 @@ public sealed class SetupWizardViewModel : SetupObservable, IDisposable
     public ConnectionsStepViewModel Connections { get; }
     public AudioStepViewModel Audio { get; }
     public DoneStepViewModel Done { get; }
+
+    /// <summary>"Metadata and artwork" (null when the app has no enrichment pipeline, e.g. tests).</summary>
+    public MetadataStepViewModel? Metadata { get; }
+
+    /// <summary>The background-activity chip shown in the wizard header (import, enrichment, analysis).</summary>
+    public SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? Activity { get; }
 
     public IReadOnlyList<SetupStepViewModel> Steps { get; }
     public IReadOnlyList<SetupStepIndicator> Indicators { get; }
@@ -232,6 +248,7 @@ public sealed class SetupWizardViewModel : SetupObservable, IDisposable
         if (Steps[index] == Done)
         {
             Done.NewLibraryFolderCount = Folders.AddedLibraryFolderCount;
+            if (Folders.ImportStarted) Done.MarkScanStarted();
             Done.SetSummary(Steps.Where(s => s.AppearsInSummary)
                 .Select(s => new SetupSummaryItem(s.SummaryTitle, s.SummaryDetail, s.Status == SetupStepStatus.Configured
                                                                                    || (s == Connections && Connections.IsSpotifyConnected))));
@@ -303,5 +320,7 @@ public sealed class SetupWizardViewModel : SetupObservable, IDisposable
     {
         Soulseek.Dispose();
         Connections.Dispose();
+        // Only the step's subscriptions: a running import or enrichment keeps going.
+        Metadata?.Dispose();
     }
 }

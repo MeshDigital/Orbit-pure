@@ -49,6 +49,12 @@ public interface ILibraryFolderSetupGateway
 
     /// <summary>Imports every Library Source through the import sheet (phases, progress, summary).</summary>
     void StartScan();
+
+    /// <summary>
+    /// The Folders step's "Import now": the same import, but it starts in the background
+    /// (activity chip) so the wizard carries on while it runs.
+    /// </summary>
+    void StartBackgroundScan() => StartScan();
 }
 
 public sealed record SetupFolderSettings(
@@ -95,4 +101,54 @@ public interface IAudioSetupGateway
     Task<FfmpegCheckResult> CheckFfmpegAsync();
     void OpenFfmpegDownloadPage();
     AnalysisModelStatus GetModelStatus();
+}
+
+/// <summary>One metadata source as the wizard's "Metadata & artwork" step shows it.</summary>
+public sealed record SetupMetadataSource(
+    string Name,
+    string DisplayName,
+    string Summary,
+    bool IsEnabled,
+    bool IsAlwaysOn,
+    bool IsExperimental,
+    SLSKDONET.Services.Enrichment.ProviderAvailability Availability);
+
+/// <summary>What the wizard confirms on Next (or before "Start now").</summary>
+public sealed record SetupEnrichmentChoice(
+    IReadOnlyCollection<string> EnabledSources,
+    bool AutoRun,
+    string? DiscogsToken,
+    string? AcoustIdKey);
+
+/// <summary>
+/// Metadata enrichment for the wizard: the same settings store as Settings → Connection →
+/// Metadata sources ([Enrichment] in config.ini, keys in the DPAPI credential store) and the
+/// same orchestrator as the Analysis page's Enrichment card.
+/// </summary>
+public interface ISetupEnrichmentGateway
+{
+    IReadOnlyList<SetupMetadataSource> GetSources();
+    bool AutoRun { get; }
+    bool HasDiscogsToken { get; }
+    bool HasAcoustIdKey { get; }
+    bool HasFpcalc { get; }
+
+    /// <summary>Saves the choice. Returns null, or why a key couldn't be stored (settings are still saved).</summary>
+    string? Save(SetupEnrichmentChoice choice);
+
+    /// <summary>Tracks in the library right now.</summary>
+    Task<int> CountLibraryTracksAsync();
+
+    /// <summary>Queues every track missing metadata and starts. Returns how many need it.</summary>
+    Task<int> StartAsync();
+    void Pause();
+    void Resume();
+    void OpenUrl(string url);
+    SLSKDONET.Services.Enrichment.EnrichmentProgress CurrentProgress();
+
+    /// <summary>Progress (any thread, already throttled by the orchestrator).</summary>
+    event EventHandler<SLSKDONET.Services.Enrichment.EnrichmentProgress>? ProgressChanged;
+
+    /// <summary>Rows were added to the library (an import batch landed or finished; any thread).</summary>
+    event EventHandler? LibraryChanged;
 }

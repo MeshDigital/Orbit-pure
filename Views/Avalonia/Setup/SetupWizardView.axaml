@@ -3,6 +3,8 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:setup="clr-namespace:SLSKDONET.ViewModels.Setup"
+             xmlns:activity="clr-namespace:SLSKDONET.ViewModels.Activity"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
              x:Class="SLSKDONET.Views.Avalonia.Setup.SetupWizardView"
              x:DataType="setup:SetupWizardViewModel"
@@ -75,18 +77,18 @@
 
     <Grid>
         <Border Classes="dialog" Padding="0"
-                Width="760" MaxWidth="{Binding $parent[Grid].Bounds.Width}"
+                Width="840" MaxWidth="{Binding $parent[Grid].Bounds.Width}"
                 MaxHeight="680" Margin="16"
                 HorizontalAlignment="Center" VerticalAlignment="Center">
             <Grid RowDefinitions="Auto,*,Auto">
 
                 <!-- ── Header: step indicator + Skip setup ───────────────────── -->
                 <Border Grid.Row="0" Padding="24,16" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
-                    <Grid ColumnDefinitions="*,Auto">
+                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
                         <ItemsControl ItemsSource="{Binding Indicators}" VerticalAlignment="Center">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <StackPanel Orientation="Horizontal" Spacing="16"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="12"/>
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
@@ -106,6 +108,8 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                        <!-- Import / enrichment started from a step keep running: the same chip as the top bar. -->
+                        <controls:BackgroundActivityChip Grid.Row="1" Grid.ColumnSpan="2" DataContext="{Binding Activity}" Margin="0,8,0,0" HorizontalAlignment="Right"/>
                         <Button Grid.Column="1" Classes="ghost small" Content="Skip setup"
                                 Command="{Binding RequestSkipSetupCommand}"
                                 ToolTip.Tip="Skip setup (Esc). You can run it again from Settings."/>
@@ -308,6 +312,16 @@
                                                            IsVisible="{Binding !HasLibraryFolders}"/>
                                             </Panel>
                                         </Border>
+                                        <Grid Classes="row" ColumnDefinitions="*,Auto" IsVisible="{Binding CanChooseImportNow}">
+                                            <StackPanel Classes="label">
+                                                <TextBlock Classes="body" Text="Import these folders when I press Next"/>
+                                                <TextBlock Classes="caption" Text="Runs in the background while you finish setup. Tracks appear in the Library as they are added; follow it from the activity chip."/>
+                                            </StackPanel>
+                                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding ImportNow, Mode=TwoWay}"
+                                                          AutomationProperties.Name="Import these folders when I press Next"/>
+                                        </Grid>
+                                        <TextBlock Classes="caption" IsVisible="{Binding ImportStarted}"
+                                                   Text="Importing in the background. Tracks appear in the Library as they are added."/>
                                     </StackPanel>
 
                                     <!-- Sharing -->
@@ -402,7 +416,140 @@
                                 </StackPanel>
                             </DataTemplate>
 
-                            <!-- 5. Audio and analysis -->
+                            <!-- 5. Metadata and artwork -->
+                            <DataTemplate DataType="setup:MetadataStepViewModel" x:DataType="setup:MetadataStepViewModel">
+                                <StackPanel Spacing="16">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="h2" Text="{Binding Title}"/>
+                                        <TextBlock Classes="body-sm" Foreground="{StaticResource BrushText1}" Text="{Binding Subtitle}"/>
+                                    </StackPanel>
+
+                                    <Border Classes="callout error" IsVisible="{Binding HasError}">
+                                        <TextBlock Classes="body-sm" Text="{Binding ErrorMessage}"/>
+                                    </Border>
+
+                                    <!-- Start now + live progress -->
+                                    <Border Classes="card">
+                                        <StackPanel Spacing="8">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <StackPanel Classes="label" Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                                    <TextBlock Classes="body" FontWeight="SemiBold" Text="Enrich your library now"/>
+                                                    <TextBlock Classes="caption" Text="{Binding StartHint}" IsVisible="{Binding !ShowProgress}"/>
+                                                    <TextBlock Classes="caption" Text="{Binding RunStatusText}" IsVisible="{Binding ShowProgress}"/>
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                    <Button Classes="secondary" Command="{Binding StartNowCommand}" IsVisible="{Binding !ShowProgress}">
+                                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                            <PathIcon Data="{StaticResource icon_play}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                                                            <TextBlock Text="Start now"/>
+                                                        </StackPanel>
+                                                    </Button>
+                                                    <Button Classes="secondary small" Command="{Binding StartNowCommand}"
+                                                            IsVisible="{Binding CanRunAgain}" Content="Run again"
+                                                            ToolTip.Tip="Queue tracks still missing metadata"/>
+                                                    <Button Classes="ghost small" Command="{Binding PauseCommand}" IsVisible="{Binding IsRunning}">
+                                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                                            <PathIcon Data="{StaticResource icon_pause}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                            <TextBlock Text="Pause"/>
+                                                        </StackPanel>
+                                                    </Button>
+                                                    <Button Classes="ghost small" Command="{Binding ResumeCommand}" IsVisible="{Binding IsPaused}">
+                                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                                            <PathIcon Data="{StaticResource icon_play}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                            <TextBlock Text="Resume"/>
+                                                        </StackPanel>
+                                                    </Button>
+                                                </StackPanel>
+                                            </Grid>
+                                            <StackPanel Spacing="4" IsVisible="{Binding ShowProgress}">
+                                                <ProgressBar Classes="meter thick" Maximum="100" Value="{Binding ProgressValue}"/>
+                                                <TextBlock Classes="caption mono" Text="{Binding ProgressText}"/>
+                                            </StackPanel>
+                                            <TextBlock Classes="caption warning" Text="{Binding StartMessage}" IsVisible="{Binding HasStartMessage}"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Sources -->
+                                    <StackPanel Classes="setup-section">
+                                        <TextBlock Classes="section" Text="SOURCES"/>
+                                        <Border Classes="card" Padding="4">
+                                            <ItemsControl ItemsSource="{Binding Sources}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="setup:SetupMetadataSourceItem" x:DataType="setup:SetupMetadataSourceItem">
+                                                        <Grid ColumnDefinitions="*,Auto,Auto" MinHeight="40" Margin="12,4">
+                                                            <StackPanel VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                                    <Ellipse Classes="status-dot" Classes.success="{Binding IsReady}" Classes.warning="{Binding NeedsSomething}" VerticalAlignment="Center"/>
+                                                                    <TextBlock Classes="body" FontWeight="SemiBold" Text="{Binding DisplayName}"/>
+                                                                    <Border Classes="fact" IsVisible="{Binding IsExperimental}" VerticalAlignment="Center"><TextBlock Text="Experimental"/></Border>
+                                                                    <Border Classes="fact" IsVisible="{Binding IsAlwaysOn}" VerticalAlignment="Center"><TextBlock Text="Always on"/></Border>
+                                                                </StackPanel>
+                                                                <TextBlock Classes="caption" Text="{Binding Summary}"/>
+                                                                <TextBlock Classes="caption mono" Text="{Binding LiveText}" IsVisible="{Binding HasLiveText}"/>
+                                                            </StackPanel>
+                                                            <TextBlock Grid.Column="1" Classes="caption" Text="{Binding StatusText}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                                            <ToggleSwitch Grid.Column="2" IsChecked="{Binding IsEnabled, Mode=TwoWay}" IsEnabled="{Binding CanToggle}"
+                                                                          VerticalAlignment="Center" AutomationProperties.Name="{Binding DisplayName}"/>
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </Border>
+                                    </StackPanel>
+
+                                    <!-- Keys -->
+                                    <StackPanel Classes="setup-section">
+                                        <TextBlock Classes="section" Text="KEYS (OPTIONAL)"/>
+                                        <Border Classes="card">
+                                            <StackPanel Spacing="12">
+                                                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                                                    <TextBlock Classes="caption" Text="Discogs token (stored encrypted for your Windows account)" Margin="0,0,0,4"/>
+                                                    <TextBox Grid.Row="1" Text="{Binding DiscogsToken, Mode=TwoWay}" Watermark="{Binding DiscogsWatermark}"
+                                                             PasswordChar="●" AutomationProperties.Name="Discogs token"/>
+                                                    <Button Grid.Row="1" Grid.Column="1" Classes="ghost small" Margin="8,0,0,0" Command="{Binding GetDiscogsTokenCommand}">
+                                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                                            <PathIcon Data="{StaticResource icon_open_external}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                            <TextBlock Text="Get a token"/>
+                                                        </StackPanel>
+                                                    </Button>
+                                                </Grid>
+                                                <Border Classes="divider"/>
+                                                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto">
+                                                    <TextBlock Classes="caption" Text="AcoustID API key" Margin="0,0,0,4"/>
+                                                    <TextBox Grid.Row="1" Text="{Binding AcoustIdKey, Mode=TwoWay}" Watermark="{Binding AcoustIdWatermark}"
+                                                             PasswordChar="●" AutomationProperties.Name="AcoustID API key"/>
+                                                    <Button Grid.Row="1" Grid.Column="1" Classes="ghost small" Margin="8,0,0,0" Command="{Binding GetAcoustIdKeyCommand}">
+                                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                                            <PathIcon Data="{StaticResource icon_open_external}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                            <TextBlock Text="Get a key"/>
+                                                        </StackPanel>
+                                                    </Button>
+                                                    <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                                                        <Ellipse Classes="status-dot" Classes.success="{Binding HasFpcalc}" Classes.warning="{Binding FpcalcMissing}" VerticalAlignment="Center"/>
+                                                        <TextBlock Classes="caption" VerticalAlignment="Center" Text="fpcalc (Chromaprint) found" IsVisible="{Binding HasFpcalc}"/>
+                                                        <TextBlock Classes="caption" VerticalAlignment="Center" IsVisible="{Binding FpcalcMissing}"
+                                                                   Text="fpcalc not found: put fpcalc.exe next to ORBIT.exe or on PATH."/>
+                                                        <Button Classes="ghost small" Command="{Binding GetFpcalcCommand}" IsVisible="{Binding FpcalcMissing}" Content="Get Chromaprint"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+
+                                    <Border Classes="card">
+                                        <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                            <StackPanel Classes="label">
+                                                <TextBlock Classes="body" Text="Enrich automatically after imports"/>
+                                                <TextBlock Classes="caption" Text="New folder imports and downloads get metadata in the background, after the import has added its rows."/>
+                                            </StackPanel>
+                                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoRun, Mode=TwoWay}"
+                                                          AutomationProperties.Name="Enrich automatically after imports"/>
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
+                            </DataTemplate>
+
+                            <!-- 6. Audio and analysis -->
                             <DataTemplate DataType="setup:AudioStepViewModel" x:DataType="setup:AudioStepViewModel">
                                 <StackPanel Spacing="24">
                                     <StackPanel Spacing="4">
@@ -529,7 +676,42 @@
                                         </Grid>
                                     </Border>
                                     <TextBlock Classes="caption" IsVisible="{Binding ScanStarted}"
-                                               Text="Scanning in the background. A notification says when it's done."/>
+                                               Text="Importing in the background. A notification says when it's done."/>
+
+                                    <!-- Start enrichment from here if it wasn't started on its step -->
+                                    <Border Classes="callout" IsVisible="{Binding Metadata.CanStart, FallbackValue=False}">
+                                        <Grid ColumnDefinitions="Auto,*,Auto">
+                                            <PathIcon Data="{StaticResource icon_wand}" Foreground="{StaticResource BrushAccent}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <TextBlock Grid.Column="1" Classes="body-sm" VerticalAlignment="Center"
+                                                       Text="Fill in cover art, album, label and genre for your library now."/>
+                                            <Button Grid.Column="2" Classes="secondary small" Content="Start enrichment" Margin="12,0,0,0"
+                                                    Command="{Binding Metadata.StartNowCommand, FallbackValue={x:Null}}"/>
+                                        </Grid>
+                                    </Border>
+
+                                    <!-- What keeps running after the wizard closes -->
+                                    <StackPanel Classes="setup-section" IsVisible="{Binding Activity.IsAnyRunning, FallbackValue=False}">
+                                        <TextBlock Classes="section" Text="RUNNING IN THE BACKGROUND"/>
+                                        <Border Classes="card" Padding="4">
+                                            <ItemsControl ItemsSource="{Binding Activity.Items, FallbackValue={x:Null}}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="activity:BackgroundActivityItemViewModel">
+                                                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" Margin="12,8" IsVisible="{Binding IsActive}">
+                                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                                <Ellipse Classes="status-dot accent pulse_amber" VerticalAlignment="Center"/>
+                                                                <TextBlock Classes="body" FontWeight="SemiBold" Text="{Binding Title}"/>
+                                                                <TextBlock Classes="caption" Text="{Binding Status}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                                            </StackPanel>
+                                                            <TextBlock Grid.Column="1" Classes="caption mono" Text="{Binding CountsText}" VerticalAlignment="Center"/>
+                                                            <ProgressBar Grid.Row="1" Grid.ColumnSpan="2" Classes="meter" Maximum="100" Margin="0,8,0,0"
+                                                                         Value="{Binding Progress}" IsIndeterminate="{Binding IsIndeterminate}"/>
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </Border>
+                                        <TextBlock Classes="caption" Text="{Binding Activity.HintText, FallbackValue=''}"/>
+                                    </StackPanel>
                                     <TextBlock Classes="caption" Text="Run setup again or take the tour any time from Settings → Advanced → Setup."/>
                                 </StackPanel>
                             </DataTemplate>

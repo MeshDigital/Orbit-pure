@@ -347,11 +347,18 @@ public sealed class LibraryFolderSetupGateway : ILibraryFolderSetupGateway
     }
 
     /// <summary>"Scan now" opens the import sheet (over the wizard) for every Library Source.</summary>
-    public void StartScan()
+    public void StartScan() => Start(background: false);
+
+    /// <summary>The Folders step's "Import now": runs in the background so the wizard carries on.</summary>
+    public void StartBackgroundScan() => Start(background: true);
+
+    private void Start(bool background)
     {
         if (_importLauncher != null)
         {
-            _ = _importLauncher.StartImportAsync(null, "Importing your music");
+            _ = background
+                ? _importLauncher.StartBackgroundImportAsync(null, "Importing your music")
+                : _importLauncher.StartImportAsync(null, "Importing your music");
             return;
         }
 

@@ -365,6 +365,17 @@ public sealed class DoneStepViewModel : SetupStepViewModel
 
     public ICommand ScanNowCommand { get; }
 
+    /// <summary>The Metadata step, for "Start now" from here (null without an enrichment pipeline).</summary>
+    public MetadataStepViewModel? Metadata { get; init; }
+    public bool HasMetadata => Metadata != null;
+
+    /// <summary>What is running in the background right now (live counts), and where to follow it.</summary>
+    public SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? Activity { get; init; }
+    public bool HasActivity => Activity != null;
+
+    /// <summary>The Folders step already started the import in the background.</summary>
+    public void MarkScanStarted() => ScanStarted = true;
+
     public int NewLibraryFolderCount
     {
         get => _newLibraryFolderCount;
