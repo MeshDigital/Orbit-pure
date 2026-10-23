@@ -80,7 +80,7 @@ public sealed class SetupMetadataSourceItem : SetupObservable
         LiveText = s.Availability switch
         {
             ProviderAvailability.Disabled => "Disabled",
-            ProviderAvailability.NeedsKey or ProviderAvailability.NeedsTool or ProviderAvailability.NotConnected => "Skipped · " + StatusText.ToLowerInvariant(),
+            ProviderAvailability.NeedsKey or ProviderAvailability.NeedsTool or ProviderAvailability.NotConnected => "Skipped: " + StatusText,
             ProviderAvailability.Blocked => "Switched off · " + (s.LastError ?? "access denied"),
             _ when s.IsCircuitOpen && s.OpenUntilUtc is { } until => $"Paused for its rate limit · resumes {until.ToLocalTime():HH:mm:ss}",
             _ when s.Requests == 0 => "Waiting",
