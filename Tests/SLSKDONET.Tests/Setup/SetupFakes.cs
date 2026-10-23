@@ -63,6 +63,9 @@ internal sealed class FakeLibraryFolders : ILibraryFolderSetupGateway
     }
 
     public void StartScan() => Scans++;
+
+    public int BackgroundScans { get; private set; }
+    public void StartBackgroundScan() => BackgroundScans++;
 }
 
 internal sealed class FakeSpotify : ISpotifySetupGateway
