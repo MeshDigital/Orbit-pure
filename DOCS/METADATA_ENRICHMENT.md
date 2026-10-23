@@ -74,7 +74,14 @@ Order and on/off live in config.ini `[Enrichment]` (`ProviderOrder`, `EnabledPro
 - Triggers: `LibraryImportCompletedEvent` (priority 1), `FileIngestionCompletedEvent` for
   downloads (priority 2), manual "Enrich library" (priority 0, every track missing metadata).
   The automatic ones follow the "Enrich new tracks automatically" switch.
-- 4 tracks in flight (1 while audio plays); waits while the analysis queue has work.
+- 4 tracks in flight; 2 while a folder import is adding rows; 1 while audio plays or the
+  analysis queue has work (it used to stop for the whole analysis run).
+- A run that is active when an import commits a batch (`LibraryEntriesAddedEvent`) queues
+  those rows too; the import's completion trigger skips tracks finished in the last 7 days.
+- The write re-reads the row in one IMMEDIATE transaction and fills only fields still empty
+  at that moment; provenance only for fields really written. Busy/locked writes are retried.
+- Also started from the setup wizard's "Metadata and artwork" step (DOCS/FIRST_RUN_SETUP.md);
+  progress in the top-bar activity chip.
 - Publishes `TracksEnrichedEvent` in batches (≤ 1.5 s or 25 tracks); `VirtualizedTrackCollection`
   refreshes just the materialised rows, so covers appear in place. Progress: `EnrichmentProgressEvent`.
 
