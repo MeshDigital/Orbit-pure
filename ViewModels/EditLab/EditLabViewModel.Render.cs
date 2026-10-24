@@ -9,6 +9,7 @@ using ReactiveUI;
 using SLSKDONET.Models.EditLab;
 using SLSKDONET.Services.EditLab;
 using SLSKDONET.Views;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels.EditLab;
 
@@ -45,7 +46,7 @@ public sealed partial class EditLabViewModel
 
     public string RenderSummary =>
         Editor.Project.BaseSource is { } b
-            ? $"\"{b.Title} (ORBIT Edit)\" by {(string.IsNullOrWhiteSpace(b.Artist) ? "ORBIT Edit Lab" : b.Artist)}, {Editor.Project.Bpm:0.##} BPM{(Editor.Project.Key is { } k ? ", " + k : "")}"
+            ? NumFormat.Ui($"\"{b.Title} (ORBIT Edit)\" by {(string.IsNullOrWhiteSpace(b.Artist) ? "ORBIT Edit Lab" : b.Artist)}, {Editor.Project.Bpm:0.##} BPM{(Editor.Project.Key is { } k ? ", " + k : "")}")
             : "Add a base track first.";
 
     public ReactiveCommand<Unit, Unit> RenderCommand { get; private set; } = null!;

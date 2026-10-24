@@ -1138,7 +1138,7 @@
                                         <StackPanel Grid.Column="1" Orientation="Horizontal">
                                             <Slider Width="140" Minimum="0.5" Maximum="2.0" VerticalAlignment="Center"
                                                     Value="{Binding WaveformGain, Mode=TwoWay}"/>
-                                            <TextBlock Classes="mono unit" Text="{Binding WaveformGain, StringFormat={}{0:0.0}x}"/>
+                                            <TextBlock Classes="mono unit" Text="{Binding WaveformGain, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:0.0}x'}"/>
                                         </StackPanel>
                                     </Grid>
                                     <Border Classes="divider"/>

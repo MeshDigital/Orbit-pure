@@ -84,7 +84,7 @@
                                 <StackPanel Grid.Row="1" Spacing="8" Margin="0,8">
                                     <Grid ColumnDefinitions="*,Auto">
                                         <TextBlock Grid.Column="0" Classes="display mono" FontFamily="{StaticResource FontMono}"
-                                                   Text="{Binding PurityPercent, StringFormat='{}{0:F1}%'}"/>
+                                                   Text="{Binding PurityPercent, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:F1}%'}"/>
                                         <TextBlock Grid.Column="1" Classes="caption" Text="{Binding PurityStatus}" VerticalAlignment="Bottom" Margin="0,0,0,4"/>
                                     </Grid>
                                     <ProgressBar Classes="meter thick" Value="{Binding PurityPercent}" Maximum="100"/>
@@ -162,7 +162,7 @@
                                     </StackPanel>
                                     <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,8,0,0">
                                         <TextBlock Classes="stat-label" Text="CPU load"/>
-                                        <TextBlock Classes="mono" Foreground="{StaticResource BrushText0}" Text="{Binding CurrentCpuLoad, StringFormat={}{0:P0}}"/>
+                                        <TextBlock Classes="mono" Foreground="{StaticResource BrushText0}" Text="{Binding CurrentCpuLoad, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                     </StackPanel>
                                     <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,8,0,0">
                                         <TextBlock Classes="stat-label" Text="Spotify"/>

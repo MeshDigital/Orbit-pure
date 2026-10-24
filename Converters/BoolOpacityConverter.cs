@@ -21,11 +21,11 @@ public class BoolOpacityConverter : IValueConverter
                 var parts = paramStr.Split(';');
                 if (parts.Length >= 2)
                 {
-                    double.TryParse(parts[0], NumberStyles.Any, culture, out activeOpacity);
-                    double.TryParse(parts[1], NumberStyles.Any, culture, out inactiveOpacity);
+                    double.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out activeOpacity);
+                    double.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out inactiveOpacity);
                 }
             }
-            else if (parameter is string singleParam && double.TryParse(singleParam, NumberStyles.Any, culture, out var parsed))
+            else if (parameter is string singleParam && double.TryParse(singleParam, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
             {
                 inactiveOpacity = parsed;
             }

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Avalonia.Media.Imaging;
 using ReactiveUI;
 using SLSKDONET.Services;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -73,7 +74,7 @@ public sealed class ChatMessageViewModel : ReactiveObject
     public long ImageSizeBytes { get; }
 
     public string ImageSizeDisplay => ImageSizeBytes >= 1024 * 1024
-        ? $"{ImageSizeBytes / 1024.0 / 1024.0:F1} MB"
+        ? NumFormat.Ui($"{ImageSizeBytes / 1024.0 / 1024.0:F1} MB")
         : $"{Math.Max(1, ImageSizeBytes / 1024)} KB";
 
     private Bitmap? _image;

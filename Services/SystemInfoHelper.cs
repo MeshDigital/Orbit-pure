@@ -1,4 +1,5 @@
 using System;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services;
 
@@ -94,7 +95,7 @@ public static class SystemInfoHelper
     {
         var cores = Environment.ProcessorCount;
         var ramGB = GetTotalRamGB();
-        return $"{cores} cores, {ramGB:F1}GB RAM";
+        return NumFormat.Ui($"{cores} cores, {ramGB:F1}GB RAM");
     }
 
     /// <summary>

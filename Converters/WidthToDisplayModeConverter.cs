@@ -13,7 +13,7 @@ public class WidthToDisplayModeConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
-        if (value is double width && parameter is string paramStr && double.TryParse(paramStr, out var threshold))
+        if (value is double width && parameter is string paramStr && double.TryParse(paramStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var threshold))
         {
             return width < threshold ? SplitViewDisplayMode.Overlay : SplitViewDisplayMode.Inline;
         }

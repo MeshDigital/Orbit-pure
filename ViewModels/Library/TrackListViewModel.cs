@@ -20,6 +20,7 @@ using SLSKDONET.Data.Essentia;
 using SLSKDONET.Services.Audio;
 
 using System.Collections.Specialized;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels.Library;
 
@@ -2237,7 +2238,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
                     EscapeCsvField(track.SampleRateDisplay),
                     EscapeCsvField(track.DurationDisplay),
                     EscapeCsvField(track.FileSizeDisplay),
-                    EscapeCsvField(track.BPM.ToString("F2")),
+                    EscapeCsvField(track.BPM.ToString("F2", NumFormat.Culture)),
                     EscapeCsvField(track.MusicalKey),
                     EscapeCsvField(track.QualityScoreDisplay),
                     EscapeCsvField(track.IntegrityTooltip),

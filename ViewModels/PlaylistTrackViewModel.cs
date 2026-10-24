@@ -11,6 +11,7 @@ using SLSKDONET.Services;
 using SLSKDONET.Views; // For RelayCommand
 using SLSKDONET.Data; // For IntegrityLevel
 using SLSKDONET.Events;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -926,9 +927,9 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
             if (!string.IsNullOrEmpty(DetectedSubGenre)) list.Add($"Sub-Genre: {DetectedSubGenre}");
             if (!string.IsNullOrEmpty(PrimaryGenre)) list.Add($"Primary Genre: {PrimaryGenre}");
             if (!string.IsNullOrEmpty(MoodTag)) list.Add($"Mood: {MoodTag}");
-            if (Energy > 0) list.Add($"Energy: {Energy:P0}");
-            if (Valence > 0) list.Add($"Valence: {Valence:P0}");
-            if (Model.InstrumentalProbability > 0) list.Add($"Instrumental: {Model.InstrumentalProbability:P0}");
+            if (Energy > 0) list.Add(NumFormat.Ui($"Energy: {Energy:P0}"));
+            if (Valence > 0) list.Add(NumFormat.Ui($"Valence: {Valence:P0}"));
+            if (Model.InstrumentalProbability > 0) list.Add(NumFormat.Ui($"Instrumental: {Model.InstrumentalProbability:P0}"));
             
             return list.Count > 0 ? string.Join("\n", list) : "No AI analysis data";
         }
@@ -1043,7 +1044,7 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
     public string SpectralAnalysisDisplay => SpectralAnalysisAvailable ? "Analyzed" : "—";
 
     // Fix: LoudnessDisplay was previously incorrectly bound to QualityConfidence
-    public string ConfidenceDisplay => Model.QualityConfidence.HasValue ? $"{Model.QualityConfidence:P0} Confidence" : "—";
+    public string ConfidenceDisplay => Model.QualityConfidence.HasValue ? NumFormat.Ui($"{Model.QualityConfidence:P0} Confidence") : "—";
     
     public double MatchConfidence => (Model.QualityConfidence ?? 0) * 100;
     

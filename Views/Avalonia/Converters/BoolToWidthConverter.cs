@@ -12,7 +12,7 @@ public class BoolToWidthConverter : IValueConverter
         {
             if (boolValue)
             {
-                if (parameter is string paramStr && double.TryParse(paramStr, NumberStyles.Any, culture, out var width))
+                if (parameter is string paramStr && double.TryParse(paramStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var width))
                 {
                     return width;
                 }

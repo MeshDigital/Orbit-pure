@@ -9,6 +9,7 @@ using SLSKDONET.Configuration;
 using SLSKDONET.Models;
 using SLSKDONET.Services.Ranking;
 using SLSKDONET.ViewModels;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services;
 
@@ -953,7 +954,7 @@ public class DownloadDiscoveryService
                     var rawMatchScore = excluded.Metadata != null
                         && excluded.Metadata.TryGetValue("BlendMatchScore", out var raw)
                         && raw is double rawScore
-                            ? rawScore.ToString("F1")
+                            ? rawScore.ToString("F1", NumFormat.Culture)
                             : "unknown";
                     _auditLogger.LogSearchCandidate(trackHash, excluded.Username, excluded.Bitrate, excluded.Format, "EXCLUDED",
                         $"Textual match score too low ({rawMatchScore}/100, needs >=70 — treated as a different song/version, not just lower quality) | File: {excluded.Filename} | Breakdown: {excluded.ScoreBreakdown}");
@@ -1120,7 +1121,7 @@ public class DownloadDiscoveryService
             ? string.Empty
             : $"{matcherBreakdown}; ";
 
-        return $"{prefix}Blend: Match={matchScore:F1}, Fit={fitScore:F1}, Rel={reliability:F2}, Queue={queueLength}, Final={finalScore:F1}";
+        return NumFormat.Ui($"{prefix}Blend: Match={matchScore:F1}, Fit={fitScore:F1}, Rel={reliability:F2}, Queue={queueLength}, Final={finalScore:F1}");
     }
 
     private static void EnsureBlendTelemetryMetadata(Track track, double matchScore, double fitScore, double reliability, double finalScore)

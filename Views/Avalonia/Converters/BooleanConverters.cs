@@ -105,7 +105,7 @@ namespace SLSKDONET.Views.Avalonia.Converters
         {
             if (value is bool b && b)
             {
-                if (parameter != null && double.TryParse(parameter.ToString(), out double angle))
+                if (parameter != null && double.TryParse(parameter.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double angle))
                 {
                     return angle;
                 }

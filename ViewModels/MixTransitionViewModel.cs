@@ -15,6 +15,7 @@ using SLSKDONET.Services.Audio;
 using SLSKDONET.Services.Playlist;
 using SLSKDONET.Services.Repositories;
 using SLSKDONET.Services.Timeline;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -1162,7 +1163,7 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     public double IncomingRegionEndSeconds => TargetTriggerSeconds + TransitionWindowSeconds;
     public double OutgoingDurationSeconds => WaveformDataA?.DurationSeconds is > 0 and var d ? d : OutgoingTrack?.Model?.Duration ?? 0;
     public double IncomingDurationSeconds => WaveformDataB?.DurationSeconds is > 0 and var d ? d : IncomingTrack?.Model?.Duration ?? 0;
-    public string TransitionWindowDisplay => $"{TransitionWindowSeconds:0.0} s";
+    public string TransitionWindowDisplay => NumFormat.Seconds(TransitionWindowSeconds);
 
     private void RaiseRegionChanged()
     {
@@ -1175,9 +1176,9 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     public static double BeatSeconds(double bpm) => bpm > 0 ? 60.0 / bpm : 0.25;
 
     // ── Tempo ─────────────────────────────────────────────────────────────────────────────
-    /// <summary>Incoming tempo relative to outgoing, e.g. "+1.6 %".</summary>
+    /// <summary>Incoming tempo relative to outgoing, e.g. "+1.6%".</summary>
     public string TempoDeltaDisplay => OutgoingBpm > 0 && IncomingBpm > 0
-        ? ((IncomingBpm - OutgoingBpm) / OutgoingBpm * 100).ToString("+0.0;-0.0;0.0") + " %"
+        ? NumFormat.SignedPercent((IncomingBpm - OutgoingBpm) / OutgoingBpm * 100)
         : "-";
 
     /// <summary>More than 6 % apart: the preview (native tempo) will drift audibly.</summary>

@@ -9,8 +9,8 @@ public class NumericGreaterThanConverter : IValueConverter
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
         if (value != null && parameter != null && 
-            double.TryParse(value.ToString(), out double val) && 
-            double.TryParse(parameter.ToString(), out double target))
+            double.TryParse(System.Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double val) && 
+            double.TryParse(System.Convert.ToString(parameter, System.Globalization.CultureInfo.InvariantCulture), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double target))
         {
             return val > target;
         }

@@ -649,19 +649,19 @@
                                                         <Grid ColumnDefinitions="96,*,48" RowDefinitions="Auto,Auto,Auto,Auto">
                                                             <TextBlock Grid.Row="0" Classes="caption" Text="BPM confidence" IsVisible="{Binding HasMeasuredBpmConfidence}" VerticalAlignment="Center"/>
                                                             <ProgressBar Grid.Row="0" Grid.Column="1" Classes="meter" Maximum="1" Value="{Binding MeasuredBpmConfidence}" IsVisible="{Binding HasMeasuredBpmConfidence}" VerticalAlignment="Center"/>
-                                                            <TextBlock Grid.Row="0" Grid.Column="2" Classes="num" HorizontalAlignment="Right" Text="{Binding MeasuredBpmConfidence, StringFormat='{}{0:P0}'}" IsVisible="{Binding HasMeasuredBpmConfidence}"/>
+                                                            <TextBlock Grid.Row="0" Grid.Column="2" Classes="num" HorizontalAlignment="Right" Text="{Binding MeasuredBpmConfidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}" IsVisible="{Binding HasMeasuredBpmConfidence}"/>
 
                                                             <TextBlock Grid.Row="1" Classes="caption" Text="Key confidence" IsVisible="{Binding HasMeasuredKeyConfidence}" VerticalAlignment="Center"/>
                                                             <ProgressBar Grid.Row="1" Grid.Column="1" Classes="meter" Maximum="1" Value="{Binding MeasuredKeyConfidence}" IsVisible="{Binding HasMeasuredKeyConfidence}" VerticalAlignment="Center"/>
-                                                            <TextBlock Grid.Row="1" Grid.Column="2" Classes="num" HorizontalAlignment="Right" Text="{Binding MeasuredKeyConfidence, StringFormat='{}{0:P0}'}" IsVisible="{Binding HasMeasuredKeyConfidence}"/>
+                                                            <TextBlock Grid.Row="1" Grid.Column="2" Classes="num" HorizontalAlignment="Right" Text="{Binding MeasuredKeyConfidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}" IsVisible="{Binding HasMeasuredKeyConfidence}"/>
 
                                                             <TextBlock Grid.Row="2" Classes="caption" Text="Energy" IsVisible="{Binding HasMeasuredEnergy}" VerticalAlignment="Center"/>
                                                             <ProgressBar Grid.Row="2" Grid.Column="1" Classes="meter" Maximum="1" Value="{Binding MeasuredEnergy}" IsVisible="{Binding HasMeasuredEnergy}" VerticalAlignment="Center"/>
-                                                            <TextBlock Grid.Row="2" Grid.Column="2" Classes="num" HorizontalAlignment="Right" Text="{Binding MeasuredEnergy, StringFormat='{}{0:P0}'}" IsVisible="{Binding HasMeasuredEnergy}"/>
+                                                            <TextBlock Grid.Row="2" Grid.Column="2" Classes="num" HorizontalAlignment="Right" Text="{Binding MeasuredEnergy, Converter={StaticResource NumberConverter}, ConverterParameter=pct}" IsVisible="{Binding HasMeasuredEnergy}"/>
 
                                                             <TextBlock Grid.Row="3" Classes="caption" Text="Valence" IsVisible="{Binding HasMeasuredValence}" VerticalAlignment="Center"/>
                                                             <ProgressBar Grid.Row="3" Grid.Column="1" Classes="meter" Maximum="1" Value="{Binding MeasuredValence}" IsVisible="{Binding HasMeasuredValence}" VerticalAlignment="Center"/>
-                                                            <TextBlock Grid.Row="3" Grid.Column="2" Classes="num" HorizontalAlignment="Right" Text="{Binding MeasuredValence, StringFormat='{}{0:P0}'}" IsVisible="{Binding HasMeasuredValence}"/>
+                                                            <TextBlock Grid.Row="3" Grid.Column="2" Classes="num" HorizontalAlignment="Right" Text="{Binding MeasuredValence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}" IsVisible="{Binding HasMeasuredValence}"/>
                                                         </Grid>
 
                                                         <!-- Energy arc -->
@@ -714,7 +714,7 @@
                                                                         <Grid ColumnDefinitions="96,*,48" MinHeight="20">
                                                                             <TextBlock Classes="caption" Text="{Binding Label}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                                                                             <ProgressBar Grid.Column="1" Classes="meter" Maximum="1" Value="{Binding Confidence}" VerticalAlignment="Center"/>
-                                                                            <TextBlock Grid.Column="2" Classes="num" HorizontalAlignment="Right" Text="{Binding Confidence, StringFormat='{}{0:P0}'}"/>
+                                                                            <TextBlock Grid.Column="2" Classes="num" HorizontalAlignment="Right" Text="{Binding Confidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                                                         </Grid>
                                                                     </DataTemplate>
                                                                 </ItemsControl.ItemTemplate>

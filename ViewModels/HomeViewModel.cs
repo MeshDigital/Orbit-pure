@@ -15,6 +15,7 @@ using Avalonia.Threading;
 using SLSKDONET.Views;
 using System.Reactive.Linq;
 using System.Collections.Generic;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -1079,5 +1080,5 @@ public record EnergyBucketViewModel(string Label, int Count, double RelativeHeig
 /// PeerReliabilityService data that previously only ever reached the Users page.</summary>
 public record PeerLeaderboardEntry(string Username, double Score, long DownloadStarts)
 {
-    public string ScoreText => $"{Score:P0}";
+    public string ScoreText => NumFormat.Ui($"{Score:P0}");
 }

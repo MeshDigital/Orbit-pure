@@ -515,7 +515,7 @@
                                         Value="{Binding Pitch, Mode=TwoWay}"
                                         VerticalAlignment="Center"
                                         ToolTip.Tip="Pitch / tempo (double-click to reset)"/>
-                                <TextBlock Grid.Column="2" Classes="caption mono" Text="{Binding Pitch, StringFormat={}{0:P0}}"
+                                <TextBlock Grid.Column="2" Classes="caption mono" Text="{Binding Pitch, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"
                                            HorizontalAlignment="Right" VerticalAlignment="Center"/>
                             </Grid>
 
@@ -526,7 +526,7 @@
                                         Value="{Binding CrossfadeSeconds, Mode=TwoWay}"
                                         VerticalAlignment="Center"
                                         ToolTip.Tip="Crossfade overlap length in seconds"/>
-                                <TextBlock Grid.Column="2" Classes="caption mono" Text="{Binding CrossfadeSeconds, StringFormat={}{0:0.0}s}"
+                                <TextBlock Grid.Column="2" Classes="caption mono" Text="{Binding CrossfadeSeconds, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:0.0}s'}"
                                            HorizontalAlignment="Right" VerticalAlignment="Center"/>
                             </Grid>
                         </StackPanel>

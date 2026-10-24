@@ -28,6 +28,7 @@ using System.Reactive.Subjects;
 using System.Reactive.Linq;
 using SLSKDONET.Configuration;
 using System.Reactive.Disposables;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -764,7 +765,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                 var elapsedMs = Math.Max(1.0, (LastResultAtUtc.Value - windowStartAt).TotalMilliseconds);
                 ResultsPerSecond = Math.Round(batch.Count * 1000.0 / elapsedMs, 1);
                 windowStartAt = LastResultAtUtc.Value;
-                StatusText = $"Found {TotalResultsReceived} files from {PeersResponded} peers (streaming at {ResultsPerSecond:0.#} results/sec)";
+                StatusText = NumFormat.Ui($"Found {TotalResultsReceived} files from {PeersResponded} peers (streaming at {ResultsPerSecond:0.#} results/sec)");
             },
             ex => streamDrainTcs.TrySetException(ex),
             () => streamDrainTcs.TrySetResult());

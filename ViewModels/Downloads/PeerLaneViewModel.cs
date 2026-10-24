@@ -6,6 +6,7 @@ using System.Reactive.Linq;
 using DynamicData;
 using DynamicData.Binding;
 using ReactiveUI;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels.Downloads;
 
@@ -33,11 +34,7 @@ public class PeerLaneViewModel : ReactiveObject, IDisposable
 
     public int TrackCount => _tracks.Count;
 
-    public string SpeedDisplay => TotalSpeed > 1_048_576
-        ? $"{TotalSpeed / 1_048_576.0:F1} MB/s"
-        : TotalSpeed > 1024
-            ? $"{TotalSpeed / 1024.0:F0} KB/s"
-            : "—";
+    public string SpeedDisplay => TotalSpeed > 1024 ? NumFormat.Speed(TotalSpeed) : "—";
 
     public string TrackCountDisplay => TrackCount == 1 ? "1 track" : $"{TrackCount} tracks";
 

@@ -215,12 +215,12 @@
                             <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
                                 <TextBlock Classes="caption" Text="Energy" VerticalAlignment="Center"/>
                                 <ProgressBar Grid.Column="1" Classes="meter" Maximum="1" Value="{Binding Energy}"/>
-                                <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding Energy, StringFormat={}{0:P0}}"/>
+                                <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding Energy, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                             </Grid>
                             <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
                                 <TextBlock Classes="caption" Text="Danceability" VerticalAlignment="Center"/>
                                 <ProgressBar Grid.Column="1" Classes="meter" Maximum="1" Value="{Binding Danceability}"/>
-                                <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding Danceability, StringFormat={}{0:P0}}"/>
+                                <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding Danceability, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                             </Grid>
                         </StackPanel>
 
@@ -237,7 +237,7 @@
                                             <TextBlock Classes="caption" Text="{Binding Label}" Foreground="{StaticResource BrushText1}"
                                                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Label}"/>
                                             <ProgressBar Grid.Column="1" Classes="meter" Maximum="1" Value="{Binding Confidence}"/>
-                                            <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding Confidence, StringFormat={}{0:P0}}"/>
+                                            <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding Confidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                         </Grid>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
@@ -263,7 +263,7 @@
                                         <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
                                             <TextBlock Classes="caption" Text="{Binding Label}" Foreground="{StaticResource BrushText1}" VerticalAlignment="Center"/>
                                             <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding Confidence}"/>
-                                            <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding Confidence, StringFormat={}{0:P0}}"/>
+                                            <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding Confidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                         </Grid>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
@@ -277,22 +277,22 @@
                             <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
                                 <TextBlock Classes="caption" Text="Overall" VerticalAlignment="Center"/>
                                 <ProgressBar Grid.Column="1" Classes="meter" Maximum="1" Value="{Binding InspectorA10OverallScore}"/>
-                                <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding InspectorA10OverallScore, StringFormat={}{0:P0}}"/>
+                                <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding InspectorA10OverallScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                             </Grid>
                             <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
                                 <TextBlock Classes="caption" Text="Harmonic" VerticalAlignment="Center"/>
                                 <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding InspectorA10HarmonicScore}"/>
-                                <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding InspectorA10HarmonicScore, StringFormat={}{0:P0}}"/>
+                                <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding InspectorA10HarmonicScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                             </Grid>
                             <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
                                 <TextBlock Classes="caption" Text="Beat" VerticalAlignment="Center"/>
                                 <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding InspectorA10BeatScore}"/>
-                                <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding InspectorA10BeatScore, StringFormat={}{0:P0}}"/>
+                                <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding InspectorA10BeatScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                             </Grid>
                             <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
                                 <TextBlock Classes="caption" Text="Drop" VerticalAlignment="Center"/>
                                 <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding InspectorA10DropScore}"/>
-                                <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding InspectorA10DropScore, StringFormat={}{0:P0}}"/>
+                                <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding InspectorA10DropScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                             </Grid>
                             <TextBlock Classes="caption" Text="{Binding InspectorA10ReasonTags}" TextWrapping="Wrap"
                                        IsVisible="{Binding InspectorA10ReasonTags, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
@@ -310,13 +310,13 @@
                                 <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
                                     <TextBlock Classes="caption" Text="Beat grid" VerticalAlignment="Center"/>
                                     <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding BpmConfidence}"/>
-                                    <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding BpmConfidence, StringFormat={}{0:P0}}"/>
+                                    <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding BpmConfidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                 </Grid>
                                 <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
                                     <TextBlock Classes="caption" Text="{Binding DetectedVocalTypeDisplay}" VerticalAlignment="Center"
                                                ToolTip.Tip="Vocal density"/>
                                     <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding AudioVocalDensity}"/>
-                                    <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding AudioVocalDensity, StringFormat={}{0:P0}}"/>
+                                    <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding AudioVocalDensity, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                 </Grid>
                                 <StackPanel Spacing="4">
                                     <TextBlock Classes="caption" Text="Energy curve"/>

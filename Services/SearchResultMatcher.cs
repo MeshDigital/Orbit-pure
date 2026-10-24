@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using System.IO;
 using SLSKDONET.Configuration;
 using SLSKDONET.Models;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services;
 
@@ -321,7 +322,7 @@ public class SearchResultMatcher
 
         string breakdownStr = string.Join(", ", breakdown);
         string? rejection = null;
-        if (score < 40) rejection = $"Low match score ({score:F1}). Breakdown: {breakdownStr}";
+        if (score < 40) rejection = NumFormat.Ui($"Low match score ({score:F1}). Breakdown: {breakdownStr}");
 
         return new MatchResult(score, breakdownStr, rejection, score < 40 ? "Low Score" : null);
     }

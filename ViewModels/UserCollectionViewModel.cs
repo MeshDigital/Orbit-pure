@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using ReactiveUI;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -447,7 +448,7 @@ public sealed class UserCollectionFileNodeViewModel : UserCollectionNodeViewMode
             var parts = new List<string>();
             if (!string.IsNullOrWhiteSpace(Extension)) parts.Add(Extension);
             if (Bitrate > 0) parts.Add($"{Bitrate} kbps");
-            if (Track.SampleRate.HasValue) parts.Add($"{Track.SampleRate.Value / 1000.0:F1} kHz");
+            if (Track.SampleRate.HasValue) parts.Add(NumFormat.Ui($"{Track.SampleRate.Value / 1000.0:F1} kHz"));
             return string.Join(" • ", parts);
         }
     }

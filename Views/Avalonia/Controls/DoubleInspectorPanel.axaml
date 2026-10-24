@@ -95,22 +95,22 @@
                     <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
                         <TextBlock Classes="caption" Text="Overall" VerticalAlignment="Center"/>
                         <ProgressBar Grid.Column="1" Classes="meter" Maximum="1" Value="{Binding TransitionScore}"/>
-                        <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding TransitionScore, StringFormat={}{0:P0}}"/>
+                        <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding TransitionScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                     </Grid>
                     <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
                         <TextBlock Classes="caption" Text="Harmonic" VerticalAlignment="Center"/>
                         <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding HarmonicScore}"/>
-                        <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding HarmonicScore, StringFormat={}{0:P0}}"/>
+                        <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding HarmonicScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                     </Grid>
                     <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
                         <TextBlock Classes="caption" Text="Beat" VerticalAlignment="Center"/>
                         <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding BeatScore}"/>
-                        <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding BeatScore, StringFormat={}{0:P0}}"/>
+                        <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding BeatScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                     </Grid>
                     <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
                         <TextBlock Classes="caption" Text="Drop align" VerticalAlignment="Center"/>
                         <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding DropScore}"/>
-                        <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding DropScore, StringFormat={}{0:P0}}"/>
+                        <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding DropScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                     </Grid>
                     <TextBlock Classes="caption" Text="{Binding ReasonTags}" TextWrapping="Wrap"
                                IsVisible="{Binding ReasonTags, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>

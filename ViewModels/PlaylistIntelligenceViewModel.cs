@@ -15,6 +15,7 @@ using SLSKDONET.Services.Similarity;
 using SLSKDONET.Models.Musical;
 using SLSKDONET.Services.Library;
 using SLSKDONET.Services.Playlist;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -727,7 +728,7 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
         if (energies.Count > 0)
         {
             var avgEnergy = energies.Average();
-            avgEnergyDisplay = $"{avgEnergy * 10:0.0} / 10";
+            avgEnergyDisplay = NumFormat.Ui($"{avgEnergy * 10:0.0} / 10");
             avgEnergyPercent = Math.Clamp(avgEnergy * 100, 0, 100);
         }
         else

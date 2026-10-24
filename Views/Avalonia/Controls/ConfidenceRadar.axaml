@@ -20,7 +20,7 @@
             <TextBlock Text="{Binding Path=Label, RelativeSource={RelativeSource AncestorType=UserControl}}" 
                        Classes="caption" HorizontalAlignment="Center"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                <TextBlock Text="{Binding Path=Value, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat=\{0:P0\}}" 
+                <TextBlock Text="{Binding Path=Value, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource NumberConverter}, ConverterParameter=pct}" 
                            Classes="mono" FontWeight="SemiBold"/>
             </StackPanel>
         </StackPanel>

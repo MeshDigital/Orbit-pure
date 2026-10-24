@@ -3306,7 +3306,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     ctx.Model.Priority = 20; // LOW PRIORITY: Send retries to back of queue
                     var delayDesc = retryDelay.TotalSeconds < 60
                         ? $"{retryDelay.TotalSeconds:0}s"
-                        : $"{retryDelay.TotalMinutes:0.#}m";
+                        : NumFormat.Ui($"{retryDelay.TotalMinutes:0.#}m");
                     await UpdateStateAsync(ctx, PlaylistTrackState.Pending, $"Retrying in {delayDesc}: {transferDisposition.OperatorMessage}");
                     _logger.LogInformation("Scheduled retry #{Count} for {GlobalId} at {Time} (low priority, delay={Delay})",
                         ctx.RetryCount, ctx.GlobalId, ctx.NextRetryTime, delayDesc);
@@ -3437,13 +3437,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         await UpdateStateAsync(ctx, PlaylistTrackState.Downloading);
         _peerReliability.RecordDownloadStarted(bestMatch.Username);
 
-        static string FormatBytes(long value)
-        {
-            if (value >= 1024L * 1024L * 1024L) return $"{value / 1024d / 1024d / 1024d:F2} GB";
-            if (value >= 1024L * 1024L) return $"{value / 1024d / 1024d:F2} MB";
-            if (value >= 1024L) return $"{value / 1024d:F1} KB";
-            return $"{value} B";
-        }
+        static string FormatBytes(long value) => SLSKDONET.Utils.NumFormat.Size(value);
 
         _eventBus.Publish(new Events.TrackDetailedStatusEvent(
             ctx.GlobalId,

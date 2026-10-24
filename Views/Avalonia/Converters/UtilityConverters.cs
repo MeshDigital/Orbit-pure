@@ -66,7 +66,7 @@ namespace SLSKDONET.Views.Avalonia.Converters
     {
         public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         {
-            if (value is float vu && parameter is string paramStr && double.TryParse(paramStr, out var maxHeight))
+            if (value is float vu && parameter is string paramStr && double.TryParse(paramStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var maxHeight))
             {
                 // Simple linear scaling for now. In real DJ gear it's usually logarithmic.
                 return Math.Clamp(vu * maxHeight, 0, maxHeight);

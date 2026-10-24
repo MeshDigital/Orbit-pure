@@ -231,7 +231,7 @@ public sealed class BatchTagEditViewModel : ReactiveObject
     }
 
     /// <summary>True once a BPM value is present and parses as a valid positive number — gates Save so a typo can't silently no-op or write garbage.</summary>
-    public bool IsBpmValid => string.IsNullOrWhiteSpace(Bpm) || (double.TryParse(Bpm, out var bpm) && bpm > 0);
+    public bool IsBpmValid => string.IsNullOrWhiteSpace(Bpm) || (SLSKDONET.Utils.NumFormat.TryParse(Bpm, out var bpm) && bpm > 0);
 
     /// <summary>True unless TrackNumber is present and doesn't parse as a positive integer.</summary>
     public bool IsTrackNumberValid => string.IsNullOrWhiteSpace(TrackNumber) || (int.TryParse(TrackNumber, out var n) && n > 0);

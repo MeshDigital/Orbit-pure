@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using ReactiveUI;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels
 {
@@ -50,7 +51,7 @@ namespace SLSKDONET.ViewModels
         public int? SampleRate => _result.SampleRate;
         public int? BitDepth => _result.BitDepth;
 
-        public string SampleRateDisplay => SampleRate.HasValue ? $"{SampleRate.Value / 1000.0:0.#} kHz" : "";
+        public string SampleRateDisplay => SampleRate.HasValue ? NumFormat.Ui($"{SampleRate.Value / 1000.0:0.#} kHz") : "";
         public string BitDepthDisplay => BitDepth.HasValue ? $"{BitDepth.Value}-bit" : "";
         public string AudioQualityDisplay => string.Join(" / ", new[] { BitDepthDisplay, SampleRateDisplay }.Where(s => !string.IsNullOrEmpty(s)));
         public bool HasAudioQualityDisplay => AudioQualityDisplay.Length > 0;
@@ -97,7 +98,7 @@ namespace SLSKDONET.ViewModels
 
         // Formatted values
         public string DisplayLength => Length.HasValue ? TimeSpan.FromSeconds(Length.Value).ToString(@"m\:ss") : "—";
-        public string DisplaySize => Size > 0 ? $"{Size / 1024.0 / 1024.0:0.0} MB" : "—";
+        public string DisplaySize => Size > 0 ? NumFormat.Ui($"{Size / 1024.0 / 1024.0:0.0} MB") : "—";
 
         // Safety
         public bool IsFake { get; }
@@ -152,11 +153,7 @@ namespace SLSKDONET.ViewModels
         public static string FormatSpeed(int bytesPerSecond)
         {
             if (bytesPerSecond <= 0) return "—";
-            const double mb = 1024.0 * 1024.0;
-            var inv = System.Globalization.CultureInfo.InvariantCulture;
-            return bytesPerSecond >= mb
-                ? (bytesPerSecond / mb).ToString("0.0", inv) + " MB/s"
-                : (bytesPerSecond / 1024.0).ToString("0", inv) + " KB/s";
+            return SLSKDONET.Utils.NumFormat.Speed(bytesPerSecond);
         }
 
         private void OnRawResultPropertyChanged(object? sender, PropertyChangedEventArgs e)

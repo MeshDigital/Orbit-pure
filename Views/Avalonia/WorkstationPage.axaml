@@ -552,7 +552,7 @@
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Spacing="4">
                                         <Border Classes="fact" ToolTip.Tip="Effective BPM">
-                                            <TextBlock Text="{Binding FocusedDeck.DisplayBpm, StringFormat='{}{0:F1} BPM', TargetNullValue='— BPM'}"/>
+                                            <TextBlock Text="{Binding FocusedDeck.DisplayBpm, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:F1} BPM', TargetNullValue='— BPM'}"/>
                                         </Border>
                                         <Border Classes="fact" ToolTip.Tip="Musical key">
                                             <TextBlock Text="{Binding FocusedDeck.TrackKey, TargetNullValue='—'}"/>
@@ -782,7 +782,7 @@
                                     <StackPanel Spacing="2">
                                         <Grid ColumnDefinitions="*,Auto">
                                             <TextBlock Grid.Column="0" Classes="caption" Text="Gain"/>
-                                            <TextBlock Grid.Column="1" Classes="mono" Text="{Binding FocusedDeck.TrackGainDb, StringFormat='{}{0:+0.0;-0.0;0.0} dB'}"/>
+                                            <TextBlock Grid.Column="1" Classes="mono" Text="{Binding FocusedDeck.TrackGainDb, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:+0.0;-0.0;0.0} dB'}"/>
                                         </Grid>
                                         <Slider Minimum="-12" Maximum="12" Value="{Binding FocusedDeck.TrackGainDb, Mode=TwoWay}" ToolTip.Tip="Track gain (dB)"/>
                                     </StackPanel>
@@ -796,7 +796,7 @@
                                     <StackPanel Spacing="2">
                                         <Grid ColumnDefinitions="*,Auto">
                                             <TextBlock Grid.Column="0" Classes="caption" Text="Pitch"/>
-                                            <TextBlock Grid.Column="1" Classes="mono" Text="{Binding FocusedDeck.Deck.TempoPercent, StringFormat='{}{0:+0.0;-0.0;+0.0} %'}"/>
+                                            <TextBlock Grid.Column="1" Classes="mono" Text="{Binding FocusedDeck.Deck.TempoPercent, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:+0.0;-0.0;+0.0}%'}"/>
                                         </Grid>
                                         <Grid ColumnDefinitions="*,8,Auto">
                                             <Slider Grid.Column="0" Minimum="-8" Maximum="8" Value="{Binding FocusedDeck.Deck.TempoPercent, Mode=TwoWay}" VerticalAlignment="Center" ToolTip.Tip="Pitch / tempo (±8 %)"/>
