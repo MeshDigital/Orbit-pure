@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using SLSKDONET.Models;
 using System;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Views.Avalonia.Controls;
 
@@ -114,7 +115,7 @@ public partial class SonicProfileControl : UserControl
         }
 
         EnergyValue = Math.Clamp(Profile.Energy, 0, 1);
-        EnergyDisplay = $"{EnergyValue:P0}";
+        EnergyDisplay = NumFormat.Ui($"{EnergyValue:P0}");
 
         ValenceValue = Math.Clamp(Profile.Valence, 0, 1);
         if (Profile.Valence > 0.7) MoodDisplay = "Happy";

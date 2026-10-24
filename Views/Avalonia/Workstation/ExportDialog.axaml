@@ -69,7 +69,7 @@
                                     ToolTip.Tip="Deck level in the rendered mix"/>
                             <TextBlock Grid.Column="8"
                                        Classes="mono"
-                                       Text="{Binding Volume, StringFormat='{}{0:P0}'}"
+                                       Text="{Binding Volume, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"
                                        HorizontalAlignment="Right"
                                        VerticalAlignment="Center"/>
                         </Grid>

@@ -100,7 +100,7 @@
                             <PathIcon Data="{StaticResource ws_zoom_out_regular}" Width="14" Height="14"/>
                         </Button>
                         <TextBlock Classes="mono muted" Width="36" TextAlignment="Center" VerticalAlignment="Center"
-                                   Text="{Binding WaveformZoomLevel, StringFormat='{}{0:0.0}x'}"/>
+                                   Text="{Binding WaveformZoomLevel, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:0.0}x'}"/>
                         <Button Classes="icon small" Command="{Binding ZoomInCommand}" ToolTip.Tip="Zoom in (both decks)">
                             <PathIcon Data="{StaticResource ws_zoom_in_regular}" Width="14" Height="14"/>
                         </Button>
@@ -184,7 +184,7 @@
                             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                 <TextBlock Classes="section accent" Text="OUT" VerticalAlignment="Center"/>
                                 <TextBlock Classes="body" Text="{Binding OutgoingTrack.Title}" TextTrimming="CharacterEllipsis" MaxWidth="360" VerticalAlignment="Center"/>
-                                <TextBlock Classes="mono muted" Text="{Binding OutgoingBpm, StringFormat='{}{0:0.0} BPM'}" VerticalAlignment="Center"/>
+                                <TextBlock Classes="mono muted" Text="{Binding OutgoingBpm, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:0.0} BPM'}" VerticalAlignment="Center"/>
                             </StackPanel>
                             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                                 <TextBlock Classes="caption" Text="Mix-out" VerticalAlignment="Center"/>
@@ -276,7 +276,7 @@
                             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                 <TextBlock Classes="section" Foreground="{StaticResource BrushInfo}" Text="IN" VerticalAlignment="Center"/>
                                 <TextBlock Classes="body" Text="{Binding IncomingTrack.Title}" TextTrimming="CharacterEllipsis" MaxWidth="360" VerticalAlignment="Center"/>
-                                <TextBlock Classes="mono muted" Text="{Binding IncomingBpm, StringFormat='{}{0:0.0} BPM'}" VerticalAlignment="Center"/>
+                                <TextBlock Classes="mono muted" Text="{Binding IncomingBpm, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:0.0} BPM'}" VerticalAlignment="Center"/>
                                 <TextBlock Classes="mono" Text="{Binding TempoDeltaDisplay}" VerticalAlignment="Center"
                                            Classes.warning="{Binding HasTempoWarning}"
                                            ToolTip.Tip="Tempo of the incoming track relative to the outgoing one. Playback tempo-matches the decks; the preview plays both at their native tempo."/>

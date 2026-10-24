@@ -193,15 +193,15 @@
                                     <!-- Score breakdown: Sound · Harmony · Beat · Energy · Outro→Intro -->
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Classes="score-key" Text="S" ToolTip.Tip="Sound: neural texture similarity"/>
-                                        <TextBlock Classes="score-val" Text="{Binding SoundScore, StringFormat={}{0:P0}}"/>
+                                        <TextBlock Classes="score-val" Text="{Binding SoundScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                         <TextBlock Classes="score-key" Text="H" ToolTip.Tip="Harmony: Camelot key compatibility"/>
-                                        <TextBlock Classes="score-val" Text="{Binding HarmonyScore, StringFormat={}{0:P0}}"/>
+                                        <TextBlock Classes="score-val" Text="{Binding HarmonyScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                         <TextBlock Classes="score-key" Text="B" ToolTip.Tip="Beat: BPM ratio match"/>
-                                        <TextBlock Classes="score-val" Text="{Binding BeatScore, StringFormat={}{0:P0}}"/>
+                                        <TextBlock Classes="score-val" Text="{Binding BeatScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                         <TextBlock Classes="score-key" Text="E" ToolTip.Tip="Energy: drop/peak section match"/>
-                                        <TextBlock Classes="score-val" Text="{Binding DropSonicScore, StringFormat={}{0:P0}}"/>
+                                        <TextBlock Classes="score-val" Text="{Binding DropSonicScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                         <TextBlock Classes="score-key" Text="O" ToolTip.Tip="Outro→Intro transition flow score"/>
-                                        <TextBlock Classes="score-val" Text="{Binding OutroIntroScore, StringFormat={}{0:P0}}"/>
+                                        <TextBlock Classes="score-val" Text="{Binding OutroIntroScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                     </StackPanel>
                                 </StackPanel>
 
@@ -216,7 +216,7 @@
                                 <StackPanel Grid.Column="2" VerticalAlignment="Center" Width="48" Margin="8,0,0,0" Spacing="4"
                                             ToolTip.Tip="Overall match">
                                     <TextBlock Classes="mono" HorizontalAlignment="Right"
-                                               Text="{Binding OverallScore, StringFormat={}{0:P0}}"/>
+                                               Text="{Binding OverallScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                     <ProgressBar Classes="meter row-meter" Maximum="1" Value="{Binding OverallScore}"/>
                                 </StackPanel>
 
@@ -272,23 +272,23 @@
                                     <!-- Score breakdown: Sound · Harmony · Beat · Energy · Outro→Intro -->
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Classes="score-key" Text="S" ToolTip.Tip="Sound: neural texture similarity"/>
-                                        <TextBlock Classes="score-val" Text="{Binding SoundScore, StringFormat={}{0:P0}}"/>
+                                        <TextBlock Classes="score-val" Text="{Binding SoundScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                         <TextBlock Classes="score-key" Text="H" ToolTip.Tip="Harmony: Camelot key compatibility"/>
-                                        <TextBlock Classes="score-val" Text="{Binding HarmonyScore, StringFormat={}{0:P0}}"/>
+                                        <TextBlock Classes="score-val" Text="{Binding HarmonyScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                         <TextBlock Classes="score-key" Text="B" ToolTip.Tip="Beat: BPM ratio match"/>
-                                        <TextBlock Classes="score-val" Text="{Binding BeatScore, StringFormat={}{0:P0}}"/>
+                                        <TextBlock Classes="score-val" Text="{Binding BeatScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                         <TextBlock Classes="score-key" Text="E" ToolTip.Tip="Energy: drop/peak section match"/>
-                                        <TextBlock Classes="score-val" Text="{Binding DropSonicScore, StringFormat={}{0:P0}}"/>
+                                        <TextBlock Classes="score-val" Text="{Binding DropSonicScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                         <TextBlock Classes="score-key" Text="O" ToolTip.Tip="Outro→Intro transition flow score"/>
-                                        <TextBlock Classes="score-val" Text="{Binding OutroIntroScore, StringFormat={}{0:P0}}"/>
+                                        <TextBlock Classes="score-val" Text="{Binding OutroIntroScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                     </StackPanel>
 
                                     <!-- Bridge-between fit: A→X and X→B -->
                                     <StackPanel Orientation="Horizontal" IsVisible="{Binding IsBridgeBetweenCandidate}">
                                         <TextBlock Classes="score-key" Text="A→X" ToolTip.Tip="Fit from the first selected track into this one"/>
-                                        <TextBlock Classes="score-val" Text="{Binding BridgeFromScore, StringFormat={}{0:P0}}"/>
+                                        <TextBlock Classes="score-val" Text="{Binding BridgeFromScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                         <TextBlock Classes="score-key" Text="X→B" ToolTip.Tip="Fit from this track into the second selected track"/>
-                                        <TextBlock Classes="score-val" Text="{Binding BridgeToScore, StringFormat={}{0:P0}}"/>
+                                        <TextBlock Classes="score-val" Text="{Binding BridgeToScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                     </StackPanel>
                                     <TextBlock Classes="caption warning" Text="Click again to confirm insert"
                                                IsVisible="{Binding IsInsertConfirmArmed}"/>
@@ -305,7 +305,7 @@
                                 <StackPanel Grid.Column="2" VerticalAlignment="Center" Width="48" Margin="8,0,0,0" Spacing="4"
                                             ToolTip.Tip="Bridge score">
                                     <TextBlock Classes="mono" HorizontalAlignment="Right"
-                                               Text="{Binding Score, StringFormat={}{0:P0}}"/>
+                                               Text="{Binding Score, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                     <ProgressBar Classes="meter row-meter" Maximum="1" Value="{Binding Score}"/>
                                 </StackPanel>
 

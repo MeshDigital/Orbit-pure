@@ -770,7 +770,7 @@ public class UserCollectionViewModelTests
         var track = MakeTrack("song.flac", format: "flac", sampleRate: 44100);
         var node = new UserCollectionFileNodeViewModel(track, "song.flac", isMusicFile: true);
 
-        var expectedSampleRate = $"{track.SampleRate!.Value / 1000.0:0.0} kHz";
+        var expectedSampleRate = "44.1 kHz"; // invariant on every machine (NumFormat)
         Assert.Contains(expectedSampleRate, node.SecondaryText);
     }
 

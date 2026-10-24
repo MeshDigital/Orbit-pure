@@ -15,6 +15,7 @@ using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Services.Library;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -573,7 +574,7 @@ public class AnalysisTrackItem : ReactiveObject
     private static string BuildQualityProfileSummary(double? qualityConfidence, double? loudnessLufs, double? bpmStability)
     {
         var confidenceText = qualityConfidence.HasValue ? $"Q {qualityConfidence.Value * 100:F0}%" : "Q —";
-        var loudnessText = loudnessLufs.HasValue ? $"LUFS {loudnessLufs.Value:F1}" : "LUFS —";
+        var loudnessText = loudnessLufs.HasValue ? NumFormat.Ui($"LUFS {loudnessLufs.Value:F1}") : "LUFS —";
         var stabilityText = bpmStability.HasValue ? $"Stability {bpmStability.Value * 100:F0}%" : "Stability —";
         return $"{confidenceText} • {loudnessText} • {stabilityText}";
     }
@@ -886,12 +887,12 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public int StemsReadyCount => LibraryTracks.Count(t => t.StemsReady);
     public bool HasQueueMetrics => QueueTrackCount > 0 || _completedAnalysisRuns > 0 || IsProcessing;
     public bool IsDeveloperMode => Debugger.IsAttached || string.Equals(Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase);
-    public string AvgAnalysisTimeDisplay => _completedAnalysisRuns == 0 ? "—" : $"{_totalAnalysisSeconds / _completedAnalysisRuns:F1}s";
-    public string ThroughputDisplay => _completedAnalysisRuns == 0 ? "—" : $"{_completedAnalysisRuns / Math.Max(_analysisSessionStopwatch.Elapsed.TotalMinutes, 1.0 / 60.0):F1}/min";
-    public string FilterPerformanceDisplay => $"Filter {_lastFilterMilliseconds:F1} ms (avg {_averageFilterMilliseconds:F1} ms)";
+    public string AvgAnalysisTimeDisplay => _completedAnalysisRuns == 0 ? "—" : NumFormat.Ui($"{_totalAnalysisSeconds / _completedAnalysisRuns:F1}s");
+    public string ThroughputDisplay => _completedAnalysisRuns == 0 ? "—" : NumFormat.Ui($"{_completedAnalysisRuns / Math.Max(_analysisSessionStopwatch.Elapsed.TotalMinutes, 1.0 / 60.0):F1}/min");
+    public string FilterPerformanceDisplay => NumFormat.Ui($"Filter {_lastFilterMilliseconds:F1} ms (avg {_averageFilterMilliseconds:F1} ms)");
     public string InteractionPerformanceDisplay => _lastQueueMutationMilliseconds <= 0
         ? "Queue update —"
-        : $"Queue update {_lastQueueMutationMilliseconds:F1} ms";
+        : NumFormat.Ui($"Queue update {_lastQueueMutationMilliseconds:F1} ms");
     public string PerformanceDiagnosticsSummary => $"{_filteredTrackCount}/{LibraryTracks.Count} visible • {FilterPerformanceDisplay} • {InteractionPerformanceDisplay}";
     public string? PerformanceProbeSummary
     {
@@ -1374,7 +1375,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         timer.Stop();
         AutomixStatusMessage = allTracks.Count == 0
             ? "No tracks in library."
-            : $"Regenerated cues for {succeeded} track(s){(skipped > 0 ? $" — {skipped} skipped (not analysed yet)" : "")} in {timer.Elapsed.TotalSeconds:0.#}s.";
+            : NumFormat.Ui($"Regenerated cues for {succeeded} track(s){(skipped > 0 ? $" — {skipped} skipped (not analysed yet)" : "")} in {timer.Elapsed.TotalSeconds:0.#}s.");
 
         RefreshComputedState();
     }
@@ -1817,7 +1818,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         var previousP95 = PerformanceProbeRuns.Count > 0 ? PerformanceProbeRuns[0].P95Ms : (double?)null;
         var p95Delta = previousP95.HasValue ? p95 - previousP95.Value : (double?)null;
 
-        PerformanceProbeSummary = $"Probe {samples.Count} queries • avg {average:F1} ms • p95 {p95:F1} ms • max {max:F1} ms";
+        PerformanceProbeSummary = NumFormat.Ui($"Probe {samples.Count} queries • avg {average:F1} ms • p95 {p95:F1} ms • max {max:F1} ms");
         PerformanceProbeRuns.Insert(0, new PerformanceProbeRun(DateTime.UtcNow, samples.Count, average, p95, max, p95Delta));
         while (PerformanceProbeRuns.Count > 10)
         {
@@ -2612,7 +2613,7 @@ public sealed record PerformanceProbeRun(
         _ => "→"
     };
 
-    public string TrendText => DeltaP95Ms.HasValue ? $"{DeltaP95Ms.Value:+0.0;-0.0;0.0} ms" : "baseline";
+    public string TrendText => DeltaP95Ms.HasValue ? NumFormat.Ui($"{DeltaP95Ms.Value:+0.0;-0.0;0.0} ms") : "baseline";
 
     public string SeverityLabel => P95Ms switch
     {
@@ -2625,5 +2626,5 @@ public sealed record PerformanceProbeRun(
     public bool IsWarn => P95Ms is > 6.0 and <= 14.0;
     public bool IsSlow => P95Ms > 14.0;
 
-    public string DisplayLabel => $"{TimestampUtc:HH:mm:ss} · {SeverityLabel} · {TrendArrow} {TrendText} · {QueryCount}q · avg {AverageMs:F1} ms · p95 {P95Ms:F1} ms · max {MaxMs:F1} ms";
+    public string DisplayLabel => NumFormat.Ui($"{TimestampUtc:HH:mm:ss} · {SeverityLabel} · {TrendArrow} {TrendText} · {QueryCount}q · avg {AverageMs:F1} ms · p95 {P95Ms:F1} ms · max {MaxMs:F1} ms");
 }

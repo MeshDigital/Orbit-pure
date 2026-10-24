@@ -505,8 +505,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 {
                     try
                     {
-                        // Mark the journal entry as dead-letter so it won't trigger again.
-                        await _crashJournal.MarkAsDeadLetterAsync(cp.Id);
+                        // Remove the journal entry so it won't trigger again. It used to be marked
+                        // dead-letter and was never removed, so every download in flight at close
+                        // inflated the Dashboard's "Failed retries" forever; the track itself is
+                        // reset below and carries the retry.
+                        await _crashJournal.CompleteCheckpointAsync(cp.Id);
                         // Reset the corresponding PlaylistTrack to Pending so it can be retried.
                         if (!string.IsNullOrEmpty(cp.TargetPath))
                             await _databaseService.ResetTrackToMissingByPathAsync(cp.TargetPath);
@@ -520,6 +523,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 }
                 if (resetCount > 0)
                     _logger.LogWarning("[CrashRecovery] Reset {Count} zombie downloads from previous session", resetCount);
+                // Clean up the dead letters earlier versions left behind for the same reason.
+                await _crashJournal.PurgeDeadLettersAsync(OperationType.Download);
             }
             catch (Exception journalEx)
             {
@@ -3306,7 +3311,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     ctx.Model.Priority = 20; // LOW PRIORITY: Send retries to back of queue
                     var delayDesc = retryDelay.TotalSeconds < 60
                         ? $"{retryDelay.TotalSeconds:0}s"
-                        : $"{retryDelay.TotalMinutes:0.#}m";
+                        : NumFormat.Ui($"{retryDelay.TotalMinutes:0.#}m");
                     await UpdateStateAsync(ctx, PlaylistTrackState.Pending, $"Retrying in {delayDesc}: {transferDisposition.OperatorMessage}");
                     _logger.LogInformation("Scheduled retry #{Count} for {GlobalId} at {Time} (low priority, delay={Delay})",
                         ctx.RetryCount, ctx.GlobalId, ctx.NextRetryTime, delayDesc);
@@ -3437,13 +3442,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         await UpdateStateAsync(ctx, PlaylistTrackState.Downloading);
         _peerReliability.RecordDownloadStarted(bestMatch.Username);
 
-        static string FormatBytes(long value)
-        {
-            if (value >= 1024L * 1024L * 1024L) return $"{value / 1024d / 1024d / 1024d:F2} GB";
-            if (value >= 1024L * 1024L) return $"{value / 1024d / 1024d:F2} MB";
-            if (value >= 1024L) return $"{value / 1024d:F1} KB";
-            return $"{value} B";
-        }
+        static string FormatBytes(long value) => SLSKDONET.Utils.NumFormat.Size(value);
 
         _eventBus.Publish(new Events.TrackDetailedStatusEvent(
             ctx.GlobalId,

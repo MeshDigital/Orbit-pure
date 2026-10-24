@@ -35,19 +35,19 @@
                     <TextBlock Classes="caption" Text="BPM" VerticalAlignment="Center"/>
                     <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding BpmConfidence}"/>
                     <TextBlock Grid.Column="2" Classes="mono" HorizontalAlignment="Right" VerticalAlignment="Center"
-                               Text="{Binding BpmConfidence, StringFormat={}{0:P0}}"/>
+                               Text="{Binding BpmConfidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                 </Grid>
                 <Grid Classes="conf-row" ColumnDefinitions="28,*,36" ToolTip.Tip="Key confidence">
                     <TextBlock Classes="caption" Text="Key" VerticalAlignment="Center"/>
                     <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding KeyConfidence}"/>
                     <TextBlock Grid.Column="2" Classes="mono" HorizontalAlignment="Right" VerticalAlignment="Center"
-                               Text="{Binding KeyConfidence, StringFormat={}{0:P0}}"/>
+                               Text="{Binding KeyConfidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                 </Grid>
                 <Grid Classes="conf-row" ColumnDefinitions="28,*,36" ToolTip.Tip="File integrity score">
                     <TextBlock Classes="caption" Text="File" VerticalAlignment="Center"/>
                     <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding IntegrityScore}"/>
                     <TextBlock Grid.Column="2" Classes="mono" HorizontalAlignment="Right" VerticalAlignment="Center"
-                               Text="{Binding IntegrityScore, StringFormat={}{0:P0}}"/>
+                               Text="{Binding IntegrityScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                 </Grid>
             </StackPanel>
 

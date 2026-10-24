@@ -66,7 +66,7 @@ public static class ResultSorter
 
         result.CurrentRank = Math.Clamp(blendedScore, 0.0, 1.0);
         result.ScoreBreakdown =
-            $"Q:{qualityScore:F2} A:{availabilityScore:F2} M:{metadataScore:F2} Pref:{preferredScore:F2}";
+            NumFormat.Ui($"Q:{qualityScore:F2} A:{availabilityScore:F2} M:{metadataScore:F2} Pref:{preferredScore:F2}");
     }
 
     /// Orders search results based on bitrate.

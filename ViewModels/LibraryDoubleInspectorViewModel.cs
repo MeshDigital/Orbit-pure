@@ -9,6 +9,7 @@ using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Models.Musical;
 using SLSKDONET.Services.Similarity;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -137,7 +138,7 @@ public sealed class LibraryDoubleInspectorViewModel : INotifyPropertyChanged
                 _ => "wide gap"
             };
 
-            return $"BPM delta: {delta:0.0} ({verdict})";
+            return NumFormat.Ui($"BPM delta: {delta:0.0} ({verdict})");
         }
     }
 
@@ -159,7 +160,7 @@ public sealed class LibraryDoubleInspectorViewModel : INotifyPropertyChanged
                 _ => "high contrast"
             };
 
-            return $"Energy delta: {delta:0.00} ({verdict})";
+            return NumFormat.Ui($"Energy delta: {delta:0.00} ({verdict})");
         }
     }
 

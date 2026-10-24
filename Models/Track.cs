@@ -209,18 +209,7 @@ public class Track
     public string GetFormattedSize()
     {
         if (Size == null) return "Unknown";
-        
-        const long kb = 1024;
-        const long mb = kb * 1024;
-        const long gb = mb * 1024;
-
-        return Size.Value switch
-        {
-            >= gb => $"{Size.Value / (double)gb:F2} GB",
-            >= mb => $"{Size.Value / (double)mb:F2} MB",
-            >= kb => $"{Size.Value / (double)kb:F2} KB",
-            _ => $"{Size.Value} B"
-        };
+        return SLSKDONET.Utils.NumFormat.Size(Size.Value);
     }
 
     public override string ToString()

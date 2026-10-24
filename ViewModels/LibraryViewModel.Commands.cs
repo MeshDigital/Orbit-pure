@@ -22,6 +22,7 @@ using SLSKDONET.Services.Playlist;
 using SLSKDONET.Services.Library;
 using SLSKDONET.Services.Similarity;
 using SLSKDONET.Models.Musical;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -328,7 +329,7 @@ public partial class LibraryViewModel
 
         _notificationService.Show(
             "Smart Insert Preset",
-            $"{presetName} preset applied ({Intelligence.LibrarySmartInsertMinConfidence:F2}, {Intelligence.LibrarySmartInsertStructureSensitivity}%).",
+            NumFormat.Ui($"{presetName} preset applied ({Intelligence.LibrarySmartInsertMinConfidence:F2}, {Intelligence.LibrarySmartInsertStructureSensitivity}%)."),
             NotificationType.Information);
     }
 
@@ -1817,7 +1818,7 @@ public partial class LibraryViewModel
 
         return new SmartInsertResult(
             true,
-            $"Inserted {entry.Artist} - {entry.Title} between tracks (fit {(best.Score * 100):F0}%, threshold {_appConfig.LibrarySmartInsertMinConfidence:F2}, structure {_appConfig.LibrarySmartInsertStructureSensitivity}%).{savedDoublePriorSuffix}",
+            NumFormat.Ui($"Inserted {entry.Artist} - {entry.Title} between tracks (fit {(best.Score * 100):F0}%, threshold {_appConfig.LibrarySmartInsertMinConfidence:F2}, structure {_appConfig.LibrarySmartInsertStructureSensitivity}%).{savedDoublePriorSuffix}"),
             NotificationType.Success);
     }
 
@@ -2062,7 +2063,7 @@ public partial class LibraryViewModel
         }
 
         double? bpm = null;
-        if (!string.IsNullOrWhiteSpace(result.Bpm) && double.TryParse(result.Bpm, out var parsedBpm) && parsedBpm > 0)
+        if (!string.IsNullOrWhiteSpace(result.Bpm) && SLSKDONET.Utils.NumFormat.TryParse(result.Bpm, out var parsedBpm) && parsedBpm > 0)
         {
             bpm = parsedBpm;
         }
@@ -2944,7 +2945,7 @@ public partial class LibraryViewModel
             await _libraryService.SaveTrackOrderAsync(job.Id, eligible);
             await ExecuteRefreshLibraryAsync();
             _notificationService.Show("Auto-Arrange",
-                $"Rearranged {result.OrderedTrackHashes.Count} tracks in '{job.SourceTitle}' (avg transition score {result.AverageTransitionScore:P0})." +
+                NumFormat.Ui($"Rearranged {result.OrderedTrackHashes.Count} tracks in '{job.SourceTitle}' (avg transition score {result.AverageTransitionScore:P0}).") +
                 (skippedNotDownloaded > 0 ? $" {skippedNotDownloaded} not-yet-downloaded track(s) left in place." : ""),
                 NotificationType.Success);
         }

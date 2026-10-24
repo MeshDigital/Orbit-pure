@@ -7,6 +7,7 @@ using System.Text.Json;
 using ReactiveUI;
 using SLSKDONET.Models.Timeline;
 using SLSKDONET.Services.Timeline;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -97,7 +98,7 @@ public sealed class MoveClipCommand : ITimelineCommand
     private double _oldStartBeat;
 
     public string Description =>
-        $"Move clip to beat {_newStartBeat:F2}";
+        NumFormat.Ui($"Move clip to beat {_newStartBeat:F2}");
 
     public MoveClipCommand(Guid trackId, Guid clipId, double newStartBeat)
     {
@@ -197,7 +198,7 @@ public sealed class SplitClipCommand : ITimelineCommand
     private double _originalLengthBeats;
     private Guid _newClipId;
 
-    public string Description => $"Split clip at beat {_splitAtBeat:F2}";
+    public string Description => NumFormat.Ui($"Split clip at beat {_splitAtBeat:F2}");
 
     public SplitClipCommand(Guid trackId, Guid clipId, double splitAtBeat)
     {

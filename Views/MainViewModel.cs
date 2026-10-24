@@ -16,6 +16,7 @@ using System.Collections.Generic; // Added this using directive
 using SLSKDONET.Models;
 using System.Reactive.Linq;
 using ReactiveUI;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Views;
 
@@ -1130,7 +1131,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public double FontSizeSmall => BaseFontSize * 0.85;
     public double FontSizeMedium => BaseFontSize;
     public double FontSizeLarge => BaseFontSize * 1.2;
-    public string UIScalePercentage => $"{(BaseFontSize / 14.0):P0}";
+    public string UIScalePercentage => NumFormat.Ui($"{(BaseFontSize / 14.0):P0}");
 
     private string _applicationVersion = "Unknown";
     public string ApplicationVersion

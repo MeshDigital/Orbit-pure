@@ -21,6 +21,9 @@ public sealed class MetadataSourceRowViewModel : ReactiveObject
     private string _statusText = string.Empty;
     private bool _canMoveUp;
     private bool _canMoveDown;
+    private bool _switchOn;
+    private bool _canToggle;
+    private bool _isWaiting;
 
     public MetadataSourceRowViewModel(MetadataSourcesSettingsViewModel owner, IMetadataProvider provider, bool isEnabled)
     {
@@ -37,8 +40,26 @@ public sealed class MetadataSourceRowViewModel : ReactiveObject
     public string Description => Provider.Description;
     public bool IsExperimental => Provider.Name == BeatportProvider.ProviderName;
     public bool IsAlwaysOn => Provider.Name == MetadataMerger.TagsSource;
-    public bool CanToggle => !IsAlwaysOn;
 
+    /// <summary>False for file tags and while the source waits for a key / fpcalc / Spotify.</summary>
+    public bool CanToggle { get => _canToggle; private set => this.RaiseAndSetIfChanged(ref _canToggle, value); }
+    public bool IsWaiting { get => _isWaiting; private set => this.RaiseAndSetIfChanged(ref _isWaiting, value); }
+
+    /// <summary>
+    /// What the switch shows: ON only when the source will actually be asked (see
+    /// <see cref="MetadataSourceToggle"/>). Flipping it changes <see cref="IsEnabled"/>, the saved choice.
+    /// </summary>
+    public bool SwitchOn
+    {
+        get => _switchOn;
+        set
+        {
+            if (!CanToggle) { this.RaisePropertyChanged(); return; } // snap the control back
+            IsEnabled = value;
+        }
+    }
+
+    /// <summary>The user's saved choice (kept while the source waits for its key).</summary>
     public bool IsEnabled
     {
         get => _isEnabled;
@@ -67,14 +88,25 @@ public sealed class MetadataSourceRowViewModel : ReactiveObject
 
     public void RefreshStatus()
     {
-        StatusText = !IsEnabled ? "Off" : Provider.GetAvailability() switch
-        {
-            ProviderAvailability.NeedsKey => "Needs a key (below)",
-            ProviderAvailability.NeedsTool => "Needs fpcalc (Chromaprint), see below",
-            ProviderAvailability.NotConnected => "Connect Spotify above to use it",
-            ProviderAvailability.Blocked => "Switched off this session after repeated access errors",
-            _ => "Ready",
-        };
+        var availability = Provider.GetAvailability();
+        var state = MetadataSourceToggle.Compute(Name, IsEnabled, IsAlwaysOn, availability);
+        CanToggle = state.CanToggle;
+        IsWaiting = state.IsWaiting;
+        _switchOn = state.SwitchOn;
+        this.RaisePropertyChanged(nameof(SwitchOn));
+        StatusText = state.IsWaiting
+            ? availability switch
+            {
+                ProviderAvailability.NeedsKey => state.WaitingText + " · paste it below",
+                ProviderAvailability.NeedsTool => state.WaitingText + " · see below",
+                ProviderAvailability.NotConnected => "Waiting for Spotify · connect it above",
+                _ => state.WaitingText!,
+            }
+            : !IsEnabled && !IsAlwaysOn ? "Off" : availability switch
+            {
+                ProviderAvailability.Blocked => "Switched off this session after repeated access errors",
+                _ => "Ready",
+            };
     }
 }
 

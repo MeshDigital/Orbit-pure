@@ -84,7 +84,7 @@
                                 <StackPanel Grid.Row="1" Spacing="8" Margin="0,8">
                                     <Grid ColumnDefinitions="*,Auto">
                                         <TextBlock Grid.Column="0" Classes="display mono" FontFamily="{StaticResource FontMono}"
-                                                   Text="{Binding PurityPercent, StringFormat='{}{0:F1}%'}"/>
+                                                   Text="{Binding PurityPercent, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:F1}%'}"/>
                                         <TextBlock Grid.Column="1" Classes="caption" Text="{Binding PurityStatus}" VerticalAlignment="Bottom" Margin="0,0,0,4"/>
                                     </Grid>
                                     <ProgressBar Classes="meter thick" Value="{Binding PurityPercent}" Maximum="100"/>
@@ -157,12 +157,12 @@
                                         <TextBlock Classes="stat" Text="{Binding CurrentSnapshot.ZombieProcessCount}"/>
                                     </StackPanel>
                                     <StackPanel Grid.Row="0" Grid.Column="1">
-                                        <TextBlock Classes="stat-label" Text="Failed retries"/>
-                                        <TextBlock Classes="stat" Text="{Binding CurrentSnapshot.DeadLetterCount}"/>
+                                        <TextBlock Classes="stat-label" Text="Failed downloads"/>
+                                        <TextBlock Classes="stat" Text="{Binding FailedDownloadCount, Converter={StaticResource CountConverter}}"/>
                                     </StackPanel>
                                     <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,8,0,0">
                                         <TextBlock Classes="stat-label" Text="CPU load"/>
-                                        <TextBlock Classes="mono" Foreground="{StaticResource BrushText0}" Text="{Binding CurrentCpuLoad, StringFormat={}{0:P0}}"/>
+                                        <TextBlock Classes="mono" Foreground="{StaticResource BrushText0}" Text="{Binding CurrentCpuLoad, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                     </StackPanel>
                                     <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,8,0,0">
                                         <TextBlock Classes="stat-label" Text="Spotify"/>
@@ -173,9 +173,9 @@
                                         </StackPanel>
                                     </StackPanel>
                                 </Grid>
-                                <Button Grid.Row="2" Classes="secondary small" Content="Retry stalled downloads" HorizontalAlignment="Left"
-                                        Command="{Binding ClearDeadLettersCommand}"
-                                        ToolTip.Tip="Re-queue items that exhausted their retries"/>
+                                <Button Grid.Row="2" Classes="secondary small" Content="Show failed downloads" HorizontalAlignment="Left"
+                                        Command="{Binding ShowFailedDownloadsCommand}"
+                                        ToolTip.Tip="Open the Download Center filtered to failed downloads, where you can retry them"/>
                             </Grid>
                         </Border>
                     </Grid>

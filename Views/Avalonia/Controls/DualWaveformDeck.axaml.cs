@@ -8,6 +8,7 @@ using SLSKDONET.Models;
 using SLSKDONET.Services.Audio;
 using System;
 using System.Linq;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Views.Avalonia.Controls
 {
@@ -201,7 +202,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
             Canvas.SetLeft(_viewportRect, rectX);
             
             if (_zoomLabel != null)
-                _zoomLabel.Text = $"{zoom:F1}x";
+                _zoomLabel.Text = NumFormat.Ui($"{zoom:F1}x");
         }
 
         // Handle Click on Macro View -> Jump Micro View

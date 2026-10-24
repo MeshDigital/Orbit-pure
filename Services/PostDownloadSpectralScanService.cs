@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
 using SLSKDONET.Models;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services;
 
@@ -138,13 +139,13 @@ public sealed class PostDownloadSpectralScanService : IDisposable
             };
 
             var cutoffKhz = result.SpectralCutoffHz > 0
-                ? $"{result.SpectralCutoffHz / 1000.0:F1} kHz"
+                ? NumFormat.Ui($"{result.SpectralCutoffHz / 1000.0:F1} kHz")
                 : "unknown";
 
             // QualityDetails is read by UnifiedTrackViewModel for the forensic HUD and tooltip.
             var qualityDetails = result.Verdict == AudioAuthenticityVerdict.Unknown
                 ? result.Reason
-                : $"{result.Verdict} | cutoff: {cutoffKhz} | confidence: {result.Confidence:P0}";
+                : NumFormat.Ui($"{result.Verdict} | cutoff: {cutoffKhz} | confidence: {result.Confidence:P0}");
 
             var frequencyCutoffHz = result.SpectralCutoffHz > 0
                 ? (int?)result.SpectralCutoffHz

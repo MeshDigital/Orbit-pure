@@ -2,6 +2,7 @@ using System;
 using SLSKDONET.Configuration;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services.Similarity;
 
@@ -185,11 +186,11 @@ public static class TrackMatchScorer
         // Build human label
         if (bestRatioLabel == "Same BPM")
         {
-            label = bestDiff < 1.0 ? "Same BPM" : $"±{bestDiff:F1} BPM";
+            label = bestDiff < 1.0 ? "Same BPM" : NumFormat.Ui($"±{bestDiff:F1} BPM");
         }
         else
         {
-            label = $"{bestRatioLabel} (±{bestDiff:F1})";
+            label = NumFormat.Ui($"{bestRatioLabel} (±{bestDiff:F1})");
         }
 
         return score;

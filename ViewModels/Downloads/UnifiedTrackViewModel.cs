@@ -17,6 +17,7 @@ using SLSKDONET.Events;
 using SLSKDONET.Views;
 using Microsoft.EntityFrameworkCore;
 using SLSKDONET.Data;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels.Downloads;
 
@@ -943,7 +944,7 @@ public partial class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, 
             var parts = new List<string>();
             if (Model.Bitrate > 0) parts.Add($"{Model.Bitrate} kbps");
             var sr = ParsedSampleRateHz;
-            if (sr > 0) parts.Add($"{sr / 1000.0:0.0} kHz");
+            if (sr > 0) parts.Add(NumFormat.Ui($"{sr / 1000.0:0.0} kHz"));
             if (Model.Duration > 0) parts.Add(TimeSpan.FromSeconds(Model.Duration).ToString(@"m\:ss"));
             
             if (IsCompleted && Model.CompletedAt.HasValue && Model.SearchStartedAt.HasValue)
@@ -1001,7 +1002,7 @@ public partial class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, 
             {
                 if (bitDepth > 0 || sampleRate > 0)
                 {
-                    var sampleKhz = sampleRate > 0 ? $"{sampleRate / 1000.0:F1}k" : "?k";
+                    var sampleKhz = sampleRate > 0 ? NumFormat.Ui($"{sampleRate / 1000.0:F1}k") : "?k";
                     var depth = bitDepth > 0 ? $"{bitDepth}b" : "?b";
                     return $"FLAC {depth}/{sampleKhz}";
                 }
@@ -1084,7 +1085,7 @@ public partial class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, 
             var parts = new System.Collections.Generic.List<string>();
             if ((Model.Bitrate ?? 0) > 0) parts.Add($"{Model.Bitrate}kbps");
             var sr = ParsedSampleRateHz;
-            if (sr > 0) parts.Add($"{sr / 1000.0:F1}kHz");
+            if (sr > 0) parts.Add(NumFormat.Ui($"{sr / 1000.0:F1}kHz"));
             var bd = ParsedBitDepth;
             if (bd > 0) parts.Add($"{bd}-bit");
             if (!string.IsNullOrEmpty(Model.Format)) parts.Add(Model.Format.ToUpperInvariant());
@@ -1219,7 +1220,7 @@ public partial class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, 
             try
             {
                 var bytes = new System.IO.FileInfo(path).Length;
-                return $"{bytes / 1024.0 / 1024.0:F1} MB";
+                return NumFormat.Ui($"{bytes / 1024.0 / 1024.0:F1} MB");
             }
             catch
             {
@@ -1242,12 +1243,12 @@ public partial class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, 
 
     /// <summary>Confirmed sample rate (e.g. "44.1 kHz", "48 kHz").</summary>
     public string SpectralSampleRateDisplay => Model.SpectralSampleRateHz.HasValue
-        ? $"{Model.SpectralSampleRateHz.Value / 1000.0:F1} kHz"
+        ? NumFormat.Ui($"{Model.SpectralSampleRateHz.Value / 1000.0:F1} kHz")
         : "—";
 
     /// <summary>Detected spectral cutoff frequency (e.g. "20.5 kHz").</summary>
     public string SpectralCutoffKhzDisplay => Model.FrequencyCutoff.HasValue
-        ? $"{Model.FrequencyCutoff.Value / 1000.0:F1} kHz"
+        ? NumFormat.Ui($"{Model.FrequencyCutoff.Value / 1000.0:F1} kHz")
         : "—";
 
     /// <summary>Short confidence percentage extracted from <see cref="Model.QualityDetails"/>.</summary>
@@ -1286,27 +1287,27 @@ public partial class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, 
 
     /// <summary>Mid-band energy (1–15 kHz).</summary>
     public string SpectralMidBandDisplay => Model.SpectralMidBandEnergy.HasValue
-        ? $"{Model.SpectralMidBandEnergy.Value:F1} dBFS"
+        ? NumFormat.Ui($"{Model.SpectralMidBandEnergy.Value:F1} dBFS")
         : "—";
 
     /// <summary>High-band energy (15–20 kHz).</summary>
     public string SpectralHighBandDisplay => Model.SpectralHighBandEnergy.HasValue
-        ? $"{Model.SpectralHighBandEnergy.Value:F1} dBFS"
+        ? NumFormat.Ui($"{Model.SpectralHighBandEnergy.Value:F1} dBFS")
         : "—";
 
     /// <summary>Overall RMS level (perceived loudness).</summary>
     public string SpectralRmsDisplay => Model.SpectralRmsDbfs.HasValue
-        ? $"{Model.SpectralRmsDbfs.Value:F1} dBFS"
+        ? NumFormat.Ui($"{Model.SpectralRmsDbfs.Value:F1} dBFS")
         : "—";
 
     /// <summary>Crest factor — higher means more dynamic headroom.</summary>
     public string SpectralCrestFactorDisplay => Model.SpectralCrestFactorDb.HasValue
-        ? $"{Model.SpectralCrestFactorDb.Value:F1} dB"
+        ? NumFormat.Ui($"{Model.SpectralCrestFactorDb.Value:F1} dB")
         : "—";
 
     /// <summary>Estimated noise floor.</summary>
     public string SpectralNoiseFloorDisplay => Model.SpectralNoiseFloorDbfs.HasValue
-        ? $"{Model.SpectralNoiseFloorDbfs.Value:F1} dBFS"
+        ? NumFormat.Ui($"{Model.SpectralNoiseFloorDbfs.Value:F1} dBFS")
         : "—";
 
     /// <summary>Accent colour for the crest-factor display (green = dynamic, red = squashed).</summary>
@@ -1570,7 +1571,7 @@ public partial class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, 
             // ✨ Vibe Pill (Primary Genre/Subgenre classification)
             if (!string.IsNullOrEmpty(DetectedSubGenre))
             {
-                pills.Add(new VibePill("✨", DetectedSubGenre, VibeColor, $"Genre: {DetectedSubGenre} (Conf: {SubGenreConfidence:P0})"));
+                pills.Add(new VibePill("✨", DetectedSubGenre, VibeColor, NumFormat.Ui($"Genre: {DetectedSubGenre} (Conf: {SubGenreConfidence:P0})")));
             }
             
             return pills;
@@ -1629,9 +1630,7 @@ public partial class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, 
 
     public double CurrentSpeedBytes => _currentSpeed;
 
-    public string SpeedDisplay => _currentSpeed > 1024 * 1024 
-        ? $"{_currentSpeed / 1024 / 1024:F1} MB/s" 
-        : $"{_currentSpeed / 1024:F0} KB/s";
+    public string SpeedDisplay => NumFormat.Speed(_currentSpeed);
 
 
     // Phase 0.6: Truth in UI - Stems

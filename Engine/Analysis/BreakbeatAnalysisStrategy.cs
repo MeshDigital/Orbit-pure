@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using SLSKDONET.Services;
 using SLSKDONET.Services.AudioAnalysis;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Engine.Analysis;
 
@@ -38,12 +39,12 @@ public sealed class BreakbeatAnalysisStrategy : IGenreFamilyAnalysisStrategy
         float doubled = rawBpm * 2f;
         if (doubled >= BracketMin && doubled <= BracketMax)
             return (doubled, BpmCorrectionConfidencePenalty,
-                $"bpm_breakbeat_family_corrected:{rawBpm:F1}->{doubled:F1}");
+                NumFormat.Ui($"bpm_breakbeat_family_corrected:{rawBpm:F1}->{doubled:F1}"));
 
         float halved = rawBpm / 2f;
         if (halved >= BracketMin && halved <= BracketMax)
             return (halved, BpmCorrectionConfidencePenalty,
-                $"bpm_breakbeat_family_corrected:{rawBpm:F1}->{halved:F1}");
+                NumFormat.Ui($"bpm_breakbeat_family_corrected:{rawBpm:F1}->{halved:F1}"));
 
         return (rawBpm, 1f, null);
     }

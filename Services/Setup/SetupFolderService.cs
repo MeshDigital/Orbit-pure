@@ -109,13 +109,7 @@ public sealed class SetupFolderService : ISetupFolderService
         }
     }
 
-    public static string FormatBytes(long bytes)
-    {
-        const double gb = 1024d * 1024 * 1024;
-        return bytes >= gb
-            ? (bytes / gb).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " GB"
-            : (bytes / (1024d * 1024)).ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " MB";
-    }
+    public static string FormatBytes(long bytes) => SLSKDONET.Utils.NumFormat.Size(bytes);
 
     private static string? NearestExistingAncestor(string full)
     {

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using SLSKDONET.Models.EditLab;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services.EditLab;
 
@@ -85,7 +86,7 @@ public static class EditTemplates
                 foreach (var stem in new[] { EditStem.Vocals, EditStem.Drums, EditStem.Other })
                     Add(project, Lane(project, $"{Short(a)} {stem.ToString().ToLowerInvariant()}"), a, stem, start, bars, InAtBar(project, a, start));
                 Add(project, Lane(project, $"{Short(b!)} bass"), b!, EditStem.Bass, start, bars, InAtBar(project, b!, start));
-                return $"Bassline swap: {Short(b!)} bass under {Short(a)} for bars {start + 1:0.##}–{end + 1:0.##}.";
+                return NumFormat.Ui($"Bassline swap: {Short(b!)} bass under {Short(a)} for bars {start + 1:0.##}–{end + 1:0.##}.");
             }
             case EditTemplateKind.ExtendedIntro:
             {

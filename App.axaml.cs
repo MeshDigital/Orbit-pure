@@ -50,6 +50,8 @@ public partial class App : Application
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
+        // Invariant numbers in every NumericUpDown; a typed decimal comma is entered as '.'.
+        Views.Avalonia.NumericInputLocale.Install();
     }
 
     public override async void OnFrameworkInitializationCompleted()

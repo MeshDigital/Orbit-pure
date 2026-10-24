@@ -162,7 +162,7 @@
                  comparable when lined up via their independent pan sliders below. -->
             <Grid Grid.Row="2" ColumnDefinitions="Auto,8,Auto,8,Auto,10,*" Margin="0,0,0,6">
                 <Button Grid.Column="0" Classes="ZoomBtn" Content="−" Command="{Binding ZoomOutCommand}" ToolTip.Tip="Zoom out"/>
-                <TextBlock Grid.Column="2" Text="{Binding WaveformZoomLevel, StringFormat='{}{0:0.0}×'}"
+                <TextBlock Grid.Column="2" Text="{Binding WaveformZoomLevel, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:0.0}×'}"
                            Foreground="{StaticResource BrushText1}" FontSize="11" VerticalAlignment="Center" Width="34" TextAlignment="Center"/>
                 <Button Grid.Column="4" Classes="ZoomBtn" Content="+" Command="{Binding ZoomInCommand}" ToolTip.Tip="Zoom in"/>
                 <Slider Grid.Column="6"

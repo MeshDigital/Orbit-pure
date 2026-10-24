@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using SLSKDONET.Models;
 using SLSKDONET.Data;
 using SLSKDONET.Configuration;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services
 {
@@ -210,9 +211,7 @@ namespace SLSKDONET.Services
                     StatusText = $"{dl.Progress:F0}%",
                     CanCancel = dl.IsActive,
                     IsActive = dl.IsActive,
-                    SpeedDisplay = dl.CurrentSpeed > 1024 * 1024
-                        ? $"{dl.CurrentSpeed / 1024.0 / 1024.0:F1} MB/s"
-                        : $"{dl.CurrentSpeed / 1024.0:F0} KB/s",
+                    SpeedDisplay = NumFormat.Speed(dl.CurrentSpeed),
                     // Pause/Cancel buttons on this row previously bound through an always-null
                     // Track reference (DownloadContext has no ViewModel/commands of its own) —
                     // wire them directly to the real DownloadManager methods keyed by GlobalId.

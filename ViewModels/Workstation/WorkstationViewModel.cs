@@ -19,6 +19,7 @@ using SLSKDONET.Services.Audio;
 using SLSKDONET.Services.Audio.Separation;
 using SLSKDONET.Services.Similarity;
 using SLSKDONET.Views;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels.Workstation;
 
@@ -268,8 +269,8 @@ public sealed class FlowPhraseRegion
         Provenance = provenance;
         CanvasLeft = StartSeconds;
         CanvasWidth = Math.Max(0.0, EndSeconds - StartSeconds);
-        SpanLabel = $"{StartSeconds:F1}s–{EndSeconds:F1}s";
-        Tooltip = $"{SpanLabel} • {Provenance} • {Confidence:P0}";
+        SpanLabel = NumFormat.Ui($"{StartSeconds:F1}s–{EndSeconds:F1}s");
+        Tooltip = NumFormat.Ui($"{SpanLabel} • {Provenance} • {Confidence:P0}");
     }
 
     public string TransitionKey { get; }
@@ -523,7 +524,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         }
     }
 
-    public string MasterBpmDisplay => MasterBpm > 0 ? $"{MasterBpm:F1}" : "—";
+    public string MasterBpmDisplay => MasterBpm > 0 ? NumFormat.Ui($"{MasterBpm:F1}") : "—";
     public string DeckStatusSummary => BuildDeckStatusSummary(Decks.Count(d => d.IsLoaded), Decks.Count, FocusedDeck?.DeckLabel, MasterBpm);
     public string DeckFocusSummary => BuildDeckFocusSummary(Decks.Select(d => d.DeckLabel), Decks.Where(d => d.IsLoaded).Select(d => d.DeckLabel), FocusedDeck?.DeckLabel);
     public string ActivePlaylistFlowSummary => BuildPlaylistFlowSummary(ActivePlaylist?.SourceTitle, PlaylistTracks.Count, Decks.Count(d => d.IsLoaded), ActiveMode);

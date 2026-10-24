@@ -18,6 +18,7 @@ using SLSKDONET.Services;
 using SLSKDONET.Configuration;
 using SLSKDONET.ViewModels;
 using SLSKDONET.Views;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels.Downloads;
 
@@ -1891,9 +1892,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
                 .Where(d => d.State == PlaylistTrackState.Downloading)
                 .Sum(d => d.CurrentSpeedBytes);
 
-            GlobalSpeed = totalSpeedBytes > 1024 * 1024
-                ? $"{totalSpeedBytes / 1024 / 1024:F1} MB/s"
-                : $"{totalSpeedBytes / 1024:F0} KB/s";
+            GlobalSpeed = NumFormat.Speed(totalSpeedBytes);
         }
         catch (Exception ex)
         {

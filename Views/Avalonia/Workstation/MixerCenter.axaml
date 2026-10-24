@@ -65,7 +65,7 @@
                 <TextBlock Classes="section" Text="BPM" VerticalAlignment="Center"/>
                 <TextBox Classes="small"
                          Width="72"
-                         Text="{Binding MasterBpm, Mode=TwoWay, StringFormat='{}{0:F1}'}"
+                         Text="{Binding MasterBpm, Mode=TwoWay, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:F1}'}"
                          FontFamily="{DynamicResource FontMono}"
                          HorizontalContentAlignment="Center"
                          VerticalContentAlignment="Center"

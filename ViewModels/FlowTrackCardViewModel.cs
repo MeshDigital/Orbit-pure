@@ -6,6 +6,7 @@ using Avalonia.Media;
 using ReactiveUI;
 using SLSKDONET.Models;
 using SLSKDONET.Models.Musical;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -172,7 +173,7 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         AlbumArtUrl     = track.AlbumArtUrl;
 
         _bpmDisplay     = track.BPM.HasValue
-            ? track.BPM.Value.ToString("F1")
+            ? track.BPM.Value.ToString("F1", NumFormat.Culture)
             : "-";
         // Key may be in Camelot notation (e.g. "8A") or musical (e.g. "Am")
         KeyDisplay      = string.IsNullOrEmpty(track.Key) ? "-" : track.Key;
@@ -252,12 +253,11 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         this.RaisePropertyChanged(nameof(PairNeedsAnalysis));
         if (next == null) { Bridge = null; return; }
 
-        float myBpm   = float.TryParse(BpmDisplay, out var b1) ? b1 : 0f;
-        float nxtBpm  = float.TryParse(next.BpmDisplay, out var b2) ? b2 : 0f;
+        // BpmDisplay is written invariantly ("174.0"); a culture parse would read it as 1740 on nl-BE.
+        float myBpm   = NumFormat.TryParse(BpmDisplay, out var b1) ? (float)b1 : 0f;
+        float nxtBpm  = NumFormat.TryParse(next.BpmDisplay, out var b2) ? (float)b2 : 0f;
         float bpmDiff = myBpm > 0 && nxtBpm > 0 ? nxtBpm - myBpm : 0f;
-        string bpmDeltaDisplay = bpmDiff == 0f ? "-"
-            : bpmDiff > 0 ? $"+{bpmDiff:F1} BPM"
-            : $"{bpmDiff:F1} BPM";
+        string bpmDeltaDisplay = bpmDiff == 0f ? "-" : NumFormat.BpmDelta(bpmDiff);
 
         double camelotDist = CamelotDistance(KeyDisplay, next.KeyDisplay);
         double harmonicScore = Math.Clamp(1.0 - (camelotDist / 6.0), 0.0, 1.0);
@@ -345,7 +345,7 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
     public void UpdateBpm(double? bpm)
     {
         Model.BPM = bpm;
-        BpmDisplay = bpm.HasValue ? bpm.Value.ToString("F1") : "-";
+        BpmDisplay = bpm.HasValue ? NumFormat.Bpm(bpm.Value) : "-";
     }
 
     /// <summary>Camelot wheel distance (0 = perfect match, 6 = worst clash).</summary>

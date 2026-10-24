@@ -80,7 +80,7 @@ public class RejectedResult
     
     public override string ToString()
     {
-        return $"#{Rank}: {Bitrate}kbps {Format} from @{Username} (Score: {SearchScore:F1}) - {RejectionReason}";
+        return SLSKDONET.Utils.NumFormat.Ui($"#{Rank}: {Bitrate}kbps {Format} from @{Username} (Score: {SearchScore:F1}) - {RejectionReason}");
     }
     
     public Avalonia.Media.IBrush ReasonColor

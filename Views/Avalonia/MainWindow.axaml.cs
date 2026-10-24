@@ -60,7 +60,8 @@ namespace SLSKDONET.Views.Avalonia
         {
             InitializeComponent();
 #if DEBUG
-            this.AttachDevTools();
+            // Not F12: that is ORBIT's perf-overlay shortcut (DevTools on F12 opened both at once).
+            this.AttachDevTools(new global::Avalonia.Input.KeyGesture(global::Avalonia.Input.Key.F12, global::Avalonia.Input.KeyModifiers.Control | global::Avalonia.Input.KeyModifiers.Shift));
 #endif
 
             // Get config from DataContext (MainViewModel will set it)

@@ -139,6 +139,40 @@ A checked chip is accent-tinted. Inside `segmented`, the checked segment is neut
 Use bars, percentages or plain text for AI and analysis output (genre, mood, energy, confidence).
 **Don't use coloured pill badges.** `Border.pill` is legacy.
 
+### Numbers
+**Decision: every user-facing number is written with the invariant culture**, because the UI copy
+is English. A Dutch/Belgian Windows must still show "174.0 BPM", never "174,0 BPM" next to English
+text. Numbers sit in the mono/tabular font (`mono`, `num`, `fact`) so columns don't jitter.
+
+| Kind | C# (`Utils/NumFormat`) | XAML (`NumberConverter`) | Output |
+|---|---|---|---|
+| Count | `CountFormat.N(n)` / `CountFormat.Of(n, "track")` | `CountConverter` | `3,267` · `1 track` |
+| BPM | `NumFormat.Bpm(bpm)` (`"—"` when missing) | `ConverterParameter=bpm` | `174.0` |
+| BPM delta | `NumFormat.BpmDelta(d)` | `'{}{0:+0.0;-0.0;0.0} BPM'` | `+1.0 BPM` |
+| Percent (0–1) | `NumFormat.Percent(f)` / `(f, 1)` | `pct` / `pct1` | `91%` · `91.0%` |
+| Percent (0–100) | `NumFormat.PercentValue(v)` / `SignedPercent(v)` | `'{}{0:F0}%'` | `91%` · `+1.6%` |
+| Seconds / ms | `NumFormat.Seconds(s)` / `Ms(ms)` | `seconds` | `22.1 s` · `3.2 ms` |
+| Clock duration | `NumFormat.Duration(s)` | `duration` | `3:07` · `1:02:45` |
+| dB / LUFS | `NumFormat.Db(db, signed: true)` / `Lufs(l)` | `'{}{0:+0.0;-0.0;0.0} dB'` | `+1.5 dB` · `-14.0 LUFS` |
+| Frequency | `NumFormat.Khz(hz)` | | `44.1 kHz` |
+| Size | `NumFormat.Size(bytes)` (top unit GB with 1 decimal; MB 1 decimal below 100; KB none) | `size` | `8.4 MB` · `2,400.5 GB` |
+| Speed | `NumFormat.Speed(bytesPerSec)` | `speed` | `512 KB/s` · `1.2 MB/s` |
+| Ratio / zoom | `NumFormat.Ratio(r)` | `ratio` | `1.0x` |
+| Anything else | `NumFormat.Ui($"{x:F2} …")` | `'{}{0:F2} …'` | invariant; `P` formats render `91%` |
+
+Rules:
+- Never write `ToString("F1")`, `{x:0.0}`, `{x:P0}` or `StringFormat={}{0:F1}` without a culture.
+  `NumberFormatGuardTests` fails the build on them in Views/ViewModels/Converters/Models/Utils.
+  Integer formats (`F0`, `0`, `D2`) are fine. Logs, file names and serialization are not UI: pin
+  them to `CultureInfo.InvariantCulture` (or add them to the guard's allowlist with a reason).
+- Percent is written without a space: `91%`, `+1.6%`.
+- **Input accepts both styles.** Parse typed numbers with `NumFormat.TryParse` ("174,5" and
+  "174.5" both mean 174.5). Every `NumericUpDown` displays invariantly and turns a typed `,` into
+  `.` (`Views/Avalonia/NumericInputLocale`). A TwoWay `TextBox` with `NumberConverter` parses
+  back the same way.
+- Converter parameters in XAML (`'1;0.4'`, widths, thresholds) are parsed with the invariant
+  culture, never the OS one.
+
 ### Inputs
 Un-classed `TextBox` and `ComboBox` are already 32px with RadiusMd, a Bg0 or Bg3 fill and an accent
 focus border. `TextBox.search` adds a leading magnifier. `.small` gives 28px.

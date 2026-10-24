@@ -752,7 +752,7 @@ public class SearchOrchestrationService
                     hasFreeUploadSlot: track.HasFreeUploadSlot);
                 EnsureBlendTelemetryMetadata(track, baseMatchScore, fitScore, 0.5, finalScore);
                 var existingBreakdown = track.ScoreBreakdown;
-                var blendBreakdown = $"Blend: Match={baseMatchScore:F1}, Fit={fitScore:F1}, Rel=0.50, Queue={track.QueueLength}, FreeSlot={track.HasFreeUploadSlot}, Final={finalScore:F1}";
+                var blendBreakdown = NumFormat.Ui($"Blend: Match={baseMatchScore:F1}, Fit={fitScore:F1}, Rel=0.50, Queue={track.QueueLength}, FreeSlot={track.HasFreeUploadSlot}, Final={finalScore:F1}");
                 track.ScoreBreakdown = string.IsNullOrWhiteSpace(existingBreakdown)
                     ? blendBreakdown
                     : $"{existingBreakdown}; {blendBreakdown}";

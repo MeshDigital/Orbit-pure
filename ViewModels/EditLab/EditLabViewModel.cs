@@ -13,6 +13,7 @@ using ReactiveUI;
 using SLSKDONET.Models.EditLab;
 using SLSKDONET.Services.EditLab;
 using SLSKDONET.Views;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels.EditLab;
 
@@ -565,7 +566,7 @@ public sealed partial class EditLabViewModel : ReactiveObject, IEditArrangerHost
             start = lane.Clips.Max(c => c.EndBar);
         var clip = Editor.AddClip(item.Hash, stem, start, lane?.Id);
         SelectClip(clip.Id);
-        Status = $"Added {EditProjectEditor.StemLabel(stem).ToLowerInvariant()} of \"{item.Title}\" at bar {start + 1:0.##}.";
+        Status = NumFormat.Ui($"Added {EditProjectEditor.StemLabel(stem).ToLowerInvariant()} of \"{item.Title}\" at bar {start + 1:0.##}.");
     }
 
     // ── Arranger host ───────────────────────────────────────────────────────

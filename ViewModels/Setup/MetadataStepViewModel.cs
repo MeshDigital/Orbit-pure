@@ -12,7 +12,11 @@ using SLSKDONET.Views;
 
 namespace SLSKDONET.ViewModels.Setup;
 
-/// <summary>A source row on the Metadata step: a toggle plus one "gives · needs · limit" line.</summary>
+/// <summary>
+/// A source row on the Metadata step: a toggle plus one "gives · needs · limit" line, and for
+/// Discogs / AcoustID the key field right in the row. A source that cannot run yet shows its
+/// switch off and disabled with "Waiting for …" (see <see cref="MetadataSourceToggle"/>).
+/// </summary>
 public sealed class SetupMetadataSourceItem : SetupObservable
 {
     private bool _isEnabled;
@@ -20,6 +24,12 @@ public sealed class SetupMetadataSourceItem : SetupObservable
     private string _liveText = string.Empty;
     private bool _isReady;
     private bool _needsSomething;
+    private bool _isWaiting;
+    private bool _switchOn;
+    private bool _canToggle;
+    private string _keyText = string.Empty;
+    private string _keyWatermark = string.Empty;
+    private Action<string>? _onKeyChanged;
 
     public SetupMetadataSourceItem(SetupMetadataSource source)
     {
@@ -37,10 +47,10 @@ public sealed class SetupMetadataSourceItem : SetupObservable
     public string DisplayName { get; }
     public string Summary { get; }
     public bool IsAlwaysOn { get; }
-    public bool CanToggle => !IsAlwaysOn;
     public bool IsExperimental { get; }
     public ProviderAvailability Availability { get; internal set; }
 
+    /// <summary>The user's choice (saved to config). The switch shows <see cref="SwitchOn"/>.</summary>
     public bool IsEnabled
     {
         get => _isEnabled;
@@ -51,7 +61,60 @@ public sealed class SetupMetadataSourceItem : SetupObservable
         }
     }
 
-    /// <summary>"Ready", "Needs a token", "Connected", "Off".</summary>
+    /// <summary>What the switch shows: ON only when the source will actually be asked.</summary>
+    public bool SwitchOn
+    {
+        get => _switchOn;
+        set
+        {
+            if (!CanToggle) { OnPropertyChanged(); return; } // snap the control back
+            IsEnabled = value;
+        }
+    }
+
+    public bool CanToggle { get => _canToggle; private set => SetProperty(ref _canToggle, value); }
+    public bool IsWaiting { get => _isWaiting; private set => SetProperty(ref _isWaiting, value); }
+
+    // ── Key field (Discogs token / AcoustID key), shown in the row itself ──
+    public bool HasKeyField { get; private set; }
+    public string KeyLabel { get; private set; } = string.Empty;
+    public string GetKeyLabel { get; private set; } = string.Empty;
+    public ICommand? GetKeyCommand { get; private set; }
+    public string KeyWatermark { get => _keyWatermark; internal set => SetProperty(ref _keyWatermark, value); }
+
+    /// <summary>Typed key (saved on Next). Typing one already counts: the switch comes on.</summary>
+    public string KeyText
+    {
+        get => _keyText;
+        set
+        {
+            if (!SetProperty(ref _keyText, value ?? string.Empty)) return;
+            _onKeyChanged?.Invoke(_keyText);
+            RefreshStatus();
+        }
+    }
+
+    internal void AttachKeyField(string label, string watermark, string getKeyLabel, ICommand getKey, Action<string> onChanged)
+    {
+        HasKeyField = true;
+        KeyLabel = label;
+        GetKeyLabel = getKeyLabel;
+        GetKeyCommand = getKey;
+        KeyWatermark = watermark;
+        _onKeyChanged = onChanged;
+        OnPropertyChanged(nameof(HasKeyField));
+        OnPropertyChanged(nameof(KeyLabel));
+        OnPropertyChanged(nameof(GetKeyLabel));
+        OnPropertyChanged(nameof(GetKeyCommand));
+    }
+
+    /// <summary>Mirrors the step's key property without calling back into it.</summary>
+    internal void SyncKeyText(string value)
+    {
+        if (SetProperty(ref _keyText, value ?? string.Empty, nameof(KeyText))) RefreshStatus();
+    }
+
+    /// <summary>"Ready", "Waiting for a token", "Connected", "Off".</summary>
     public string StatusText { get => _statusText; private set => SetProperty(ref _statusText, value); }
     public bool IsReady { get => _isReady; private set => SetProperty(ref _isReady, value); }
     public bool NeedsSomething { get => _needsSomething; private set => SetProperty(ref _needsSomething, value); }
@@ -62,14 +125,21 @@ public sealed class SetupMetadataSourceItem : SetupObservable
 
     internal void RefreshStatus()
     {
-        IsReady = IsEnabled && Availability == ProviderAvailability.Ready;
-        NeedsSomething = IsEnabled && Availability is ProviderAvailability.NeedsKey or ProviderAvailability.NeedsTool or ProviderAvailability.NotConnected;
-        StatusText = !IsEnabled ? "Off" : Availability switch
+        // A key typed in the row counts as "there": it is saved on Next.
+        bool pendingKey = Availability == ProviderAvailability.NeedsKey && !string.IsNullOrWhiteSpace(KeyText);
+        var effective = pendingKey ? ProviderAvailability.Ready : Availability;
+        var state = MetadataSourceToggle.Compute(Name, IsEnabled, IsAlwaysOn, effective);
+
+        CanToggle = state.CanToggle;
+        IsWaiting = state.IsWaiting;
+        if (_switchOn != state.SwitchOn) { _switchOn = state.SwitchOn; }
+        OnPropertyChanged(nameof(SwitchOn));
+        IsReady = state.SwitchOn && effective == ProviderAvailability.Ready;
+        NeedsSomething = state.IsWaiting || (state.SwitchOn && effective == ProviderAvailability.Blocked);
+        StatusText = state.IsWaiting ? state.WaitingText! : !IsEnabled && !IsAlwaysOn ? "Off" : effective switch
         {
-            ProviderAvailability.NeedsKey => Name == "acoustid" ? "Needs an API key" : "Needs a token",
-            ProviderAvailability.NeedsTool => "Needs fpcalc",
-            ProviderAvailability.NotConnected => "Not connected",
             ProviderAvailability.Blocked => "Switched off this session",
+            _ when pendingKey => "Saved when you continue",
             _ => Name == "spotify" ? "Connected" : "Ready",
         };
     }
@@ -80,7 +150,7 @@ public sealed class SetupMetadataSourceItem : SetupObservable
         LiveText = s.Availability switch
         {
             ProviderAvailability.Disabled => "Disabled",
-            ProviderAvailability.NeedsKey or ProviderAvailability.NeedsTool or ProviderAvailability.NotConnected => "Skipped: " + StatusText,
+            ProviderAvailability.NeedsKey or ProviderAvailability.NeedsTool or ProviderAvailability.NotConnected => "Skipped · " + StatusText,
             ProviderAvailability.Blocked => "Switched off · " + (s.LastError ?? "access denied"),
             _ when s.IsCircuitOpen && s.OpenUntilUtc is { } until => $"Paused for its rate limit · resumes {until.ToLocalTime():HH:mm:ss}",
             _ when s.Requests == 0 => "Waiting",
@@ -161,8 +231,17 @@ public sealed class MetadataStepViewModel : SetupStepViewModel, IDisposable
     public SetupMetadataSourceItem? AcoustId => Sources.FirstOrDefault(s => s.Name == "acoustid");
 
     public bool AutoRun { get => _autoRun; set => SetProperty(ref _autoRun, value); }
-    public string DiscogsToken { get => _discogsToken; set => SetProperty(ref _discogsToken, value ?? string.Empty); }
-    public string AcoustIdKey { get => _acoustIdKey; set => SetProperty(ref _acoustIdKey, value ?? string.Empty); }
+    public string DiscogsToken
+    {
+        get => _discogsToken;
+        set { if (SetProperty(ref _discogsToken, value ?? string.Empty)) Discogs?.SyncKeyText(_discogsToken); }
+    }
+
+    public string AcoustIdKey
+    {
+        get => _acoustIdKey;
+        set { if (SetProperty(ref _acoustIdKey, value ?? string.Empty)) AcoustId?.SyncKeyText(_acoustIdKey); }
+    }
     public bool HasDiscogsToken => _gateway.HasDiscogsToken;
     public bool HasAcoustIdKey => _gateway.HasAcoustIdKey;
     public bool HasFpcalc => _gateway.HasFpcalc;
@@ -226,6 +305,12 @@ public sealed class MetadataStepViewModel : SetupStepViewModel, IDisposable
     {
         Sources.Clear();
         foreach (var s in _gateway.GetSources()) Sources.Add(new SetupMetadataSourceItem(s));
+        Discogs?.AttachKeyField("Discogs token (stored encrypted for your Windows account)", DiscogsWatermark,
+            "Get a token", GetDiscogsTokenCommand, v => DiscogsToken = v);
+        AcoustId?.AttachKeyField("AcoustID API key (stored encrypted for your Windows account)", AcoustIdWatermark,
+            "Get a key", GetAcoustIdKeyCommand, v => AcoustIdKey = v);
+        Discogs?.SyncKeyText(DiscogsToken);
+        AcoustId?.SyncKeyText(AcoustIdKey);
         AutoRun = _gateway.AutoRun;
         OnPropertyChanged(nameof(Discogs));
         OnPropertyChanged(nameof(AcoustId));
@@ -277,6 +362,8 @@ public sealed class MetadataStepViewModel : SetupStepViewModel, IDisposable
         OnPropertyChanged(nameof(HasAcoustIdKey));
         OnPropertyChanged(nameof(DiscogsWatermark));
         OnPropertyChanged(nameof(AcoustIdWatermark));
+        if (Discogs != null) Discogs.KeyWatermark = DiscogsWatermark;
+        if (AcoustId != null) AcoustId.KeyWatermark = AcoustIdWatermark;
         RefreshAvailability();
         return keyError;
     }
@@ -316,7 +403,7 @@ public sealed class MetadataStepViewModel : SetupStepViewModel, IDisposable
     {
         get
         {
-            var on = Sources.Where(s => s.IsEnabled).Select(s => s.DisplayName).ToList();
+            var on = Sources.Where(s => s.SwitchOn).Select(s => s.DisplayName).ToList(); // only sources that will run
             var sources = on.Count == 0 ? "file tags" : string.Join(", ", on);
             return Status switch
             {

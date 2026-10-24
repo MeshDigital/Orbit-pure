@@ -15,6 +15,7 @@ using Avalonia.Threading;
 using SLSKDONET.Views;
 using System.Reactive.Linq;
 using System.Collections.Generic;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -130,7 +131,16 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateToSearchCommand { get; }
     public ICommand NavigateToAnalysisCommand { get; }
     public ICommand QuickSearchCommand { get; }
-    public ICommand ClearDeadLettersCommand { get; }
+    /// <summary>System Status → "Show failed downloads": Download Center with the Failed filter on.</summary>
+    public ICommand ShowFailedDownloadsCommand { get; }
+
+    /// <summary>
+    /// Real failed downloads: the Download Center's own Failed/Cancelled/Stalled count (what its
+    /// Failed filter shows). The card used to show the crash journal's dead-letter rows, which
+    /// were mostly downloads interrupted by closing ORBIT and already re-queued (358 on the
+    /// owner's machine), not failures.
+    /// </summary>
+    public int FailedDownloadCount => _downloadCenter?.TotalFailedCount ?? 0;
     public ICommand NavigateLibraryCommand { get; }
     public ICommand ViewPlaylistCommand { get; }
     public ICommand RunMissionCommand { get; }
@@ -330,6 +340,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
                 // change notification wired up at all — refresh it on the same tick as the rest
                 // of this snapshot-driven block now that it's actually displayed.
                 OnPropertyChanged(nameof(DownloadSpeed));
+                OnPropertyChanged(nameof(FailedDownloadCount));
             });
         });
 
@@ -358,7 +369,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         });
         ViewPlaylistCommand = new RelayCommand<PlaylistCardViewModel>(ExecuteViewPlaylist);
         QuickSearchCommand = new AsyncRelayCommand<SpotifyTrackViewModel>(ExecuteQuickSearchAsync);
-        ClearDeadLettersCommand = new AsyncRelayCommand(ClearDeadLettersAsync);
+        ShowFailedDownloadsCommand = new RelayCommand(ShowFailedDownloads);
         RunMissionCommand = new AsyncRelayCommand<MissionOperation>(ExecuteRunMissionAsync);
         SelectGenreCommand = new RelayCommand<GenrePlanetViewModel>(ExecuteSelectGenre);
         SelectDiscoverTabCommand = new RelayCommand<string>(tab =>
@@ -700,6 +711,13 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         {
             Interlocked.Exchange(ref _incompleteCountInFlight, 0);
         }
+    }
+
+    private void ShowFailedDownloads()
+    {
+        if (_downloadCenter != null)
+            _downloadCenter.StatusFilter = Downloads.DownloadStatusFilter.Failed;
+        _navigationService.NavigateTo("Projects"); // the Download Center page key
     }
 
     private async Task ClearDeadLettersAsync()
@@ -1079,5 +1097,5 @@ public record EnergyBucketViewModel(string Label, int Count, double RelativeHeig
 /// PeerReliabilityService data that previously only ever reached the Users page.</summary>
 public record PeerLeaderboardEntry(string Username, double Score, long DownloadStarts)
 {
-    public string ScoreText => $"{Score:P0}";
+    public string ScoreText => NumFormat.Ui($"{Score:P0}");
 }
