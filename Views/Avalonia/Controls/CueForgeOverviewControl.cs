@@ -64,6 +64,22 @@ public class CueForgeOverviewControl : Control
         AvaloniaProperty.Register<CueForgeOverviewControl, System.Windows.Input.ICommand?>(nameof(SeekCommand));
     public System.Windows.Input.ICommand? SeekCommand { get => GetValue(SeekCommandProperty); set => SetValue(SeekCommandProperty, value); }
 
+    /// <summary>Click (no drag) on a cue tick: play from the cue. A drag from a tick scrubs as usual.</summary>
+    public static readonly StyledProperty<System.Windows.Input.ICommand?> CueClickedCommandProperty =
+        AvaloniaProperty.Register<CueForgeOverviewControl, System.Windows.Input.ICommand?>(nameof(CueClickedCommand));
+    public System.Windows.Input.ICommand? CueClickedCommand { get => GetValue(CueClickedCommandProperty); set => SetValue(CueClickedCommandProperty, value); }
+
+    public static readonly StyledProperty<IBrush?> IntroRegionFillProperty =
+        AvaloniaProperty.Register<CueForgeOverviewControl, IBrush?>(nameof(IntroRegionFill));
+    public IBrush? IntroRegionFill { get => GetValue(IntroRegionFillProperty); set => SetValue(IntroRegionFillProperty, value); }
+
+    public static readonly StyledProperty<IBrush?> OutroRegionFillProperty =
+        AvaloniaProperty.Register<CueForgeOverviewControl, IBrush?>(nameof(OutroRegionFill));
+    public IBrush? OutroRegionFill { get => GetValue(OutroRegionFillProperty); set => SetValue(OutroRegionFillProperty, value); }
+
+    private const double CueHitRadius = 5.0;
+    private readonly MarkerGesture<OrbitCue> _cueGesture = new();
+
     private static readonly IBrush EnvelopeBrush = new SolidColorBrush(Color.FromArgb(150, 168, 173, 181)).ToImmutable();
     private static readonly IBrush WindowFill = new SolidColorBrush(Color.FromArgb(28, 78, 201, 176)).ToImmutable();
     private static readonly IPen WindowPen = new Pen(new SolidColorBrush(Color.FromArgb(200, 78, 201, 176)).ToImmutable(), 1).ToImmutable();
@@ -150,6 +166,18 @@ public class CueForgeOverviewControl : Control
 
             if (Cues != null && TrackDuration > 0)
             {
+                // Section regions under the cue ticks.
+                if (IntroRegionFill != null && Engine.Cueing.SectionMarkers.IntroRegion(Cues) is { } intro)
+                {
+                    double a = intro.Start / TrackDuration * size.Width, b = intro.End / TrackDuration * size.Width;
+                    ctx.FillRectangle(IntroRegionFill, new Rect(a, 0, Math.Max(0, b - a), size.Height));
+                }
+                if (OutroRegionFill != null && Engine.Cueing.SectionMarkers.OutroRegion(Cues, TrackDuration) is { } outro)
+                {
+                    double a = outro.Start / TrackDuration * size.Width, b = outro.End / TrackDuration * size.Width;
+                    ctx.FillRectangle(OutroRegionFill, new Rect(a, 0, Math.Max(0, b - a), size.Height));
+                }
+
                 foreach (var cue in Cues)
                 {
                     double x = cue.Timestamp / TrackDuration * size.Width;
@@ -182,19 +210,50 @@ public class CueForgeOverviewControl : Control
         return b;
     }
 
+    /// <summary>The cue tick (point cue or loop start) nearest to <paramref name="x"/> within the hit radius.</summary>
+    private OrbitCue? HitCue(double x)
+    {
+        if (Cues == null || TrackDuration <= 0 || Bounds.Width <= 0) return null;
+        OrbitCue? best = null;
+        double bestD = CueHitRadius;
+        foreach (var cue in Cues)
+        {
+            double d = Math.Abs(x - cue.Timestamp / TrackDuration * Bounds.Width);
+            if (d <= bestD) { bestD = d; best = cue; }
+        }
+        return best;
+    }
+
+    private bool _hoverTipShown;
+
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+        double x = e.GetPosition(this).X;
         _dragging = true;
         e.Pointer.Capture(this);
-        MoveTo(e.GetPosition(this).X, force: true);
+        // On a cue tick: wait — a click plays from the cue, a drag scrubs. Elsewhere: jump at once.
+        if (CueClickedCommand != null && HitCue(x) is { } cue) { _cueGesture.Press(cue, x); return; }
+        MoveTo(x, force: true);
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-        if (_dragging) MoveTo(e.GetPosition(this).X, force: false);
+        double x = e.GetPosition(this).X;
+        if (!_dragging)
+        {
+            bool over = CueClickedCommand != null && HitCue(x) != null;
+            if (over != _hoverTipShown)
+            {
+                _hoverTipShown = over;
+                ToolTip.SetTip(this, over ? "Click to play from this cue · drag to jump" : null);
+            }
+            return;
+        }
+        if (_cueGesture.Target != null && !_cueGesture.IsDragging && !_cueGesture.Move(x)) return;
+        MoveTo(x, force: false);
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
@@ -202,8 +261,23 @@ public class CueForgeOverviewControl : Control
         base.OnPointerReleased(e);
         if (!_dragging) return;
         _dragging = false;
+        double x = e.GetPosition(this).X;
+        var (cue, result) = _cueGesture.Release();
         e.Pointer.Capture(null);
-        MoveTo(e.GetPosition(this).X, force: true);
+        if (result == MarkerGestureResult.Click && cue != null)
+        {
+            ScrollOffset = CueForgeGrid.CenterOn(cue.Timestamp / Math.Max(1e-9, TrackDuration), ZoomLevel);
+            if (CueClickedCommand?.CanExecute(cue) == true) CueClickedCommand.Execute(cue);
+            return;
+        }
+        MoveTo(x, force: true);
+    }
+
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        base.OnPointerCaptureLost(e);
+        _cueGesture.Cancel();
+        _dragging = false;
     }
 
     private void MoveTo(double x, bool force)
@@ -229,7 +303,8 @@ public class CueForgeOverviewControl : Control
             if (change.NewValue is ObservableCollection<OrbitCue> fresh) fresh.CollectionChanged += OnCuesChanged;
         }
         if (change.Property == CuesProperty || change.Property == RevisionProperty || change.Property == TrackDurationProperty ||
-            change.Property == WaveformLowProperty || change.Property == WaveformMidProperty || change.Property == WaveformHighProperty)
+            change.Property == WaveformLowProperty || change.Property == WaveformMidProperty || change.Property == WaveformHighProperty ||
+            change.Property == IntroRegionFillProperty || change.Property == OutroRegionFillProperty)
         {
             _dirty = true;
             InvalidateVisual();

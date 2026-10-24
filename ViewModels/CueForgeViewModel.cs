@@ -730,6 +730,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             await _ui(() =>
             {
                 Session.Load(info, entities);
+                // Phrase analysis (read-only) feeds the Intro end / Outro suggestions.
+                Session.SetStructureHints(PhraseSegments.ToList());
                 if (autoSaved != null && !Session.IsStatusError) Session.SetStatus(autoSaved);
             });
             _logger.LogInformation("CueForge: loaded {Count} cues for {Hash} (BPM={Bpm} Dur={Dur:F0}s)",
@@ -781,6 +783,13 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         {
             _vm._transportCue = cue.Timestamp;
             _vm.PlayFrom(cue.Timestamp);
+        }
+        /// <summary>Pauses the shared player, only when it holds this track (never someone else's audio).</summary>
+        public void Stop()
+        {
+            if (!_vm.IsAttachedToPlayer) return;
+            _vm._transport.Pause();
+            _vm.RaisePropertyChanged(nameof(IsPlaying));
         }
     }
 
@@ -963,7 +972,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 var merged = generatedEntities.Select(OrbitCue.FromEntity).ToList();
                 foreach (var u in userCues)
                 {
-                    bool conflicts = merged.Any(c => !c.IsLoop && Math.Abs(c.Timestamp - u.Timestamp) < 1.0);
+                    // Section markers are always kept: they bound regions, they don't compete with cues.
+                    bool conflicts = !u.IsSectionMarker && merged.Any(c => !c.IsLoop && Math.Abs(c.Timestamp - u.Timestamp) < 1.0);
                     if (!conflicts) merged.Add(u);
                 }
                 AssignSlotsByRolePriority(merged);

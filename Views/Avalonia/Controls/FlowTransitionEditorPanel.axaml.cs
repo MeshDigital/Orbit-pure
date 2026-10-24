@@ -43,12 +43,34 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
             if (e.Key == Key.Space && e.KeyModifiers == KeyModifiers.None)
             {
-                mix.TogglePreviewCommand.Execute().Subscribe(_ => { }, _ => { });
+                // A clicked cue that is playing stops first; otherwise Space is the transition preview.
+                if (!mix.StopCuePrelisten())
+                    mix.TogglePreviewCommand.Execute().Subscribe(_ => { }, _ => { });
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Z && e.KeyModifiers == KeyModifiers.Control)
+            {
+                // Edit mode: undo the last cue edit on the active deck; otherwise the last mix-point change.
+                if (mix.IsCueEditMode && mix.ActiveEditor?.Session.CanUndo == true)
+                    mix.ActiveEditor.Session.UndoCommand.Execute().Subscribe();
+                else if (mix.CanUndoMixPoint)
+                    mix.UndoMixPointCommand.Execute().Subscribe();
                 e.Handled = true;
                 return;
             }
 
             if (!mix.IsCueEditMode) return;
+
+            if (e.Key is (Key.I or Key.O) && e.KeyModifiers == KeyModifiers.Shift && mix.ActiveEditor is { } deck)
+            {
+                // Shift+I / Shift+O: Intro end / Outro where you're listening on the last-used deck.
+                if (e.Key == Key.I) deck.Session.SetIntroEndAtPlayheadCommand.Execute().Subscribe();
+                else deck.Session.SetOutroStartAtPlayheadCommand.Execute().Subscribe();
+                e.Handled = true;
+                return;
+            }
 
             if (e.Key is (Key.D or Key.D1 or Key.D2 or Key.NumPad1 or Key.NumPad2) && e.KeyModifiers == KeyModifiers.None)
             {

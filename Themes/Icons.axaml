@@ -103,6 +103,10 @@
       <StreamGeometry x:Key="icon_mic">M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z</StreamGeometry>
       <StreamGeometry x:Key="icon_fullscreen_exit">M14,14H19V16H16V19H14V14M5,14H10V19H8V16H5V14M8,5H10V10H5V8H8V5M19,8V10H14V5H16V8H19Z</StreamGeometry>
       <StreamGeometry x:Key="icon_pin">M16,12V4H17V2H7V4H8V12L6,14V16H11.2V22H12.8V16H18V14L16,12Z</StreamGeometry>
+      <!-- Track sections: intro / outro brackets around a region -->
+      <StreamGeometry x:Key="icon_sections">M2,4H7V6H4V18H7V20H2V4M17,4H22V20H17V18H20V6H17V4M8,11H16V13H8V11Z</StreamGeometry>
+      <!-- Two waveforms on one timeline (transition overlay) -->
+      <StreamGeometry x:Key="icon_overlay">M2,12L5,7L8,15L11,5L14,17L17,9L19,13L22,11V13L20,15L17,13L14,21L11,11L8,19L5,11L3,14L2,12Z</StreamGeometry>
       <StreamGeometry x:Key="icon_file">M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M13,9V3.5L18.5,9H13Z</StreamGeometry>
     </ResourceDictionary>
   </Styles.Resources>

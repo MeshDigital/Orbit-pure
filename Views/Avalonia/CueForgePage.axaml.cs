@@ -115,7 +115,14 @@ public partial class CueForgePage : UserControl
                 vm.NextCueCommand.Execute().Subscribe();
                 break;
             case Key.Space when none:
-                vm.PlayPauseCommand.Execute().Subscribe();
+                // A cue being prelistened (clicked flag) stops; otherwise normal play / pause.
+                if (!vm.Session.StopPrelisten()) vm.PlayPauseCommand.Execute().Subscribe();
+                break;
+            case Key.I when shift:
+                vm.Session.SetIntroEndAtPlayheadCommand.Execute().Subscribe();
+                break;
+            case Key.O when shift:
+                vm.Session.SetOutroStartAtPlayheadCommand.Execute().Subscribe();
                 break;
             case Key.C when none:
                 vm.CueButtonCommand.Execute().Subscribe();
@@ -274,6 +281,8 @@ public partial class CueForgePage : UserControl
         var menu = new ContextMenu();
         menu.Items.Add(Item($"Add cue here ({CueForgeGrid.FormatTime(vm.Session.SnapTime(t))})", () => vm.Session.AddCueAtCommand.Execute(t).Subscribe()));
         menu.Items.Add(Item("Mark drop here", () => vm.Session.SetDropAtCommand.Execute(t).Subscribe()));
+        menu.Items.Add(Item($"Intro ends here ({CueForgeGrid.FormatTime(vm.Session.SnapSectionTime(t))})", () => vm.Session.SetIntroEndAtCommand.Execute(t).Subscribe()));
+        menu.Items.Add(Item($"Outro starts here ({CueForgeGrid.FormatTime(vm.Session.SnapSectionTime(t))})", () => vm.Session.SetOutroStartAtCommand.Execute(t).Subscribe()));
         menu.Items.Add(Item("Move playhead here", () => vm.SeekPlayheadCommand.Execute(t).Subscribe()));
         menu.Open(Waveform);
         e.Handled = true;

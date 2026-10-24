@@ -147,6 +147,29 @@ public class CueForgeWaveformControl : Control
             defaultBindingMode: global::Avalonia.Data.BindingMode.TwoWay);
     public double ScrollOffset { get => GetValue(ScrollOffsetProperty); set => SetValue(ScrollOffsetProperty, value); }
 
+    /// <summary>Fired on a click (press + release without dragging) on a cue flag or loop: Cue Forge
+    /// plays from the cue (prelisten). A drag moves the marker instead and never fires this.</summary>
+    public static readonly StyledProperty<System.Windows.Input.ICommand?> CueClickedCommandProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, System.Windows.Input.ICommand?>(nameof(CueClickedCommand));
+    public System.Windows.Input.ICommand? CueClickedCommand { get => GetValue(CueClickedCommandProperty); set => SetValue(CueClickedCommandProperty, value); }
+
+    // Section regions (Intro end / Outro markers) — token brushes from the view.
+    public static readonly StyledProperty<IBrush?> IntroRegionFillProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, IBrush?>(nameof(IntroRegionFill));
+    public IBrush? IntroRegionFill { get => GetValue(IntroRegionFillProperty); set => SetValue(IntroRegionFillProperty, value); }
+    public static readonly StyledProperty<IBrush?> IntroRegionEdgeProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, IBrush?>(nameof(IntroRegionEdge));
+    public IBrush? IntroRegionEdge { get => GetValue(IntroRegionEdgeProperty); set => SetValue(IntroRegionEdgeProperty, value); }
+    public static readonly StyledProperty<IBrush?> OutroRegionFillProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, IBrush?>(nameof(OutroRegionFill));
+    public IBrush? OutroRegionFill { get => GetValue(OutroRegionFillProperty); set => SetValue(OutroRegionFillProperty, value); }
+    public static readonly StyledProperty<IBrush?> OutroRegionEdgeProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, IBrush?>(nameof(OutroRegionEdge));
+    public IBrush? OutroRegionEdge { get => GetValue(OutroRegionEdgeProperty); set => SetValue(OutroRegionEdgeProperty, value); }
+
+    /// <summary>Shown while hovering a cue flag.</summary>
+    public const string CueFlagTip = "Click to play from here · drag to move";
+
     /// <summary>True while the user holds the mouse down scrubbing the playhead.</summary>
     public event EventHandler<bool>? ScrubbingChanged;
 
@@ -312,6 +335,7 @@ public class CueForgeWaveformControl : Control
             ctx.FillRectangle(RulerBrush, new Rect(0, 0, size.Width, RulerHeight));
             if (_waveBitmap != null) ctx.DrawImage(_waveBitmap, wave);
             DrawSectionBands(ctx, wave);
+            DrawSectionRegions(ctx, wave);
             DrawPhraseMap(ctx, size, wave);
             DrawEnergy(ctx, wave);
             DrawGridAndRuler(ctx, size, wave);
@@ -432,6 +456,36 @@ public class CueForgeWaveformControl : Control
             ctx.FillRectangle(style.Band, new Rect(Math.Max(0, x1), wave.Top, Math.Min(wave.Width, x2) - Math.Max(0, x1), wave.Height));
             if (x1 >= 0) ctx.DrawLine(style.Edge, new Point(x1, wave.Top), new Point(x1, wave.Bottom));
         }
+    }
+
+    /// <summary>Intro region (track start / Intro cue → Intro end) and outro region (Outro → end),
+    /// tinted with the view's token brushes. Drawn into the cached static layer.</summary>
+    private void DrawSectionRegions(DrawingContext ctx, Rect wave)
+    {
+        if (Cues is null || TrackDuration <= 0) return;
+        if (Engine.Cueing.SectionMarkers.IntroRegion(Cues) is { } intro)
+            DrawRegion(ctx, wave, intro.Start, intro.End, IntroRegionFill, IntroRegionEdge, edgeAtStart: false);
+        if (Engine.Cueing.SectionMarkers.OutroRegion(Cues, TrackDuration) is { } outro)
+            DrawRegion(ctx, wave, outro.Start, outro.End, OutroRegionFill, OutroRegionEdge, edgeAtStart: true);
+    }
+
+    private void DrawRegion(DrawingContext ctx, Rect wave, double start, double end, IBrush? fill, IBrush? edge, bool edgeAtStart)
+    {
+        double x1 = TimeToX(start, wave.Width), x2 = TimeToX(end, wave.Width);
+        if (x2 <= 0 || x1 >= wave.Width || x2 - x1 < 0.5) return;
+        double l = Math.Max(0, x1), r = Math.Min(wave.Width, x2);
+        if (fill != null) ctx.FillRectangle(fill, new Rect(l, wave.Top, r - l, wave.Height));
+        if (edge == null) return;
+        double ex = edgeAtStart ? x1 : x2;
+        if (ex >= 0 && ex <= wave.Width) ctx.DrawLine(GetRegionPen(edge), new Point(ex, wave.Top), new Point(ex, wave.Bottom));
+    }
+
+    private readonly Dictionary<IBrush, IPen> _regionPens = new();
+    private IPen GetRegionPen(IBrush brush)
+    {
+        if (!_regionPens.TryGetValue(brush, out var pen))
+            _regionPens[brush] = pen = new Pen(brush, 1, dashStyle: new DashStyle(new double[] { 3, 3 }, 0)).ToImmutable();
+        return pen;
     }
 
     private void DrawPhraseMap(DrawingContext ctx, Size size, Rect wave)
@@ -755,6 +809,7 @@ public class CueForgeWaveformControl : Control
             case DragKind.None:
                 var (kind, _) = HitTest(pt);
                 Cursor = kind == DragKind.None ? ScrubCursor : HandleCursor;
+                SetHoverTip(kind != DragKind.None);
                 return;
 
             case DragKind.Scrub:
@@ -765,7 +820,7 @@ public class CueForgeWaveformControl : Control
         if (_dragCue == null) return;
         if (!_dragMoved)
         {
-            if (Math.Abs(pt.X - _pressPoint.X) < 3) return; // a click, not a drag
+            if (Math.Abs(pt.X - _pressPoint.X) < MarkerGesture<OrbitCue>.DragThresholdPixels) return; // a click, not a drag
             _dragMoved = true;
             if (CueDragStartedCommand?.CanExecute(_dragCue) == true) CueDragStartedCommand.Execute(_dragCue);
         }
@@ -783,6 +838,20 @@ public class CueForgeWaveformControl : Control
         var text = bar.Length > 0 ? $"{CueForgeGrid.FormatTime(t)}  {bar}" : CueForgeGrid.FormatTime(t);
         _readout = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, MonoTypeface, 11, LabelTextBrush);
         InvalidateStaticThrottled();
+    }
+
+    private bool _hoverTipShown;
+    private void SetHoverTip(bool overMarker)
+    {
+        if (overMarker == _hoverTipShown) return;
+        _hoverTipShown = overMarker;
+        ToolTip.SetTip(this, overMarker ? CueFlagTip : null);
+    }
+
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+        SetHoverTip(false);
     }
 
     private void InvalidateStaticThrottled()
@@ -825,6 +894,12 @@ public class CueForgeWaveformControl : Control
         {
             InvalidateStaticCache();
             if (CueUpdatedCommand?.CanExecute(cue) == true) CueUpdatedCommand.Execute(cue);
+        }
+        else if (commit && !moved && cue != null && at != null)
+        {
+            // Released without passing the drag threshold: a click — play from the cue. The cue
+            // itself was never touched, so a click can't nudge it.
+            if (CueClickedCommand?.CanExecute(cue) == true) CueClickedCommand.Execute(cue);
         }
         InvalidateVisual();
     }
@@ -898,7 +973,9 @@ public class CueForgeWaveformControl : Control
             change.Property == WaveformHighProperty || change.Property == EnergyCurveProperty ||
             change.Property == VocalDensityCurveProperty || change.Property == OnsetDensityCurveProperty ||
             change.Property == ZoomLevelProperty || change.Property == ScrollOffsetProperty ||
-            change.Property == SelectedCueProperty)
+            change.Property == SelectedCueProperty ||
+            change.Property == IntroRegionFillProperty || change.Property == IntroRegionEdgeProperty ||
+            change.Property == OutroRegionFillProperty || change.Property == OutroRegionEdgeProperty)
         {
             InvalidateStaticCache();
         }
