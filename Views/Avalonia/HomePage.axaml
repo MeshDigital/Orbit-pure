@@ -157,8 +157,8 @@
                                         <TextBlock Classes="stat" Text="{Binding CurrentSnapshot.ZombieProcessCount}"/>
                                     </StackPanel>
                                     <StackPanel Grid.Row="0" Grid.Column="1">
-                                        <TextBlock Classes="stat-label" Text="Failed retries"/>
-                                        <TextBlock Classes="stat" Text="{Binding CurrentSnapshot.DeadLetterCount}"/>
+                                        <TextBlock Classes="stat-label" Text="Failed downloads"/>
+                                        <TextBlock Classes="stat" Text="{Binding FailedDownloadCount, Converter={StaticResource CountConverter}}"/>
                                     </StackPanel>
                                     <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,8,0,0">
                                         <TextBlock Classes="stat-label" Text="CPU load"/>
@@ -173,9 +173,9 @@
                                         </StackPanel>
                                     </StackPanel>
                                 </Grid>
-                                <Button Grid.Row="2" Classes="secondary small" Content="Retry stalled downloads" HorizontalAlignment="Left"
-                                        Command="{Binding ClearDeadLettersCommand}"
-                                        ToolTip.Tip="Re-queue items that exhausted their retries"/>
+                                <Button Grid.Row="2" Classes="secondary small" Content="Show failed downloads" HorizontalAlignment="Left"
+                                        Command="{Binding ShowFailedDownloadsCommand}"
+                                        ToolTip.Tip="Open the Download Center filtered to failed downloads, where you can retry them"/>
                             </Grid>
                         </Border>
                     </Grid>

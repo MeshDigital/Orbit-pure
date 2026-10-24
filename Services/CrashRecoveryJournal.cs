@@ -487,7 +487,8 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Phase 3B: User Action to Retry Dead-Lettered tracks.
-    /// Resets 'DeadLetter' (Status=3) entries back to 'Prepared' (Status=0).
+    /// Resets 'DeadLetter' (Status=2) entries back to 'Active' (Status=0). It used to look for
+    /// Status=3, which never exists, so "Repair dead letters" never reset anything.
     /// </summary>
     public async Task<int> ResetDeadLettersAsync(int batchSize = 50)
     {
@@ -504,12 +505,13 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
                 SET Status = 0, LastHeartbeat = @now, FailureCount = 0
                 WHERE Id IN (
                     SELECT Id FROM RecoveryCheckpoints 
-                    WHERE Status = 3
+                    WHERE Status = @deadLetter
                     LIMIT @limit
                 )";
              
              cmd.Parameters.AddWithValue("@now", Stopwatch.GetTimestamp());
              cmd.Parameters.AddWithValue("@limit", batchSize);
+             cmd.Parameters.AddWithValue("@deadLetter", (int)CheckpointStatus.DeadLetter);
 
              int count = await cmd.ExecuteNonQueryAsync();
              if (count > 0)
@@ -521,6 +523,41 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to reset dead letters");
+            return 0;
+        }
+        finally
+        {
+            _journalLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Deletes dead-lettered checkpoints of one operation type. Downloads are retried through
+    /// their track's own state (Download Center → Failed / re-queued as Missing), so their
+    /// journal rows are bookkeeping, not "failed retries": every download that was in flight
+    /// when ORBIT closed used to be dead-lettered on the next start and never removed, which
+    /// grew the Dashboard's "Failed retries" into the hundreds.
+    /// </summary>
+    public async Task<int> PurgeDeadLettersAsync(OperationType type)
+    {
+        if (_disposed || _journalConnection == null)
+            return 0;
+
+        await _journalLock.WaitAsync();
+        try
+        {
+            using var cmd = _journalConnection.CreateCommand();
+            cmd.CommandText = "DELETE FROM RecoveryCheckpoints WHERE Status = @deadLetter AND OperationType = @type";
+            cmd.Parameters.AddWithValue("@deadLetter", (int)CheckpointStatus.DeadLetter);
+            cmd.Parameters.AddWithValue("@type", type.ToString());
+            int deleted = await cmd.ExecuteNonQueryAsync();
+            if (deleted > 0)
+                _logger.LogInformation("Purged {Count} dead-lettered {Type} checkpoints (their tracks carry the retry state)", deleted, type);
+            return deleted;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to purge dead-lettered {Type} checkpoints", type);
             return 0;
         }
         finally

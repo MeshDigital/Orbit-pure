@@ -505,8 +505,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 {
                     try
                     {
-                        // Mark the journal entry as dead-letter so it won't trigger again.
-                        await _crashJournal.MarkAsDeadLetterAsync(cp.Id);
+                        // Remove the journal entry so it won't trigger again. It used to be marked
+                        // dead-letter and was never removed, so every download in flight at close
+                        // inflated the Dashboard's "Failed retries" forever; the track itself is
+                        // reset below and carries the retry.
+                        await _crashJournal.CompleteCheckpointAsync(cp.Id);
                         // Reset the corresponding PlaylistTrack to Pending so it can be retried.
                         if (!string.IsNullOrEmpty(cp.TargetPath))
                             await _databaseService.ResetTrackToMissingByPathAsync(cp.TargetPath);
@@ -520,6 +523,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 }
                 if (resetCount > 0)
                     _logger.LogWarning("[CrashRecovery] Reset {Count} zombie downloads from previous session", resetCount);
+                // Clean up the dead letters earlier versions left behind for the same reason.
+                await _crashJournal.PurgeDeadLettersAsync(OperationType.Download);
             }
             catch (Exception journalEx)
             {
