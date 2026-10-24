@@ -135,9 +135,48 @@
             </Border>
 
             <!-- ── The two decks ── -->
-            <ScrollViewer Grid.Row="3" DataContext="{Binding MixTransitionVm}" x:DataType="vm:MixTransitionViewModel"
+            <ScrollViewer Grid.Row="3" x:Name="Decks" DataContext="{Binding MixTransitionVm}" x:DataType="vm:MixTransitionViewModel"
                           HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="16,12" Spacing="16">
+
+                    <!-- Overlay: A's outgoing part and B's incoming part on one tempo-corrected timeline -->
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                <TextBlock Classes="section" Text="OVERLAY" VerticalAlignment="Center"/>
+                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                    <Border Width="12" Height="8" CornerRadius="{StaticResource RadiusXs}" Background="{StaticResource BrushOverlayOutgoing}"/>
+                                    <TextBlock Classes="caption" Text="A out"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                    <Border Width="12" Height="8" CornerRadius="{StaticResource RadiusXs}" Background="{StaticResource BrushOverlayIncoming}"/>
+                                    <TextBlock Classes="caption" Text="B in"/>
+                                </StackPanel>
+                                <TextBlock Classes="mono muted" Text="{Binding OverlaySummary}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                            <Button Grid.Column="2" Classes="icon small" Command="{Binding UndoMixPointCommand}"
+                                    ToolTip.Tip="Undo the last mix-point change: overlay drag, nudge or cue pick (Ctrl+Z)">
+                                <PathIcon Data="{StaticResource icon_undo}" Width="14" Height="14"/>
+                            </Button>
+                        </Grid>
+                        <Border Classes="inset" Height="96" Padding="0" ClipToBounds="True"
+                                ToolTip.Tip="A and B as they will overlap, tempo-matched. Drag to shift where B comes in (snaps to B's bars; hold Shift for beats). Lines: each track's gain; dashed: EQ swap.">
+                            <controls:TransitionOverlayControl Model="{Binding Overlay}"
+                                                               OutgoingWaveform="{Binding WaveformDataA}"
+                                                               IncomingWaveform="{Binding WaveformDataB}"
+                                                               PlayheadSeconds="{Binding OverlayPlayheadSeconds}"
+                                                               ShiftIncomingCommand="{Binding SetMixInFromOverlayCommand}"
+                                                               OutgoingFill="{StaticResource BrushOverlayOutgoing}"
+                                                               IncomingFill="{StaticResource BrushOverlayIncoming}"
+                                                               OutgoingCurveBrush="{StaticResource BrushAccent}"
+                                                               IncomingCurveBrush="{StaticResource BrushInfo}"
+                                                               OverlapFill="{StaticResource BrushOverlayOverlap}"
+                                                               GridBrush="{StaticResource BrushBorder0}"
+                                                               LabelBrush="{StaticResource BrushText2}"
+                                                               MarkerBrush="{StaticResource BrushText1}"
+                                                               PlayheadBrush="{StaticResource BrushText0}"/>
+                        </Border>
+                    </StackPanel>
 
                     <!-- Outgoing (A) -->
                     <StackPanel Spacing="8">
@@ -161,6 +200,23 @@
                         <Border Classes="inset" Height="120" Padding="0" ClipToBounds="True">
                             <Panel>
                                 <controls:TimeRegionOverlay DurationSeconds="{Binding OutgoingDurationSeconds}"
+                                                            StartSeconds="{Binding OutgoingEditor.Session.IntroRegionStart}"
+                                                            EndSeconds="{Binding OutgoingEditor.Session.IntroRegionEnd}"
+                                                            ZoomLevel="{Binding WaveformZoomLevel}"
+                                                            ViewOffset="{Binding OutgoingViewOffset}"
+                                                            Fill="{StaticResource BrushSectionIntroFill}"
+                                                            EdgeBrush="{StaticResource BrushSectionIntroEdge}"
+                                                            IsVisible="{Binding OutgoingEditor.Session.HasIntroRegion}"/>
+                                <controls:TimeRegionOverlay DurationSeconds="{Binding OutgoingDurationSeconds}"
+                                                            StartSeconds="{Binding OutgoingEditor.Session.OutroRegionStart}"
+                                                            EndSeconds="{Binding OutgoingEditor.Session.OutroRegionEnd}"
+                                                            ZoomLevel="{Binding WaveformZoomLevel}"
+                                                            ViewOffset="{Binding OutgoingViewOffset}"
+                                                            Fill="{StaticResource BrushSectionOutroFill}"
+                                                            EdgeBrush="{StaticResource BrushSectionOutroEdge}"
+                                                            EdgeAtStart="True"
+                                                            IsVisible="{Binding OutgoingEditor.Session.HasOutroRegion}"/>
+                                <controls:TimeRegionOverlay DurationSeconds="{Binding OutgoingDurationSeconds}"
                                                             StartSeconds="{Binding EffectiveSourceTriggerSeconds}"
                                                             EndSeconds="{Binding OutgoingRegionEndSeconds}"
                                                             ZoomLevel="{Binding WaveformZoomLevel}"
@@ -174,6 +230,7 @@
                                     Cues="{Binding OutgoingCues}"
                                     CueClickedCommand="{Binding OutgoingCueClickedCommand}"
                                     CuesAreDraggable="{Binding IsCueEditMode}"
+                                    CueHoverTip="{Binding CueFlagTip}"
                                     CueUpdatedCommand="{Binding OutgoingEditor.Session.CueUpdatedCommand}"
                                     SnapToGridEnabled="False"
                                     ZoomLevel="{Binding WaveformZoomLevel}"
@@ -199,9 +256,9 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="models:OrbitCue">
                                     <Button Classes="ghost small cue-pick"
-                                            Command="{Binding $parent[ItemsControl].((vm:MixTransitionViewModel)DataContext).SelectSourceCueCommand}"
-                                            CommandParameter="{Binding Timestamp}"
-                                            ToolTip.Tip="Mix out here">
+                                            Command="{ReflectionBinding #Decks.DataContext.OutgoingCueChipCommand}"
+                                            CommandParameter="{Binding}"
+                                            ToolTip.Tip="Click to play from here and mix out here (click again to stop)">
                                         <StackPanel Orientation="Horizontal" Spacing="6">
                                             <Ellipse Width="6" Height="6" Fill="{Binding Color}"/>
                                             <TextBlock Classes="body-sm" Text="{Binding Name}"/>
@@ -238,6 +295,23 @@
                         <Border Classes="inset" Height="120" Padding="0" ClipToBounds="True">
                             <Panel>
                                 <controls:TimeRegionOverlay DurationSeconds="{Binding IncomingDurationSeconds}"
+                                                            StartSeconds="{Binding IncomingEditor.Session.IntroRegionStart}"
+                                                            EndSeconds="{Binding IncomingEditor.Session.IntroRegionEnd}"
+                                                            ZoomLevel="{Binding WaveformZoomLevel}"
+                                                            ViewOffset="{Binding IncomingViewOffset}"
+                                                            Fill="{StaticResource BrushSectionIntroFill}"
+                                                            EdgeBrush="{StaticResource BrushSectionIntroEdge}"
+                                                            IsVisible="{Binding IncomingEditor.Session.HasIntroRegion}"/>
+                                <controls:TimeRegionOverlay DurationSeconds="{Binding IncomingDurationSeconds}"
+                                                            StartSeconds="{Binding IncomingEditor.Session.OutroRegionStart}"
+                                                            EndSeconds="{Binding IncomingEditor.Session.OutroRegionEnd}"
+                                                            ZoomLevel="{Binding WaveformZoomLevel}"
+                                                            ViewOffset="{Binding IncomingViewOffset}"
+                                                            Fill="{StaticResource BrushSectionOutroFill}"
+                                                            EdgeBrush="{StaticResource BrushSectionOutroEdge}"
+                                                            EdgeAtStart="True"
+                                                            IsVisible="{Binding IncomingEditor.Session.HasOutroRegion}"/>
+                                <controls:TimeRegionOverlay DurationSeconds="{Binding IncomingDurationSeconds}"
                                                             StartSeconds="{Binding TargetTriggerSeconds}"
                                                             EndSeconds="{Binding IncomingRegionEndSeconds}"
                                                             ZoomLevel="{Binding WaveformZoomLevel}"
@@ -251,6 +325,7 @@
                                     Cues="{Binding IncomingCues}"
                                     CueClickedCommand="{Binding IncomingCueClickedCommand}"
                                     CuesAreDraggable="{Binding IsCueEditMode}"
+                                    CueHoverTip="{Binding CueFlagTip}"
                                     CueUpdatedCommand="{Binding IncomingEditor.Session.CueUpdatedCommand}"
                                     SnapToGridEnabled="False"
                                     ZoomLevel="{Binding WaveformZoomLevel}"
@@ -276,9 +351,9 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="models:OrbitCue">
                                     <Button Classes="ghost small cue-pick"
-                                            Command="{Binding $parent[ItemsControl].((vm:MixTransitionViewModel)DataContext).SelectTargetCueCommand}"
-                                            CommandParameter="{Binding Timestamp}"
-                                            ToolTip.Tip="Mix in here">
+                                            Command="{ReflectionBinding #Decks.DataContext.IncomingCueChipCommand}"
+                                            CommandParameter="{Binding}"
+                                            ToolTip.Tip="Click to play from here and mix in here (click again to stop)">
                                         <StackPanel Orientation="Horizontal" Spacing="6">
                                             <Ellipse Width="6" Height="6" Fill="{Binding Color}"/>
                                             <TextBlock Classes="body-sm" Text="{Binding Name}"/>

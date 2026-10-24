@@ -87,6 +87,8 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         DeleteCueCommand = ReactiveCommand.Create<OrbitCue>(DeleteCue, canAct);
         DeleteSelectedCueCommand = ReactiveCommand.Create(() => { if (SelectedCue != null) DeleteCue(SelectedCue); }, canActOnSelection);
         SelectCueCommand = ReactiveCommand.Create<OrbitCue>(cue => SelectedCue = cue);
+        PrelistenCueCommand = ReactiveCommand.Create<OrbitCue>(PrelistenCue);
+        StopPrelistenCommand = ReactiveCommand.Create(() => { StopPrelisten(); });
         // Cue Forge's waveform fires this the instant a drag starts moving, before the cue changes.
         CueDragStartedCommand = ReactiveCommand.Create<OrbitCue>(cue =>
         {
@@ -120,6 +122,14 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         SetDropAtPlayheadCommand = ReactiveCommand.Create(() => SetDropAt(_audition.PositionSeconds, null), canAct);
         SetNumberedDropAtPlayheadCommand = ReactiveCommand.Create<int>(n => SetDropAt(_audition.PositionSeconds, n), canAct);
         SetDropAtCommand = ReactiveCommand.Create<double>(t => SetDropAt(t, null), canAct);
+
+        // Section markers: Intro end / Outro (see SectionMarkers).
+        SetIntroEndAtPlayheadCommand = ReactiveCommand.Create(() => { SetSectionMarker(CueRole.IntroEnd, _audition.PositionSeconds); }, canAct);
+        SetOutroStartAtPlayheadCommand = ReactiveCommand.Create(() => { SetSectionMarker(CueRole.OutroStart, _audition.PositionSeconds); }, canAct);
+        SetIntroEndAtCommand = ReactiveCommand.Create<double>(t => { SetSectionMarker(CueRole.IntroEnd, t); }, canAct);
+        SetOutroStartAtCommand = ReactiveCommand.Create<double>(t => { SetSectionMarker(CueRole.OutroStart, t); }, canAct);
+        var hasSuggestion = this.WhenAnyValue(x => x.HasSectionSuggestion);
+        UseSectionSuggestionCommand = ReactiveCommand.Create(UseSectionSuggestion, canAct.CombineLatest(hasSuggestion, (a, h) => a && h));
 
         UndoCommand = ReactiveCommand.Create(Undo, this.WhenAnyValue(x => x.CanUndo));
         RedoCommand = ReactiveCommand.Create(Redo, this.WhenAnyValue(x => x.CanRedo));
@@ -201,6 +211,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         PendingLoopIn = null;
         SelectedCue = null;
         _dragStartedCue = null;
+        PrelisteningCue = null;
         TrackTitle = track.Title;
         FilePath = track.FilePath;
         _genre = track.Genre;
@@ -225,9 +236,11 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         PendingLoopIn = null;
         SelectedCue = null;
         _dragStartedCue = null;
+        PrelisteningCue = null;
         TrackHash = null;
         TrackTitle = string.Empty;
         FilePath = null;
+        _structurePhrases = Array.Empty<PhraseSegment>();
         LoadCuesClean(Array.Empty<OrbitCue>());
         _undoStack.Clear(); _redoStack.Clear();
         UpdateUndoRedoState();
@@ -248,6 +261,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(Duration));
         this.RaisePropertyChanged(nameof(TemplateHint));
         this.RaisePropertyChanged(nameof(SelectedCuePositionDisplay));
+        RefreshSections();
     }
 
     // ── Cues ───────────────────────────────────────────────────────────────
@@ -289,11 +303,14 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(ActiveLoop));
         this.RaisePropertyChanged(nameof(HasActiveLoop));
         this.RaisePropertyChanged(nameof(ActiveLoopDisplay));
+        RefreshSections();
         CueRevision++;
     }
 
     private void OnCuePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName is nameof(OrbitCue.Timestamp) or nameof(OrbitCue.Role) or nameof(OrbitCue.IsLoop))
+            RefreshSections();
         CueRevision++;
         if (e.PropertyName is nameof(OrbitCue.Name) or nameof(OrbitCue.Color) or nameof(OrbitCue.SlotIndex)
             or nameof(OrbitCue.Timestamp) or nameof(OrbitCue.Role) or nameof(OrbitCue.IsLoop))
@@ -491,6 +508,8 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         CueRole.KickIn                          => "#FFFF00", // Yellow
         CueRole.Vocals                          => "#FF66AA", // Pink
         CueRole.Bridge                          => "#00FF88", // Green
+        CueRole.IntroEnd                        => SectionMarkers.IntroEndColor,
+        CueRole.OutroStart                      => SectionMarkers.OutroColor,
         _                                       => "#FFFFFF", // White
     };
 
@@ -634,6 +653,9 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
     public ReactiveCommand<OrbitCue, Unit> DeleteCueCommand { get; }
     public ReactiveCommand<Unit, Unit> DeleteSelectedCueCommand { get; }
     public ReactiveCommand<OrbitCue, Unit> SelectCueCommand { get; }
+    /// <summary>Click on a cue flag / chip: select + play from the cue; again = stop.</summary>
+    public ReactiveCommand<OrbitCue, Unit> PrelistenCueCommand { get; }
+    public ReactiveCommand<Unit, Unit> StopPrelistenCommand { get; }
     public ReactiveCommand<OrbitCue, Unit> CueDragStartedCommand { get; }
     public ReactiveCommand<OrbitCue, Unit> CueUpdatedCommand { get; }
     /// <summary>"-beat"/"+beat" (or "-1"/"1"), "-bar"/"+bar", "-fine"/"+fine" (10 ms).</summary>
@@ -659,6 +681,14 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
     public ReactiveCommand<int, Unit> SetNumberedDropAtPlayheadCommand { get; }
     /// <summary>Waveform right-click "Drop here" (seconds).</summary>
     public ReactiveCommand<double, Unit> SetDropAtCommand { get; }
+    /// <summary>"Intro end here" / "Outro here" at the playhead (snapped to the bar).</summary>
+    public ReactiveCommand<Unit, Unit> SetIntroEndAtPlayheadCommand { get; }
+    public ReactiveCommand<Unit, Unit> SetOutroStartAtPlayheadCommand { get; }
+    /// <summary>Waveform right-click "Intro ends here" / "Outro starts here" (seconds).</summary>
+    public ReactiveCommand<double, Unit> SetIntroEndAtCommand { get; }
+    public ReactiveCommand<double, Unit> SetOutroStartAtCommand { get; }
+    /// <summary>Places the suggested section markers that are still missing (one undo step).</summary>
+    public ReactiveCommand<Unit, Unit> UseSectionSuggestionCommand { get; }
     public ReactiveCommand<Unit, Unit> UndoCommand { get; }
     public ReactiveCommand<Unit, Unit> RedoCommand { get; }
     public ReactiveCommand<Unit, Unit> SaveCommand { get; }
@@ -688,7 +718,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         int cleared = ClearAutoCues(cue);
         SelectedCue = cue;
         Changed($"Added {cue.Name} at {CueForgeGrid.FormatTime(cue.Timestamp)}" + AutoClearedNote(cleared));
-        if (AuditionAfterEdits) _audition.PlayFrom(cue.Timestamp);
+        if (AuditionAfterEdits) AuditionAt(cue.Timestamp);
         return cue;
     }
 
@@ -744,7 +774,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         SelectedCue = cue;
         Changed($"Moved {cue.Name} to {CueForgeGrid.FormatTime(cue.Timestamp)}" + AutoClearedNote(cleared));
         if (Math.Abs(cue.Timestamp - origin.Time) > 1e-6) CueMoved?.Invoke(this, (origin.Time, cue.Timestamp));
-        if (AuditionAfterEdits) _audition.PlayFrom(cue.Timestamp);
+        if (AuditionAfterEdits) AuditionAt(cue.Timestamp);
     }
 
     /// <summary>Every step replays the track from the cue so it can be fine-tuned by ear; a moved
@@ -772,7 +802,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         ResortCues();
         Changed($"Moved {cue.Name} to {CueForgeGrid.FormatTime(cue.Timestamp)}" + AutoClearedNote(cleared));
         CueMoved?.Invoke(this, (from, cue.Timestamp));
-        _audition.PlayFrom(cue.Timestamp);
+        AuditionAt(cue.Timestamp);
     }
 
     /// <summary>
@@ -794,7 +824,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         SelectedCue = drop;
         Changed($"{drop.Name} at {CueForgeGrid.FormatTime(drop.Timestamp)}" + AutoClearedNote(cleared));
         // While listening, keep playing; otherwise (when the host plays by ear) let the drop be heard.
-        if (AuditionAfterEdits && !_audition.IsPlaying) _audition.PlayFrom(drop.Timestamp);
+        if (AuditionAfterEdits && !_audition.IsPlaying) AuditionAt(drop.Timestamp);
     }
 
     /// <summary>A cue was dragged or nudged from <paramref name="from"/>. Moving an auto cue takes
@@ -843,8 +873,12 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
             SetDropAt(cue.Timestamp, null);
             return;
         }
+        if (role is (CueRole.IntroEnd or CueRole.OutroStart) && cue.IsLoop) return;
         PushSnapshot();
         double? outBefore = previousRole == CueRole.Drop ? OutBefore() : null;
+        // One marker per section: the cue that had this role gives it up (it becomes a plain cue).
+        if (role is CueRole.IntroEnd or CueRole.OutroStart)
+            foreach (var other in Cues.Where(c => c != cue && c.Role == role).ToList()) other.Role = CueRole.Custom;
         cue.Role = role;
         if (previousRole == CueRole.Drop)
         {
@@ -886,6 +920,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         if (pad.Cue is { } cue && Cues.Contains(cue))
         {
             SelectedCue = cue;
+            PrelisteningCue = null;
             _audition.JumpToCue(cue);
             return;
         }
@@ -899,6 +934,219 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         cue.SlotIndex = -1;
         FieldEdited(cue, $"Pad {pad.PadLabel} cleared; \"{cue.Name}\" is now a memory cue.");
     }
+
+    // ── Prelisten (click a cue flag / chip) ────────────────────────────────
+
+    private OrbitCue? _prelisteningCue;
+    /// <summary>The cue last clicked to play from, while that playback may still be running.</summary>
+    public OrbitCue? PrelisteningCue
+    {
+        get => _prelisteningCue;
+        private set
+        {
+            if (ReferenceEquals(_prelisteningCue, value)) return;
+            this.RaiseAndSetIfChanged(ref _prelisteningCue, value);
+        }
+    }
+
+    /// <summary>A click on a cue flag or chip: selects it and plays the track from exactly the cue
+    /// (through the host's <see cref="ICueAudition"/>). Clicking the cue that is playing stops it.
+    /// The cue itself is never changed.</summary>
+    public void PrelistenCue(OrbitCue? cue)
+    {
+        if (cue == null || TrackHash is null || !Cues.Contains(cue)) return;
+        SelectedCue = cue;
+        if (ReferenceEquals(PrelisteningCue, cue) && _audition.IsPlaying)
+        {
+            StopPrelisten();
+            return;
+        }
+        PrelisteningCue = cue;
+        _audition.PlayFrom(cue.Timestamp);
+    }
+
+    /// <summary>Stops a running prelisten (Space, or clicking the playing cue again). True when
+    /// something was playing and was stopped.</summary>
+    public bool StopPrelisten()
+    {
+        bool playing = PrelisteningCue != null && _audition.IsPlaying;
+        PrelisteningCue = null;
+        if (playing) _audition.Stop();
+        return playing;
+    }
+
+    /// <summary>The session's own auditions (after an edit, a nudge) aren't a prelisten.</summary>
+    private void AuditionAt(double seconds)
+    {
+        PrelisteningCue = null;
+        _audition.PlayFrom(seconds);
+    }
+
+    // ── Section markers (Intro end / Outro) ────────────────────────────────
+
+    private IReadOnlyList<PhraseSegment> _structurePhrases = Array.Empty<PhraseSegment>();
+
+    /// <summary>The host passes the track's phrase segments (analysis, read-only) so missing section
+    /// markers can be suggested. Nothing is written to the analysis.</summary>
+    public void SetStructureHints(IReadOnlyList<PhraseSegment>? phrases)
+    {
+        _structurePhrases = phrases?.ToList() ?? (IReadOnlyList<PhraseSegment>)Array.Empty<PhraseSegment>();
+        RefreshSections();
+    }
+
+    /// <summary>The Intro end marker, if set.</summary>
+    public OrbitCue? IntroEndCue => Cues.FirstOrDefault(c => c.Role == CueRole.IntroEnd && !c.IsLoop);
+    /// <summary>The Outro (start) marker, if set.</summary>
+    public OrbitCue? OutroStartCue => Cues.FirstOrDefault(c => c.Role == CueRole.OutroStart && !c.IsLoop);
+
+    public bool HasIntroRegion => IntroEndCue != null;
+    public bool HasOutroRegion => OutroStartCue != null;
+
+    /// <summary>Intro region start: the Intro cue (before the intro end), else the track start.</summary>
+    public double IntroRegionStart => SectionMarkers.IntroRegion(Cues)?.Start ?? 0;
+
+    public double IntroRegionEnd => IntroEndCue?.Timestamp ?? 0;
+    public double OutroRegionStart => OutroStartCue?.Timestamp ?? Duration;
+    /// <summary>The outro runs to the end of the track ([OUT] is the last mix-out point inside it).</summary>
+    public double OutroRegionEnd => Duration;
+
+    private SectionSuggestion _sectionSuggestion;
+    /// <summary>Suggested markers for the sections that aren't marked yet (from phrases / drops).</summary>
+    public SectionSuggestion SectionSuggestion => _sectionSuggestion;
+    public double? SuggestedIntroEnd => _sectionSuggestion.IntroEnd;
+    public double? SuggestedOutroStart => _sectionSuggestion.OutroStart;
+
+    private bool _hasSectionSuggestion;
+    public bool HasSectionSuggestion { get => _hasSectionSuggestion; private set => this.RaiseAndSetIfChanged(ref _hasSectionSuggestion, value); }
+
+    private string _sectionSuggestionText = "";
+    /// <summary>e.g. "Suggested: intro ends 1:02 (bar 33) · outro from 4:48 (bar 161)".</summary>
+    public string SectionSuggestionText { get => _sectionSuggestionText; private set => this.RaiseAndSetIfChanged(ref _sectionSuggestionText, value); }
+
+    private string _sectionSummary = "";
+    /// <summary>e.g. "Intro to 1:02 (bar 33) · outro from 4:48 (bar 161)"; empty when neither is set.</summary>
+    public string SectionSummary { get => _sectionSummary; private set => this.RaiseAndSetIfChanged(ref _sectionSummary, value); }
+
+    private void RefreshSections()
+    {
+        this.RaisePropertyChanged(nameof(IntroEndCue));
+        this.RaisePropertyChanged(nameof(OutroStartCue));
+        this.RaisePropertyChanged(nameof(HasIntroRegion));
+        this.RaisePropertyChanged(nameof(HasOutroRegion));
+        this.RaisePropertyChanged(nameof(IntroRegionStart));
+        this.RaisePropertyChanged(nameof(IntroRegionEnd));
+        this.RaisePropertyChanged(nameof(OutroRegionStart));
+        this.RaisePropertyChanged(nameof(OutroRegionEnd));
+
+        var introEnd = IntroEndCue;
+        var outroStart = OutroStartCue;
+        var parts = new List<string>();
+        if (introEnd != null) parts.Add("Intro to " + SectionMarkers.Describe(introEnd.Timestamp, Bpm, GridOffset));
+        if (outroStart != null) parts.Add((parts.Count == 0 ? "Outro from " : "outro from ") + SectionMarkers.Describe(outroStart.Timestamp, Bpm, GridOffset));
+        SectionSummary = string.Join(" · ", parts);
+
+        SectionSuggestion suggestion = default;
+        if (TrackHash != null && (introEnd == null || outroStart == null))
+        {
+            var all = SectionMarkers.Suggest(_structurePhrases, Cues, Bpm, GridOffset, Duration);
+            double? ie = introEnd == null ? all.IntroEnd : null;
+            double? os = outroStart == null ? all.OutroStart : null;
+            // A suggestion must still fit around the marker that is set.
+            if (ie is { } a && outroStart != null && a >= outroStart.Timestamp) ie = null;
+            if (os is { } b && introEnd != null && b <= introEnd.Timestamp) os = null;
+            suggestion = new SectionSuggestion(ie, ie != null ? all.IntroEndReason : null, os, os != null ? all.OutroStartReason : null);
+        }
+        bool changed = !suggestion.Equals(_sectionSuggestion);
+        _sectionSuggestion = suggestion;
+        if (changed)
+        {
+            this.RaisePropertyChanged(nameof(SectionSuggestion));
+            this.RaisePropertyChanged(nameof(SuggestedIntroEnd));
+            this.RaisePropertyChanged(nameof(SuggestedOutroStart));
+        }
+        HasSectionSuggestion = !suggestion.IsEmpty;
+        var hint = new List<string>();
+        if (suggestion.IntroEnd is { } si) hint.Add($"intro ends {SectionMarkers.Describe(si, Bpm, GridOffset)} ({suggestion.IntroEndReason})");
+        if (suggestion.OutroStart is { } so) hint.Add($"outro from {SectionMarkers.Describe(so, Bpm, GridOffset)} ({suggestion.OutroStartReason})");
+        SectionSuggestionText = hint.Count == 0 ? "" : "Suggested: " + string.Join(" · ", hint);
+    }
+
+    /// <summary>Section markers land on the bar (or the coarser snap resolution) when Snap is on.</summary>
+    public double SnapSectionTime(double seconds)
+    {
+        seconds = Math.Clamp(seconds, 0, Duration);
+        if (!SnapToGrid || Bpm <= 0) return seconds;
+        return Math.Clamp(CueForgeGrid.Snap(seconds, Bpm, GridOffset, Math.Max(4, SnapBeats)), 0, Duration);
+    }
+
+    /// <summary>Sets (or moves) the Intro end / Outro marker to <paramref name="seconds"/>, snapped.
+    /// One marker per section; the intro must end before the outro starts. One undo step.</summary>
+    public OrbitCue? SetSectionMarker(CueRole role, double seconds)
+    {
+        if (TrackHash is null || role is not (CueRole.IntroEnd or CueRole.OutroStart)) return null;
+        double t = SnapSectionTime(seconds);
+        if (!SectionFits(role, t, out var error)) { SetStatus(error, isError: true); return null; }
+        PushSnapshot();
+        var cue = PlaceSectionMarker(role, t);
+        SelectedCue = cue;
+        Changed((role == CueRole.IntroEnd ? "Intro ends at " : "Outro starts at ") + SectionMarkers.Describe(cue.Timestamp, Bpm, GridOffset));
+        if (AuditionAfterEdits) AuditionAt(cue.Timestamp);
+        return cue;
+    }
+
+    private void UseSectionSuggestion()
+    {
+        var s = _sectionSuggestion;
+        if (TrackHash is null || s.IsEmpty) return;
+        PushSnapshot();
+        var placed = new List<string>();
+        if (s.IntroEnd is { } ie && IntroEndCue == null) { PlaceSectionMarker(CueRole.IntroEnd, ie); placed.Add("intro end " + SectionMarkers.Describe(ie, Bpm, GridOffset)); }
+        if (s.OutroStart is { } os && OutroStartCue == null) { PlaceSectionMarker(CueRole.OutroStart, os); placed.Add("outro " + SectionMarkers.Describe(os, Bpm, GridOffset)); }
+        Changed("Placed the suggested " + string.Join(" and ", placed) + ". Drag to adjust; Ctrl+Z to undo.");
+    }
+
+    private bool SectionFits(CueRole role, double t, out string error)
+    {
+        error = "";
+        if (role == CueRole.IntroEnd && OutroStartCue is { } outro && t >= outro.Timestamp)
+        {
+            error = $"The intro has to end before the outro starts ({SectionMarkers.Describe(outro.Timestamp, Bpm, GridOffset)}).";
+            return false;
+        }
+        if (role == CueRole.OutroStart && IntroEndCue is { } intro && t <= intro.Timestamp)
+        {
+            error = $"The outro has to start after the intro ends ({SectionMarkers.Describe(intro.Timestamp, Bpm, GridOffset)}).";
+            return false;
+        }
+        return true;
+    }
+
+    private OrbitCue PlaceSectionMarker(CueRole role, double t)
+    {
+        var existing = Cues.FirstOrDefault(c => c.Role == role && !c.IsLoop);
+        if (existing != null)
+        {
+            double from = existing.Timestamp;
+            existing.Timestamp = t;
+            existing.Source = CueSource.User;
+            ResortCues();
+            if (Math.Abs(from - t) > 1e-6) CueMoved?.Invoke(this, (from, t));
+            return existing;
+        }
+        var cue = new OrbitCue
+        {
+            Timestamp = t,
+            Name = SectionMarkers.DefaultName(role),
+            Color = SectionMarkers.DefaultColor(role),
+            Role = role,
+            Source = CueSource.User,
+            SlotIndex = -1, // memory cue: never takes a hot cue pad
+            Confidence = 1.0,
+        };
+        InsertCueSorted(cue);
+        return cue;
+    }
+
 
     // ── Loop editing ───────────────────────────────────────────────────────
 

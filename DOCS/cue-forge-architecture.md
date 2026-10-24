@@ -177,11 +177,63 @@ Playlist export → RekordboxXmlExporter
 10. **Playhead** — bright cyan vertical line at `CurrentPlayPosition`
 
 **Interaction:**
-- Drag a cue marker (within 18px hit radius) → updates `OrbitCue.Timestamp` live, snapped by `ApplySnapping`
+- Click a cue marker (press + release within 4 px, `MarkerGesture`) → `CueClickedCommand` → `Session.PrelistenCueCommand` (select + play from the exact cue; again = stop)
+- Drag a cue marker (past 4 px) → updates `OrbitCue.Timestamp` live, snapped by `ApplySnapping`; the cue never moves before the threshold
 - Drag loop edge handles → updates `LoopInSeconds`/`LoopOutSeconds`
 - `SnapToGrid` toggle + `QuantizeBeatString` combo drive `ApplySnapping` resolution
 
 ---
+
+## Section markers (Intro end / Outro)
+
+Next to the Intro cue (track start) and `[OUT]` (last usable mix-out point) a track can carry two
+section markers, ordinary cues with their own roles in the shared `CueEditorSession`, so Cue Forge
+and both Flow Builder decks get them:
+
+| Marker | Role / type | Region | Export |
+|---|---|---|---|
+| Intro end | `CueRole.IntroEnd` / `CuePointType.IntroEnd` (6) | Intro cue (or 0) → Intro end | memory cue "Intro end" |
+| Outro | `CueRole.OutroStart` / `CuePointType.OutroStart` (7) | Outro → end of track | memory cue "Outro" |
+
+- **Set**: `SetIntroEndAtPlayheadCommand` / `SetOutroStartAtPlayheadCommand` (Sections button, Shift+I /
+  Shift+O), `SetIntroEndAtCommand` / `SetOutroStartAtCommand` (waveform right-click). Snapped to the bar
+  (or the coarser snap resolution) when Snap is on; one marker per section (setting again moves it,
+  choosing the role in the inspector takes it from the other cue); the intro must end before the outro
+  starts. Memory cues (no pad), user cues, one undo step. Dragged / nudged like any cue.
+- **Regions**: `SectionMarkers.IntroRegion` / `OutroRegion`; tinted with `BrushSectionIntro*` /
+  `BrushSectionOutro*` in `CueForgeWaveformControl`, `CueForgeOverviewControl` and (via
+  `TimeRegionOverlay`) the deck waveforms. Session exposes `IntroRegionStart/End`, `OutroRegionStart/End`.
+- **Suggestion**: hosts pass the phrase segments (`SetStructureHints`, read-only). `SectionMarkers.Suggest`:
+  intro end = end of the leading Intro phrases, else the first drop; outro = start of the trailing Outro
+  phrases, else the phrase boundary after the last drop's main section (the run of drop phrases), else
+  last drop + 32 bars. `SectionSuggestionText` + `UseSectionSuggestionCommand` ("Use suggestion").
+- **Persistence**: the CuePoints table (integer types, no schema change); Cue Forge's auto-generate always
+  keeps them.
+- **Planning**: `TransitionPlanService.BuildStructure` reads them into `TrackStructure.IntroEndMarker` /
+  `OutroStartMarker`; `TransitionPlanner.ComputeSections` trusts them over its estimates, so the Auto
+  plan mixes out in A's outro and in over B's intro (a marked early outro is honoured before half the
+  track). `TransitionEngine.OptimizeTransition` prefers the Outro marker as mix-out.
+
+## Click to prelisten
+
+A single click on a cue flag (Cue Forge waveform + overview, Flow Builder deck waveforms) or cue chip
+calls `CueEditorSession.PrelistenCue`: select it and play from exactly the cue through the host's
+`ICueAudition` (Cue Forge borrows the shared player; a deck uses the library preview player; both seek
+with `ExactSeek` for FLAC/M4A/AIFF). Clicking the playing cue again, or Space, calls `StopPrelisten`
+(`ICueAudition.Stop`). The decision click vs drag is `MarkerGesture` (4 px); a click never edits.
+Outside Edit cues mode a deck click also makes the cue the mix-out / mix-in point.
+
+## Transition overlay (Flow Builder)
+
+`TransitionOverlayModel` (pure) puts A's outgoing part and B's incoming part on one timeline in seconds
+at the project tempo (A's BPM): 0 = mix-out = where B comes in; B runs at `ProjectBpm / IncomingBpm`.
+Range = lead-in (A alone) + blend window (Length) + lead-in (B alone), the same layout as Preview, so the
+preview position maps onto it (`OverlayPlayheadSeconds`). `MixTransitionViewModel.RefreshOverlay` rebuilds
+it on every mix point, nudge, Length, preset or tempo change. `TransitionOverlayControl` draws both
+envelopes (token colours), the shaded blend, both gain curves (same automation as playback), EQ /
+bass-swap markers and bar numbers (1 = first blend bar); geometry is cached, frames don't allocate.
+Dragging B shifts the mix-in (snapped to B's bars, Shift = beats) through `SetMixInFromOverlayCommand`;
+mix-point changes are undoable (`UndoMixPointCommand`, Ctrl+Z).
 
 ## State Management
 
@@ -234,8 +286,8 @@ Sessions are held weakly, so a host that is never disposed doesn't leak.
 |---------|------------|
 | Track identity | `TrackUniqueHash` (SHA256 of file content) |
 | Cue slot mapping | `CuePointEntity.SlotIndex` 0–7 = Hot Cue pads, -1 = Memory Cue |
-| Cue types | `CuePointType`: `Intro=0, Outro=1, Drop=2, Breakdown=3, Build=4, PhraseBoundary=5` |
-| Cue roles (in-memory) | `CueRole`: `Intro, KickIn, Breakdown, Breakdown2, Drop, Climax, Vocals, Outro, Bridge, Build, PhraseStart, Custom` |
+| Cue types | `CuePointType`: `Intro=0, Outro=1, Drop=2, Breakdown=3, Build=4, PhraseBoundary=5, IntroEnd=6, OutroStart=7` (stored as integers) |
+| Cue roles (in-memory) | `CueRole`: `Intro, KickIn, Breakdown, Breakdown2, Drop, Climax, Vocals, Outro, Bridge, Build, PhraseStart, Custom, IntroEnd, OutroStart`; role ↔ type via `OrbitCue.RoleFromType` / `TypeFromRole` (every editor, incl. the workstation) |
 | Loop flag | `IsLoop=true` + `LoopEndSeconds` on the same entity |
 | User vs auto cue | `CueSource.User` — never overwritten by Auto-Generate; `CueSource.Auto` — replaced on re-generate |
 

@@ -547,6 +547,23 @@ public class PlaylistExportService
             return nextFreePad < 8 ? nextFreePad++ : -1;
         }
 
+        // Section markers (Intro end / Outro) are memory cues with a fixed name, so they show on the
+        // CDJ's memory strip the same way everywhere. One that was also put on a pad keeps that pad.
+        foreach (var marker in pointCues.Where(c => c.IsSectionMarker))
+        {
+            var (r, g, b) = HexToRgb(marker.Color, t.Name);
+            trackElem.Add(new XElement("POSITION_MARK",
+                new XAttribute("Name", Engine.Cueing.SectionMarkers.ExportName(marker.Role)!),
+                new XAttribute("Type", "0"),
+                new XAttribute("Start", marker.Timestamp.ToString("F3", CultureInfo.InvariantCulture)),
+                new XAttribute("Num", "-1"),
+                new XAttribute("Red", r),
+                new XAttribute("Green", g),
+                new XAttribute("Blue", b)
+            ));
+        }
+        pointCues = pointCues.Where(c => !c.IsSectionMarker || c.SlotIndex is >= 0 and <= 7).ToList();
+
         foreach (var cue in pointCues.Take(32))
         {
             var (r, g, b) = HexToRgb(cue.Color, t.Name);
@@ -565,7 +582,7 @@ public class PlaylistExportService
             // A cue occupying a hot-cue pad also gets a memory-cue duplicate at the same
             // position, so it stays visible on Rekordbox's memory-cue strip even if the pad
             // is later overwritten on the hardware.
-            if (num >= 0)
+            if (num >= 0 && !cue.IsSectionMarker) // a section marker already has its memory cue
             {
                 trackElem.Add(new XElement("POSITION_MARK",
                     new XAttribute("Name", cue.Name),
@@ -673,7 +690,10 @@ public class PlaylistExportService
                 Source         = CueSource.Auto,
                 IsLoop         = c.IsLoop,
                 LoopEndSeconds = c.LoopEndSeconds,
-                SlotIndex      = c.SlotIndex
+                SlotIndex      = c.SlotIndex,
+                // Only the section markers carry their role into the export (see BuildTrackElement);
+                // other types keep the previous behaviour.
+                Role           = c.Type is CuePointType.IntroEnd or CuePointType.OutroStart ? OrbitCue.RoleFromType(c.Type) : CueRole.Custom,
             });
         }
 

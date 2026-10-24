@@ -22,6 +22,12 @@ public sealed record TrackStructure
     public double? VocalEnd { get; init; }
     /// <summary>0..1.</summary>
     public double Energy { get; init; } = 0.5;
+    /// <summary>The track's "Intro end" section marker (set in Cue Forge / Flow Builder); trusted over
+    /// the drop-based estimate.</summary>
+    public double? IntroEndMarker { get; init; }
+    /// <summary>The track's "Outro" section marker; trusted over the analysed Outro cue and the
+    /// 32-bars-after-the-last-drop estimate.</summary>
+    public double? OutroStartMarker { get; init; }
 }
 
 /// <summary>Mixxx-style regions, derived from a <see cref="TrackStructure"/>.</summary>
@@ -93,6 +99,8 @@ public static class TransitionPlanner
         double introEnd = t.Drop1 is { } d1 && d1 > introStart + 4 * bar
             ? d1
             : introStart + 32 * bar;
+        // A marked intro end is the DJ's own call.
+        if (t.IntroEndMarker is { } ie && ie > introStart + bar / 2) introEnd = ie;
         introEnd = Math.Min(introEnd, outroEnd);
 
         // The outro starts where the last main section ends. A DnB main section after the last
@@ -105,6 +113,9 @@ public static class TransitionPlanner
             outroStart = SnapToGrid(outroEnd - 16 * bar, t.FirstDownbeat, bar);
         outroStart = Math.Max(outroStart, Math.Min(lastDrop, outroEnd - 8 * bar));
         outroStart = Math.Clamp(outroStart, 0, outroEnd - bar);
+        // A marked outro is the DJ's own call: it replaces the estimate (kept inside the track).
+        if (t.OutroStartMarker is { } om && om < outroEnd - bar / 2)
+            outroStart = Math.Clamp(om, 0, outroEnd - bar);
 
         return new TrackSections(introStart, introEnd, outroStart, outroEnd, bar);
     }
@@ -129,6 +140,9 @@ public static class TransitionPlanner
 
         // Every track gets a fair run: no automatic mix-out before half of it has played.
         double minSource = MinPlayFraction * outgoing.DurationSeconds;
+        // ...unless the DJ marked the outro earlier than that (a Rolling mix starts up to 16 bars before it).
+        if (outgoing.OutroStartMarker is { } marked)
+            minSource = Math.Min(minSource, Math.Max(0, Math.Min(marked, o.OutroStart) - 16 * o.BarSeconds));
         var played = candidates.Where(c => c.SourceTriggerSeconds >= minSource - 0.01).ToList();
         if (played.Count == 0)
             played.Add(LateRelaxed(outgoing, incoming, o, i, minSource, shortOnly: !tempoLocked));

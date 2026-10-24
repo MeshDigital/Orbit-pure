@@ -28,11 +28,14 @@ public sealed class TimeRegionOverlay : Control
         AvaloniaProperty.Register<TimeRegionOverlay, IBrush?>(nameof(Fill));
     public static readonly StyledProperty<IBrush?> EdgeBrushProperty =
         AvaloniaProperty.Register<TimeRegionOverlay, IBrush?>(nameof(EdgeBrush));
+    /// <summary>Draw the edge line at the region start instead of its end (an outro region starts at its marker).</summary>
+    public static readonly StyledProperty<bool> EdgeAtStartProperty =
+        AvaloniaProperty.Register<TimeRegionOverlay, bool>(nameof(EdgeAtStart));
 
     static TimeRegionOverlay()
     {
         AffectsRender<TimeRegionOverlay>(DurationSecondsProperty, StartSecondsProperty, EndSecondsProperty,
-            ZoomLevelProperty, ViewOffsetProperty, FillProperty, EdgeBrushProperty);
+            ZoomLevelProperty, ViewOffsetProperty, FillProperty, EdgeBrushProperty, EdgeAtStartProperty);
         IsHitTestVisibleProperty.OverrideDefaultValue<TimeRegionOverlay>(false);
     }
 
@@ -43,6 +46,7 @@ public sealed class TimeRegionOverlay : Control
     public double ViewOffset { get => GetValue(ViewOffsetProperty); set => SetValue(ViewOffsetProperty, value); }
     public IBrush? Fill { get => GetValue(FillProperty); set => SetValue(FillProperty, value); }
     public IBrush? EdgeBrush { get => GetValue(EdgeBrushProperty); set => SetValue(EdgeBrushProperty, value); }
+    public bool EdgeAtStart { get => GetValue(EdgeAtStartProperty); set => SetValue(EdgeAtStartProperty, value); }
 
     private IBrush? _penBrush;
     private Pen? _edgePen;
@@ -70,7 +74,8 @@ public sealed class TimeRegionOverlay : Control
         if (EdgeBrush != null)
         {
             if (!ReferenceEquals(_penBrush, EdgeBrush)) { _penBrush = EdgeBrush; _edgePen = new Pen(EdgeBrush, 1); }
-            context.DrawLine(_edgePen!, new Point(x1, 0), new Point(x1, height));
+            double ex = EdgeAtStart ? x0 : x1;
+            context.DrawLine(_edgePen!, new Point(ex, 0), new Point(ex, height));
         }
     }
 }

@@ -169,6 +169,18 @@
       <SolidColorBrush x:Key="BrushOnHotCue"      Color="#FFFFFF"/>   <!-- pad label on a saturated pad -->
       <SolidColorBrush x:Key="BrushOnHotCueLight" Color="#111111"/>   <!-- pad label on the light (lime) pad -->
 
+      <!-- Track sections (Cue Forge + transition decks): intro / outro regions bounded by the
+           IntroEnd / OutroStart section markers. Subtle fills so cues and the waveform stay readable. -->
+      <SolidColorBrush x:Key="BrushSectionIntroFill"  Color="#145AA7E8"/>   <!-- intro region tint -->
+      <SolidColorBrush x:Key="BrushSectionIntroEdge"  Color="#805AA7E8"/>   <!-- intro region edge -->
+      <SolidColorBrush x:Key="BrushSectionOutroFill"  Color="#14B48EF0"/>   <!-- outro region tint -->
+      <SolidColorBrush x:Key="BrushSectionOutroEdge"  Color="#80B48EF0"/>   <!-- outro region edge -->
+
+      <!-- Transition overlay (Flow Builder): outgoing A and incoming B drawn on one timeline. -->
+      <SolidColorBrush x:Key="BrushOverlayOutgoing"   Color="#734EC9B0"/>   <!-- A waveform, translucent accent -->
+      <SolidColorBrush x:Key="BrushOverlayIncoming"   Color="#735AA7E8"/>   <!-- B waveform, translucent info -->
+      <SolidColorBrush x:Key="BrushOverlayOverlap"    Color="#0FFFFFFF"/>   <!-- the blend window -->
+
       <!-- Track colour tags: the Rekordbox palette. TagHex* is the tag DATA written to the track
            (SetColorTagCommand parameter); BrushTag* is its swatch. Data identity, not UI chrome. -->
       <x:String x:Key="TagHexPink">#F870AC</x:String>
