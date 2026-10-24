@@ -21,8 +21,16 @@ public static class NumericInputLocale
         if (_installed) return;
         _installed = true;
 
-        NumericUpDown.NumberFormatProperty.OverrideDefaultValue<NumericUpDown>(NumberFormatInfo.InvariantInfo);
-        NumericUpDown.ParsingNumberStyleProperty.OverrideDefaultValue<NumericUpDown>(NumberStyles.Float);
+        // Not OverrideDefaultValue: NumericUpDown owns these properties, and Avalonia throws
+        // "Metadata is already set" when the owner type's default is overridden — which crashed
+        // every launch. Apply them as each control loads instead, unless a view set its own.
+        Control.LoadedEvent.AddClassHandler<NumericUpDown>((n, _) =>
+        {
+            if (!n.IsSet(NumericUpDown.NumberFormatProperty))
+                n.NumberFormat = NumberFormatInfo.InvariantInfo;
+            if (!n.IsSet(NumericUpDown.ParsingNumberStyleProperty))
+                n.ParsingNumberStyle = NumberStyles.Float;
+        });
 
         InputElement.TextInputEvent.AddClassHandler<NumericUpDown>(
             (_, e) => { if (e.Text == ",") e.Text = "."; },
