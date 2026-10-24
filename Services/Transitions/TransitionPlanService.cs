@@ -65,6 +65,8 @@ public sealed class TransitionPlanService
             VocalStart = f.VocalStartSeconds,
             VocalEnd = f.VocalEndSeconds,
             Energy = Math.Clamp(f.Energy, 0, 1),
+            IntroEndMarker = ordered.FirstOrDefault(c => c.Type == CuePointType.IntroEnd)?.TimestampInSeconds,
+            OutroStartMarker = ordered.LastOrDefault(c => c.Type == CuePointType.OutroStart)?.TimestampInSeconds,
         };
     }
 

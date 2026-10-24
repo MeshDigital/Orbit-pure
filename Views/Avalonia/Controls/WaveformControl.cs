@@ -352,6 +352,23 @@ namespace SLSKDONET.Views.Avalonia.Controls
             set => SetValue(CueUpdatedCommandProperty, value);
         }
 
+        /// <summary>Tooltip shown while hovering a cue marker (e.g. "Click to play from here · drag to
+        /// move"); null = none (the default, so existing hosts are unchanged).</summary>
+        public static readonly StyledProperty<string?> CueHoverTipProperty =
+            AvaloniaProperty.Register<WaveformControl, string?>(nameof(CueHoverTip));
+
+        public string? CueHoverTip
+        {
+            get => GetValue(CueHoverTipProperty);
+            set => SetValue(CueHoverTipProperty, value);
+        }
+
+        // Draggable cues: a press that moves less than the threshold is a click (CueClickedCommand
+        // on release), further is a drag (the cue moves only after the threshold, so a click never
+        // nudges it). Non-draggable cues keep the instant click-on-press.
+        private readonly MarkerGesture<OrbitCue> _cueGesture = new();
+        private bool _cueTipShown;
+
         private OrbitCue? _draggedCue;
         private PhraseSegment? _draggedSegment;
         private bool _isDraggingStart; // True if dragging start handle, False if end
@@ -621,17 +638,19 @@ namespace SLSKDONET.Views.Avalonia.Controls
                     double x = GetCueX(cue, data);
                     if (Math.Abs(point.X - x) <= CueHitThreshold)
                     {
-                        // Sprint 2: Instant Hot-Cue Audition on click — pass the timestamp (double)
-                        // because CueClickedCommand is bound to SeekCommand<double> in the workstation.
-                        if (CueClickedCommand != null && CueClickedCommand.CanExecute(cue.Timestamp))
-                        {
-                            CueClickedCommand.Execute(cue.Timestamp);
-                        }
                         if (CuesAreDraggable)
                         {
+                            // Click or drag is decided by the movement before release.
+                            _cueGesture.Press(cue, point.X);
                             _draggedCue = cue;
-                            _isDraggingCue = true;
+                            _isDraggingCue = false;
                             e.Pointer.Capture(this);
+                        }
+                        // Sprint 2: Instant Hot-Cue Audition on click — pass the timestamp (double)
+                        // because CueClickedCommand is bound to SeekCommand<double> in the workstation.
+                        else if (CueClickedCommand != null && CueClickedCommand.CanExecute(cue.Timestamp))
+                        {
+                            CueClickedCommand.Execute(cue.Timestamp);
                         }
                         e.Handled = true;
                         return;
@@ -730,6 +749,16 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 }
             }
             Cursor = hoverCue || _isDraggingCue ? new global::Avalonia.Input.Cursor(global::Avalonia.Input.StandardCursorType.SizeWestEast) : null;
+            bool showTip = hoverCue && _draggedCue == null && CueHoverTip != null;
+            if (showTip != _cueTipShown)
+            {
+                _cueTipShown = showTip;
+                ToolTip.SetTip(this, showTip ? CueHoverTip : null);
+            }
+
+            // A pressed cue only starts moving once the pointer passed the drag threshold.
+            if (_draggedCue != null && !_isDraggingCue && _cueGesture.Move(point.X))
+                _isDraggingCue = true;
 
             if (_isDraggingCue && _draggedCue != null && data != null && data.DurationSeconds > 0)
             {
@@ -824,9 +853,19 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
         protected override void OnPointerReleased(global::Avalonia.Input.PointerReleasedEventArgs e)
         {
-            if (_isDraggingCue)
+            if (_draggedCue != null && !_isDraggingCue)
+            {
+                // Pressed a draggable cue and let go without dragging: a click.
+                var (clicked, result) = _cueGesture.Release();
+                _draggedCue = null;
+                if (result == MarkerGestureResult.Click && clicked != null &&
+                    CueClickedCommand?.CanExecute(clicked.Timestamp) == true)
+                    CueClickedCommand.Execute(clicked.Timestamp);
+            }
+            else if (_isDraggingCue)
             {
                 _isDraggingCue = false;
+                _cueGesture.Release();
 
                 // Magnetic beat-grid snapping: snap the cue to the nearest beat when
                 // within SnapRadiusSeconds (default 50 ms).

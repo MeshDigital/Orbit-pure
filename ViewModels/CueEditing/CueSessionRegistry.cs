@@ -29,6 +29,10 @@ public interface ICueAudition
 
     /// <summary>A pad was hit: jump to its cue and play from it.</summary>
     void JumpToCue(OrbitCue cue) => PlayFrom(cue.Timestamp);
+
+    /// <summary>Stops this host's playback of the track (clicking a playing cue again, or Space).
+    /// Both production hosts implement it; the default is for hosts that can't stop.</summary>
+    void Stop() { }
 }
 
 /// <summary>

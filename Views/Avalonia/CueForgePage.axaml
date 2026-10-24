@@ -228,6 +228,23 @@
                             <TextBlock Text="Drop"/>
                         </StackPanel>
                     </Button>
+                    <Button Classes="ghost small"
+                            ToolTip.Tip="Section markers: where the intro ends and the outro starts (Shift+I / Shift+O at the playhead). Drawn as tinted regions; exported to Rekordbox as memory cues 'Intro end' / 'Outro'.">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <PathIcon Data="{StaticResource icon_sections}" Width="12" Height="12"/>
+                            <TextBlock Text="Sections"/>
+                            <PathIcon Data="{StaticResource icon_chevron_down}" Width="12" Height="12"/>
+                        </StackPanel>
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                                <MenuItem Header="Intro ends here (Shift+I)" Command="{Binding Session.SetIntroEndAtPlayheadCommand}"/>
+                                <MenuItem Header="Outro starts here (Shift+O)" Command="{Binding Session.SetOutroStartAtPlayheadCommand}"/>
+                                <Separator/>
+                                <MenuItem Header="Use suggested sections" Command="{Binding Session.UseSectionSuggestionCommand}"
+                                          ToolTip.Tip="{Binding Session.SectionSuggestionText}"/>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
                     <Button Classes="ghost small" Command="{Binding AutoGenerateCuesCommand}"
                             ToolTip.Tip="Generate structural cues from the track's analysis. Your own cues are kept.">
                         <StackPanel Orientation="Horizontal" Spacing="4">
@@ -293,7 +310,7 @@
                                     <Border Classes="divider" Margin="0,4"/>
                                     <TextBlock Classes="section" Text="SHORTCUTS"/>
                                     <TextBlock Classes="caption" TextWrapping="Wrap" LineHeight="18"
-                                               Text="Space play · C cue · A add cue · D drop · 1–8 pads · Up/Down prev/next cue · Left/Right nudge selected cue a beat (Shift bar, Ctrl 10 ms) · Enter audition · Delete remove · F2 rename · Esc deselect · I / O loop in/out · +/− zoom · F follow · Ctrl+S save · Ctrl+Z / Ctrl+Y undo/redo"/>
+                                               Text="Space play (stops a cue prelisten) · click a cue: play from it · C cue · A add cue · D drop · Shift+I intro end · Shift+O outro · 1–8 pads · Up/Down prev/next cue · Left/Right nudge selected cue a beat (Shift bar, Ctrl 10 ms) · Enter audition · Delete remove · F2 rename · Esc deselect · I / O loop in/out · +/− zoom · F follow · Ctrl+S save · Ctrl+Z / Ctrl+Y undo/redo"/>
                                 </StackPanel>
                             </Flyout>
                         </Button.Flyout>
@@ -305,15 +322,27 @@
         <!-- ═══ Workspace ═══ -->
         <Grid Grid.Row="2" IsVisible="{Binding HasTrackLoaded}" RowDefinitions="Auto,40,*,272">
 
-            <!-- Load problem (analysis missing / cue data failed) -->
-            <Border Grid.Row="0" Background="{StaticResource BrushWarningSubtle}" BorderBrush="{StaticResource BrushWarningBorder}"
-                    BorderThickness="0,0,0,1" Padding="24,8"
-                    IsVisible="{Binding TrackLoadError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <PathIcon Data="{StaticResource icon_alert}" Width="14" Height="14" Foreground="{StaticResource BrushWarning}"/>
-                    <TextBlock Classes="body-sm" Text="{Binding TrackLoadError}" TextWrapping="Wrap"/>
-                </StackPanel>
-            </Border>
+            <StackPanel Grid.Row="0">
+                <!-- Load problem (analysis missing / cue data failed) -->
+                <Border Background="{StaticResource BrushWarningSubtle}" BorderBrush="{StaticResource BrushWarningBorder}"
+                        BorderThickness="0,0,0,1" Padding="24,8"
+                        IsVisible="{Binding TrackLoadError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="{StaticResource icon_alert}" Width="14" Height="14" Foreground="{StaticResource BrushWarning}"/>
+                        <TextBlock Classes="body-sm" Text="{Binding TrackLoadError}" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+                <!-- Sections: what's marked, and a one-click suggestion for what isn't -->
+                <Grid ColumnDefinitions="Auto,*,Auto" Margin="24,8,24,0"
+                      IsVisible="{Binding Session.HasSectionSuggestion}">
+                    <PathIcon Data="{StaticResource icon_sections}" Width="14" Height="14" Foreground="{StaticResource BrushText2}" Margin="0,0,8,0"/>
+                    <TextBlock Grid.Column="1" Classes="caption" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                               Text="{Binding Session.SectionSuggestionText}" ToolTip.Tip="{Binding Session.SectionSuggestionText}"/>
+                    <Button Grid.Column="2" Classes="secondary small" Content="Use suggestion" Margin="12,0,0,0"
+                            Command="{Binding Session.UseSectionSuggestionCommand}"
+                            ToolTip.Tip="Place the suggested Intro end / Outro markers (snapped to the bar). Drag them to adjust; Ctrl+Z undoes."/>
+                </Grid>
+            </StackPanel>
 
             <!-- Overview: whole track, visible window, playhead. Click/drag to jump. -->
             <Border Grid.Row="1" Classes="inset" Margin="24,8,24,0" Padding="0" ClipToBounds="True"
@@ -323,7 +352,10 @@
                     Cues="{Binding Session.Cues}" Revision="{Binding Session.CueRevision}"
                     CurrentPlayPosition="{Binding CurrentPlayPosition}" TrackDuration="{Binding TrackDuration}"
                     ZoomLevel="{Binding WaveformZoom}" ScrollOffset="{Binding WaveformScroll, Mode=TwoWay}"
-                    SeekCommand="{Binding SeekPlayheadCommand}"/>
+                    SeekCommand="{Binding SeekPlayheadCommand}"
+                    CueClickedCommand="{Binding Session.PrelistenCueCommand}"
+                    IntroRegionFill="{StaticResource BrushSectionIntroFill}"
+                    OutroRegionFill="{StaticResource BrushSectionOutroFill}"/>
             </Border>
 
             <!-- Detail waveform -->
@@ -354,7 +386,12 @@
                         SelectedCue="{Binding Session.SelectedCue}"
                         SelectCueCommand="{Binding Session.SelectCueCommand}"
                         CueDragStartedCommand="{Binding Session.CueDragStartedCommand}"
-                        CueUpdatedCommand="{Binding Session.CueUpdatedCommand}"/>
+                        CueUpdatedCommand="{Binding Session.CueUpdatedCommand}"
+                        CueClickedCommand="{Binding Session.PrelistenCueCommand}"
+                        IntroRegionFill="{StaticResource BrushSectionIntroFill}"
+                        IntroRegionEdge="{StaticResource BrushSectionIntroEdge}"
+                        OutroRegionFill="{StaticResource BrushSectionOutroFill}"
+                        OutroRegionEdge="{StaticResource BrushSectionOutroEdge}"/>
 
                     <StackPanel Classes="empty-state" IsVisible="{Binding IsWaveformLoading}" IsHitTestVisible="False">
                         <PathIcon Data="{StaticResource icon_waves}"/>
@@ -615,7 +652,7 @@
                 <TextBlock Classes="caption" Classes.error="{Binding Session.IsStatusError}" Text="{Binding Session.StatusText}"
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                 <TextBlock Grid.Column="1" Classes="caption muted" VerticalAlignment="Center" IsVisible="{Binding HasTrackLoaded}"
-                           Text="Click waveform: playhead · drag marker: move · wheel: zoom · Shift+wheel: scroll · More (…) lists all shortcuts"/>
+                           Text="Click waveform: playhead · click marker: play from it · drag marker: move · wheel: zoom · Shift+wheel: scroll · More (…) lists all shortcuts"/>
             </Grid>
         </Border>
     </Grid>

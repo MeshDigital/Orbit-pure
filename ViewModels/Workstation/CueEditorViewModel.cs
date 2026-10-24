@@ -391,28 +391,11 @@ public sealed class CueEditorViewModel : ReactiveObject, IDisposable
         SlotIndex          = c.SlotIndex
     };
 
-    private static CueRole MapEntityType(CuePointType t) => t switch
-    {
-        CuePointType.Intro          => CueRole.Intro,
-        CuePointType.Outro          => CueRole.Outro,
-        CuePointType.Drop           => CueRole.Drop,
-        CuePointType.Breakdown      => CueRole.Breakdown,
-        CuePointType.Build          => CueRole.Build,
-        CuePointType.PhraseBoundary => CueRole.PhraseStart,
-        _                           => CueRole.Custom
-    };
+    // One mapping for every cue editor, so section markers (IntroEnd / OutroStart) survive a
+    // round trip through the workstation too.
+    private static CueRole MapEntityType(CuePointType t) => OrbitCue.RoleFromType(t);
 
-    private static CuePointType MapCueRole(CueRole r) => r switch
-    {
-        CueRole.Intro      => CuePointType.Intro,
-        CueRole.Outro      => CuePointType.Outro,
-        CueRole.Drop       => CuePointType.Drop,
-        CueRole.Breakdown  => CuePointType.Breakdown,
-        CueRole.Breakdown2 => CuePointType.Breakdown,
-        CueRole.Build      => CuePointType.Build,
-        CueRole.PhraseStart => CuePointType.PhraseBoundary,
-        _                  => CuePointType.PhraseBoundary
-    };
+    private static CuePointType MapCueRole(CueRole r) => OrbitCue.TypeFromRole(r);
 
     public void Dispose() => _disposables.Dispose();
 }

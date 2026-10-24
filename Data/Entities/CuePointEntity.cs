@@ -99,4 +99,11 @@ public enum CuePointType
 
     /// <summary>Detected structural phrase boundary (e.g., every 16/32 bars).</summary>
     PhraseBoundary = 5,
+
+    /// <summary>Section marker: the intro section ends here (stored as an integer, like every type,
+    /// so no schema change). Exported to Rekordbox as the memory cue "Intro end".</summary>
+    IntroEnd = 6,
+
+    /// <summary>Section marker: the outro section starts here. Exported as the memory cue "Outro".</summary>
+    OutroStart = 7,
 }

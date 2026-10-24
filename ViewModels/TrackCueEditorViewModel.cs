@@ -157,6 +157,7 @@ public sealed class TrackCueEditorViewModel : ReactiveObject, ICueAudition, IDis
     double ICueAudition.PositionSeconds => ListenSeconds;
     bool ICueAudition.IsPlaying => IsPreviewingThisTrack;
     void ICueAudition.PlayFrom(double seconds) => Audition(seconds);
+    void ICueAudition.Stop() => EndAudition();
 
     /// <summary>Host hook: pause the main player if it's playing; return true if it was paused
     /// (so it can be resumed later). Auditioning a cue holds the main mix until the cues are saved.</summary>
