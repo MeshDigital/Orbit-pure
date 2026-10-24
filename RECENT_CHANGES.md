@@ -2,6 +2,78 @@
 
 ---
 
+## [0.10.0-alpha] — 2026-10-24
+
+A large hardening release: a single design system across the whole app, rebuilt core pages, new DJ tools,
+a first-run setup, and a long list of "built but never wired" bugs fixed. Expect rough edges; most of it
+is new.
+
+### 🎨 One design system, every page redone
+- **One look.** Colours, spacing, type, buttons, chips, cards and icons come from one design system
+  (`DOCS/UI_DESIGN_SYSTEM.md`). Hard-coded colours in views went from 3,106 to **0**, and emoji icons are gone.
+- **Rebuilt pages:** Download Center, Search, Library (page, sidebar and track inspector), Cue Forge, Flow
+  Builder, Workstation, Settings, Import, Analysis, Users/chat, the player, the dialogs and the Dashboard.
+  Each has one header, one toolbar row, filters as one chip strip, overflow menus for secondary actions, and
+  designed empty, loading and error states.
+- **Numbers read the same everywhere:** "174.0", "3,267", "22.1 s" regardless of your Windows region. Number
+  fields accept both "174,5" and "174.5".
+
+### 🧪 New: Edit Lab (stem-based DJ edits)
+Layer stems from any number of tracks on a bar grid, such as B's vocal over A's drums for a custom intro.
+Auto tempo/key matching can be switched off and overridden per clip. There are templates (custom intro,
+acapella, instrumental, bassline swap, extended intro), live preview, and rendering to WAV/FLAC as a new
+library track. Open it from the sidebar or from **Open in Edit Lab** on any track.
+
+### 🎛️ Cue Forge and Flow Builder
+- **One cue editor** powers both, so Flow Builder's "Edit cues" gets drag, snap, rename, colours, pads A–H,
+  loops and undo.
+- **Intro end / Outro markers** (Shift+I / Shift+O, or **Use suggestion** from the phrase analysis), shown as
+  shaded regions and exported to Rekordbox. The auto plan mixes inside them.
+- **Click any cue flag to prelisten** from that point; click again or press Space to stop.
+- **Flow Builder is now a transition designer:** pick an A→B pair, choose mix points and length, and see both
+  tracks **overlaid** on one tempo-matched timeline. Drag B to shift the mix-in, preview with a lead-in, and save.
+- Cue Forge: smooth zoom/scrub, a precise beat grid, keyboard transport, and auto-save before switching tracks.
+  Forced Drop 1 / Drop 2 moved to **Shift+1 / Shift+2**, because 1–8 now trigger pads.
+
+### 🚀 First-run setup
+New installs get a skippable wizard: Soulseek sign-in with a real connection test, folders (downloads, library,
+sharing, Edit Lab output), Spotify, metadata sources, and audio/analysis. A quick tour of the main pages
+follows. You can run both again from Settings → Advanced. Existing installs never see the wizard unasked.
+`ORBIT.exe --setup-preview` runs it in a throwaway profile.
+
+### 📚 Library import and metadata
+- **Guided folder import:** phases with live counts, then a summary with **Analyse N new tracks**. It can run
+  in the background. Track names appear immediately, with no more "Loading…" rows.
+- **AIFF / AIF / AIFF-C fully supported** (import, tags, playback, analysis, search filter, Rekordbox export).
+  One shared format table replaces five hand-written lists.
+- **Multi-source enrichment** for covers, album, label, year and genre: file tags → Deezer → MusicBrainz +
+  Cover Art Archive → Discogs (token) → AcoustID (key + fpcalc) → Spotify (when connected). Each source has its
+  own rate limit, the queue resumes, and lookups are cached. BPM, key and energy always come from ORBIT's own
+  analysis, and your edits are never overwritten. Folder-imported tracks were never enriched before.
+- **Real loudness:** analysis now measures EBU R128 integrated loudness. The old "0.8 LUFS" value was a 0–1
+  score, and it made loudness normalisation turn analysed tracks down by about 15 dB. **Measure loudness**
+  (Analysis page) fills in tracks analysed before this release.
+- **Spotify import flow:** the commit button lights up when it should, playlist tiles and Sync work, merging
+  keeps your playlist's name, re-imports don't duplicate owned tracks, and duplicates get an "update instead"
+  suggestion.
+
+### 🪟 Windows integration
+- **Tray icon:** a sharp icon, left-click to show/hide, a live tooltip (playing / downloads), and a grouped menu.
+- **Taskbar button:** Previous / Play-Pause / Next on hover, and download progress on the taskbar.
+- New setting: **Close button minimises to tray** (on by default).
+
+### 🐞 Notable fixes
+- **New installs had a broken database** (13 missing columns). A startup reconciliation adds anything missing
+  without touching existing data, and a permanent test guards fresh installs.
+- **Fullscreen visuals** no longer snap back to Ambient after a few seconds.
+- **config.ini** saves are serialised and atomic (no more "file in use" errors, no truncated config).
+- **Dashboard "Failed retries"** was a stale journal count. It now shows real failed downloads and links to them.
+- **Startup:** VACUUM no longer runs on every launch (it froze startup), and backups are WAL-safe and honest.
+- **Dead buttons:** removed or fixed throughout, and guard tests keep dead commands, raw colours, duplicate
+  theme keys and new silent catches out.
+- **Removed:** the never-reachable music-video export, and placeholder "Coming soon" features.
+
+
 ## [0.9.3-alpha] — 2026-10-01
 
 ### 🎚️ Auto-mix no longer rushes through tracks

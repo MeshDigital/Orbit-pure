@@ -112,7 +112,12 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Session Persistence**: Workstation state (loaded tracks, deck positions, active mode, timeline zoom/offset) is autosaved to `%APPDATA%\Antigravity\workstation-session.json` using atomic temp-file swap writes — survives crashes, power loss, and normal app close; fully restored on next launch including cue points and stem preferences
 - **Analyse Track**: Single-track audio analysis trigger from the library right-click context menu (`🔬 Analyse Track`)
 
+- **Edit Lab**: stem-based DJ edits. Layer vocals/drums/bass/other from any number of tracks on a bar grid, with switchable auto tempo/key matching and per-clip overrides, editable templates, live preview, and rendering to WAV/FLAC as a new library track with provenance
+
 ### Mix & Cue Workspace (Flow Builder)
+- **Transition designer with overlay**: both tracks drawn on one tempo-matched timeline with the overlap, gain curves and bar numbers; drag B to shift the mix-in (undoable); the auto plan prefers A's outro and B's intro regions
+- **Intro end / Outro section markers** in Cue Forge and the Flow Builder decks (Shift+I / Shift+O or a phrase-based suggestion), exported to Rekordbox as memory cues
+- **Click-to-prelisten**: clicking a cue flag or chip plays from that cue; dragging still moves it
 - **All-in-one transition editor**: click the ⇄ between two cards to open both decks' waveforms, transition presets and custom effects (EQ swap, echo, filter, Double Drop loop), mix-point picking and crossfade preview in one place
 - **Set navigation**: ◀ Previous / Next ▶ transition, "Transition N of M", and a mini strip of the whole set — click any ⇄ to jump to that transition
 - **In-place cue editing** (✏ Edit cues): drag cues on the waveform (snapped to the track's beat / bar / phrase grid), right-click to add, and edit name, role (with Rekordbox colour), hot-cue pad A–H or memory cue, colour, beat/bar nudges and 4/8/16-bar loops, with undo/redo; "⇥ Use as mix point" sets the transition from a cue, and the mix point follows a cue you drag
@@ -120,7 +125,7 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Play from a track**: the playlist Play button starts at the selected track; with **+ Mix** on, Play Track continues the mix from that track through the rest of the playlist with each pair's saved transition
 
 ### Cue Tools
-- **One-click drops** (◆ Drop, key **D**, right-click "Drop here"; **1** / **2** force Drop 1 / Drop 2) in Cue Forge and the Flow Builder cue editor:
+- **One-click drops** (◆ Drop, key **D**, right-click "Drop here"; **Shift+1** / **Shift+2** force Drop 1 / Drop 2) in Cue Forge and the Flow Builder cue editor:
   - **Snap:** the drop lands on a bar line.
   - **Numbering:** drops are numbered by position.
   - **Build-in cues** are placed before each drop from the cue template: **[IN -16] [IN -8] [DROP 1]** on pads A–C and **[DROP 2]** on D–F.
