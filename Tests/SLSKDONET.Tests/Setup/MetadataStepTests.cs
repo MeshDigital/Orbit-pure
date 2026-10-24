@@ -117,13 +117,26 @@ public class MetadataStepTests
 
         Assert.False(step.Sources.Single(s => s.Name == "tags").CanToggle);       // always on
         Assert.False(step.Sources.Single(s => s.Name == "beatport").IsEnabled);   // experimental, off
-        Assert.Equal("Needs a token", step.Discogs!.StatusText);
-        Assert.Equal("Not connected", step.Sources.Single(s => s.Name == "spotify").StatusText);
+        // No token yet: the switch reads OFF and is disabled, the choice is kept underneath.
+        Assert.Equal("Waiting for a token", step.Discogs!.StatusText);
+        Assert.True(step.Discogs.IsWaiting);
+        Assert.False(step.Discogs.SwitchOn);
+        Assert.False(step.Discogs.CanToggle);
+        Assert.True(step.Discogs.IsEnabled);
+        Assert.True(step.Discogs.HasKeyField);
+        var spotify = step.Sources.Single(s => s.Name == "spotify");
+        Assert.Equal("Waiting for Spotify · connect it first", spotify.StatusText);
+        Assert.False(spotify.SwitchOn);
 
         step.Sources.Single(s => s.Name == "musicbrainz").IsEnabled = false;
         step.Sources.Single(s => s.Name == "tags").IsEnabled = false;          // ignored
         step.AutoRun = false;
         step.DiscogsToken = "abc123";
+        // Typing the token (here or in the row's own field) already turns the switch on.
+        Assert.Equal("abc123", step.Discogs.KeyText);
+        Assert.True(step.Discogs.SwitchOn);
+        Assert.True(step.Discogs.CanToggle);
+        Assert.Equal("Saved when you continue", step.Discogs.StatusText);
         Assert.Empty(gateway.Saved);
 
         await wizard.NextAsync();

@@ -486,10 +486,25 @@
                                                                 </StackPanel>
                                                                 <TextBlock Classes="caption" Text="{Binding Summary}"/>
                                                                 <TextBlock Classes="caption mono" Text="{Binding LiveText}" IsVisible="{Binding HasLiveText}"/>
+                                                                <!-- Key field right in the row: the switch comes on once a key is typed. -->
+                                                                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" Margin="0,4,0,4" IsVisible="{Binding HasKeyField}">
+                                                                    <TextBlock Grid.ColumnSpan="2" Classes="caption" Text="{Binding KeyLabel}" Margin="0,0,0,4"/>
+                                                                    <TextBox Grid.Row="1" Text="{Binding KeyText, Mode=TwoWay}" Watermark="{Binding KeyWatermark}"
+                                                                             PasswordChar="●" AutomationProperties.Name="{Binding KeyLabel}"/>
+                                                                    <Button Grid.Row="1" Grid.Column="1" Classes="ghost small" Margin="8,0,0,0" Command="{Binding GetKeyCommand}"
+                                                                            ToolTip.Tip="Opens the provider's page in your browser">
+                                                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                                                            <PathIcon Data="{StaticResource icon_open_external}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                                            <TextBlock Text="{Binding GetKeyLabel}"/>
+                                                                        </StackPanel>
+                                                                    </Button>
+                                                                </Grid>
                                                             </StackPanel>
-                                                            <TextBlock Grid.Column="1" Classes="caption" Text="{Binding StatusText}" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                                                            <ToggleSwitch Grid.Column="2" IsChecked="{Binding IsEnabled, Mode=TwoWay}" IsEnabled="{Binding CanToggle}"
-                                                                          VerticalAlignment="Center" AutomationProperties.Name="{Binding DisplayName}"/>
+                                                            <TextBlock Grid.Column="1" Classes="caption" Classes.warning="{Binding IsWaiting}" Text="{Binding StatusText}"
+                                                                       VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                                            <ToggleSwitch Grid.Column="2" IsChecked="{Binding SwitchOn, Mode=TwoWay}" IsEnabled="{Binding CanToggle}"
+                                                                          VerticalAlignment="Center" AutomationProperties.Name="{Binding DisplayName}"
+                                                                          ToolTip.Tip="{Binding StatusText}"/>
                                                         </Grid>
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
@@ -497,41 +512,16 @@
                                         </Border>
                                     </StackPanel>
 
-                                    <!-- Keys -->
+                                    <!-- Chromaprint (AcoustID needs fpcalc; the keys live in the source rows above) -->
                                     <StackPanel Classes="setup-section">
-                                        <TextBlock Classes="section" Text="KEYS (OPTIONAL)"/>
+                                        <TextBlock Classes="section" Text="CHROMAPRINT (FOR ACOUSTID)"/>
                                         <Border Classes="card">
-                                            <StackPanel Spacing="12">
-                                                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
-                                                    <TextBlock Classes="caption" Text="Discogs token (stored encrypted for your Windows account)" Margin="0,0,0,4"/>
-                                                    <TextBox Grid.Row="1" Text="{Binding DiscogsToken, Mode=TwoWay}" Watermark="{Binding DiscogsWatermark}"
-                                                             PasswordChar="●" AutomationProperties.Name="Discogs token"/>
-                                                    <Button Grid.Row="1" Grid.Column="1" Classes="ghost small" Margin="8,0,0,0" Command="{Binding GetDiscogsTokenCommand}">
-                                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                                            <PathIcon Data="{StaticResource icon_open_external}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
-                                                            <TextBlock Text="Get a token"/>
-                                                        </StackPanel>
-                                                    </Button>
-                                                </Grid>
-                                                <Border Classes="divider"/>
-                                                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto">
-                                                    <TextBlock Classes="caption" Text="AcoustID API key" Margin="0,0,0,4"/>
-                                                    <TextBox Grid.Row="1" Text="{Binding AcoustIdKey, Mode=TwoWay}" Watermark="{Binding AcoustIdWatermark}"
-                                                             PasswordChar="●" AutomationProperties.Name="AcoustID API key"/>
-                                                    <Button Grid.Row="1" Grid.Column="1" Classes="ghost small" Margin="8,0,0,0" Command="{Binding GetAcoustIdKeyCommand}">
-                                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                                            <PathIcon Data="{StaticResource icon_open_external}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
-                                                            <TextBlock Text="Get a key"/>
-                                                        </StackPanel>
-                                                    </Button>
-                                                    <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
-                                                        <Ellipse Classes="status-dot" Classes.success="{Binding HasFpcalc}" Classes.warning="{Binding FpcalcMissing}" VerticalAlignment="Center"/>
-                                                        <TextBlock Classes="caption" VerticalAlignment="Center" Text="fpcalc (Chromaprint) found" IsVisible="{Binding HasFpcalc}"/>
-                                                        <TextBlock Classes="caption" VerticalAlignment="Center" IsVisible="{Binding FpcalcMissing}"
-                                                                   Text="fpcalc not found: put fpcalc.exe next to ORBIT.exe or on PATH."/>
-                                                        <Button Classes="ghost small" Command="{Binding GetFpcalcCommand}" IsVisible="{Binding FpcalcMissing}" Content="Get Chromaprint"/>
-                                                    </StackPanel>
-                                                </Grid>
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <Ellipse Classes="status-dot" Classes.success="{Binding HasFpcalc}" Classes.warning="{Binding FpcalcMissing}" VerticalAlignment="Center"/>
+                                                <TextBlock Classes="caption" VerticalAlignment="Center" Text="fpcalc (Chromaprint) found" IsVisible="{Binding HasFpcalc}"/>
+                                                <TextBlock Classes="caption" VerticalAlignment="Center" IsVisible="{Binding FpcalcMissing}"
+                                                           Text="fpcalc not found: put fpcalc.exe next to ORBIT.exe or on PATH."/>
+                                                <Button Classes="ghost small" Command="{Binding GetFpcalcCommand}" IsVisible="{Binding FpcalcMissing}" Content="Get Chromaprint"/>
                                             </StackPanel>
                                         </Border>
                                     </StackPanel>

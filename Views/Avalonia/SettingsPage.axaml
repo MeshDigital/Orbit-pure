@@ -295,7 +295,7 @@
                                                                        VerticalAlignment="Center"/>
                                                         </StackPanel>
                                                         <TextBlock Classes="caption" Text="{Binding Description}" TextWrapping="Wrap"/>
-                                                        <TextBlock Classes="caption muted" Text="{Binding StatusText}"/>
+                                                        <TextBlock Classes="caption muted" Classes.warning="{Binding IsWaiting}" Text="{Binding StatusText}"/>
                                                     </StackPanel>
                                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="8,0">
                                                         <Button Classes="icon small" Command="{Binding MoveUpCommand}" ToolTip.Tip="Ask this source earlier">
@@ -305,8 +305,8 @@
                                                             <PathIcon Data="{StaticResource icon_chevron_down}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
                                                         </Button>
                                                     </StackPanel>
-                                                    <ToggleSwitch Grid.Column="2" IsChecked="{Binding IsEnabled, Mode=TwoWay}" IsEnabled="{Binding CanToggle}"
-                                                                  ToolTip.Tip="Use this source"/>
+                                                    <ToggleSwitch Grid.Column="2" IsChecked="{Binding SwitchOn, Mode=TwoWay}" IsEnabled="{Binding CanToggle}"
+                                                                  ToolTip.Tip="{Binding StatusText}"/>
                                                 </Grid>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
