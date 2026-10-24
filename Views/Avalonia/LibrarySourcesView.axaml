@@ -3,87 +3,64 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:SLSKDONET.ViewModels"
-             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="400"
              x:Class="SLSKDONET.Views.Avalonia.LibrarySourcesView"
              x:DataType="vm:LibrarySourcesViewModel">
-    
-    <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
-        <StackPanel Spacing="16">
-            <StackPanel Spacing="4">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="📁" FontSize="20" VerticalAlignment="Center"/>
-                    <TextBlock Text="Library Sources" FontSize="18" FontWeight="SemiBold" Foreground="White"/>
-                </StackPanel>
-                <TextBlock Text="Manage local folders monitored by the library scanner" 
-                           Foreground="#AAA" FontSize="12"/>
+
+    <!-- Hosted in a LibraryPage overlay, which draws the close button in the top-right corner. -->
+    <Border Classes="dialog">
+        <Grid RowDefinitions="Auto,*,Auto,Auto">
+            <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,40,16">
+                <TextBlock Classes="h2" Text="Library folders"/>
+                <TextBlock Classes="subtitle" Text="Folders the library scanner imports from. Watched folders auto-import new files."/>
             </StackPanel>
 
-            <Separator Background="#333" Height="1"/>
+            <!-- Folder list / empty state -->
+            <StackPanel Grid.Row="1" Classes="empty-state" IsVisible="{Binding !LibraryFolders.Count}">
+                <PathIcon Data="{StaticResource icon_folder}"/>
+                <TextBlock Classes="h3" Text="No folders yet"/>
+                <TextBlock Classes="caption" Text="Add the folders where your music lives and ORBIT will index them." TextWrapping="Wrap" TextAlignment="Center"/>
+            </StackPanel>
+            <ScrollViewer Grid.Row="1" MaxHeight="360" IsVisible="{Binding LibraryFolders.Count}">
+                <ItemsControl ItemsSource="{Binding LibraryFolders}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="{StaticResource BrushBg3}" CornerRadius="{StaticResource RadiusMd}" Padding="12,8" Margin="0,0,0,4">
+                                <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                    <PathIcon Grid.Column="0" Data="{StaticResource icon_folder}" Width="16" Height="16"
+                                              Foreground="{StaticResource BrushText2}" Margin="0,0,12,0"/>
+                                    <TextBlock Grid.Column="1" Text="{ReflectionBinding FolderPath}" Classes="mono" Foreground="{StaticResource BrushText0}"
+                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{ReflectionBinding FolderPath}"/>
+                                    <ToggleButton Grid.Column="2" Classes="chip" Content="Watch" Margin="8,0"
+                                                  IsChecked="{ReflectionBinding IsWatched, Mode=OneWay}"
+                                                  Command="{ReflectionBinding DataContext.ToggleWatchCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                  CommandParameter="{ReflectionBinding}"
+                                                  ToolTip.Tip="Auto-import new files dropped into this folder without waiting for a manual scan"/>
+                                    <Button Grid.Column="3" Classes="icon small danger"
+                                            Command="{ReflectionBinding DataContext.RemoveLibraryFolderCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{ReflectionBinding}"
+                                            ToolTip.Tip="Remove this folder from the library sources">
+                                        <PathIcon Data="{StaticResource icon_delete}" Width="14" Height="14"/>
+                                    </Button>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
 
-            <!-- Folder List -->
-            <ItemsControl ItemsSource="{Binding LibraryFolders}">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <Border Background="#333" CornerRadius="4" Padding="8" Margin="0,0,0,8">
-                            <Grid ColumnDefinitions="*,Auto,Auto">
-                                <StackPanel Grid.Column="0" Spacing="2">
-                                    <TextBlock Text="{Binding FolderPath}" Foreground="White" FontWeight="Medium"/>
-                                    <TextBlock Text="Local Folder" Foreground="#888" FontSize="10"/>
-                                </StackPanel>
-                                <ToggleButton Grid.Column="1"
-                                              IsChecked="{Binding IsWatched, Mode=OneWay}"
-                                              Command="{Binding DataContext.ToggleWatchCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                              CommandParameter="{Binding}"
-                                              Padding="8,4" Margin="0,0,8,0"
-                                              ToolTip.Tip="Auto-import new files dropped into this folder without waiting for a manual scan">
-                                    <TextBlock Text="👁 Watch" FontSize="11"/>
-                                </ToggleButton>
-                                <Button Grid.Column="2"
-                                        Command="{Binding DataContext.RemoveLibraryFolderCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                        CommandParameter="{Binding}"
-                                        Content="Remove"
-                                        Background="Transparent"
-                                        Foreground="#FF5555"
-                                        Padding="8,4"/>
-                            </Grid>
-                        </Border>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-
-            <Grid ColumnDefinitions="*,Auto">
-                <!-- Add Folder Button -->
-                <Button Grid.Column="0" 
-                        Command="{Binding AddLibraryFolderCommand}"
-                        Background="#333"
-                        Foreground="White"
-                        Padding="16,8"
-                        HorizontalAlignment="Left">
+            <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,16,0,0">
+                <TextBlock Grid.Column="0" Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0"
+                           Text="Adding or scanning opens the import, which shows each step and a summary."/>
+                <Button Grid.Column="1" Classes="secondary" Command="{Binding AddLibraryFolderCommand}" Margin="0,0,8,0">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="+" FontSize="16" FontWeight="Bold"/>
-                        <TextBlock Text="Add Folder"/>
+                        <PathIcon Data="{StaticResource icon_add}" Width="14" Height="14"/>
+                        <TextBlock Text="Add folder"/>
                     </StackPanel>
                 </Button>
-
-                <!-- Scan Button -->
-                <Button Grid.Column="1" 
-                        Command="{Binding ScanAllLibraryFoldersCommand}"
-                        Background="#1DB954"
-                        Foreground="White"
-                        Padding="16,8"
-                        IsEnabled="{Binding !!LibraryFolders.Count}">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="🔍" FontSize="14"/>
-                        <TextBlock Text="Scan All"/>
-                    </StackPanel>
-                </Button>
+                <Button Grid.Column="2" Classes="primary" Content="Scan all" Command="{Binding ScanAllLibraryFoldersCommand}"
+                        IsEnabled="{Binding !!LibraryFolders.Count}"/>
             </Grid>
-            
-            <TextBlock Text="{Binding ScanStatus}" 
-                       Foreground="#AAA" 
-                       FontSize="11"
-                       HorizontalAlignment="Right"
-                       IsVisible="{Binding !!ScanStatus}"/>
-        </StackPanel>
+        </Grid>
     </Border>
 </UserControl>

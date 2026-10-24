@@ -29,9 +29,19 @@ namespace SLSKDONET.Services.Audio
             string trackATitle, string trackAFilePath, double sourceTriggerSeconds,
             string trackBTitle, string trackBFilePath, double targetTriggerSeconds,
             SLSKDONET.Models.Timeline.TransitionModel model, double projectBpm,
-            CancellationToken ct = default);
+            CancellationToken ct = default,
+            double leadInSeconds = 0, double tailSeconds = 0);
 
         void StopPreview();
+
+        /// <summary>Playback position within the rendered preview, or null when nothing is playing.</summary>
+        TimeSpan? PreviewPosition { get; }
+
+        /// <summary>Length of the rendered preview, or null when nothing is loaded.</summary>
+        TimeSpan? PreviewLength { get; }
+
+        /// <summary>Scrubs within the rendered preview (a WAV, so the seek is exact).</summary>
+        void SeekPreview(TimeSpan position);
     }
 
     /// <summary>
@@ -86,13 +96,14 @@ namespace SLSKDONET.Services.Audio
             string trackATitle, string trackAFilePath, double sourceTriggerSeconds,
             string trackBTitle, string trackBFilePath, double targetTriggerSeconds,
             SLSKDONET.Models.Timeline.TransitionModel model, double projectBpm,
-            CancellationToken ct = default)
+            CancellationToken ct = default,
+            double leadInSeconds = 0, double tailSeconds = 0)
         {
             _logger.LogInformation("🎧 Starting preset-aware Transition Preview: {TrackA} -> {TrackB} ({Preset}), A@{SourceT}s B@{TargetT}s",
                 trackATitle, trackBTitle, model.Type, sourceTriggerSeconds, targetTriggerSeconds);
 
             string previewPath = await _surgicalService.RenderTransitionPreviewAsync(
-                trackAFilePath, sourceTriggerSeconds, trackBFilePath, targetTriggerSeconds, model, projectBpm, ct).ConfigureAwait(false);
+                trackAFilePath, sourceTriggerSeconds, trackBFilePath, targetTriggerSeconds, model, projectBpm, ct, leadInSeconds, tailSeconds).ConfigureAwait(false);
 
             await PlayRenderedPreviewAsync(previewPath, ct).ConfigureAwait(false);
         }
@@ -125,6 +136,43 @@ namespace SLSKDONET.Services.Audio
             finally
             {
                 _gate.Release();
+            }
+        }
+
+        public TimeSpan? PreviewPosition
+        {
+            get
+            {
+                var reader = _reader;
+                if (reader == null) return null;
+                try { return reader.CurrentTime; }
+                catch (ObjectDisposedException) { return null; }
+            }
+        }
+
+        public TimeSpan? PreviewLength
+        {
+            get
+            {
+                var reader = _reader;
+                if (reader == null) return null;
+                try { return reader.TotalTime; }
+                catch (ObjectDisposedException) { return null; }
+            }
+        }
+
+        public void SeekPreview(TimeSpan position)
+        {
+            var reader = _reader;
+            if (reader == null) return;
+            try
+            {
+                var clamped = TimeSpan.FromSeconds(Math.Clamp(position.TotalSeconds, 0, Math.Max(0, reader.TotalTime.TotalSeconds - 0.05)));
+                reader.CurrentTime = clamped; // rendered preview is a WAV: CurrentTime is exact
+            }
+            catch (ObjectDisposedException ex)
+            {
+                _logger.LogDebug(ex, "Transition preview: seek after the preview ended");
             }
         }
 

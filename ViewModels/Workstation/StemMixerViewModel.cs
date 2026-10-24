@@ -33,6 +33,9 @@ public sealed class StemMixerViewModel : ReactiveObject, IDisposable
     public StemChannelViewModel Bass   { get; }
     public StemChannelViewModel Other  { get; }
 
+    /// <summary>The four channel strips in mixer order (Vocals, Drums, Bass, Other).</summary>
+    public IReadOnlyList<StemChannelViewModel> Channels { get; }
+
     // ── Separation state ──────────────────────────────────────────────────────
 
     private bool _isSeparating;
@@ -54,6 +57,22 @@ public sealed class StemMixerViewModel : ReactiveObject, IDisposable
     {
         get => _errorMessage;
         private set => this.RaiseAndSetIfChanged(ref _errorMessage, value);
+    }
+
+    private string? _sourceFileName;
+    /// <summary>File name of the track the current stems were separated from (null when empty).</summary>
+    public string? SourceFileName
+    {
+        get => _sourceFileName;
+        private set => this.RaiseAndSetIfChanged(ref _sourceFileName, value);
+    }
+
+    private bool _hasStems;
+    /// <summary>True once at least one separated stem is loaded into the mixer.</summary>
+    public bool HasStems
+    {
+        get => _hasStems;
+        private set => this.RaiseAndSetIfChanged(ref _hasStems, value);
     }
 
     // ── Stem paths (populated after successful separation) ────────────────────
@@ -92,6 +111,7 @@ public sealed class StemMixerViewModel : ReactiveObject, IDisposable
         Drums  = new StemChannelViewModel(StemType.Drums,  Mixer);
         Bass   = new StemChannelViewModel(StemType.Bass,   Mixer);
         Other  = new StemChannelViewModel(StemType.Other,  Mixer);
+        Channels = new[] { Vocals, Drums, Bass, Other };
 
         CancelCommand = ReactiveCommand.Create(Cancel,
             this.WhenAnyValue(x => x.IsSeparating));
@@ -130,12 +150,16 @@ public sealed class StemMixerViewModel : ReactiveObject, IDisposable
             var stems = await _separator.SeparateWithProgressAsync(
                 sourceFilePath, outputDir, progress, _cts.Token);
 
-            LoadStemAudio(stems);
+            int failed = LoadStemAudio(stems);
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 SeparationProgress = 1f;
                 IsSeparating       = false;
+                SourceFileName     = Path.GetFileName(sourceFilePath);
+                HasStems           = stems.Count - failed > 0;
+                if (failed > 0)
+                    ErrorMessage = $"{failed} of {stems.Count} stems could not be loaded.";
             });
         }
         catch (OperationCanceledException)
@@ -168,8 +192,10 @@ public sealed class StemMixerViewModel : ReactiveObject, IDisposable
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    private void LoadStemAudio(Dictionary<StemType, string> stemPaths)
+    /// <returns>The number of stems that failed to load.</returns>
+    private int LoadStemAudio(Dictionary<StemType, string> stemPaths)
     {
+        int failed = 0;
         // NAudio operations on the audio thread are fine; we are not on UIThread here.
         foreach (var (type, path) in stemPaths)
         {
@@ -188,11 +214,14 @@ public sealed class StemMixerViewModel : ReactiveObject, IDisposable
                     case StemType.Other:  OtherWavPath  = path; break;
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Skip single failed stem — degraded mode is better than a crash.
+                // Skip single failed stem: degraded mode is better than a crash, but say so.
+                failed++;
+                Serilog.Log.Warning(ex, "Stem mixer: failed to load {Stem} stem from {Path}", type, path);
             }
         }
+        return failed;
     }
 
     private void ClearStemAudio()
@@ -207,6 +236,16 @@ public sealed class StemMixerViewModel : ReactiveObject, IDisposable
         DrumsWavPath  = null;
         BassWavPath   = null;
         OtherWavPath  = null;
+        if (Dispatcher.UIThread.CheckAccess())
+            ResetLoadedState();
+        else
+            Dispatcher.UIThread.Post(ResetLoadedState);
+    }
+
+    private void ResetLoadedState()
+    {
+        HasStems       = false;
+        SourceFileName = null;
     }
 
     public void Dispose()

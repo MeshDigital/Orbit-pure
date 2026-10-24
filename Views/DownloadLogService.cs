@@ -20,10 +20,7 @@ public class DownloadLogService
     private readonly string _logFilePath;
     private List<Track> _logEntries;
 
-    private static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mp3", ".flac", ".wav", ".aac", ".ogg", ".m4a", ".wma", ".alac", ".aiff", ".aif", ".ape"
-    };
+    private static IReadOnlySet<string> AudioExtensions => SLSKDONET.Services.Audio.AudioFormats.LocalAudioExtensions;
 
     public DownloadLogService(ILogger<DownloadLogService> logger)
     {

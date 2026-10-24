@@ -154,9 +154,9 @@ public class SchemaMigratorService
     {
         try
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var appData = SLSKDONET.Data.OrbitPaths.RoamingRoot;
             var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
-            var backupDir = System.IO.Path.Combine(appData, "ORBIT", "Backups");
+            var backupDir = LibraryDatabaseMaintenance.GetBackupDirectory(dbPath); // derived from the DB path so ORBIT_DB_PATH (tests) never restores/rotates the real backups
 
             if (!System.IO.File.Exists(dbPath))
             {
@@ -192,7 +192,9 @@ public class SchemaMigratorService
             // but wrap in Task.Run to not block startup significantly if large
             await Task.Run(() =>
             {
-                System.IO.File.Copy(dbPath, backupPath, overwrite: true);
+                // SQLite online backup, not File.Copy: a WAL-mode DB after an unclean shutdown
+                // can hold committed pages in library.db-wal that a plain copy would drop.
+                LibraryDatabaseMaintenance.CreateBackup(dbPath, backupPath);
                 _logger.LogInformation("Database backed up to: {Path}", backupPath);
 
                 // Rotate backups: Keep last 5
@@ -225,13 +227,19 @@ public class SchemaMigratorService
         }
     }
 
+    /// <summary>Marker the Settings "Update Schema" action drops to request a reset on next launch. Lives next to the DB.</summary>
+    public static string ForceResetMarkerPath(string? dbPath = null)
+    {
+        dbPath ??= SLSKDONET.Data.OrbitPaths.LibraryDbPath;
+        return System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(dbPath)) ?? ".", ".force_schema_reset");
+    }
+
     private async Task CheckForForceResetAsync()
     {
         try
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var markerPath = System.IO.Path.Combine(appData, "ORBIT", ".force_schema_reset");
             var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
+            var markerPath = ForceResetMarkerPath(dbPath);
 
             if (System.IO.File.Exists(markerPath))
             {
@@ -274,7 +282,7 @@ public class SchemaMigratorService
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
         _logger.LogInformation("[{Ms}ms] Database Init: Starting", sw.ElapsedMilliseconds);
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var appData = SLSKDONET.Data.OrbitPaths.RoamingRoot;
         var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
 
         // Phase 24: Automatic Database Backup & Recovery
@@ -290,7 +298,7 @@ public class SchemaMigratorService
             {
                 _logger.LogWarning("Active database is malformed. Attempting recovery from healthy backup before migrations.");
 
-                var backupDir = System.IO.Path.Combine(appData, "ORBIT", "Backups");
+                var backupDir = LibraryDatabaseMaintenance.GetBackupDirectory(dbPath);
                 var restored = await TryRestoreLatestHealthyBackupAsync(backupDir, dbPath).ConfigureAwait(false);
 
                 if (!restored)
@@ -511,6 +519,12 @@ public class SchemaMigratorService
             {
                 context.ConfigureSqliteOptimizations(connection);
                 await ApplySchemaPatchesAsync(context, connection);
+
+                // Safety net behind the migrations and the explicit patches above: whatever the
+                // EF model maps but the database still lacks (a brand-new install was missing 13
+                // columns, 2026-10-19) is added here, additively. See SchemaReconciler.
+                SchemaReconciler.Reconcile(context, connection, _logger);
+                _logger.LogInformation("[{Ms}ms] Database Init: schema reconciliation finished", sw.ElapsedMilliseconds);
             }
         }
 
@@ -1263,9 +1277,12 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
                 _logger.LogInformation("✅ AnalysisRuns table created successfully");
             }
-            else
+
+            // Patch the table whichever way it was made. This used to be an `else` of the CREATE
+            // above, so a freshly created table (whose CREATE lacks the newer columns) was never
+            // patched — a brand-new install had no BpmConfidence/KeyConfidence/IntegrityScore/
+            // CurrentStage (2026-10-19; SchemaReconciler now also catches this class of drift).
             {
-                // Patch existing table
                 if (!ColumnExists("analysis_runs", "Tier"))
                 {
                     _logger.LogInformation("Patching Schema: Adding Tier to AnalysisRuns...");
@@ -3039,6 +3056,50 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // 38. Library metadata enrichment (Services/Enrichment): a resumable queue on the
+            // existing EnrichmentTasks table (priority + deferral), a lookup cache so re-runs don't
+            // hit Deezer/MusicBrainz/Discogs again, and per-field provenance so enrichment never
+            // overwrites a user edit and the inspector can say where a value came from.
+            if (TableExists("EnrichmentTasks") && !ColumnExists("EnrichmentTasks", "Priority"))
+            {
+                _logger.LogInformation("Patching Schema: Adding Priority/NextAttemptAt to EnrichmentTasks...");
+                command.CommandText = @"ALTER TABLE ""EnrichmentTasks"" ADD COLUMN ""Priority"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("EnrichmentTasks") && !ColumnExists("EnrichmentTasks", "NextAttemptAt"))
+            {
+                command.CommandText = @"ALTER TABLE ""EnrichmentTasks"" ADD COLUMN ""NextAttemptAt"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!TableExists("MetadataLookupCache"))
+            {
+                _logger.LogInformation("Patching Schema: Creating MetadataLookupCache table...");
+                command.CommandText = @"
+                    CREATE TABLE ""MetadataLookupCache"" (
+                        ""Provider"" TEXT NOT NULL,
+                        ""CacheKey"" TEXT NOT NULL,
+                        ""StatusCode"" INTEGER NOT NULL DEFAULT 0,
+                        ""Payload"" TEXT NULL,
+                        ""CreatedAtUtc"" TEXT NOT NULL,
+                        CONSTRAINT ""PK_MetadataLookupCache"" PRIMARY KEY (""Provider"", ""CacheKey"")
+                    );";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!TableExists("MetadataProvenance"))
+            {
+                _logger.LogInformation("Patching Schema: Creating MetadataProvenance table...");
+                command.CommandText = @"
+                    CREATE TABLE ""MetadataProvenance"" (
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""Field"" TEXT NOT NULL,
+                        ""Source"" TEXT NOT NULL,
+                        ""Confidence"" REAL NOT NULL DEFAULT 0,
+                        ""UpdatedAtUtc"" TEXT NOT NULL,
+                        CONSTRAINT ""PK_MetadataProvenance"" PRIMARY KEY (""TrackUniqueHash"", ""Field"")
+                    );";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)
@@ -3051,7 +3112,7 @@ public class SchemaMigratorService
     {
         try
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var appData = SLSKDONET.Data.OrbitPaths.RoamingRoot;
             var jsonPath = System.IO.Path.Combine(appData, "ORBIT", "stem_preferences.json");
 
             if (!System.IO.File.Exists(jsonPath)) return;

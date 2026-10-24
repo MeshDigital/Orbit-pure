@@ -69,6 +69,14 @@ public class SmartCrateEditorViewModel : ReactiveObject
         set => this.RaiseAndSetIfChanged(ref _maxEnergy, value);
     }
 
+    private string? _errorMessage;
+    /// <summary>Shown in the editor when saving fails, so the dialog stays open instead of closing as if cancelled.</summary>
+    public string? ErrorMessage
+    {
+        get => _errorMessage;
+        set => this.RaiseAndSetIfChanged(ref _errorMessage, value);
+    }
+
     public ObservableCollection<string> AvailableVibes { get; } = new()
     {
          "Aggressive", "Chaotic", "Energetic", "Happy", 
@@ -117,6 +125,7 @@ public class SmartCrateEditorViewModel : ReactiveObject
 
     private async Task<SmartCrateDefinitionEntity?> SaveAsync()
     {
+        ErrorMessage = null;
         try
         {
             var rules = new SmartCrateRules
@@ -149,6 +158,7 @@ public class SmartCrateEditorViewModel : ReactiveObject
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save smart crate");
+            ErrorMessage = $"Could not save the crate: {ex.Message}";
             return null;
         }
     }

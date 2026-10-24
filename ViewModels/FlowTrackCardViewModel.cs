@@ -6,6 +6,7 @@ using Avalonia.Media;
 using ReactiveUI;
 using SLSKDONET.Models;
 using SLSKDONET.Models.Musical;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -16,8 +17,20 @@ public sealed class FlowBridgeInfo
 {
     /// <summary>e.g. "+3.0 BPM" or "-2.5 BPM"</summary>
     public string BpmDeltaDisplay { get; init; } = string.Empty;
-    /// <summary>Colour-coded bar brush: green (compatible) -> yellow -> red (clash).</summary>
-    public IBrush ScoreBrush { get; init; } = Brushes.Gray;
+    /// <summary>Overall pair score 0-100, drawn as a meter bar (not a coloured pill).</summary>
+    public double ScorePercent { get; init; }
+    public string ScoreDisplay => ScorePercent.ToString("0");
+    /// <summary>Meter tier: good (>= 64), fair (>= 45), poor (below).</summary>
+    public bool IsGoodScore => ScorePercent >= 64;
+    public bool IsFairScore => ScorePercent is >= 45 and < 64;
+    public bool IsPoorScore => ScorePercent < 45;
+    /// <summary>"8A → 9A".</summary>
+    public string KeyRelationDisplay { get; init; } = string.Empty;
+    /// <summary>A10 sub-scores 0-100 when the recommendation engine scored the pair, else null.</summary>
+    public double? SimilarityPercent { get; init; }
+    public double? HarmonicPercent { get; init; }
+    public double? EnergyFitPercent { get; init; }
+    public bool HasSubScores => SimilarityPercent.HasValue;
     public string QualityLabel { get; init; } = string.Empty;
     /// <summary>Compatibility label, e.g. "5A -> 6A  Compatible"</summary>
     public string KeyLabel { get; init; } = string.Empty;
@@ -50,7 +63,6 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
     public string  KeyDisplay      { get; }
     public string  DurationDisplay { get; }
     public string? AlbumArtUrl     { get; }
-    public IBrush  KeyColorBrush   { get; }
 
     /// <summary>The file path, used to load this track onto a deck.</summary>
     public string FilePath  { get; }
@@ -70,19 +82,35 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
 
     // -- Transition bridge -----------------------------------------------------
 
-    /// <summary>True when there is a next track, bridge data exists, and the current style filter keeps it visible.</summary>
-    public bool HasBridge => Bridge != null && IsBridgeVisibleByFilter;
+    /// <summary>True when there is a next track and bridge data exists.</summary>
+    public bool HasBridge => Bridge != null;
 
-    private bool _isBridgeVisibleByFilter = true;
-    public bool IsBridgeVisibleByFilter
+    private int _position;
+    /// <summary>1-based position in the set.</summary>
+    public int Position
     {
-        get => _isBridgeVisibleByFilter;
-        set
-        {
-            this.RaiseAndSetIfChanged(ref _isBridgeVisibleByFilter, value);
-            this.RaisePropertyChanged(nameof(HasBridge));
-        }
+        get => _position;
+        set => this.RaiseAndSetIfChanged(ref _position, value);
     }
+
+    private bool _hasSavedTransition;
+    /// <summary>A transition to the next track is saved (playback uses it instead of the Auto plan).</summary>
+    public bool HasSavedTransition
+    {
+        get => _hasSavedTransition;
+        set => this.RaiseAndSetIfChanged(ref _hasSavedTransition, value);
+    }
+
+    private bool _nextNeedsAnalysis;
+    /// <summary>This track or the next one has no waveform/cues yet.</summary>
+    public bool PairNeedsAnalysis
+    {
+        get => _nextNeedsAnalysis || NeedsAnalysis;
+    }
+
+    /// <summary>No waveform or cues yet: mix points can't be picked on phrases.</summary>
+    public bool NeedsAnalysis { get; }
+    public string ReadinessHint { get; }
 
     private FlowBridgeInfo? _bridge;
     public FlowBridgeInfo? Bridge
@@ -99,14 +127,6 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
 
     public string PrimaryTransitionReason => Bridge?.ReasonSummary ?? string.Empty;
     public bool HasPrimaryTransitionReason => !string.IsNullOrWhiteSpace(PrimaryTransitionReason);
-
-    /// <summary>True while this card's bridge-to-next transition is playing a live crossfade preview.</summary>
-    private bool _isPreviewingTransition;
-    public bool IsPreviewingTransition
-    {
-        get => _isPreviewingTransition;
-        set => this.RaiseAndSetIfChanged(ref _isPreviewingTransition, value);
-    }
 
     private bool _isActiveTransition;
     /// <summary>True while the transition from this card to the next is open in the transition
@@ -132,7 +152,6 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
     public ReactiveCommand<Unit, Unit> RemoveCommand    { get; }
     public ReactiveCommand<Unit, Unit> FindBridgeToNextCommand { get; }
     public ReactiveCommand<Unit, Unit> SelectTransitionInspectorCommand { get; }
-    public ReactiveCommand<Unit, Unit> PreviewTransitionCommand { get; }
     public ReactiveCommand<Unit, Unit> PreviewTrackCommand { get; }
 
     // -- Constructor -----------------------------------------------------------
@@ -144,7 +163,6 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         Action onRemove,
         Action? onFindBridgeToNext = null,
         Action? onSelectTransitionInspector = null,
-        Func<System.Threading.Tasks.Task>? onPreviewTransition = null,
         Func<System.Threading.Tasks.Task>? onPreviewTrack = null)
     {
         Model           = track;
@@ -155,11 +173,17 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         AlbumArtUrl     = track.AlbumArtUrl;
 
         _bpmDisplay     = track.BPM.HasValue
-            ? track.BPM.Value.ToString("F1")
+            ? track.BPM.Value.ToString("F1", NumFormat.Culture)
             : "-";
         // Key may be in Camelot notation (e.g. "8A") or musical (e.g. "Am")
         KeyDisplay      = string.IsNullOrEmpty(track.Key) ? "-" : track.Key;
-        KeyColorBrush   = GetKeyColorBrush(KeyDisplay);
+        var issue = SLSKDONET.ViewModels.Workstation.WorkstationDeckViewModel.GetTrackEligibilityIssue(track);
+        NeedsAnalysis = issue is SLSKDONET.ViewModels.Workstation.WorkstationTrackEligibilityIssue.MissingWaveform
+            or SLSKDONET.ViewModels.Workstation.WorkstationTrackEligibilityIssue.MissingCues
+            or SLSKDONET.ViewModels.Workstation.WorkstationTrackEligibilityIssue.MissingAnalysis;
+        ReadinessHint = NeedsAnalysis
+            ? SLSKDONET.ViewModels.Workstation.WorkstationDeckViewModel.GetTrackLoadReadinessMessage(track)
+            : string.Empty;
         DurationDisplay = track.CanonicalDuration.HasValue
             ? FormatDuration(track.CanonicalDuration.Value)
             : "-";
@@ -175,8 +199,6 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         // The closures now capture this exact card instance directly, same as Move/Remove above.
         FindBridgeToNextCommand = ReactiveCommand.Create(() => onFindBridgeToNext?.Invoke());
         SelectTransitionInspectorCommand = ReactiveCommand.Create(() => onSelectTransitionInspector?.Invoke());
-        PreviewTransitionCommand = ReactiveCommand.CreateFromTask(() =>
-            onPreviewTransition?.Invoke() ?? System.Threading.Tasks.Task.CompletedTask);
         PreviewTrackCommand = ReactiveCommand.CreateFromTask(() =>
             onPreviewTrack?.Invoke() ?? System.Threading.Tasks.Task.CompletedTask);
     }
@@ -227,14 +249,15 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         PlaylistRecommendation? recommendation = null,
         TransitionStyleResult? transitionStyle = null)
     {
+        _nextNeedsAnalysis = next?.NeedsAnalysis ?? false;
+        this.RaisePropertyChanged(nameof(PairNeedsAnalysis));
         if (next == null) { Bridge = null; return; }
 
-        float myBpm   = float.TryParse(BpmDisplay, out var b1) ? b1 : 0f;
-        float nxtBpm  = float.TryParse(next.BpmDisplay, out var b2) ? b2 : 0f;
+        // BpmDisplay is written invariantly ("174.0"); a culture parse would read it as 1740 on nl-BE.
+        float myBpm   = NumFormat.TryParse(BpmDisplay, out var b1) ? (float)b1 : 0f;
+        float nxtBpm  = NumFormat.TryParse(next.BpmDisplay, out var b2) ? (float)b2 : 0f;
         float bpmDiff = myBpm > 0 && nxtBpm > 0 ? nxtBpm - myBpm : 0f;
-        string bpmDeltaDisplay = bpmDiff == 0f ? "-"
-            : bpmDiff > 0 ? $"+{bpmDiff:F1} BPM"
-            : $"{bpmDiff:F1} BPM";
+        string bpmDeltaDisplay = bpmDiff == 0f ? "-" : NumFormat.BpmDelta(bpmDiff);
 
         double camelotDist = CamelotDistance(KeyDisplay, next.KeyDisplay);
         double harmonicScore = Math.Clamp(1.0 - (camelotDist / 6.0), 0.0, 1.0);
@@ -258,14 +281,6 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
             (energyMatch * 0.20) +
             (sectionMatch * 0.30),
             0.0, 1.0);
-
-        IBrush scoreBrush = transitionScore switch
-        {
-            >= 0.82 => new SolidColorBrush(Color.Parse("#4EC9B0")),
-            >= 0.64 => new SolidColorBrush(Color.Parse("#B8E986")),
-            >= 0.45 => new SolidColorBrush(Color.Parse("#FFB347")),
-            _       => new SolidColorBrush(Color.Parse("#E74C3C")),
-        };
 
         string compatLabel = doubleDropScore is >= 0.78
             ? "Double-drop friendly"
@@ -306,7 +321,11 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         Bridge = new FlowBridgeInfo
         {
             BpmDeltaDisplay = bpmDeltaDisplay,
-            ScoreBrush = scoreBrush,
+            ScorePercent = Math.Round(transitionScore * 100),
+            KeyRelationDisplay = $"{KeyDisplay} \u2192 {next.KeyDisplay}",
+            SimilarityPercent = recommendation != null ? Math.Round(recommendation.SimilarityScore * 100) : null,
+            HarmonicPercent = recommendation != null ? Math.Round(recommendation.HarmonicScore * 100) : null,
+            EnergyFitPercent = recommendation != null ? Math.Round(recommendation.EnergyFitScore * 100) : null,
             QualityLabel = compatLabel,
             KeyLabel = keyLabel,
             BreakdownDisplay = breakdownDisplay,
@@ -326,27 +345,7 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
     public void UpdateBpm(double? bpm)
     {
         Model.BPM = bpm;
-        BpmDisplay = bpm.HasValue ? bpm.Value.ToString("F1") : "-";
-    }
-
-    private static IBrush GetKeyColorBrush(string key)
-    {
-        if (!TryParseCamelot(key, out int n, out bool isMinor))
-            return new SolidColorBrush(Color.Parse("#4EC9B0"), 0.55);
-
-        string hex = (isMinor, n) switch
-        {
-            (true,  1)  => "#008080", (true,  2)  => "#4682B4", (true,  3)  => "#4169E1",
-            (true,  4)  => "#4B0082", (true,  5)  => "#9400D3", (true,  6)  => "#C71585",
-            (true,  7)  => "#DC143C", (true,  8)  => "#FF8C00", (true,  9)  => "#FFD700",
-            (true,  10) => "#9ACD32", (true,  11) => "#3CB371", (true,  12) => "#008B8B",
-            (false, 1)  => "#7FFFD4", (false, 2)  => "#87CEEB", (false, 3)  => "#1E90FF",
-            (false, 4)  => "#6A5ACD", (false, 5)  => "#DDA0DD", (false, 6)  => "#FF69B4",
-            (false, 7)  => "#F08080", (false, 8)  => "#FFA500", (false, 9)  => "#F0E68C",
-            (false, 10) => "#98FB98", (false, 11) => "#00FA9A", (false, 12) => "#40E0D0",
-            _ => "#4EC9B0",
-        };
-        return new SolidColorBrush(Color.Parse(hex), 0.70);
+        BpmDisplay = bpm.HasValue ? NumFormat.Bpm(bpm.Value) : "-";
     }
 
     /// <summary>Camelot wheel distance (0 = perfect match, 6 = worst clash).</summary>

@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using SLSKDONET.Models;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -39,7 +40,7 @@ public class SearchResult : INotifyPropertyChanged
     
     // Rank is updated on the Model by ResultSorter, we just expose it
     public double CurrentRank => Model.CurrentRank;
-    public string ScoreBreakdown => Model.ScoreBreakdown ?? $"Rank: {CurrentRank:F1}";
+    public string ScoreBreakdown => Model.ScoreBreakdown ?? NumFormat.Ui($"Rank: {CurrentRank:F1}");
     public string PreferredReason => !string.IsNullOrWhiteSpace(Model.MatchReason)
         ? Model.MatchReason!
         : ScoreBreakdown;
@@ -56,10 +57,10 @@ public class SearchResult : INotifyPropertyChanged
     // Phase 12.6: Multi-line row template properties
     public string PrimaryDisplay => $"{Artist} - {Title}";
     public string FileFormat => System.IO.Path.GetExtension(Model.Filename ?? "")?.TrimStart('.').ToUpperInvariant() ?? "MP3";
-    public string TechnicalMetadata => $"{Bitrate} kbps {FileFormat}{AudioQualitySuffix} • @{Username} • {Size / 1024.0 / 1024.0:F1} MB • Q:{QueueLength}";
+    public string TechnicalMetadata => NumFormat.Ui($"{Bitrate} kbps {FileFormat}{AudioQualitySuffix} • @{Username} • {Size / 1024.0 / 1024.0:F1} MB • Q:{QueueLength}");
 
     private string AudioQualitySuffix => (SampleRate.HasValue || BitDepth.HasValue)
-        ? $" ({string.Join("/", new[] { BitDepth.HasValue ? $"{BitDepth}bit" : "", SampleRate.HasValue ? $"{SampleRate / 1000.0:F1}kHz" : "" }.Where(s => !string.IsNullOrEmpty(s)))})"
+        ? $" ({string.Join("/", new[] { BitDepth.HasValue ? $"{BitDepth}bit" : "", SampleRate.HasValue ? NumFormat.Ui($"{SampleRate / 1000.0:F1}kHz") : "" }.Where(s => !string.IsNullOrEmpty(s)))})"
         : "";
 
     // Phase 12.6: Percentile-based scoring for visual hierarchy

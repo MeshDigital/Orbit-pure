@@ -314,7 +314,7 @@ public sealed class KeyboardMappingsViewModel : INotifyPropertyChanged
     private void SaveProfile(KeyboardProfile profile)
     {
         string dir  = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            SLSKDONET.Data.OrbitPaths.RoamingRoot,
             "ORBIT-Pure");
         string path = Path.Combine(dir, "keyboard-profile.json");
         profile.SaveToFile(path);

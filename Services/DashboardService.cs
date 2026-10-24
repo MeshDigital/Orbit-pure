@@ -92,13 +92,14 @@ public class DashboardService
             // - Bit-perfect digital copy (1411 kbps uncompressed equivalent)
             // - No generational loss if re-encoded
             // - Archival quality: 5-10 MB/minute storage cost
-            var goldTracks = await context.LibraryEntries.CountAsync(t => t.Format.ToLower() == "flac" || t.Format.ToLower() == "wav");
+            var lossless = SLSKDONET.Services.Audio.AudioFormats.LosslessTokens.ToArray(); // FLAC, WAV, AIFF...
+            var goldTracks = await context.LibraryEntries.CountAsync(t => t.Format != null && lossless.Contains(t.Format.ToLower()));
             
             // SILVER: High-bitrate lossy (320kbps MP3)
             // - "Transparent" encoding: blind tests show <5% can distinguish from lossless
             // - Practical quality: sounds perfect on 99% of systems
             // - Efficient: ~2.5 MB/minute storage
-            var silverTracks = await context.LibraryEntries.CountAsync(t => t.Bitrate >= 320 && t.Format.ToLower() != "flac" && t.Format.ToLower() != "wav");
+            var silverTracks = await context.LibraryEntries.CountAsync(t => t.Bitrate >= 320 && (t.Format == null || !lossless.Contains(t.Format.ToLower())));
             
             // BRONZE: Acceptable lossy (<320kbps)
             // - Audible compression on critical listening (cymbals, vocals)
@@ -479,10 +480,11 @@ public class DashboardService
 
             var analyzedCount = await liveFeatures.CountAsync(f => f.Bpm > 0);
 
+            var losslessTokens = SLSKDONET.Services.Audio.AudioFormats.LosslessTokens.ToArray();
             var flacCount = await context.LibraryEntries.CountAsync(e =>
-                e.Format != null && (e.Format.ToUpper() == "FLAC" || e.Format.ToUpper() == "WAV" || e.Format.ToUpper() == "AIFF"));
+                e.Format != null && losslessTokens.Contains(e.Format.ToLower()));
             var mp3HqCount = await context.LibraryEntries.CountAsync(e =>
-                e.Bitrate >= 300 && e.Format != null && e.Format.ToUpper() != "FLAC" && e.Format.ToUpper() != "WAV" && e.Format.ToUpper() != "AIFF");
+                e.Bitrate >= 300 && e.Format != null && !losslessTokens.Contains(e.Format.ToLower()));
             var lowQualityCount = Math.Max(0, totalCount - flacCount - mp3HqCount);
 
             var keyCounts = await liveFeatures
@@ -565,7 +567,7 @@ public class DashboardService
             IsTrustworthy = entity.IsTrustworthy,
             Integrity = entity.Integrity,
             QualityDetails = entity.QualityDetails,
-            Loudness = entity.Loudness,
+            Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.Loudness),
             TruePeak = entity.TruePeak,
             DynamicRange = entity.DynamicRange,
             Priority = entity.Priority,

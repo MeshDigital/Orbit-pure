@@ -23,6 +23,14 @@ public partial class ImportPage : UserControl
         }
     }
 
+    protected override void OnAttachedToVisualTree(global::Avalonia.VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        // Refresh "Recent imports" every time the page is shown (a commit may have just added one).
+        if (DataContext is ViewModels.SpotifyImportViewModel vm)
+            vm.LoadRecentImportsCommand.Execute(null);
+    }
+
     private void OnDragEnter(object? sender, DragEventArgs e)
     {
         if (e.Data.Contains(DataFormats.Files) && DataContext is ViewModels.SpotifyImportViewModel vm)

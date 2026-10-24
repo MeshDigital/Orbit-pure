@@ -11,7 +11,8 @@ public class LibrarySidebarUnificationStartTests
     {
         var xaml = ReadLibraryPageXaml();
 
-        Assert.Contains("<Grid ColumnDefinitions=\"Auto,*\">", xaml);
+        // Playlist header: art · title/counts · actions (the old "Auto,*" grid nested a second grid).
+        Assert.Contains("<Grid ColumnDefinitions=\"Auto,*,Auto\">", xaml);
         Assert.DoesNotContain("<GridSplitter Grid.Column=\"2\"", xaml);
         Assert.DoesNotContain("<Border Grid.Column=\"3\"", xaml);
         Assert.DoesNotContain("Text=\"Smart Insert Intelligence\"", xaml);

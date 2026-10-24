@@ -25,14 +25,14 @@
         </Style>
 
         <Style Selector="UserControl:pointerover Border.gap-shell">
-            <Setter Property="Background" Value="#14212A"/>
-            <Setter Property="BorderBrush" Value="#2D7D93"/>
+            <Setter Property="Background" Value="{StaticResource BrushAccentSubtle}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccentBorder}"/>
             <Setter Property="BorderThickness" Value="0,1,0,1"/>
         </Style>
 
         <Style Selector="UserControl.magnetic-hover Border.gap-shell">
-            <Setter Property="Background" Value="#14212A"/>
-            <Setter Property="BorderBrush" Value="#2D7D93"/>
+            <Setter Property="Background" Value="{StaticResource BrushAccentSubtle}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccentBorder}"/>
             <Setter Property="BorderThickness" Value="0,1,0,1"/>
         </Style>
 
@@ -41,12 +41,14 @@
             <Setter Property="IsHitTestVisible" Value="False"/>
             <Setter Property="HorizontalAlignment" Value="Left"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
-            <Setter Property="Padding" Value="10,3"/>
+            <Setter Property="Padding" Value="8,2"/>
             <Setter Property="Margin" Value="0,2,0,0"/>
-            <Setter Property="Background" Value="#143A4A"/>
-            <Setter Property="BorderBrush" Value="#2D7D93"/>
+            <Setter Property="Background" Value="{StaticResource BrushAccentSubtle}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccentBorder}"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushAccent}"/>
+            <Setter Property="FontSize" Value="{StaticResource TextSizeCaption}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
             <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
             <Setter Property="RenderTransform">
                 <ScaleTransform ScaleX="1" ScaleY="1"/>
@@ -71,10 +73,14 @@
             <Setter Property="Margin" Value="0,0,0,0"/>
         </Style>
 
+        <Style Selector="Button.gap-button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource BrushAccentSubtle}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushAccentHover}"/>
+        </Style>
+
         <Style Selector="Button.gap-button:pressed">
             <Setter Property="Opacity" Value="0.88"/>
-            <Setter Property="Background" Value="#1B4D5F"/>
-            <Setter Property="BorderBrush" Value="#4AA0B8"/>
             <Setter Property="RenderTransform">
                 <ScaleTransform ScaleX="0.98" ScaleY="0.98"/>
             </Setter>
@@ -89,8 +95,8 @@
                     CommandParameter="{Binding InsertBetweenCommandParameter, ElementName=Root}"
                     ToolTip.Tip="Add track that fits between this row and the next row">
                 <StackPanel Orientation="Horizontal" Spacing="4">
-                    <TextBlock Text="+" FontSize="11" FontWeight="SemiBold" Foreground="#9ED9C8"/>
-                    <TextBlock Text="Add track that fits here" FontSize="10" Foreground="#9ED9C8"/>
+                    <PathIcon Data="{StaticResource icon_add}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}" VerticalAlignment="Center"/>
+                    <TextBlock Text="Add track that fits here" VerticalAlignment="Center"/>
                 </StackPanel>
             </Button>
 
@@ -98,19 +104,15 @@
                     HorizontalAlignment="Right"
                     VerticalAlignment="Center"
                     Margin="8,0,0,0"
-                    Padding="6,2"
-                    CornerRadius="8"
-                    Background="#143648"
-                    BorderBrush="#2B607A"
+                    Padding="8,2"
+                    CornerRadius="{StaticResource RadiusSm}"
+                    Background="{StaticResource BrushAccentSubtle}"
+                    BorderBrush="{StaticResource BrushAccentBorder}"
                     BorderThickness="1"
                     IsVisible="{Binding IsMagneticHover, ElementName=Root}">
                 <StackPanel Orientation="Horizontal" Spacing="4">
-                    <Ellipse Width="5" Height="5" Fill="#4EC9B0" VerticalAlignment="Center"/>
-                    <TextBlock Text="fit"
-                               FontSize="8"
-                               FontWeight="SemiBold"
-                               Foreground="#9ED9C8"
-                               VerticalAlignment="Center"/>
+                    <Ellipse Classes="status-dot accent" VerticalAlignment="Center"/>
+                    <TextBlock Classes="caption accent" Text="Fits" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 </StackPanel>
             </Border>
         </Grid>

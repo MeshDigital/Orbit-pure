@@ -12,23 +12,18 @@
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
         </Style>
-        
         <Style Selector="ListBoxItem">
-            <Setter Property="Padding" Value="12,8"/>
-            <Setter Property="Margin" Value="0,2"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Margin" Value="0,1"/>
         </Style>
-        
-        <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
-        </Style>
-        
-        <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-            <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
+        <Style Selector="PathIcon">
+            <Setter Property="Width" Value="{StaticResource IconSizeSm}"/>
+            <Setter Property="Height" Value="{StaticResource IconSizeSm}"/>
         </Style>
 
         <!-- Playing / played rows (PlaylistTrackViewModel.IsQueueCurrent / IsQueuePlayed) -->
         <Style Selector="Border.qrow.current">
-            <Setter Property="Background" Value="#264EC9B0"/>
+            <Setter Property="Background" Value="{StaticResource BrushSelected}"/>
             <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
             <Setter Property="BorderThickness" Value="2,0,0,0"/>
         </Style>
@@ -42,94 +37,49 @@
             <Setter Property="BorderThickness" Value="0,2,0,0"/>
         </Style>
     </UserControl.Styles>
-    
-    <Border Background="{DynamicResource BackgroundBrush}" CornerRadius="8" Padding="16">
-        <DockPanel>
-            <!-- Header -->
-            <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,16">
-                <TextBlock Text="Play Queue" 
-                          FontSize="18" 
-                          FontWeight="SemiBold"
-                          Foreground="{DynamicResource TextBrush}"/>
-                
-                <StackPanel Orientation="Horizontal" Spacing="12">
-                    <TextBlock Foreground="{DynamicResource TextSecondaryBrush}">
-                        <Run Text="{Binding Queue.Count}"/>
-                        <Run Text="tracks"/>
-                    </TextBlock>
-                    
-                    <Button Content="Clear All"
-                            Command="{Binding ClearQueueCommand}"
-                            IsEnabled="{Binding Queue.Count}"
-                            Padding="8,4"
-                            FontSize="12"
-                            Background="{DynamicResource TertiaryBackgroundBrush}"
-                            Foreground="{DynamicResource TextBrush}"
-                            CornerRadius="4"/>
-                </StackPanel>
-            </StackPanel>
-            
-            <!-- Queue List -->
-            <ScrollViewer>
-                <!-- No SelectedIndex binding: it was two-way bound to CurrentQueueIndex, so clicking
-                     a row moved the "now playing" index without playing anything. -->
-                <ListBox ItemsSource="{Binding Queue}">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="vm:PlaylistTrackViewModel">
-                            <Border Classes="qrow" Classes.current="{Binding IsQueueCurrent}" Classes.played="{Binding IsQueuePlayed}"
-                                    Padding="6,2" CornerRadius="4">
-                            <Grid ColumnDefinitions="28,*,Auto,Auto">
-                                <Panel VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding QueueNumber}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
-                                               IsVisible="{Binding !IsQueueCurrent}"/>
-                                    <TextBlock Text="♪" FontSize="14" Foreground="{StaticResource BrushAccent}"
-                                               IsVisible="{Binding IsQueueCurrent}"/>
-                                </Panel>
-                                <!-- Track Info -->
-                                <StackPanel Grid.Column="1" Spacing="4">
-                                    <TextBlock Text="{Binding Title}"
-                                              Foreground="{DynamicResource TextBrush}"
-                                              TextTrimming="CharacterEllipsis"/>
-                                    
-                                    <TextBlock Text="{Binding Artist}"
-                                              FontSize="12"
-                                       Foreground="{DynamicResource TextSecondaryBrush}"
-                                              TextTrimming="CharacterEllipsis"/>
-                                </StackPanel>
-                                
-                                <Button Grid.Column="2"
-                                       Content="▶"
-                                       Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
-                                       CommandParameter="{Binding}"
-                                       Width="24" Height="24" Padding="0"
-                                       Background="Transparent"
-                                       Foreground="{StaticResource BrushAccent}"
-                                       FontSize="11"
-                                       VerticalAlignment="Center"
-                                       HorizontalContentAlignment="Center"
-                                       VerticalContentAlignment="Center"
-                                       ToolTip.Tip="Play now"/>
 
-                                <!-- Remove Button (was a cast binding, which silently resolves to nothing) -->
-                                <Button Grid.Column="3"
-                                       Content="✕"
-                                       Command="{Binding $parent[UserControl].DataContext.RemoveFromQueueCommand}"
-                                       CommandParameter="{Binding}"
-                                       Width="24"
-                                       Height="24"
-                                       Padding="0"
-                                       Background="Transparent"
-                                       Foreground="#AAAAAA"
-                                       FontSize="16"
-                                       VerticalAlignment="Center"
-                                       HorizontalContentAlignment="Center"
-                                       VerticalContentAlignment="Center"/>
-                            </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </ScrollViewer>
-        </DockPanel>
-    </Border>
+    <!-- Header (title, count, clear) is owned by the host panel. -->
+    <Panel>
+        <StackPanel Classes="empty-state" IsVisible="{Binding IsQueueEmpty}">
+            <PathIcon Data="{StaticResource icon_queue}"/>
+            <TextBlock Classes="h3" Text="Queue is empty"/>
+            <TextBlock Classes="caption" Text="Add tracks from the library to play them next."/>
+        </StackPanel>
+
+        <!-- No SelectedIndex binding: it was two-way bound to CurrentQueueIndex, so clicking
+             a row moved the "now playing" index without playing anything. -->
+        <ListBox ItemsSource="{Binding Queue}" Margin="4" IsVisible="{Binding !IsQueueEmpty}">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:PlaylistTrackViewModel">
+                    <Border Classes="qrow" Classes.current="{Binding IsQueueCurrent}" Classes.played="{Binding IsQueuePlayed}"
+                            Padding="4,2" CornerRadius="{StaticResource RadiusSm}">
+                        <Grid ColumnDefinitions="28,*,Auto,Auto">
+                            <Panel VerticalAlignment="Center">
+                                <TextBlock Classes="caption mono" Text="{Binding QueueNumber}"
+                                           IsVisible="{Binding !IsQueueCurrent}"/>
+                                <PathIcon Data="{StaticResource icon_music}" Foreground="{StaticResource BrushAccent}"
+                                          HorizontalAlignment="Left" IsVisible="{Binding IsQueueCurrent}"/>
+                            </Panel>
+                            <StackPanel Grid.Column="1" Spacing="0" VerticalAlignment="Center">
+                                <TextBlock Classes="body-sm" Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Classes="caption" Text="{Binding Artist}" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                            <Button Grid.Column="2" Classes="icon small"
+                                    Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
+                                    CommandParameter="{Binding}"
+                                    ToolTip.Tip="Play now">
+                                <PathIcon Data="{StaticResource icon_play}"/>
+                            </Button>
+                            <Button Grid.Column="3" Classes="icon small danger"
+                                    Command="{Binding $parent[UserControl].DataContext.RemoveFromQueueCommand}"
+                                    CommandParameter="{Binding}"
+                                    ToolTip.Tip="Remove from queue">
+                                <PathIcon Data="{StaticResource icon_close}"/>
+                            </Button>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </Panel>
 </UserControl>

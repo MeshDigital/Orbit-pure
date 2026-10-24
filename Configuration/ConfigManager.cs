@@ -11,6 +11,9 @@ public class ConfigManager
 {
     private readonly string _configPath;
     private AppConfig _config = null!;
+    // Many callers fire-and-forget SaveAsync; without this, two saves could open config.ini at
+    // the same time and one failed with "file is being used by another process".
+    private readonly object _saveLock = new();
 
     public ConfigManager(string? configPath = null)
     {
@@ -22,6 +25,15 @@ public class ConfigManager
     /// </summary>
     public static string GetDefaultConfigPath()
     {
+        // A profile override (ORBIT_PROFILE_DIR / --profile / --setup-preview) wins over every
+        // other location, so a preview instance can never pick up the real config.ini.
+        if (SLSKDONET.Data.OrbitPaths.IsProfileOverridden)
+        {
+            var profileDir = SLSKDONET.Data.OrbitPaths.AppDataDirectory;
+            Directory.CreateDirectory(profileDir);
+            return Path.Combine(profileDir, "config.ini");
+        }
+
         // Optional dev override: look for config.ini in C:\temp first.
         var devPath = "C:/temp/config.ini";
         if (File.Exists(devPath))
@@ -37,11 +49,13 @@ public class ConfigManager
         }
 
         // Fallback to AppData for a more traditional installation.
-        var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var configDir = Path.Combine(appDataPath, "ORBIT");
+        var configDir = SLSKDONET.Data.OrbitPaths.AppDataDirectory;
         Directory.CreateDirectory(configDir);
         return Path.Combine(configDir, "config.ini");
     }
+
+    /// <summary>The config.ini this manager reads and writes.</summary>
+    public string ConfigPath => _configPath;
 
     /// <summary>
     /// Loads configuration from file or creates default.
@@ -181,6 +195,15 @@ public class ConfigManager
                 
                 // [Analysis]
                 MaxConcurrentAnalyses = int.TryParse(config["Analysis:MaxConcurrentAnalyses"], out var mca) ? mca : 0,
+                AnalyzeNewDownloads = !bool.TryParse(config["Analysis:AnalyzeNewDownloads"], out var annd) || annd, // Default true
+
+                // [EditLab]
+                EditLabOutputDirectory = string.IsNullOrWhiteSpace(config["EditLab:OutputDirectory"]) ? null : config["EditLab:OutputDirectory"],
+
+                // [Setup]
+                SetupCompleted = bool.TryParse(config["Setup:Completed"], out var setupDone) && setupDone,
+                SetupVersion = int.TryParse(config["Setup:Version"], out var setupVer) ? setupVer : 0,
+                TourCompleted = bool.TryParse(config["Setup:TourCompleted"], out var tourDone) && tourDone,
                 
                 // [Window]
                 WindowWidth = double.TryParse(config["Window:Width"], out var ww) ? ww : 1400,
@@ -188,6 +211,7 @@ public class ConfigManager
                 WindowX = double.TryParse(config["Window:X"], out var wx) ? wx : double.NaN,
                 WindowY = double.TryParse(config["Window:Y"], out var wy) ? wy : double.NaN,
                 WindowMaximized = bool.TryParse(config["Window:Maximized"], out var wm) && wm,
+                CloseToTray = !bool.TryParse(config["Window:CloseToTray"], out var ctt) || ctt, // Default true
 
                 // [Dashboard]
                 DashboardRightPanelWidth = double.TryParse(config["Dashboard:RightPanelWidth"], out var rpw) ? rpw : 320,
@@ -215,6 +239,12 @@ public class ConfigManager
                 DiscoverUseBeatport = !bool.TryParse(config["Discover:UseBeatport"], out var dub) || dub,
                 ContextPanelWidth = int.TryParse(config["Layout:ContextPanelWidth"], out var cpw) ? cpw : 400,
                 DiscoverUseDeezer = !bool.TryParse(config["Discover:UseDeezer"], out var dud) || dud,
+
+                // [Enrichment]
+                EnrichmentAutoRun = !bool.TryParse(config["Enrichment:AutoRun"], out var ear) || ear,
+                EnrichmentProviderOrder = string.IsNullOrWhiteSpace(config["Enrichment:ProviderOrder"])
+                    ? "tags,deezer,musicbrainz,discogs,acoustid,spotify,beatport" : config["Enrichment:ProviderOrder"]!,
+                EnrichmentEnabledProviders = config["Enrichment:EnabledProviders"] ?? "tags,deezer,musicbrainz,discogs,acoustid,spotify",
 
                 // [FrequentSources]
                 EnableFrequentSources = bool.TryParse(config["FrequentSources:EnableFrequentSources"], out var efs) && efs,
@@ -399,6 +429,17 @@ public class ConfigManager
         iniContent.AppendLine();
         iniContent.AppendLine("[Analysis]");
         iniContent.AppendLine($"MaxConcurrentAnalyses = {config.MaxConcurrentAnalyses}");
+        iniContent.AppendLine($"AnalyzeNewDownloads = {config.AnalyzeNewDownloads}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[EditLab]");
+        iniContent.AppendLine($"OutputDirectory = {config.EditLabOutputDirectory}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[Setup]");
+        iniContent.AppendLine($"Completed = {config.SetupCompleted}");
+        iniContent.AppendLine($"Version = {config.SetupVersion}");
+        iniContent.AppendLine($"TourCompleted = {config.TourCompleted}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[Window]");
@@ -407,6 +448,7 @@ public class ConfigManager
         iniContent.AppendLine($"X = {config.WindowX}");
         iniContent.AppendLine($"Y = {config.WindowY}");
         iniContent.AppendLine($"Maximized = {config.WindowMaximized}");
+        iniContent.AppendLine($"CloseToTray = {config.CloseToTray}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[Dashboard]");
@@ -443,6 +485,12 @@ public class ConfigManager
         iniContent.AppendLine($"UseDeezer = {config.DiscoverUseDeezer}");
 
         iniContent.AppendLine();
+        iniContent.AppendLine("[Enrichment]");
+        iniContent.AppendLine($"AutoRun = {config.EnrichmentAutoRun}");
+        iniContent.AppendLine($"ProviderOrder = {config.EnrichmentProviderOrder}");
+        iniContent.AppendLine($"EnabledProviders = {config.EnrichmentEnabledProviders}");
+
+        iniContent.AppendLine();
         iniContent.AppendLine("[FrequentSources]");
         iniContent.AppendLine($"EnableFrequentSources = {config.EnableFrequentSources}");
         iniContent.AppendLine($"StagingPath = {config.FrequentSourcesStagingPath}");
@@ -459,15 +507,52 @@ public class ConfigManager
         iniContent.AppendLine("[Advanced]");
         iniContent.AppendLine($"EnableNetworkActivityMonitor = {config.EnableNetworkActivityMonitor}");
 
-        File.WriteAllText(_configPath, iniContent.ToString());
-        _config = config;
+        lock (_saveLock)
+        {
+            WriteAtomically(_configPath, iniContent.ToString());
+            _config = config;
+        }
+    }
+
+    /// <summary>
+    /// Writes to a temp file and swaps it in, so a crash mid-write can't leave a truncated
+    /// config.ini. Retries briefly when another process (OneDrive, antivirus, a second ORBIT)
+    /// holds the file.
+    /// </summary>
+    private static void WriteAtomically(string path, string contents)
+    {
+        var tempPath = path + ".tmp";
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.WriteAllText(tempPath, contents);
+                File.Move(tempPath, path, overwrite: true);
+                return;
+            }
+            catch (IOException) when (attempt < 5)
+            {
+                Thread.Sleep(50 * attempt);
+            }
+        }
     }
 
     public AppConfig GetCurrent() => _config;
 
+    /// <summary>
+    /// Saves on a background thread. Never throws: most callers fire and forget, and an
+    /// unobserved failure used to surface as an "Unobserved Task Exception" in the error stream.
+    /// </summary>
     public async Task SaveAsync(AppConfig config)
     {
-        await Task.Run(() => Save(config));
+        try
+        {
+            await Task.Run(() => Save(config));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Serilog.Log.Warning(ex, "[ConfigManager] Saving {Path} failed; the change stays in memory and is written on the next save", _configPath);
+        }
     }
 
     private static List<string> ParseImportWebShortcuts(string? json)

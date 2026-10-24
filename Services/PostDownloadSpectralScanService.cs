@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
 using SLSKDONET.Models;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services;
 
@@ -36,8 +37,6 @@ public sealed class PostDownloadSpectralScanService : IDisposable
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _scannedPaths =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private static readonly System.Collections.Generic.HashSet<string> LosslessExtensions =
-        new(StringComparer.OrdinalIgnoreCase) { ".flac", ".wav", ".aiff", ".aif", ".ape", ".wv" };
 
     private readonly IAudioIntegrityService _integrityService;
     private readonly DatabaseService _databaseService;
@@ -110,7 +109,7 @@ public sealed class PostDownloadSpectralScanService : IDisposable
 
             // Only scan lossless formats — MP3/AAC are always lossy by definition.
             var ext = Path.GetExtension(filePath);
-            if (!LosslessExtensions.Contains(ext))
+            if (!SLSKDONET.Services.Audio.AudioFormats.IsLossless(ext))
                 return;
 
             // De-duplicate: skip if already scanned in this session.
@@ -140,13 +139,13 @@ public sealed class PostDownloadSpectralScanService : IDisposable
             };
 
             var cutoffKhz = result.SpectralCutoffHz > 0
-                ? $"{result.SpectralCutoffHz / 1000.0:F1} kHz"
+                ? NumFormat.Ui($"{result.SpectralCutoffHz / 1000.0:F1} kHz")
                 : "unknown";
 
             // QualityDetails is read by UnifiedTrackViewModel for the forensic HUD and tooltip.
             var qualityDetails = result.Verdict == AudioAuthenticityVerdict.Unknown
                 ? result.Reason
-                : $"{result.Verdict} | cutoff: {cutoffKhz} | confidence: {result.Confidence:P0}";
+                : NumFormat.Ui($"{result.Verdict} | cutoff: {cutoffKhz} | confidence: {result.Confidence:P0}");
 
             var frequencyCutoffHz = result.SpectralCutoffHz > 0
                 ? (int?)result.SpectralCutoffHz

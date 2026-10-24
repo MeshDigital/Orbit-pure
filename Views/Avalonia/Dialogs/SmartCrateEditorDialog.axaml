@@ -3,83 +3,90 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Library"
-        mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="600"
+        mc:Ignorable="d" d:DesignWidth="420" d:DesignHeight="600"
         x:Class="SLSKDONET.Views.Avalonia.Dialogs.SmartCrateEditorDialog"
         x:DataType="vm:SmartCrateEditorViewModel"
-        Width="400" Height="650"
+        x:CompileBindings="True"
+        Title="Smart crate" Width="420" Height="620"
         WindowStartupLocation="CenterOwner"
         SystemDecorations="None"
-        Background="#1E1E1E"
+        Background="{StaticResource BrushBg2}"
         TransparencyLevelHint="Mica"
         ExtendClientAreaToDecorationsHint="True">
 
-    <Border BorderBrush="#33FFFFFF" BorderThickness="1">
-        <Grid RowDefinitions="Auto, *, Auto">
-            
+    <Window.Styles>
+        <Style Selector="NumericUpDown.num">
+            <Setter Property="FontFamily" Value="{StaticResource FontMono}"/>
+            <Setter Property="FontSize" Value="{StaticResource TextSizeMono}"/>
+        </Style>
+    </Window.Styles>
+
+    <Border BorderBrush="{StaticResource BrushBorder1}" BorderThickness="1">
+        <Grid RowDefinitions="Auto,*,Auto">
+
             <!-- Header -->
-            <Border Grid.Row="0" Background="#252525" Padding="15,10" Height="40">
-                <TextBlock Text="Smart Crate Editor" FontWeight="SemiBold" VerticalAlignment="Center"/>
-            </Border>
+            <StackPanel Grid.Row="0" Margin="24,24,24,16" Spacing="4">
+                <TextBlock Classes="h2" Text="Smart crate"/>
+                <TextBlock Classes="body-sm muted" TextWrapping="Wrap"
+                           Text="Tracks that match every rule below are collected automatically. Leave a rule empty to ignore it."/>
+            </StackPanel>
 
             <!-- Content -->
-            <ScrollViewer Grid.Row="1" Padding="20">
-                <StackPanel Spacing="15">
-                    
-                    <!-- Name -->
-                    <StackPanel Spacing="5">
-                        <TextBlock Text="Crate Name" Foreground="#888" FontSize="12"/>
-                        <TextBox Text="{Binding Name}" Watermark="e.g. 'Chill Sunset Vibes'"/>
+            <ScrollViewer Grid.Row="1" Padding="24,0">
+                <StackPanel Spacing="16">
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="caption" Text="Crate name"/>
+                        <TextBox Text="{Binding Name}" Watermark="e.g. Chill sunset"/>
                     </StackPanel>
 
-                    <Separator Opacity="0.1"/>
+                    <Border Classes="divider"/>
+                    <TextBlock Classes="section" Text="RULES"/>
 
-                    <TextBlock Text="Rules" FontWeight="Bold" FontSize="14"/>
-
-                    <!-- Mood -->
-                    <StackPanel Spacing="5">
-                        <TextBlock Text="Mood / Vibe" Foreground="#888" FontSize="12"/>
-                        <ComboBox ItemsSource="{Binding AvailableVibes}" 
-                                  SelectedItem="{Binding Mood}"
-                                  HorizontalAlignment="Stretch"
-                                  PlaceholderText="Any Vibe"/>
-                    </StackPanel>
-                    
-                    <!-- SubGenre -->
-                    <StackPanel Spacing="5">
-                        <TextBlock Text="Sub-Genre (Exact Match)" Foreground="#888" FontSize="12"/>
-                        <TextBox Text="{Binding SubGenre}" Watermark="e.g. 'liquid dnb'"/>
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="caption" Text="Mood"/>
+                        <ComboBox ItemsSource="{Binding AvailableVibes}" SelectedItem="{Binding Mood}"
+                                  HorizontalAlignment="Stretch" PlaceholderText="Any mood"/>
                     </StackPanel>
 
-                    <!-- BPM Range -->
-                    <StackPanel Spacing="5">
-                        <TextBlock Text="BPM Range" Foreground="#888" FontSize="12"/>
-                        <Grid ColumnDefinitions="*, Auto, *">
-                            <NumericUpDown Grid.Column="0" Value="{Binding MinBpm}" Minimum="0" Maximum="300" Watermark="Min"/>
-                            <TextBlock Grid.Column="1" Text="-" VerticalAlignment="Center" Margin="5,0"/>
-                            <NumericUpDown Grid.Column="2" Value="{Binding MaxBpm}" Minimum="0" Maximum="300" Watermark="Max"/>
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="caption" Text="Sub-genre (exact match)"/>
+                        <TextBox Text="{Binding SubGenre}" Watermark="e.g. liquid dnb"/>
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="caption" Text="BPM range"/>
+                        <Grid ColumnDefinitions="*,Auto,*">
+                            <NumericUpDown Grid.Column="0" Classes="num" Value="{Binding MinBpm}" Minimum="0" Maximum="300" Watermark="Min"/>
+                            <TextBlock Grid.Column="1" Classes="caption" Text="to" VerticalAlignment="Center" Margin="8,0"/>
+                            <NumericUpDown Grid.Column="2" Classes="num" Value="{Binding MaxBpm}" Minimum="0" Maximum="300" Watermark="Max"/>
                         </Grid>
                     </StackPanel>
 
-                    <!-- Energy Range -->
-                    <StackPanel Spacing="5">
-                        <TextBlock Text="Energy (0.0 - 1.0)" Foreground="#888" FontSize="12"/>
-                        <Grid ColumnDefinitions="*, Auto, *">
-                            <NumericUpDown Grid.Column="0" Value="{Binding MinEnergy}" Minimum="0" Maximum="1" Increment="0.1" FormatString="0.0" Watermark="Min"/>
-                            <TextBlock Grid.Column="1" Text="-" VerticalAlignment="Center" Margin="5,0"/>
-                            <NumericUpDown Grid.Column="2" Value="{Binding MaxEnergy}" Minimum="0" Maximum="1" Increment="0.1" FormatString="0.0" Watermark="Max"/>
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="caption" Text="Energy range (0.0 to 1.0)"/>
+                        <Grid ColumnDefinitions="*,Auto,*">
+                            <NumericUpDown Grid.Column="0" Classes="num" Value="{Binding MinEnergy}" Minimum="0" Maximum="1" Increment="0.1" FormatString="0.0" Watermark="Min"/>
+                            <TextBlock Grid.Column="1" Classes="caption" Text="to" VerticalAlignment="Center" Margin="8,0"/>
+                            <NumericUpDown Grid.Column="2" Classes="num" Value="{Binding MaxEnergy}" Minimum="0" Maximum="1" Increment="0.1" FormatString="0.0" Watermark="Max"/>
                         </Grid>
                     </StackPanel>
-                    
+
                 </StackPanel>
             </ScrollViewer>
 
             <!-- Footer -->
-            <Border Grid.Row="2" Background="#252525" Padding="15">
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
-                    <Button Command="{Binding CancelCommand}" Content="Cancel" Click="Close_Click"/>
-                    <Button Command="{Binding SaveCommand}" Content="Save Crate" Classes="accent" Click="Save_Click"/>
+            <StackPanel Grid.Row="2" Margin="24,16,24,24" Spacing="12">
+                <Border Classes="fact error" HorizontalAlignment="Stretch"
+                        IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap"/>
+                </Border>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                    <Button Classes="ghost" Content="Cancel" Click="Close_Click"/>
+                    <Button Classes="primary" Content="Save crate" Click="Save_Click"
+                            IsEnabled="{Binding Name, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                 </StackPanel>
-            </Border>
+            </StackPanel>
         </Grid>
     </Border>
 </Window>

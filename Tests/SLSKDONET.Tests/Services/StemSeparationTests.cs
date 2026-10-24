@@ -117,6 +117,19 @@ namespace SLSKDONET.Tests.Services
             Assert.False(ch.IsSoloed);
         }
 
+        [Theory]
+        [InlineData(0f, "C")]
+        [InlineData(-0.5f, "L 50")]
+        [InlineData(0.25f, "R 25")]
+        [InlineData(5f, "R 100")]   // clamped to +1
+        public void PanDisplay_IsConsoleStyle_AndFollowsClampedPan(float pan, string expected)
+        {
+            var ch = new SLSKDONET.ViewModels.StemChannelViewModel(StemType.Bass, CreateMixer());
+            ch.Pan = pan;
+            Assert.Equal(expected, ch.PanDisplay);
+            Assert.Equal(StemType.Bass, ch.StemType);
+        }
+
         [Fact]
         public void GainDb_Clamped_To_Minus60_Plus12()
         {
@@ -250,87 +263,6 @@ namespace SLSKDONET.Tests.Services
             public SilenceStemProvider(WaveFormat fmt) => WaveFormat = fmt;
             public int Read(float[] buffer, int offset, int count)
             { Array.Clear(buffer, offset, count); return count; }
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // NeuralMixEqViewModel tests — Task 6.5
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    public class NeuralMixEqViewModelTests
-    {
-        [Fact]
-        public void AllFour_EqBands_Created()
-        {
-            var vm = new SLSKDONET.ViewModels.NeuralMixEqViewModel();
-            Assert.NotNull(vm.VocalsEq);
-            Assert.NotNull(vm.DrumsEq);
-            Assert.NotNull(vm.BassEq);
-            Assert.NotNull(vm.OtherEq);
-        }
-
-        [Fact]
-        public void AllBands_HasFour_Items()
-        {
-            var vm = new SLSKDONET.ViewModels.NeuralMixEqViewModel();
-            Assert.Equal(4, vm.AllBands.Count);
-        }
-
-        [Fact]
-        public void GetProvider_ReturnsProvider_ForEachStemType()
-        {
-            var vm = new SLSKDONET.ViewModels.NeuralMixEqViewModel();
-            Assert.NotNull(vm.GetProvider(StemType.Vocals));
-            Assert.NotNull(vm.GetProvider(StemType.Drums));
-            Assert.NotNull(vm.GetProvider(StemType.Bass));
-            Assert.NotNull(vm.GetProvider(StemType.Other));
-        }
-
-        [Fact]
-        public void ResetAll_SetsAllGainsToZero()
-        {
-            var vm = new SLSKDONET.ViewModels.NeuralMixEqViewModel();
-            vm.VocalsEq.LowGainDb  = 6f;
-            vm.DrumsEq.MidGainDb   = -3f;
-            vm.BassEq.HighGainDb   = 9f;
-            vm.OtherEq.LowGainDb   = -6f;
-
-            vm.ResetAll();
-
-            Assert.Equal(0f, vm.VocalsEq.LowGainDb);
-            Assert.Equal(0f, vm.DrumsEq.MidGainDb);
-            Assert.Equal(0f, vm.BassEq.HighGainDb);
-            Assert.Equal(0f, vm.OtherEq.LowGainDb);
-        }
-
-        [Fact]
-        public void StemEqViewModel_GainDb_WriteThrough_ToProvider()
-        {
-            var vm       = new SLSKDONET.ViewModels.NeuralMixEqViewModel();
-            var provider = vm.GetProvider(StemType.Vocals);
-
-            vm.VocalsEq.LowGainDb = 6f;
-            Assert.Equal(6f, provider.LowGainDb);
-        }
-
-        [Fact]
-        public void StemEqViewModel_Clamped_At_PlusMinus12()
-        {
-            var vm = new SLSKDONET.ViewModels.NeuralMixEqViewModel();
-            vm.DrumsEq.MidGainDb = 50f;
-            Assert.Equal(12f, vm.DrumsEq.MidGainDb);
-        }
-
-        [Theory]
-        [InlineData(StemType.Vocals, "Vocals")]
-        [InlineData(StemType.Drums,  "Drums")]
-        [InlineData(StemType.Bass,   "Bass")]
-        [InlineData(StemType.Other,  "Other")]
-        public void DisplayName_CorrectPerStemType(StemType st, string expected)
-        {
-            var vm = new SLSKDONET.ViewModels.NeuralMixEqViewModel();
-            var band = vm.AllBands.First(b => b.StemType == st);
-            Assert.Equal(expected, band.DisplayName);
         }
     }
 

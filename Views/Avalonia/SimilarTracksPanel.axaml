@@ -3,226 +3,229 @@
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:avConverters="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
              x:Class="SLSKDONET.Views.Avalonia.SimilarTracksPanel"
-             x:DataType="vm:SimilarTracksViewModel"
-             Background="#1A1A1A" Foreground="White">
+             x:DataType="vm:SimilarTracksViewModel">
+
+    <!-- Library sidepanel → Similar tab. The host (MainWindow context panel) paints the panel
+         surface, so this control has no background of its own. Visual language matches
+         Controls/LibraryTrackInspector.axaml: section labels, fact badges, neutral meters and
+         mono percentages. Scores are analysis output, so they are bars/numbers, never colour-coded. -->
 
     <UserControl.Styles>
-        <Style Selector="TextBlock.label">
-            <Setter Property="FontSize" Value="11"/>
-            <Setter Property="Foreground" Value="#999"/>
+        <!-- One result row: theme hover, 40px-ish standard density. -->
+        <Style Selector="Border.sim-row">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}"/>
+            <Setter Property="Padding" Value="8,6"/>
         </Style>
-        <Style Selector="TextBlock.value">
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Foreground" Value="White"/>
+        <Style Selector="Border.sim-row:pointerover">
+            <Setter Property="Background" Value="{StaticResource BrushHover}"/>
         </Style>
-        <Style Selector="Border.row">
-            <Setter Property="Background" Value="#242424"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="Padding" Value="10,7"/>
-            <Setter Property="Margin" Value="0,2"/>
+        <Style Selector="Border.sim-row Button.row-action">
+            <Setter Property="Opacity" Value="0.6"/>
         </Style>
-        <Style Selector="Border.row:pointerover">
-            <Setter Property="Background" Value="#2E2E2E"/>
-        </Style>
-        <Style Selector="Border.row:pointerover Button.addBtn">
+        <Style Selector="Border.sim-row:pointerover Button.row-action">
             <Setter Property="Opacity" Value="1"/>
         </Style>
-        <Style Selector="Border.bridgeRow">
-            <Setter Property="Background" Value="#1E2A20"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="Padding" Value="10,7"/>
-            <Setter Property="Margin" Value="0,2"/>
-            <Setter Property="BorderBrush" Value="#2D5A3A"/>
-            <Setter Property="BorderThickness" Value="1"/>
+        <!-- Score breakdown: muted letter + mono number pairs. -->
+        <Style Selector="TextBlock.score-key">
+            <Setter Property="FontSize" Value="{StaticResource TextSizeCaption}"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText3}"/>
         </Style>
-        <Style Selector="Border.ddBadge">
-            <Setter Property="Background" Value="#2A1A00"/>
-            <Setter Property="BorderBrush" Value="#FF9800"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="Padding" Value="5,2"/>
-            <Setter Property="Margin" Value="0,2,0,0"/>
+        <Style Selector="TextBlock.score-val">
+            <Setter Property="FontFamily" Value="{StaticResource FontMono}"/>
+            <Setter Property="FontSize" Value="{StaticResource TextSizeCaption}"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText1}"/>
+            <Setter Property="Margin" Value="2,0,8,0"/>
         </Style>
-        <Style Selector="TextBlock.miniScore">
-            <Setter Property="FontSize" Value="10"/>
-            <Setter Property="Foreground" Value="#888"/>
+        <Style Selector="ProgressBar.meter.row-meter">
+            <Setter Property="MinHeight" Value="2"/>
+            <Setter Property="Height" Value="2"/>
         </Style>
     </UserControl.Styles>
 
-    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto">
+    <Grid RowDefinitions="Auto,Auto,Auto,*">
 
-        <!-- Header -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8" Spacing="8">
-            <TextBlock Text="Similar Tracks" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"
-                       IsVisible="{Binding IsSimilarMode}"/>
-            <TextBlock Text="Bridge Mode" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"
-                       Foreground="#4EC9B0"
-                       IsVisible="{Binding IsBridgeMode}"/>
-            <TextBlock Text="🔗 Find Bridge Between" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"
-                       Foreground="#FFB800"
-                       IsVisible="{Binding IsBridgeBetweenMode}"/>
-            <Border IsVisible="{Binding IsBusy}"
-                    CornerRadius="10" Background="#3A3A3A"
-                    Padding="8,3" VerticalAlignment="Center">
-                <TextBlock Text="Loading…" FontSize="11" Foreground="#AAA"/>
-            </Border>
-            <Button Command="{Binding RefreshCommand}"
-                    Background="Transparent" Padding="4" VerticalAlignment="Center"
-                    ToolTip.Tip="Refresh" IsEnabled="{Binding !IsBusy}">
-                <TextBlock Text="↺" FontSize="14"/>
+        <!-- Header: back · title · refresh · overflow -->
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,8">
+            <Button Grid.Column="0" Classes="icon small" Margin="0,0,4,0"
+                    Command="{Binding ShowSimilarModeCommand}"
+                    IsVisible="{Binding IsBridgeMode}"
+                    ToolTip.Tip="Back to similar tracks">
+                <PathIcon Data="{StaticResource icon_chevron_left}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
             </Button>
-            <Button Command="{Binding ShowSimilarModeCommand}"
-                    Background="#2D2D2D" Foreground="#DDD"
-                    BorderBrush="#4A4A4A" BorderThickness="1"
-                    CornerRadius="4" Padding="8,3" VerticalAlignment="Center"
-                    IsVisible="{Binding IsBridgeMode}">
-                <TextBlock Text="← Similar List" FontSize="11"/>
+            <Button Grid.Column="0" Classes="icon small" Margin="0,0,4,0"
+                    Command="{Binding ReturnToBridgeListCommand}"
+                    IsVisible="{Binding IsBridgeBetweenMode}"
+                    ToolTip.Tip="Back to bridge ideas">
+                <PathIcon Data="{StaticResource icon_chevron_left}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
             </Button>
-            <Button Command="{Binding ReturnToBridgeListCommand}"
-                    Background="#2D2D2D" Foreground="#DDD"
-                    BorderBrush="#4A4A4A" BorderThickness="1"
-                    CornerRadius="4" Padding="8,3" VerticalAlignment="Center"
-                    IsVisible="{Binding IsBridgeBetweenMode}">
-                <TextBlock Text="← Back" FontSize="11"/>
+
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                <TextBlock Classes="section" Text="SIMILAR TRACKS" IsVisible="{Binding IsSimilarMode}"/>
+                <TextBlock Classes="section" Text="BRIDGE IDEAS" IsVisible="{Binding IsBridgeMode}"/>
+                <TextBlock Classes="section" Text="BRIDGE BETWEEN" IsVisible="{Binding IsBridgeBetweenMode}"/>
+                <TextBlock Classes="caption" Text="BPM-matched · Camelot compatible"
+                           IsVisible="{Binding IsAnyBridgeMode}"/>
+            </StackPanel>
+
+            <Button Grid.Column="2" Classes="ghost small" Margin="4,0,0,0"
+                    Command="{Binding BridgeSuggestionsCommand}"
+                    IsVisible="{Binding IsSimilarMode}"
+                    IsEnabled="{Binding !IsBusy}"
+                    ToolTip.Tip="Find bridge-friendly transition ideas">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <PathIcon Data="{StaticResource icon_link}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                    <TextBlock Text="Bridges"/>
+                </StackPanel>
             </Button>
-            <Button Command="{Binding ToggleBridgeInsertModeCommand}"
-                    Background="#2D2D2D" Foreground="#E2E8F0"
-                    BorderBrush="#4A4A4A" BorderThickness="1"
-                    CornerRadius="4" Padding="8,3" VerticalAlignment="Center"
-                    IsVisible="{Binding IsAnyBridgeMode}"
-                    ToolTip.Tip="{Binding BridgeInsertModeToolTip}">
-                <TextBlock Text="{Binding BridgeInsertModeLabel}" FontSize="11"/>
+
+            <Button Grid.Column="3" Classes="icon small" Margin="4,0,0,0"
+                    Command="{Binding RefreshCommand}"
+                    IsEnabled="{Binding !IsBusy}"
+                    ToolTip.Tip="Refresh">
+                <PathIcon Data="{StaticResource icon_sync}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
             </Button>
-            <!-- Add All button (shown when there are results) -->
-            <Button Command="{Binding AddAllCommand}"
-                    Background="#1E3A2B" Foreground="#4EC9B0"
-                    BorderBrush="#4EC9B0" BorderThickness="1"
-                    CornerRadius="4" Padding="8,3" VerticalAlignment="Center"
-                    ToolTip.Tip="Add all results to a project"
-                    IsVisible="{Binding Results.Count, Converter={x:Static avConverters:NumericConverters.IsNotZero}}">
-                <TextBlock Text="+ Add All" FontSize="11"/>
+
+            <Button Grid.Column="4" Classes="icon small" Margin="4,0,0,0" ToolTip.Tip="More actions">
+                <PathIcon Data="{StaticResource icon_more}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                <Button.Flyout>
+                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                        <MenuItem Header="Add all results to a project"
+                                  Command="{Binding AddAllCommand}"
+                                  IsVisible="{Binding IsSimilarMode}"
+                                  IsEnabled="{Binding Results.Count, Converter={x:Static avConverters:NumericConverters.IsNotZero}}">
+                            <MenuItem.Icon>
+                                <PathIcon Data="{StaticResource icon_playlist_add}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="Refresh bridge ideas"
+                                  Command="{Binding BridgeSuggestionsCommand}"
+                                  IsVisible="{Binding IsBridgeMode}"
+                                  IsEnabled="{Binding !IsBusy}">
+                            <MenuItem.Icon>
+                                <PathIcon Data="{StaticResource icon_link}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="{Binding BridgeInsertModeLabel, StringFormat='Insert mode: {0}'}"
+                                  Command="{Binding ToggleBridgeInsertModeCommand}"
+                                  IsVisible="{Binding IsAnyBridgeMode}"
+                                  ToolTip.Tip="{Binding BridgeInsertModeToolTip}"/>
+                        <MenuItem Header="Show similar tracks"
+                                  Command="{Binding ShowSimilarModeCommand}"
+                                  IsVisible="{Binding IsBridgeMode}"/>
+                    </MenuFlyout>
+                </Button.Flyout>
             </Button>
-            <!-- Bridge suggestions button -->
-            <Button Command="{Binding BridgeSuggestionsCommand}"
-                    Background="#1A2A3A" Foreground="#63B3ED"
-                    BorderBrush="#63B3ED" BorderThickness="1"
-                    CornerRadius="4" Padding="8,3" VerticalAlignment="Center"
-                    ToolTip.Tip="Find bridge-friendly transition ideas"
-                    IsEnabled="{Binding !IsBusy}">
-                <TextBlock Text="↻ Bridge Ideas" FontSize="11"/>
-            </Button>
-        </StackPanel>
+        </Grid>
+
+        <!-- Busy line -->
+        <ProgressBar Grid.Row="1" Classes="meter" IsIndeterminate="True" Margin="0,0,0,8"
+                     IsVisible="{Binding IsBusy}"/>
 
         <!-- Status message -->
-        <TextBlock Grid.Row="1"
+        <TextBlock Grid.Row="2" Classes="caption" Margin="0,0,0,8" TextWrapping="Wrap"
                    Text="{Binding StatusMessage}"
-                   IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                   FontSize="12" Foreground="#888" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                   IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+        <!-- Empty state (similar mode, idle, nothing found) -->
+        <StackPanel Grid.Row="3" Classes="empty-state" VerticalAlignment="Top" Margin="0,24,0,0">
+            <StackPanel.IsVisible>
+                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                    <Binding Path="IsSimilarMode"/>
+                    <Binding Path="!IsBusy"/>
+                    <Binding Path="Results.Count" Converter="{x:Static avConverters:NumericConverters.IsZero}"/>
+                </MultiBinding>
+            </StackPanel.IsVisible>
+            <PathIcon Data="{StaticResource icon_waves}"/>
+            <TextBlock Classes="h3" Text="No similar tracks"/>
+        </StackPanel>
+
+        <!-- Empty state (bridge modes, idle, nothing found) -->
+        <StackPanel Grid.Row="3" Classes="empty-state" VerticalAlignment="Top" Margin="0,24,0,0">
+            <StackPanel.IsVisible>
+                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                    <Binding Path="IsAnyBridgeMode"/>
+                    <Binding Path="!IsBusy"/>
+                    <Binding Path="BridgeSuggestions.Count" Converter="{x:Static avConverters:NumericConverters.IsZero}"/>
+                </MultiBinding>
+            </StackPanel.IsVisible>
+            <PathIcon Data="{StaticResource icon_link}"/>
+            <TextBlock Classes="h3" Text="No bridge ideas"/>
+        </StackPanel>
 
         <!-- Results list (standard similarity mode) -->
-        <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled"
+        <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Disabled"
                       IsVisible="{Binding IsSimilarMode}">
             <ItemsControl ItemsSource="{Binding Results}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:SimilarTrackRowViewModel">
-                        <Border Classes="row">
+                        <Border Classes="sim-row">
                             <Grid ColumnDefinitions="*,Auto,Auto,Auto">
 
-                                <!-- Title + Artist + score strip -->
+                                <!-- Title + artist + reasons + score breakdown -->
                                 <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
                                     <Grid ColumnDefinitions="Auto,*">
-                                        <!-- Double-drop lightning badge -->
-                                        <Border Grid.Column="0"
-                                                Classes="ddBadge"
+                                        <Border Grid.Column="0" Classes="fact warning" Margin="0,0,4,0"
+                                                VerticalAlignment="Center"
                                                 IsVisible="{Binding IsPotentialDoubleDrop}"
-                                                Margin="0,0,5,0"
-                                                VerticalAlignment="Center">
-                                            <TextBlock Text="⚡" FontSize="11"/>
+                                                ToolTip.Tip="Potential double drop: the drops line up for a layered mix">
+                                            <TextBlock Text="2×"/>
                                         </Border>
-                                        <TextBlock Grid.Column="1"
-                                                   Text="{Binding Title, FallbackValue='(loading…)'}"
-                                                   Classes="value" TextTrimming="CharacterEllipsis"
-                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Classes="body" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center"
+                                                   Text="{Binding Title, FallbackValue='(loading…)'}"/>
                                     </Grid>
-                                    <TextBlock Text="{Binding Artist, FallbackValue=''}"
-                                               Classes="label" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Classes="caption" TextTrimming="CharacterEllipsis"
+                                               Text="{Binding Artist, FallbackValue=''}"/>
 
-                                    <!-- Harmony + Beat labels (shown once loaded) -->
-                                    <StackPanel Orientation="Horizontal" Spacing="6"
-                                                IsVisible="{Binding HarmonyLabel,
-                                                    Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                        <TextBlock Text="{Binding HarmonyLabel}"
-                                                   Classes="miniScore" Foreground="#9F7AEA"/>
-                                        <TextBlock Text="·" Classes="miniScore"/>
-                                        <TextBlock Text="{Binding BeatLabel}"
-                                                   Classes="miniScore" Foreground="#63B3ED"/>
-                                        <!-- Drop label only when meaningful -->
-                                        <TextBlock Text="{Binding DropLabel}"
-                                                   Classes="miniScore"
-                                                   Foreground="#FF9800"
-                                                   IsVisible="{Binding DropLabel,
-                                                       Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                    <!-- Reason labels (once loaded) -->
+                                    <StackPanel Orientation="Horizontal" Spacing="4"
+                                                IsVisible="{Binding HarmonyLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                        <TextBlock Classes="caption" Text="{Binding HarmonyLabel}"/>
+                                        <TextBlock Classes="caption muted" Text="·"/>
+                                        <TextBlock Classes="caption" Text="{Binding BeatLabel}"/>
+                                        <TextBlock Classes="caption muted" Text="·"
+                                                   IsVisible="{Binding DropLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                        <TextBlock Classes="caption" Text="{Binding DropLabel}"
+                                                   IsVisible="{Binding DropLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                                     </StackPanel>
 
-                                    <!-- Score breakdown: Sound · Harmony · Beat · Drop · Outro→Intro -->
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <TextBlock Text="S" Classes="miniScore" Foreground="#9BD7CA" ToolTip.Tip="Sound — neural texture similarity"/>
-                                        <TextBlock Text="{Binding SoundScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#9BD7CA"/>
-                                        <TextBlock Text="H" Classes="miniScore" Foreground="#9F7AEA" ToolTip.Tip="Harmony — Camelot key compatibility"/>
-                                        <TextBlock Text="{Binding HarmonyScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#9F7AEA"/>
-                                        <TextBlock Text="B" Classes="miniScore" Foreground="#63B3ED" ToolTip.Tip="Beat — BPM ratio match"/>
-                                        <TextBlock Text="{Binding BeatScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#63B3ED"/>
-                                        <TextBlock Text="E" Classes="miniScore" Foreground="#FC8181" ToolTip.Tip="Energy — drop/peak section match"/>
-                                        <TextBlock Text="{Binding DropSonicScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#FC8181"/>
-                                        <TextBlock Text="O" Classes="miniScore" Foreground="#F6AD55" ToolTip.Tip="Outro→Intro transition flow score"/>
-                                        <TextBlock Text="{Binding OutroIntroScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#F6AD55"/>
+                                    <!-- Score breakdown: Sound · Harmony · Beat · Energy · Outro→Intro -->
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Classes="score-key" Text="S" ToolTip.Tip="Sound: neural texture similarity"/>
+                                        <TextBlock Classes="score-val" Text="{Binding SoundScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                                        <TextBlock Classes="score-key" Text="H" ToolTip.Tip="Harmony: Camelot key compatibility"/>
+                                        <TextBlock Classes="score-val" Text="{Binding HarmonyScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                                        <TextBlock Classes="score-key" Text="B" ToolTip.Tip="Beat: BPM ratio match"/>
+                                        <TextBlock Classes="score-val" Text="{Binding BeatScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                                        <TextBlock Classes="score-key" Text="E" ToolTip.Tip="Energy: drop/peak section match"/>
+                                        <TextBlock Classes="score-val" Text="{Binding DropSonicScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                                        <TextBlock Classes="score-key" Text="O" ToolTip.Tip="Outro→Intro transition flow score"/>
+                                        <TextBlock Classes="score-val" Text="{Binding OutroIntroScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                     </StackPanel>
                                 </StackPanel>
 
-                                <!-- Key badge -->
-                                <Border Grid.Column="1" CornerRadius="4"
-                                        Background="#2D3748" Padding="5,2" Margin="6,0"
-                                        VerticalAlignment="Center"
+                                <!-- Camelot key -->
+                                <Border Grid.Column="1" Classes="fact" Margin="8,0,0,0" VerticalAlignment="Center"
+                                        ToolTip.Tip="Key (Camelot)"
                                         IsVisible="{Binding Key, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                    <TextBlock Text="{Binding Key}" FontSize="11" Foreground="#90CDF4"/>
+                                    <TextBlock Text="{Binding Key}"/>
                                 </Border>
 
-                                <!-- Score columns: Overall + mini H/B/D breakdown -->
-                                <StackPanel Grid.Column="2" VerticalAlignment="Center"
-                                            Spacing="2" MinWidth="56">
-                                    <!-- Overall score (prominent) -->
-                                    <StackPanel Orientation="Vertical">
-                                        <TextBlock Classes="label" Text="Match" HorizontalAlignment="Center" FontSize="9"/>
-                                        <TextBlock Classes="value" HorizontalAlignment="Center" FontSize="13"
-                                                   Text="{Binding OverallScore, StringFormat={}{0:P0}}"/>
-                                    </StackPanel>
-                                    <!-- Mini H/B/D bars -->
-                                    <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto"
-                                          HorizontalAlignment="Center">
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="H" Classes="miniScore" HorizontalAlignment="Center" Foreground="#9F7AEA"/>
-                                        <TextBlock Grid.Row="0" Grid.Column="1" Text="B" Classes="miniScore" HorizontalAlignment="Center" Foreground="#63B3ED"/>
-                                        <TextBlock Grid.Row="0" Grid.Column="2" Text="D" Classes="miniScore" HorizontalAlignment="Center" Foreground="#FC8181"/>
-                                        <TextBlock Grid.Row="1" Grid.Column="0" HorizontalAlignment="Center"
-                                                   FontSize="10" Foreground="#9F7AEA"
-                                                   Text="{Binding HarmonyScore, StringFormat={}{0:P0}}"/>
-                                        <TextBlock Grid.Row="1" Grid.Column="1" HorizontalAlignment="Center"
-                                                   FontSize="10" Foreground="#63B3ED"
-                                                   Text="{Binding BeatScore, StringFormat={}{0:P0}}"/>
-                                        <TextBlock Grid.Row="1" Grid.Column="2" HorizontalAlignment="Center"
-                                                   FontSize="10" Foreground="#FC8181"
-                                                   Text="{Binding DropSonicScore, StringFormat={}{0:P0}}"/>
-                                    </Grid>
+                                <!-- Overall match -->
+                                <StackPanel Grid.Column="2" VerticalAlignment="Center" Width="48" Margin="8,0,0,0" Spacing="4"
+                                            ToolTip.Tip="Overall match">
+                                    <TextBlock Classes="mono" HorizontalAlignment="Right"
+                                               Text="{Binding OverallScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                                    <ProgressBar Classes="meter row-meter" Maximum="1" Value="{Binding OverallScore}"/>
                                 </StackPanel>
 
-                                <!-- Add to playlist button -->
-                                <Button Grid.Column="3"
-                                        Command="{Binding AddToPlaylistCommand}"
-                                        Background="Transparent" Foreground="#4EC9B0"
-                                        BorderThickness="0" Padding="6,4" Margin="4,0,0,0"
+                                <!-- Add to project -->
+                                <Button Grid.Column="3" Classes="icon small row-action" Margin="4,0,0,0"
                                         VerticalAlignment="Center"
-                                        ToolTip.Tip="Add to project/playlist"
-                                        Opacity="0.6" Classes="addBtn">
-                                    <TextBlock Text="+" FontSize="16" FontWeight="Bold"/>
+                                        Command="{Binding AddToPlaylistCommand}"
+                                        ToolTip.Tip="{Binding AddActionToolTip}">
+                                    <PathIcon Data="{StaticResource icon_add}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
                                 </Button>
                             </Grid>
                         </Border>
@@ -231,116 +234,100 @@
             </ItemsControl>
         </ScrollViewer>
 
-        <!-- Bridge Mode header -->
-        <Border Grid.Row="3" IsVisible="{Binding IsAnyBridgeMode}"
-                Background="#141E16" CornerRadius="6" Padding="10,6" Margin="0,4,0,4">
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <TextBlock Text="🌉" FontSize="14" VerticalAlignment="Center"/>
-                <TextBlock Text="Bridging tracks" FontSize="12" FontWeight="SemiBold"
-                           Foreground="#4EC9B0" VerticalAlignment="Center"/>
-                <TextBlock Text="BPM-matched · Camelot compatible"
-                           FontSize="11" Foreground="#666" VerticalAlignment="Center"/>
-            </StackPanel>
-        </Border>
-
         <!-- Bridge suggestions list -->
-        <ScrollViewer Grid.Row="4" HorizontalScrollBarVisibility="Disabled"
+        <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Disabled"
                       IsVisible="{Binding IsAnyBridgeMode}">
             <ItemsControl ItemsSource="{Binding BridgeSuggestions}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:SimilarTrackRowViewModel">
-                        <Border Classes="bridgeRow">
+                        <Border Classes="sim-row">
                             <Grid ColumnDefinitions="*,Auto,Auto,Auto">
 
-                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding Title, FallbackValue='(loading…)'}"
-                                               Classes="value" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="{Binding Artist, FallbackValue=''}"
-                                               Classes="label" TextTrimming="CharacterEllipsis"/>
-                                    <StackPanel Orientation="Horizontal" Spacing="6"
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+                                    <TextBlock Classes="body" TextTrimming="CharacterEllipsis"
+                                               Text="{Binding Title, FallbackValue='(loading…)'}"/>
+                                    <TextBlock Classes="caption" TextTrimming="CharacterEllipsis"
+                                               Text="{Binding Artist, FallbackValue=''}"/>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="4"
                                                 IsVisible="{Binding HarmonyLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                        <TextBlock Text="{Binding TransitionStyleLabel}"
-                                               Classes="miniScore"
-                                               Foreground="#F3D37A"
-                                               FontWeight="SemiBold"
-                                               IsVisible="{Binding TransitionStyleLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                                        <TextBlock Text="·"
-                                               Classes="miniScore"
-                                               IsVisible="{Binding TransitionStyleLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                                        <TextBlock Text="{Binding HarmonyLabel}"
-                                                   Classes="miniScore" Foreground="#9F7AEA"/>
-                                        <TextBlock Text="·" Classes="miniScore"/>
-                                        <TextBlock Text="{Binding BeatLabel}"
-                                                   Classes="miniScore" Foreground="#63B3ED"/>
-                                        <TextBlock Text="{Binding DropLabel}"
-                                                   Classes="miniScore"
-                                                   Foreground="#FFB800"
+                                        <TextBlock Classes="caption accent" FontWeight="SemiBold"
+                                                   Text="{Binding TransitionStyleLabel}"
+                                                   IsVisible="{Binding TransitionStyleLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                        <TextBlock Classes="caption muted" Text="·"
+                                                   IsVisible="{Binding TransitionStyleLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                        <TextBlock Classes="caption" Text="{Binding HarmonyLabel}"/>
+                                        <TextBlock Classes="caption muted" Text="·"/>
+                                        <TextBlock Classes="caption" Text="{Binding BeatLabel}"/>
+                                        <TextBlock Classes="caption muted" Text="·"
+                                                   IsVisible="{Binding DropLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                        <TextBlock Classes="caption" Text="{Binding DropLabel}"
                                                    IsVisible="{Binding DropLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                                     </StackPanel>
-                                    <TextBlock Text="{Binding TransitionStyleReason}"
-                                               Classes="miniScore"
-                                               Foreground="#8AA0B8"
-                                               TextWrapping="Wrap"
-                                               MaxWidth="230"
+                                    <TextBlock Classes="caption muted" TextWrapping="Wrap" MaxWidth="232"
+                                               HorizontalAlignment="Left"
+                                               Text="{Binding TransitionStyleReason}"
                                                IsVisible="{Binding TransitionStyleReason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
 
-                                    <!-- Score breakdown: Sound · Harmony · Beat · Drop · Outro→Intro -->
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <TextBlock Text="S" Classes="miniScore" Foreground="#9BD7CA" ToolTip.Tip="Sound — neural texture similarity"/>
-                                        <TextBlock Text="{Binding SoundScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#9BD7CA"/>
-                                        <TextBlock Text="H" Classes="miniScore" Foreground="#9F7AEA" ToolTip.Tip="Harmony — Camelot key compatibility"/>
-                                        <TextBlock Text="{Binding HarmonyScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#9F7AEA"/>
-                                        <TextBlock Text="B" Classes="miniScore" Foreground="#63B3ED" ToolTip.Tip="Beat — BPM ratio match"/>
-                                        <TextBlock Text="{Binding BeatScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#63B3ED"/>
-                                        <TextBlock Text="E" Classes="miniScore" Foreground="#FC8181" ToolTip.Tip="Energy — drop/peak section match"/>
-                                        <TextBlock Text="{Binding DropSonicScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#FC8181"/>
-                                        <TextBlock Text="O" Classes="miniScore" Foreground="#F6AD55" ToolTip.Tip="Outro→Intro transition flow score"/>
-                                        <TextBlock Text="{Binding OutroIntroScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#F6AD55"/>
+                                    <!-- Score breakdown: Sound · Harmony · Beat · Energy · Outro→Intro -->
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Classes="score-key" Text="S" ToolTip.Tip="Sound: neural texture similarity"/>
+                                        <TextBlock Classes="score-val" Text="{Binding SoundScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                                        <TextBlock Classes="score-key" Text="H" ToolTip.Tip="Harmony: Camelot key compatibility"/>
+                                        <TextBlock Classes="score-val" Text="{Binding HarmonyScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                                        <TextBlock Classes="score-key" Text="B" ToolTip.Tip="Beat: BPM ratio match"/>
+                                        <TextBlock Classes="score-val" Text="{Binding BeatScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                                        <TextBlock Classes="score-key" Text="E" ToolTip.Tip="Energy: drop/peak section match"/>
+                                        <TextBlock Classes="score-val" Text="{Binding DropSonicScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                                        <TextBlock Classes="score-key" Text="O" ToolTip.Tip="Outro→Intro transition flow score"/>
+                                        <TextBlock Classes="score-val" Text="{Binding OutroIntroScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                     </StackPanel>
 
-                                    <StackPanel Orientation="Horizontal" Spacing="8"
-                                                IsVisible="{Binding IsBridgeBetweenCandidate}">
-                                        <TextBlock Text="A→X" Classes="miniScore" Foreground="#63B3ED"/>
-                                        <TextBlock Text="{Binding BridgeFromScore, StringFormat={}{0:P0}}"
-                                                   Classes="miniScore" Foreground="#63B3ED"/>
-                                        <TextBlock Text="X→B" Classes="miniScore" Foreground="#68D391"/>
-                                        <TextBlock Text="{Binding BridgeToScore, StringFormat={}{0:P0}}"
-                                                   Classes="miniScore" Foreground="#68D391"/>
+                                    <!-- Bridge-between fit: A→X and X→B -->
+                                    <StackPanel Orientation="Horizontal" IsVisible="{Binding IsBridgeBetweenCandidate}">
+                                        <TextBlock Classes="score-key" Text="A→X" ToolTip.Tip="Fit from the first selected track into this one"/>
+                                        <TextBlock Classes="score-val" Text="{Binding BridgeFromScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                                        <TextBlock Classes="score-key" Text="X→B" ToolTip.Tip="Fit from this track into the second selected track"/>
+                                        <TextBlock Classes="score-val" Text="{Binding BridgeToScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
                                     </StackPanel>
-                                    <TextBlock Text="Click again to confirm insert"
-                                               Classes="miniScore"
-                                               Foreground="#FFB800"
+                                    <TextBlock Classes="caption warning" Text="Click again to confirm insert"
                                                IsVisible="{Binding IsInsertConfirmArmed}"/>
                                 </StackPanel>
 
-                                <Border Grid.Column="1" CornerRadius="4"
-                                        Background="#1A3A2B" Padding="5,2" Margin="6,0"
-                                        VerticalAlignment="Center"
+                                <!-- Camelot key -->
+                                <Border Grid.Column="1" Classes="fact" Margin="8,0,0,0" VerticalAlignment="Center"
+                                        ToolTip.Tip="Key (Camelot)"
                                         IsVisible="{Binding Key, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                    <TextBlock Text="{Binding Key}" FontSize="11" Foreground="#68D391"/>
+                                    <TextBlock Text="{Binding Key}"/>
                                 </Border>
 
-                                <StackPanel Grid.Column="2" VerticalAlignment="Center" MinWidth="48">
-                                    <TextBlock Classes="label" Text="Score" HorizontalAlignment="Center"/>
-                                    <TextBlock Classes="value" HorizontalAlignment="Center"
-                                               Text="{Binding Score, StringFormat={}{0:P0}}"/>
+                                <!-- Bridge score -->
+                                <StackPanel Grid.Column="2" VerticalAlignment="Center" Width="48" Margin="8,0,0,0" Spacing="4"
+                                            ToolTip.Tip="Bridge score">
+                                    <TextBlock Classes="mono" HorizontalAlignment="Right"
+                                               Text="{Binding Score, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                                    <ProgressBar Classes="meter row-meter" Maximum="1" Value="{Binding Score}"/>
                                 </StackPanel>
 
-                                <Button Grid.Column="3"
-                                        Command="{Binding AddToPlaylistCommand}"
-                                        Background="Transparent" Foreground="#68D391"
-                                        BorderThickness="0" Padding="6,4" Margin="4,0,0,0"
+                                <!-- Add / Insert / Confirm -->
+                                <Button Grid.Column="3" Classes="icon small row-action" Margin="4,0,0,0"
                                         VerticalAlignment="Center"
-                                        ToolTip.Tip="{Binding AddActionToolTip}"
-                                        Opacity="0.6" Classes="addBtn">
-                                    <TextBlock Text="{Binding AddActionLabel}" FontSize="11" FontWeight="SemiBold"/>
+                                        Command="{Binding AddToPlaylistCommand}"
+                                        IsVisible="{Binding !IsBridgeBetweenCandidate}"
+                                        ToolTip.Tip="{Binding AddActionToolTip}">
+                                    <PathIcon Data="{StaticResource icon_add}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
                                 </Button>
+                                <Button Grid.Column="3" Classes="secondary small row-action" Margin="4,0,0,0"
+                                        VerticalAlignment="Center"
+                                        Command="{Binding AddToPlaylistCommand}"
+                                        IsVisible="{Binding IsBridgeBetweenCandidate}"
+                                        Content="{Binding AddActionLabel}"
+                                        ToolTip.Tip="{Binding AddActionToolTip}"/>
                             </Grid>
                         </Border>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </ScrollViewer>
-
     </Grid>
 </UserControl>

@@ -23,10 +23,7 @@ namespace SLSKDONET.Services;
 /// </summary>
 public class SearchOrchestrationService
 {
-    private static readonly HashSet<string> LosslessFormats = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "flac", "wav", "aif", "aiff", "ape", "alac"
-    };
+    private static IReadOnlySet<string> LosslessFormats => SLSKDONET.Services.Audio.AudioFormats.LosslessTokenSet;
 
     private static readonly string[] StrictLosslessNegativeTokens =
     {
@@ -373,8 +370,7 @@ public class SearchOrchestrationService
             return false;
         }
 
-        var isLossless = ext is "flac" or "wav" or "aif" or "aiff" or "ape" or "alac" ||
-                         format is "flac" or "wav" or "aif" or "aiff" or "ape" or "alac";
+        var isLossless = SLSKDONET.Services.Audio.AudioFormats.IsLossless(ext) || SLSKDONET.Services.Audio.AudioFormats.IsLossless(format);
 
         var effectiveMinBitrate = Math.Max(minBitrate, ScoringConstants.Availability.FastLaneMinBitrate);
         return isLossless || track.Bitrate >= effectiveMinBitrate;
@@ -756,7 +752,7 @@ public class SearchOrchestrationService
                     hasFreeUploadSlot: track.HasFreeUploadSlot);
                 EnsureBlendTelemetryMetadata(track, baseMatchScore, fitScore, 0.5, finalScore);
                 var existingBreakdown = track.ScoreBreakdown;
-                var blendBreakdown = $"Blend: Match={baseMatchScore:F1}, Fit={fitScore:F1}, Rel=0.50, Queue={track.QueueLength}, FreeSlot={track.HasFreeUploadSlot}, Final={finalScore:F1}";
+                var blendBreakdown = NumFormat.Ui($"Blend: Match={baseMatchScore:F1}, Fit={fitScore:F1}, Rel=0.50, Queue={track.QueueLength}, FreeSlot={track.HasFreeUploadSlot}, Final={finalScore:F1}");
                 track.ScoreBreakdown = string.IsNullOrWhiteSpace(existingBreakdown)
                     ? blendBreakdown
                     : $"{existingBreakdown}; {blendBreakdown}";

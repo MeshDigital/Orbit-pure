@@ -74,6 +74,9 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     public ImportHistoryViewModel ImportHistoryViewModel => _importHistoryViewModel;
     public LibraryDoubleInspectorViewModel DoubleInspector { get; }
     public LibraryTrackInspectorViewModel TrackInspector { get; }
+
+    /// <summary>Inspector content when 3+ tracks are selected (summary + bulk actions).</summary>
+    public LibraryMultiSelectionInspectorViewModel MultiSelection { get; }
     public PlaylistIntelligenceViewModel Intelligence { get; }
 
     private Views.MainViewModel? _mainViewModel;
@@ -182,6 +185,32 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         set { SetProperty(ref _libraryNavPanelWidth, value); }
     }
 
+    public const double NavPanelMinExpandedWidth = 260, NavPanelAbsoluteMaxWidth = 560, NavPanelMaxShare = 0.32;
+
+    /// <summary>The widest the playlist panel may be on a Library page this wide: at most a third of
+    /// the page, never under its 260 px readable minimum or over 560 px. Without the page-relative cap
+    /// a wide panel plus the context panel left the track list ~320 px, too narrow for a title.</summary>
+    public static double FitNavPanelMaxWidth(double pageWidth) =>
+        pageWidth > 0
+            ? Math.Clamp(pageWidth * NavPanelMaxShare, NavPanelMinExpandedWidth, NavPanelAbsoluteMaxWidth)
+            : NavPanelAbsoluteMaxWidth;
+
+    private double _libraryNavPanelMaxWidth = NavPanelAbsoluteMaxWidth;
+    /// <summary>Bound to the playlist column's MaxWidth. The dragged width is kept as it is; the grid
+    /// just won't render it wider than this.</summary>
+    public double LibraryNavPanelMaxWidth
+    {
+        get => _libraryNavPanelMaxWidth;
+        private set => SetProperty(ref _libraryNavPanelMaxWidth, value);
+    }
+
+    /// <summary>Set by LibraryPage when it is resized.</summary>
+    public void OnLibraryPageResized(double pageWidth)
+    {
+        var max = FitNavPanelMaxWidth(pageWidth);
+        if (Math.Abs(max - _libraryNavPanelMaxWidth) >= 1) LibraryNavPanelMaxWidth = max;
+    }
+
     public double LibrarySmartInsertMinConfidence
     {
         get => Intelligence.LibrarySmartInsertMinConfidence;
@@ -217,16 +246,6 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
                 RaiseLibraryIntelligenceTabStateChanged();
         }
     }
-
-    public string? TrackExplainabilitySummary => TrackInspector.TrackExplainabilitySummary;
-
-    public System.Collections.Generic.IReadOnlyList<string> TrackExplainabilityReasons => TrackInspector.TrackExplainabilityReasons;
-
-    public bool IsTrackExplainabilityVisible => TrackInspector.IsTrackExplainabilityVisible;
-
-    public System.Collections.ObjectModel.ObservableCollection<PlaylistTrackViewModel> SimilarTracksPreview => TrackInspector.SimilarTracksPreview;
-
-    public bool HasSimilarTracksPreview => TrackInspector.HasSimilarTracksPreview;
 
     public System.Collections.ObjectModel.ObservableCollection<Library.SavedDoubleViewModel> SavedDoubles { get; } = new();
 
@@ -591,7 +610,8 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         Operations = operations;
         SmartPlaylists = smartPlaylists;
         DoubleInspector = new LibraryDoubleInspectorViewModel(this, _logger, _trackSimilarityService, _transitionStyleClassifier);
-        TrackInspector = new LibraryTrackInspectorViewModel(this, _logger, _similarityIndex);
+        TrackInspector = new LibraryTrackInspectorViewModel(_logger, _serviceProvider?.GetService(typeof(ICuePointService)) as ICuePointService);
+        MultiSelection = new LibraryMultiSelectionInspectorViewModel(this);
         var optimizer = _serviceProvider?.GetService(typeof(Services.Playlist.PlaylistOptimizer)) as Services.Playlist.PlaylistOptimizer;
         Intelligence = new PlaylistIntelligenceViewModel(this, _trackSimilarityService, optimizer);
 
@@ -635,6 +655,9 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         _disposables.Add(_eventBus.GetEvent<FileIngestionCompletedEvent>().Subscribe(OnFileIngestionCompleted));
         _disposables.Add(_eventBus.GetEvent<FileMissingDetectedEvent>().Subscribe(OnFileMissingDetected));
         _disposables.Add(_eventBus.GetEvent<TrackRemovedEvent>().Subscribe(evt => OnLibraryTrackRemoved(evt.TrackGlobalId)));
+        // A track was added outside the download pipeline (e.g. an Edit Lab render): reload quietly.
+        _disposables.Add(_eventBus.GetEvent<SLSKDONET.Events.LibraryUpdatedEvent>().Subscribe(evt =>
+            Dispatcher.UIThread.Post(() => _ = ReloadAfterExternalAddAsync(evt.Reason))));
         // Playlist Overview stats should update live as tracks land in whichever playlist is
         // currently open, not just when the user re-selects it — filtered so an import into a
         // different playlist elsewhere doesn't trigger a pointless refresh.
@@ -648,10 +671,23 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
             if (SelectedProject != null && evt.Tracks.Any(t => t.Track.PlaylistId == SelectedProject.Id))
                 _ = Intelligence.RefreshOverviewStatsAsync();
         }));
+        // "All Tracks" overview: a folder import or a batch of enriched metadata (genres) changes
+        // the whole-library stats; throttled so a long enrichment run doesn't recompute constantly.
+        _disposables.Add(_eventBus.GetEvent<LibraryImportCompletedEvent>().Select(_ => System.Reactive.Unit.Default)
+            .Merge(_eventBus.GetEvent<Services.Enrichment.TracksEnrichedEvent>().Select(_ => System.Reactive.Unit.Default))
+            .Throttle(TimeSpan.FromSeconds(5))
+            .Where(_ => SelectedProject is { Id: var id } && id == Guid.Empty)
+            .Subscribe(unit => { _ = Intelligence.RefreshOverviewStatsAsync(); }));
         _disposables.Add(_eventBus.GetEvent<RemoveTrackFromInspectorEvent>().Subscribe(_ =>
             Dispatcher.UIThread.InvokeAsync(() => Operations.RemoveTrackCommand.Execute(null))));
         _disposables.Add(_eventBus.GetEvent<EditTagsFromInspectorEvent>().Subscribe(_ =>
             Dispatcher.UIThread.InvokeAsync(() => BatchTagEditCommand.Execute(null))));
+        _disposables.Add(_eventBus.GetEvent<OpenInCueForgeFromInspectorEvent>().Subscribe(evt =>
+            Dispatcher.UIThread.InvokeAsync(() => Operations.OpenInCueForgeCommand.Execute(FindSelectedTrack(evt.TrackGlobalId)))));
+        _disposables.Add(_eventBus.GetEvent<OpenInEditLabFromInspectorEvent>().Subscribe(evt =>
+            Dispatcher.UIThread.InvokeAsync(() => Operations.OpenInEditLabCommand.Execute(FindSelectedTrack(evt.TrackGlobalId)))));
+        _disposables.Add(_eventBus.GetEvent<RetryDownloadFromInspectorEvent>().Subscribe(evt =>
+            Dispatcher.UIThread.InvokeAsync(() => Operations.HardRetryCommand.Execute(FindSelectedTrack(evt.TrackGlobalId)))));
         
         // Startup background tasks
         Task.Run(() => _libraryService.SyncLibraryEntriesFromTracksAsync()).ConfigureAwait(false);
@@ -745,6 +781,14 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
                                 _ = TryAttachInspectorPairwiseContextAsync(current[0]);
                                 _ = TrackInspector.TryAttachEnhancementsAsync(current[0]);
                             }
+                            else if (current.Count >= 3 && !Tracks.IsMixModeEnabled)
+                            {
+                                // 3+ rows: summary + bulk actions instead of leaving the last
+                                // single-track inspector on screen as if it still applied.
+                                MultiSelection.Update(current);
+                                ReactiveUI.MessageBus.Current.SendMessage(
+                                    OpenInspectorEvent.Create(MultiSelection, "Library.TrackSelection.Multi"));
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -758,6 +802,11 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
                 }
             }));
     }
+
+    /// <summary>The selected row for an inspector action, or null (the handlers then fall back to
+    /// the lead selected track).</summary>
+    private PlaylistTrackViewModel? FindSelectedTrack(string globalId) =>
+        Tracks.SelectedTracks.FirstOrDefault(t => string.Equals(t.GlobalId, globalId, StringComparison.Ordinal));
 
     public void Dispose()
     {
@@ -1069,6 +1118,21 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     {
         Dispatcher.UIThread.Post(() =>
             ApplyFileIngestionStarted(evt));
+    }
+
+    private async Task ReloadAfterExternalAddAsync(string reason)
+    {
+        try
+        {
+            await _libraryCacheService.ClearCacheAsync();
+            await Projects.LoadProjectsAsync();
+            if (SelectedProject is { } current)
+                await Tracks.LoadProjectTracksAsync(current);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Library reload after external add failed ({Reason})", reason);
+        }
     }
 
     private void OnFileIngestionCompleted(FileIngestionCompletedEvent evt)

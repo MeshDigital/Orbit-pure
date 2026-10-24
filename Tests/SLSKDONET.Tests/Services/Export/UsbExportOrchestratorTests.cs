@@ -138,9 +138,14 @@ public class UsbExportOrchestratorParallelCopyTests : IDisposable
 
     private PlaylistTrack CreateSourceTrack(int index)
     {
-        var fileName = $"Artist{index} - Title{index}.mp3";
+        var fileName = $"Artist{index} - Title{index}.wav";
         var path = Path.Combine(_sourceDir, fileName);
-        File.WriteAllText(path, $"fake audio content for track {index}");
+        using (var writer = new NAudio.Wave.WaveFileWriter(
+            path, NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(8000, 1)))
+        {
+            for (var sample = 0; sample < 8000; sample++)
+                writer.WriteSample(index / 100f);
+        }
         return new PlaylistTrack
         {
             Id = Guid.NewGuid(),
@@ -179,7 +184,7 @@ public class UsbExportOrchestratorParallelCopyTests : IDisposable
             var expectedDest = UsbExportOrchestrator.BuildDeterministicDestPath(
                 Path.Combine(_destDir, "OrbitAudio", "Parallel Copy Test"), track);
             Assert.True(File.Exists(expectedDest), $"Expected destination file missing for {track.Title}");
-            Assert.Equal(File.ReadAllText(track.ResolvedFilePath!), File.ReadAllText(expectedDest));
+            Assert.Equal(File.ReadAllBytes(track.ResolvedFilePath!), File.ReadAllBytes(expectedDest));
         }
 
         Assert.NotNull(finalProgress);

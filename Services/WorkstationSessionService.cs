@@ -21,7 +21,7 @@ public class WorkstationSessionService
 
     public WorkstationSessionService()
     {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var appData = SLSKDONET.Data.OrbitPaths.RoamingRoot;
         var dir = Path.Combine(appData, "Antigravity");
         Directory.CreateDirectory(dir);
         _sessionFilePath = Path.Combine(dir, "workstation-session.json");

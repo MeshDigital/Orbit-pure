@@ -17,6 +17,7 @@ using SLSKDONET.Events;
 using SLSKDONET.Views;
 using Microsoft.EntityFrameworkCore;
 using SLSKDONET.Data;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels.Downloads;
 
@@ -24,17 +25,14 @@ namespace SLSKDONET.ViewModels.Downloads;
 /// Phase 2.5 & 12.6: Unified Track ViewModel for Download Center and Lists.
 /// Implements "Smart Component" architecture - self-managing state via EventBus.
 /// </summary>
-public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposable
+public partial class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposable
 {
     private static readonly Regex RejectedUserRegex = new(@"^(?:Rejected|Skipped)\s+(?<user>[^:]+):\s*(?<detail>.+)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex BlacklistedUserRegex = new(@"^Skipping\s+peer\s+(?<user>[^\s]+)\s+\((?<detail>[^\)]+)\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex WinnerUserRegex = new(@"(?:winner:|match from|Selected\s+)(?<user>[A-Za-z0-9_\-\.]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex StructuredFieldRegex = new(@"(?<key>[a-zA-Z]+):\s*(?<value>[^|]+)", RegexOptions.Compiled);
     private static readonly Regex FromUserRegex = new(@"from\s+(?<user>[A-Za-z0-9_\-\.]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    private static readonly HashSet<string> LosslessFormats = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "flac", "wav", "aif", "aiff", "ape", "alac"
-    };
+    private static IReadOnlySet<string> LosslessFormats => SLSKDONET.Services.Audio.AudioFormats.LosslessTokenSet;
 
     private readonly DownloadManager _downloadManager;
     private readonly IEventBus _eventBus;
@@ -74,7 +72,11 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public string? PeerName
     {
         get => _peerName;
-        set => this.RaiseAndSetIfChanged(ref _peerName, value);
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _peerName, value);
+            this.RaisePropertyChanged(nameof(HasPeerName));
+        }
     }
     
     // Core QoL: Speed Trend tracking
@@ -488,18 +490,6 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
              _downloadManager.BumpTrackToTop(GlobalId);
          }, this.WhenAnyValue(x => x.State, s => s == PlaylistTrackState.Pending || s == PlaylistTrackState.Paused || s == PlaylistTrackState.Stalled));
 
-        ViewLogCommand = ReactiveCommand.Create(() => 
-        {
-            // Phase 0.8: View Log Logic
-            var log = string.Join("\n", RejectionDetails?.Select(r => $"{r.Rank}. [{r.ShortReason}] {r.Filename} ({r.Bitrate}kbps) @{r.Username}") ?? Enumerable.Empty<string>());
-            System.Diagnostics.Debug.WriteLine($"[Diagnostic Log] {log}");
-            
-            if (Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
-            {
-                desktop.MainWindow?.Clipboard?.SetTextAsync(log);
-            }
-        }, this.WhenAnyValue(x => x.HasRejectionDetails));
-
         CopyLogCommand = ReactiveCommand.CreateFromTask(async () => 
         {
             if (Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
@@ -666,6 +656,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(IsIndeterminate));
                 this.RaisePropertyChanged(nameof(IsFailed));
                 this.RaisePropertyChanged(nameof(IsActive));
+                this.RaisePropertyChanged(nameof(HasLiveSpeed));
                 this.RaisePropertyChanged(nameof(IsRemoteQueued));
                 this.RaisePropertyChanged(nameof(IsWaiting));
                 this.RaisePropertyChanged(nameof(IsSearching));
@@ -953,7 +944,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             var parts = new List<string>();
             if (Model.Bitrate > 0) parts.Add($"{Model.Bitrate} kbps");
             var sr = ParsedSampleRateHz;
-            if (sr > 0) parts.Add($"{sr / 1000.0:0.0} kHz");
+            if (sr > 0) parts.Add(NumFormat.Ui($"{sr / 1000.0:0.0} kHz"));
             if (Model.Duration > 0) parts.Add(TimeSpan.FromSeconds(Model.Duration).ToString(@"m\:ss"));
             
             if (IsCompleted && Model.CompletedAt.HasValue && Model.SearchStartedAt.HasValue)
@@ -1011,7 +1002,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             {
                 if (bitDepth > 0 || sampleRate > 0)
                 {
-                    var sampleKhz = sampleRate > 0 ? $"{sampleRate / 1000.0:F1}k" : "?k";
+                    var sampleKhz = sampleRate > 0 ? NumFormat.Ui($"{sampleRate / 1000.0:F1}k") : "?k";
                     var depth = bitDepth > 0 ? $"{bitDepth}b" : "?b";
                     return $"FLAC {depth}/{sampleKhz}";
                 }
@@ -1094,7 +1085,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             var parts = new System.Collections.Generic.List<string>();
             if ((Model.Bitrate ?? 0) > 0) parts.Add($"{Model.Bitrate}kbps");
             var sr = ParsedSampleRateHz;
-            if (sr > 0) parts.Add($"{sr / 1000.0:F1}kHz");
+            if (sr > 0) parts.Add(NumFormat.Ui($"{sr / 1000.0:F1}kHz"));
             var bd = ParsedBitDepth;
             if (bd > 0) parts.Add($"{bd}-bit");
             if (!string.IsNullOrEmpty(Model.Format)) parts.Add(Model.Format.ToUpperInvariant());
@@ -1229,7 +1220,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             try
             {
                 var bytes = new System.IO.FileInfo(path).Length;
-                return $"{bytes / 1024.0 / 1024.0:F1} MB";
+                return NumFormat.Ui($"{bytes / 1024.0 / 1024.0:F1} MB");
             }
             catch
             {
@@ -1252,12 +1243,12 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
     /// <summary>Confirmed sample rate (e.g. "44.1 kHz", "48 kHz").</summary>
     public string SpectralSampleRateDisplay => Model.SpectralSampleRateHz.HasValue
-        ? $"{Model.SpectralSampleRateHz.Value / 1000.0:F1} kHz"
+        ? NumFormat.Ui($"{Model.SpectralSampleRateHz.Value / 1000.0:F1} kHz")
         : "—";
 
     /// <summary>Detected spectral cutoff frequency (e.g. "20.5 kHz").</summary>
     public string SpectralCutoffKhzDisplay => Model.FrequencyCutoff.HasValue
-        ? $"{Model.FrequencyCutoff.Value / 1000.0:F1} kHz"
+        ? NumFormat.Ui($"{Model.FrequencyCutoff.Value / 1000.0:F1} kHz")
         : "—";
 
     /// <summary>Short confidence percentage extracted from <see cref="Model.QualityDetails"/>.</summary>
@@ -1296,27 +1287,27 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
     /// <summary>Mid-band energy (1–15 kHz).</summary>
     public string SpectralMidBandDisplay => Model.SpectralMidBandEnergy.HasValue
-        ? $"{Model.SpectralMidBandEnergy.Value:F1} dBFS"
+        ? NumFormat.Ui($"{Model.SpectralMidBandEnergy.Value:F1} dBFS")
         : "—";
 
     /// <summary>High-band energy (15–20 kHz).</summary>
     public string SpectralHighBandDisplay => Model.SpectralHighBandEnergy.HasValue
-        ? $"{Model.SpectralHighBandEnergy.Value:F1} dBFS"
+        ? NumFormat.Ui($"{Model.SpectralHighBandEnergy.Value:F1} dBFS")
         : "—";
 
     /// <summary>Overall RMS level (perceived loudness).</summary>
     public string SpectralRmsDisplay => Model.SpectralRmsDbfs.HasValue
-        ? $"{Model.SpectralRmsDbfs.Value:F1} dBFS"
+        ? NumFormat.Ui($"{Model.SpectralRmsDbfs.Value:F1} dBFS")
         : "—";
 
     /// <summary>Crest factor — higher means more dynamic headroom.</summary>
     public string SpectralCrestFactorDisplay => Model.SpectralCrestFactorDb.HasValue
-        ? $"{Model.SpectralCrestFactorDb.Value:F1} dB"
+        ? NumFormat.Ui($"{Model.SpectralCrestFactorDb.Value:F1} dB")
         : "—";
 
     /// <summary>Estimated noise floor.</summary>
     public string SpectralNoiseFloorDisplay => Model.SpectralNoiseFloorDbfs.HasValue
-        ? $"{Model.SpectralNoiseFloorDbfs.Value:F1} dBFS"
+        ? NumFormat.Ui($"{Model.SpectralNoiseFloorDbfs.Value:F1} dBFS")
         : "—";
 
     /// <summary>Accent colour for the crest-factor display (green = dynamic, red = squashed).</summary>
@@ -1419,9 +1410,9 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public string YearDisplay => Model.ReleaseDate.HasValue ? Model.ReleaseDate.Value.Year.ToString() : "";
     
     // Technical Audio Display
-    public string LoudnessDisplay => Model.Loudness.HasValue ? $"{Model.Loudness:F1} LUFS" : "—";
-    public string TruePeakDisplay => Model.TruePeak.HasValue ? $"{Model.TruePeak:F1} dBTP" : "—";
-    public string DynamicRangeDisplay => Model.DynamicRange.HasValue ? $"{Model.DynamicRange:F1} LU" : "—";
+    public string LoudnessDisplay => Services.AudioAnalysis.IntegratedLoudnessMeter.Format(Model.Loudness);
+    public string TruePeakDisplay => Model.TruePeak is double tp ? tp.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " dBTP" : "—";
+    public string DynamicRangeDisplay => Model.DynamicRange is double dr ? dr.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " LU" : "—";
 
     public bool IsEnriched => Model.IsEnriched;
     public bool IsPrepared => Model.IsPrepared;
@@ -1580,7 +1571,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             // ✨ Vibe Pill (Primary Genre/Subgenre classification)
             if (!string.IsNullOrEmpty(DetectedSubGenre))
             {
-                pills.Add(new VibePill("✨", DetectedSubGenre, VibeColor, $"Genre: {DetectedSubGenre} (Conf: {SubGenreConfidence:P0})"));
+                pills.Add(new VibePill("✨", DetectedSubGenre, VibeColor, NumFormat.Ui($"Genre: {DetectedSubGenre} (Conf: {SubGenreConfidence:P0})")));
             }
             
             return pills;
@@ -1614,7 +1605,6 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public ICommand FindSimilarAiCommand { get; }
     public ICommand ViewAllSearchResultsCommand { get; }
     public ICommand BumpToTopCommand { get; }
-    public ICommand ViewLogCommand { get; }
     public ICommand CopyLogCommand { get; }
     public ICommand ForceDownloadCandidateCommand { get; }
     public ICommand AcquireTrackCommand { get; }
@@ -1640,9 +1630,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
     public double CurrentSpeedBytes => _currentSpeed;
 
-    public string SpeedDisplay => _currentSpeed > 1024 * 1024 
-        ? $"{_currentSpeed / 1024 / 1024:F1} MB/s" 
-        : $"{_currentSpeed / 1024:F0} KB/s";
+    public string SpeedDisplay => NumFormat.Speed(_currentSpeed);
 
 
     // Phase 0.6: Truth in UI - Stems
@@ -2348,6 +2336,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(SpectralCrestFactorColor));
                 this.RaisePropertyChanged(nameof(SpectralNoiseFloorDisplay));
                 this.RaisePropertyChanged(nameof(SpectralConfidenceDisplay));
+                RaiseInspectorPropertiesChanged();
                 this.RaisePropertyChanged(nameof(FileFormat));
                 this.RaisePropertyChanged(nameof(BitrateDisplay));
                 this.RaisePropertyChanged(nameof(DurationDisplay));

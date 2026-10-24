@@ -32,6 +32,11 @@ public class LibraryService : ILibraryService
 
     // Events now published via IEventBus (ProjectDeletedEvent, ProjectUpdatedEvent)
 
+    private volatile string? _lastTrackQueryError;
+
+    /// <inheritdoc />
+    public string? LastTrackQueryError => _lastTrackQueryError;
+
 
 
     public LibraryService(
@@ -952,6 +957,22 @@ public class LibraryService : ILibraryService
         }
     }
 
+    public async Task<List<PlaylistTrack>> LoadLibraryOverviewTracksAsync(bool likedOnly = false)
+    {
+        await using var db = new AppDbContext();
+        return await Library.LibraryOverviewQuery.LoadAsync(db, likedOnly).ConfigureAwait(false);
+    }
+
+    public async Task<Dictionary<string, string>> GetMetadataProvenanceAsync(string trackHash)
+    {
+        await using var db = new AppDbContext();
+        var rows = await db.MetadataProvenance.AsNoTracking()
+            .Where(p => p.TrackUniqueHash == trackHash)
+            .Select(p => new { p.Field, p.Source })
+            .ToListAsync().ConfigureAwait(false);
+        return rows.ToDictionary(r => r.Field, r => r.Source, StringComparer.OrdinalIgnoreCase);
+    }
+
     public async Task<PlaylistTrack?> GetPlaylistTrackByHashAsync(Guid playlistId, string trackHash)
     {
         try
@@ -984,16 +1005,16 @@ public class LibraryService : ILibraryService
     {
         try
         {
-            if (playlistId == Guid.Empty)
-            {
-                return await _databaseService.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier).ConfigureAwait(false);
-            }
-
-            return await _databaseService.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier).ConfigureAwait(false);
+            var count = playlistId == Guid.Empty
+                ? await _databaseService.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier).ConfigureAwait(false)
+                : await _databaseService.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier).ConfigureAwait(false);
+            _lastTrackQueryError = null;
+            return count;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get track count for {PlaylistId}", playlistId);
+            _lastTrackQueryError = ex.Message;
             return 0;
         }
     }
@@ -1002,18 +1023,17 @@ public class LibraryService : ILibraryService
     {
         try
         {
-            if (playlistId == Guid.Empty)
-            {
-                var globalEntities = await _databaseService.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier).ConfigureAwait(false);
-                return globalEntities.Select(EntityToPlaylistTrack).ToList();
-            }
-
-            var entities = await _databaseService.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier).ConfigureAwait(false);
-            return entities.Select(EntityToPlaylistTrack).ToList();
+            var entities = playlistId == Guid.Empty
+                ? await _databaseService.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier).ConfigureAwait(false)
+                : await _databaseService.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier).ConfigureAwait(false);
+            var tracks = entities.Select(EntityToPlaylistTrack).ToList();
+            _lastTrackQueryError = null;
+            return tracks;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load paged playlist tracks for {PlaylistId}", playlistId);
+            _lastTrackQueryError = ex.Message;
             return new List<PlaylistTrack>();
         }
     }
@@ -1071,6 +1091,7 @@ public class LibraryService : ILibraryService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to update global like status for {Hash}", trackHash);
+            throw; // callers revert their optimistic UI and tell the user
         }
     }
 
@@ -1087,6 +1108,7 @@ public class LibraryService : ILibraryService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to update global rating for {Hash}", trackHash);
+            throw; // callers revert their optimistic UI and tell the user
         }
     }
 
@@ -1199,7 +1221,7 @@ public class LibraryService : ILibraryService
                 FilePath = actualFilePath,
                 Bitrate = track.Bitrate,
                 DurationSeconds = track.Length,
-                Format = track.Format ?? "Unknown"
+                Format = SLSKDONET.Models.AudioFileFormat.Resolve(track.Format, actualFilePath) ?? string.Empty
             };
 
             await SaveOrUpdateLibraryEntryAsync(entry).ConfigureAwait(false);
@@ -1292,7 +1314,7 @@ public class LibraryService : ILibraryService
             SortOrder = entity.SortOrder,
             PreferredFormats = entity.PreferredFormats,
             MinBitrateOverride = entity.MinBitrateOverride,
-            Format = entity.Format,
+            Format = SLSKDONET.Models.AudioFileFormat.Resolve(entity.Format, entity.ResolvedFilePath),
             AvailabilityState = entity.AvailabilityState,
             SpotifyPlaylistId = entity.SpotifyPlaylistId,
             SpotifyUri = entity.SpotifyUri,
@@ -1373,7 +1395,7 @@ public class LibraryService : ILibraryService
             SpectralNoiseFloorDbfs = entity.SpectralNoiseFloorDbfs,
             
             // Phase 17: Technical Audio Analysis
-            Loudness = entity.Loudness,
+            Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.Loudness),
             TruePeak = entity.TruePeak,
             DynamicRange = entity.DynamicRange,
             
@@ -1472,7 +1494,7 @@ public class LibraryService : ILibraryService
             QualityDetails = track.QualityDetails,
             
             // Phase 17: Technical Audio Analysis
-            Loudness = track.Loudness,
+            Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(track.Loudness),
             TruePeak = track.TruePeak,
             DynamicRange = track.DynamicRange,
             InstrumentalProbability = track.InstrumentalProbability // Phase 18.2
@@ -1506,7 +1528,7 @@ public class LibraryService : ILibraryService
             FilePath = entity.FilePath,
             Bitrate = entity.Bitrate,
             DurationSeconds = entity.DurationSeconds,
-            Format = entity.Format,
+            Format = SLSKDONET.Models.AudioFileFormat.Resolve(entity.Format, entity.FilePath),
             AvailabilityState = entity.AvailabilityState,
             SpotifyPlaylistId = entity.SpotifyPlaylistId,
             SpotifyUri = entity.SpotifyUri,
@@ -1533,7 +1555,7 @@ public class LibraryService : ILibraryService
             IsEnriched = entity.IsEnriched,
             
             // Phase 17: Technical Audio Analysis
-            Loudness = entity.Loudness ?? (entity.AudioFeatures?.LoudnessLUFS > 0 ? (double?)entity.AudioFeatures.LoudnessLUFS : null),
+            Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.Loudness) ?? SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.AudioFeatures?.LoudnessLUFS),
             TruePeak = entity.TruePeak,
             DynamicRange = entity.DynamicRange,
             
@@ -1557,7 +1579,7 @@ public class LibraryService : ILibraryService
             BpmStability = entity.AudioFeatures?.BpmStability,
             CamelotKey = entity.AudioFeatures?.CamelotKey,
             ChordProgression = entity.AudioFeatures?.ChordProgression,
-            LoudnessLufs = entity.AudioFeatures?.LoudnessLUFS,
+            LoudnessLufs = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.AudioFeatures?.LoudnessLUFS),
             DropTimeSeconds = entity.AudioFeatures?.DropTimeSeconds,
             DropConfidence = entity.AudioFeatures?.DropConfidence,
             EnergyCurveJson = entity.AudioFeatures?.EnergyCurveJson,
@@ -1717,7 +1739,7 @@ public class LibraryService : ILibraryService
         entity.PrimaryGenre = entry.PrimaryGenre;
         
         // Phase 17: Technical Audio Analysis
-        entity.Loudness = entry.Loudness;
+        entity.Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entry.Loudness);
         entity.TruePeak = entry.TruePeak;
         entity.DynamicRange = entry.DynamicRange;
         

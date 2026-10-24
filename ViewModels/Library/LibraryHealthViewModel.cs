@@ -60,14 +60,12 @@ public sealed class LibraryHealthViewModel : ReactiveObject
 {
     private const int LargestFilesLimit = 20;
 
-    private static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".aiff", ".aif", ".wma", ".ape",
-    };
+    private static IReadOnlySet<string> AudioExtensions => SLSKDONET.Services.Audio.AudioFormats.LocalAudioExtensions;
 
     private readonly ILogger<LibraryHealthViewModel> _logger;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly LibraryFolderScannerService _scannerService;
+    private readonly ILibraryImportLauncher? _importLauncher;
     private readonly IFileInteractionService? _fileInteractionService;
 
     public ObservableCollection<FormatBreakdownRowViewModel> FormatBreakdown { get; } = new();
@@ -116,6 +114,7 @@ public sealed class LibraryHealthViewModel : ReactiveObject
         _dbFactory = dbFactory;
         _scannerService = scannerService;
         _fileInteractionService = serviceProvider.GetService(typeof(IFileInteractionService)) as IFileInteractionService;
+        _importLauncher = serviceProvider.GetService(typeof(ILibraryImportLauncher)) as ILibraryImportLauncher;
 
         RefreshDiskUsageCommand = new AsyncRelayCommand(RefreshDiskUsageAsync);
         RefreshUnplayedCommand = new AsyncRelayCommand(RefreshUnplayedAsync);
@@ -304,7 +303,12 @@ public sealed class LibraryHealthViewModel : ReactiveObject
         if (row == null) return;
         try
         {
-            await _scannerService.ScanFolderAsync(row.FolderId);
+            // Through the import sheet when the shell provides it, so this rescan shows the same
+            // phases and summary as every other folder import.
+            if (_importLauncher != null)
+                await _importLauncher.RunImportAsync(new[] { row.FolderId }, "Importing untracked files");
+            else
+                await _scannerService.ScanFolderAsync(row.FolderId);
             await RefreshUntrackedAsync();
         }
         catch (Exception ex)
@@ -313,18 +317,5 @@ public sealed class LibraryHealthViewModel : ReactiveObject
         }
     }
 
-    internal static string FormatBytes(long bytes)
-    {
-        string[] units = { "B", "KB", "MB", "GB", "TB" };
-        double size = bytes;
-        int unitIndex = 0;
-        while (size >= 1024 && unitIndex < units.Length - 1)
-        {
-            size /= 1024;
-            unitIndex++;
-        }
-        // Invariant culture: a locale using ',' as the decimal separator (e.g. nl-NL) would
-        // otherwise render "512,0 KB", which reads as a typo/thousands separator, not a decimal.
-        return $"{size.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} {units[unitIndex]}";
-    }
+    internal static string FormatBytes(long bytes) => SLSKDONET.Utils.NumFormat.Size(bytes);
 }

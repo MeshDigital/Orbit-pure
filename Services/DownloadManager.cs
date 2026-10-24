@@ -32,7 +32,8 @@ namespace SLSKDONET.Services;
 /// <summary>
 /// Orchestrates the download process for projects and individual tracks.
 /// "The Conductor" - manages the state machine and queue.
-/// Delegates search to DownloadDiscoveryService and enrichment to MetadataEnrichmentOrchestrator.
+/// Delegates search to DownloadDiscoveryService. Metadata enrichment of finished downloads is not
+/// done here: Enrichment.MetadataEnrichmentOrchestrator picks them up from FileIngestionCompletedEvent.
 /// </summary>
 public class DownloadManager : INotifyPropertyChanged, IDisposable
 {
@@ -264,7 +265,6 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         _eventBusSubs.Add(_eventBus.GetEvent<AutoDownloadUpgradeEvent>().Subscribe(OnAutoDownloadUpgrade));
         _eventBusSubs.Add(_eventBus.GetEvent<UpgradeAvailableEvent>().Subscribe(OnUpgradeAvailable));
         // Phase 6: Library Interactions
-        _eventBusSubs.Add(_eventBus.GetEvent<DownloadAlbumRequestEvent>().Subscribe(OnDownloadAlbumRequest));
         _eventBusSubs.Add(_eventBus.GetEvent<ForceStartRequestEvent>().Subscribe(e => _ = ForceStartTrack(e.TrackGlobalId)));
         // Per-job priority state (_jobEffectivePriority/_jobBasePriority/_jobFocused/_jobManualSortOrder)
         // was never removed when a playlist/job was deleted — every job ever created kept 4
@@ -284,63 +284,6 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         lock (_collectionLock)
         {
             return _downloads.Select(ctx => (ctx.Model, ctx.State)).ToList();
-        }
-    }
-
-    /// <summary>
-    /// Handles requests to download an entire album (Project or AlbumNode).
-    /// </summary>
-    private void OnDownloadAlbumRequest(DownloadAlbumRequestEvent e)
-    {
-        try
-        {
-            if (e.Album is PlaylistJob job)
-            {
-                _logger.LogInformation("ðŸ“¢ Processing DownloadAlbumRequest for Project: {Title}", job.SourceTitle);
-                
-                // Ensure tracks are loaded
-                 _ = Task.Run(async () =>
-                 {
-                     try
-                     {
-                         _logger.LogInformation("Loading tracks for project {Id}...", job.Id);
-                         var tracks = await _libraryService.LoadPlaylistTracksAsync(job.Id);
-
-                         if (tracks.Any())
-                         {
-                             _logger.LogInformation("Found {Count} tracks, queuing...", tracks.Count);
-                             QueueTracks(tracks);
-                             _logger.LogInformation("Queued {Count} tracks for project {Title}", tracks.Count, job.SourceTitle);
-                         }
-                         else
-                         {
-                             _logger.LogWarning("No tracks found for project {Title} (ID: {Id})", job.SourceTitle, job.Id);
-                         }
-                     }
-                     catch (Exception ex)
-                     {
-                         _logger.LogError(ex, "Failed to load and queue tracks for project {Title} (ID: {Id})", job.SourceTitle, job.Id);
-                     }
-                 });
-            }
-            else if (e.Album is ViewModels.Library.AlbumNode node)
-            {
-                _logger.LogInformation("Processing DownloadAlbumRequest for AlbumNode: {Title}", node.AlbumTitle);
-                var tracks = node.Tracks.Select(vm => vm.Model).ToList();
-                if (tracks.Any())
-                {
-                    QueueTracks(tracks);
-                    _logger.LogInformation("Queued {Count} tracks from AlbumNode {Title}", tracks.Count, node.AlbumTitle);
-                }
-            }
-            else
-            {
-                _logger.LogWarning("Unknown payload type for DownloadAlbumRequestEvent: {Type}", e.Album?.GetType().Name);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to handle DownloadAlbumRequestEvent");
         }
     }
 
@@ -375,6 +318,30 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     /// <summary>
     /// Checks if a track is already in the library or download queue.
     /// </summary>
+    /// <summary>
+    /// True when a matching track is waiting, searching or downloading right now (not finished,
+    /// failed or cancelled). The import preview uses it to label rows "Queued".
+    /// </summary>
+    public bool IsTrackInFlight(string? spotifyTrackId, string? artist, string? title)
+    {
+        static bool InFlight(DownloadContext d) => d.State is PlaylistTrackState.Pending
+            or PlaylistTrackState.Searching or PlaylistTrackState.Queued or PlaylistTrackState.Downloading
+            or PlaylistTrackState.Converting or PlaylistTrackState.Stalled or PlaylistTrackState.WaitingForConnection;
+
+        lock (_collectionLock)
+        {
+            if (!string.IsNullOrEmpty(spotifyTrackId) &&
+                _downloads.Any(d => InFlight(d) && d.Model.SpotifyTrackId == spotifyTrackId))
+                return true;
+
+            if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(title)) return false;
+
+            return _downloads.Any(d => InFlight(d) &&
+                string.Equals(d.Model.Artist, artist, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(d.Model.Title, title, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
     public bool IsTrackAlreadyQueued(string? spotifyTrackId, string artist, string title)
     {
         // A Paused context that isn't a genuine user-initiated pause is an OnHold track hydrated
@@ -538,8 +505,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 {
                     try
                     {
-                        // Mark the journal entry as dead-letter so it won't trigger again.
-                        await _crashJournal.MarkAsDeadLetterAsync(cp.Id);
+                        // Remove the journal entry so it won't trigger again. It used to be marked
+                        // dead-letter and was never removed, so every download in flight at close
+                        // inflated the Dashboard's "Failed retries" forever; the track itself is
+                        // reset below and carries the retry.
+                        await _crashJournal.CompleteCheckpointAsync(cp.Id);
                         // Reset the corresponding PlaylistTrack to Pending so it can be retried.
                         if (!string.IsNullOrEmpty(cp.TargetPath))
                             await _databaseService.ResetTrackToMissingByPathAsync(cp.TargetPath);
@@ -553,6 +523,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 }
                 if (resetCount > 0)
                     _logger.LogWarning("[CrashRecovery] Reset {Count} zombie downloads from previous session", resetCount);
+                // Clean up the dead letters earlier versions left behind for the same reason.
+                await _crashJournal.PurgeDeadLettersAsync(OperationType.Download);
             }
             catch (Exception journalEx)
             {
@@ -577,8 +549,14 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     /// Queues a project (a PlaylistJob) for processing and persists the job header and tracks.
     /// This is the preferred entry point for importing new multi-track projects.
     /// </summary>
-    public async Task QueueProject(PlaylistJob job)
+    /// <param name="userInitiated">
+    /// True for an import the user confirmed in the preview: new rows get priority 0, which also
+    /// bypasses the EnableAutoAcquireOnImport gate. Background syncs pass false (priority 10).
+    /// </param>
+    public async Task<Services.Import.ProjectQueueResult> QueueProject(PlaylistJob job, bool userInitiated = true)
     {
+        var result = Services.Import.ProjectQueueResult.None;
+
         // Add correlation context for all logs related to this job
         using (LogContext.PushProperty("PlaylistJobId", job.Id))
         using (LogContext.PushProperty("JobName", job.SourceTitle))
@@ -594,18 +572,13 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 // - skip already-present healthy tracks
                 // - reset/requeue failed or on-hold tracks
                 // - add truly new tracks
-                var existingByHash = new Dictionary<string, PlaylistTrack>(StringComparer.OrdinalIgnoreCase);
-                try 
+                var existingRows = new List<PlaylistTrack>();
+                try
                 {
                     var existingJob = await _libraryService.FindPlaylistJobAsync(job.Id);
                     if (existingJob != null)
                     {
-                        var persistedTracks = await _libraryService.LoadPlaylistTracksAsync(existingJob.Id);
-                        foreach (var t in persistedTracks)
-                        {
-                            if (!string.IsNullOrEmpty(t.TrackUniqueHash))
-                                existingByHash[t.TrackUniqueHash] = t;
-                        }
+                        existingRows = await _libraryService.LoadPlaylistTracksAsync(existingJob.Id);
                     }
                 }
                 catch (Exception ex)
@@ -613,41 +586,28 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     _logger.LogWarning(ex, "Failed to load existing tracks for gap analysis, proceeding cautiously");
                 }
 
-                // Build a local library index once per import to avoid per-track DB misses and enable tolerant matching.
-                var allLibraryEntries = await _libraryService.LoadAllLibraryEntriesAsync();
-                var libraryByHash = allLibraryEntries
-                    .Where(e => !string.IsNullOrWhiteSpace(e.UniqueHash))
-                    .GroupBy(e => e.UniqueHash, StringComparer.OrdinalIgnoreCase)
-                    .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.AddedAt).First(), StringComparer.OrdinalIgnoreCase);
-
-                var libraryBySpotifyId = allLibraryEntries
-                    .Where(e => !string.IsNullOrWhiteSpace(e.SpotifyTrackId))
-                    .GroupBy(e => e.SpotifyTrackId!, StringComparer.OrdinalIgnoreCase)
-                    .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.AddedAt).First(), StringComparer.OrdinalIgnoreCase);
-
-                var libraryByLooseIdentity = allLibraryEntries
-                    .Where(e => !string.IsNullOrWhiteSpace(e.Artist) && !string.IsNullOrWhiteSpace(e.Title))
-                    .GroupBy(e => BuildLooseIdentityKey(e.Artist, e.Title), StringComparer.Ordinal)
-                    .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.AddedAt).First(), StringComparer.Ordinal);
-
-                // Fuzzy candidate list: entries with both Artist+Title for non-Spotify imports that
-                // may have typos or formatting variations the exact/loose checks don't catch.
-                var libraryFuzzyCandidates = allLibraryEntries
-                    .Where(e => !string.IsNullOrWhiteSpace(e.Artist) && !string.IsNullOrWhiteSpace(e.Title))
-                    .OrderByDescending(e => e.AddedAt)
-                    .ToList();
+                // Same identity rules the import preview used to label rows Owned / In playlist
+                // (Services/Import/ImportMatching.cs), so the commit does what the preview said.
+                // Membership is matched by hash, the resolved library file's hash, Spotify id and
+                // a loose artist|title key. Rows linked from the library are stored under the
+                // library file's hash, so the old hash-only lookup never recognised them and
+                // every re-import of the same playlist appended those songs again.
+                var library = new Services.Import.LibraryMatchIndex(await _libraryService.LoadAllLibraryEntriesAsync());
+                var membership = new Services.Import.PlaylistMembershipIndex(existingRows);
 
                 _logger.LogInformation("Converting {OriginalTrackCount} OriginalTracks to PlaylistTracks (Existing: {ExistingCount})",
-                    job.OriginalTracks.Count, existingByHash.Count);
+                    job.OriginalTracks.Count, existingRows.Count);
 
                 var playlistTracks = new List<PlaylistTrack>();
                 var seenInBatch = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                int idx = existingByHash.Count + 1;
+                var touchedExisting = new HashSet<Guid>();
+                int idx = existingRows.Count + 1;
                 int retried = 0;
                 int skipped = 0;
                 int added = 0;
                 int linkedFromLibrary = 0;
                 int reconciledExisting = 0;
+                int invalidOrRepeated = 0;
 
                 foreach (var track in job.OriginalTracks)
                 {
@@ -655,18 +615,29 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     if (string.IsNullOrWhiteSpace(hash) || !seenInBatch.Add(hash))
                     {
                         _logger.LogDebug("Skipping track '{Title}' - invalid/duplicate hash in current batch", track.Title);
+                        invalidOrRepeated++;
                         continue;
                     }
 
-                    if (existingByHash.TryGetValue(hash, out var existingTrack))
+                    var existingLibraryEntry = library.Resolve(track.Artist, track.Title, track.SpotifyTrackId, hash);
+                    var existingTrack = membership.Find(hash, existingLibraryEntry?.UniqueHash, track.SpotifyTrackId, track.Artist, track.Title);
+
+                    if (existingTrack != null)
                     {
-                        if (existingTrack.Status != TrackStatus.Downloaded && libraryByHash.TryGetValue(hash, out var existingEntryByHash))
+                        if (!touchedExisting.Add(existingTrack.Id))
+                        {
+                            // Two incoming rows resolved to the same existing playlist row.
+                            invalidOrRepeated++;
+                            continue;
+                        }
+
+                        if (existingTrack.Status != TrackStatus.Downloaded && existingLibraryEntry != null)
                         {
                             existingTrack.Status = TrackStatus.Downloaded;
                             existingTrack.ResolvedFilePath = string.IsNullOrWhiteSpace(existingTrack.ResolvedFilePath)
-                                ? existingEntryByHash.FilePath
+                                ? existingLibraryEntry.FilePath
                                 : existingTrack.ResolvedFilePath;
-                            existingTrack.TrackUniqueHash = existingEntryByHash.UniqueHash;
+                            existingTrack.TrackUniqueHash = existingLibraryEntry.UniqueHash;
                             existingTrack.CompletedAt ??= DateTime.UtcNow;
                             existingTrack.SourcePlaylistId = job.Id;
                             existingTrack.SourcePlaylistName = job.SourceTitle;
@@ -677,7 +648,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                             continue;
                         }
 
-                        if (existingTrack.Status == TrackStatus.Failed || existingTrack.Status == TrackStatus.OnHold)
+                        if (Services.Import.PlaylistMembershipIndex.NeedsRetry(existingTrack))
                         {
                             existingTrack.Artist = track.Artist ?? existingTrack.Artist;
                             existingTrack.Title = track.Title ?? existingTrack.Title;
@@ -690,11 +661,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                             existingTrack.Popularity = track.Popularity != 0 ? track.Popularity : existingTrack.Popularity;
                             existingTrack.CanonicalDuration = track.CanonicalDuration > 0 ? track.CanonicalDuration : existingTrack.CanonicalDuration;
                             existingTrack.ReleaseDate = track.ReleaseDate ?? existingTrack.ReleaseDate;
-                            
+
                             // Phase 7.1 Fix: Ensure playlist context is updated for merged tracks
                             existingTrack.SourcePlaylistId = job.Id;
                             existingTrack.SourcePlaylistName = job.SourceTitle;
-                            
+
                             existingTrack.Status = TrackStatus.Missing;
                             existingTrack.SearchRetryCount = 0;
                             existingTrack.NotFoundRestartCount = 0;
@@ -704,22 +675,13 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         }
                         else
                         {
-                            // Even if already downloaded, update the source metadata so it shows up in the right group if viewed
-                            existingTrack.SourcePlaylistId = job.Id;
-                            existingTrack.SourcePlaylistName = job.SourceTitle;
+                            // Already in this playlist and healthy (downloaded or still in flight).
                             skipped++;
                         }
 
                         continue;
                     }
 
-                    var existingLibraryEntry = ResolveExistingLibraryEntryForImport(
-                        track,
-                        hash,
-                        libraryByHash,
-                        libraryBySpotifyId,
-                        libraryByLooseIdentity,
-                        libraryFuzzyCandidates);
                     var shouldMarkDownloaded = existingLibraryEntry != null;
 
                     playlistTracks.Add(new PlaylistTrack
@@ -740,7 +702,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         CompletedAt = shouldMarkDownloaded ? DateTime.UtcNow : null,
                         // Priority 0 = explicit user import — bypasses the EnableAutoAcquireOnImport gate
                         // and places the track in the VIP download lane.  Background syncs use 10.
-                        Priority = shouldMarkDownloaded ? 10 : 0,
+                        Priority = shouldMarkDownloaded || !userInitiated ? 10 : 0,
                         // Map Metadata if available from import
                         SourcePlaylistId = job.Id,
                         SourcePlaylistName = job.SourceTitle,
@@ -763,16 +725,18 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 }
 
                 _logger.LogInformation(
-                    "Merge result for job {JobId}: {Added} new ({LinkedFromLibrary} linked from library), {Retried} retried, {ReconciledExisting} reconciled existing to downloaded, {Skipped} unchanged existing",
+                    "Merge result for job {JobId}: {Added} new ({LinkedFromLibrary} linked from library), {Retried} retried, {ReconciledExisting} reconciled existing to downloaded, {Skipped} unchanged existing, {Invalid} invalid/repeated",
                     job.Id,
                     added,
                     linkedFromLibrary,
                     retried,
                     reconciledExisting,
-                    skipped);
+                    skipped,
+                    invalidOrRepeated);
 
                 job.PlaylistTracks = playlistTracks;
-                job.TotalTracks = existingByHash.Count + added;
+                job.TotalTracks = existingRows.Count + added;
+                result = new Services.Import.ProjectQueueResult(added, linkedFromLibrary, retried, reconciledExisting, skipped, invalidOrRepeated);
             }
 
             _logger.LogInformation("Queueing project with {TrackCount} tracks", job.PlaylistTracks.Count);
@@ -806,81 +770,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             // Duplicate event removed: LibraryService already publishes ProjectAddedEvent
             // _eventBus.Publish(new ProjectAddedEvent(job.Id));
         }
-    }
 
-    private const double FuzzyLibraryMatchThreshold = 0.88;
-
-    private static LibraryEntry? ResolveExistingLibraryEntryForImport(
-        Track track,
-        string trackHash,
-        IReadOnlyDictionary<string, LibraryEntry> libraryByHash,
-        IReadOnlyDictionary<string, LibraryEntry> libraryBySpotifyId,
-        IReadOnlyDictionary<string, LibraryEntry> libraryByLooseIdentity,
-        IReadOnlyList<LibraryEntry>? libraryFuzzyCandidates = null)
-    {
-        // Fast path: exact unique-hash lookup.
-        if (!string.IsNullOrWhiteSpace(trackHash) && libraryByHash.TryGetValue(trackHash, out var byHash))
-            return byHash;
-
-        var artist = track.Artist ?? string.Empty;
-        var title = track.Title ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(title))
-            return null;
-
-        // Spotify ID: most precise cross-format identifier.
-        if (!string.IsNullOrWhiteSpace(track.SpotifyTrackId) &&
-            libraryBySpotifyId.TryGetValue(track.SpotifyTrackId, out var bySpotifyId))
-            return bySpotifyId;
-
-        // Loose identity: exact match after stripping spaces and non-alphanum.
-        var looseKey = BuildLooseIdentityKey(artist, title);
-        if (!string.IsNullOrWhiteSpace(looseKey) && libraryByLooseIdentity.TryGetValue(looseKey, out var byLooseIdentity))
-            return byLooseIdentity;
-
-        // Fuzzy fallback: catch typos and minor formatting variations in paste imports
-        // that don't have Spotify IDs to anchor on.  Only scores artist+title together
-        // so a high threshold (0.88) avoids false positives across different tracks.
-        if (libraryFuzzyCandidates != null && libraryFuzzyCandidates.Count > 0)
-        {
-            var inputKey = Utils.StringDistanceUtils.Normalize($"{artist} {title}");
-            LibraryEntry? bestEntry = null;
-            double bestScore = 0;
-            foreach (var candidate in libraryFuzzyCandidates)
-            {
-                var candidateKey = Utils.StringDistanceUtils.Normalize($"{candidate.Artist} {candidate.Title}");
-                var score = Utils.StringDistanceUtils.GetNormalizedMatchScore(inputKey, candidateKey);
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    bestEntry = candidate;
-                }
-            }
-            if (bestScore >= FuzzyLibraryMatchThreshold && bestEntry != null)
-                return bestEntry;
-        }
-
-        return null;
-    }
-
-    private static string BuildLooseIdentityKey(string artist, string title)
-    {
-        var normalizedArtist = NormalizeForLooseIdentity(artist);
-        var normalizedTitle = NormalizeForLooseIdentity(title);
-
-        if (string.IsNullOrWhiteSpace(normalizedArtist) || string.IsNullOrWhiteSpace(normalizedTitle))
-        {
-            return string.Empty;
-        }
-
-        return $"{normalizedArtist}|{normalizedTitle}";
-    }
-
-    private static string NormalizeForLooseIdentity(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
-
-        var chars = value.ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray();
-        return new string(chars);
+        return result;
     }
 
     /// <summary>
@@ -1520,10 +1411,18 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     _logger.LogWarning(ex, "Failed to update AvailabilityState to LocalUnanalyzed in DB for {Id}", ctx.Model.Id);
                 }
 
-                _eventBus.Publish(new TrackAnalysisRequestedEvent(
-                    queuedHash,
-                    AnalysisTier.Tier1,
-                    IsHighPriority: true));
+                // Settings → Library / setup wizard: "Analyse new downloads automatically".
+                if (_config.AnalyzeNewDownloads)
+                {
+                    _eventBus.Publish(new TrackAnalysisRequestedEvent(
+                        queuedHash,
+                        AnalysisTier.Tier1,
+                        IsHighPriority: true));
+                }
+                else
+                {
+                    _logger.LogDebug("Auto-analysis of new downloads is off; {Track} stays unanalysed until queued manually", ctx.Model.Title);
+                }
             }
 
             await _libraryService.AddTrackToLibraryIndexAsync(ctx.Model, ctx.Model.ResolvedFilePath);
@@ -3412,7 +3311,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     ctx.Model.Priority = 20; // LOW PRIORITY: Send retries to back of queue
                     var delayDesc = retryDelay.TotalSeconds < 60
                         ? $"{retryDelay.TotalSeconds:0}s"
-                        : $"{retryDelay.TotalMinutes:0.#}m";
+                        : NumFormat.Ui($"{retryDelay.TotalMinutes:0.#}m");
                     await UpdateStateAsync(ctx, PlaylistTrackState.Pending, $"Retrying in {delayDesc}: {transferDisposition.OperatorMessage}");
                     _logger.LogInformation("Scheduled retry #{Count} for {GlobalId} at {Time} (low priority, delay={Delay})",
                         ctx.RetryCount, ctx.GlobalId, ctx.NextRetryTime, delayDesc);
@@ -3543,13 +3442,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         await UpdateStateAsync(ctx, PlaylistTrackState.Downloading);
         _peerReliability.RecordDownloadStarted(bestMatch.Username);
 
-        static string FormatBytes(long value)
-        {
-            if (value >= 1024L * 1024L * 1024L) return $"{value / 1024d / 1024d / 1024d:F2} GB";
-            if (value >= 1024L * 1024L) return $"{value / 1024d / 1024d:F2} MB";
-            if (value >= 1024L) return $"{value / 1024d:F1} KB";
-            return $"{value} B";
-        }
+        static string FormatBytes(long value) => SLSKDONET.Utils.NumFormat.Size(value);
 
         _eventBus.Publish(new Events.TrackDetailedStatusEvent(
             ctx.GlobalId,
@@ -3728,7 +3621,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         long lastHeartbeatBytes = startPosition;
         long lastThroughputBytes = startPosition;
         bool stalledByMonitor = false;
-        
+        bool journalWarned = false;
+
         var heartbeatTask = Task.Run(async () =>
         {
             try
@@ -3785,18 +3679,32 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     }
 
                     // PERFORMANCE: Only update if progress > 1KB to reduce SQLite overhead
-                    if (currentBytes > 0 && currentBytes > lastHeartbeatBytes + 1024)
+                    if (currentBytes > 0 && currentBytes > lastHeartbeatBytes + 1024 && checkpointId != null)
                     {
                         checkpointState.BytesDownloaded = currentBytes;
-                        
-                        // SSD OPTIMIZATION: Skip if no meaningful progress (built into UpdateHeartbeatAsync)
-                        await _crashJournal.UpdateHeartbeatAsync(
-                            checkpointId!,
-                            JsonSerializer.Serialize(checkpointState), // Serialize in heartbeat thread
-                            lastHeartbeatBytes,
-                            currentBytes);
-                        
-                        lastHeartbeatBytes = currentBytes;
+
+                        // Backlog C8: the checkpoint write shares this loop with stall detection.
+                        // A journal failure (e.g. SQLITE_BUSY) used to escape to the outer catch,
+                        // which ended the loop — silently switching stall detection off for the
+                        // rest of the download. Contain it; the next tick retries.
+                        try
+                        {
+                            // SSD OPTIMIZATION: Skip if no meaningful progress (built into UpdateHeartbeatAsync)
+                            await _crashJournal.UpdateHeartbeatAsync(
+                                checkpointId,
+                                JsonSerializer.Serialize(checkpointState), // Serialize in heartbeat thread
+                                lastHeartbeatBytes,
+                                currentBytes);
+                            lastHeartbeatBytes = currentBytes;
+                        }
+                        catch (Exception journalEx) when (journalEx is not OperationCanceledException)
+                        {
+                            if (!journalWarned)
+                            {
+                                journalWarned = true;
+                                _logger.LogWarning(journalEx, "Crash-journal heartbeat write failed for {GlobalId}; stall detection continues", ctx.GlobalId);
+                            }
+                        }
                         
                         _logger.LogTrace("Heartbeat: {Current}/{Total} bytes ({Percent}%)",
                             currentBytes, checkpointState.ExpectedSize, 

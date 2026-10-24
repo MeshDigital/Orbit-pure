@@ -92,13 +92,13 @@ public class StatusBarViewModel : ReactiveObject, IDisposable
         set => this.RaiseAndSetIfChanged(ref _isSharing, value);
     }
 
-    /// <summary>Hex colour for the share-health LED.</summary>
+    /// <summary>Hex colour for the share-health LED (Themes/DesignTokens.axaml ColorSuccess/Warning/Error/Text3).</summary>
     public string ShareHealthColor => ReputationLevel switch
     {
-        ReputationLevel.Healthy  => "#1DB954", // green
-        ReputationLevel.Low      => "#FFA500", // amber
-        ReputationLevel.Critical => "#F44336", // red
-        _                        => "#666666",
+        ReputationLevel.Healthy  => "#4CC38A", // ColorSuccess
+        ReputationLevel.Low      => "#E5A645", // ColorWarning
+        ReputationLevel.Critical => "#E5605A", // ColorError
+        _                        => "#5C626B", // ColorText3
     };
 
     /// <summary>Tooltip text surfaced when the user hovers the share LED.</summary>

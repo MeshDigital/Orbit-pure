@@ -179,6 +179,18 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             float[] mono = Array.Empty<float>();
             if (pcmSamples.Length > 0)
             {
+                // Integrated loudness (BS.1770 / EBU R128) for the inspector and loudness-normalised
+                // playback. 0 = not measured (the column is NOT NULL); readers treat ≥ 0 as unknown.
+                try
+                {
+                    features.LoudnessLUFS = (float)(IntegratedLoudnessMeter.MeasureIntegratedLufs(pcmSamples, pcmSampleRate, pcmChannels) ?? IntegratedLoudnessMeter.SilentMarker);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex, "[AudioAnalysis] Loudness measurement failed for {File}; loudness stays unknown.",
+                        Path.GetFileName(filePath));
+                }
+
                 // Real per-second (1.0s window) RMS energy curve — independent of Essentia, so
                 // drop/phrase detection (CuePointDetectionService, AnalyzeTrackStructureJob) gets
                 // a genuine time-series signal to work with even when the optional Essentia binary
@@ -339,8 +351,9 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                         }
                     }
 
-                    if (essentiaOutput.LowLevel?.AverageLoudness is > 0 and var loudness)
-                        features.LoudnessLUFS = loudness;
+                    // LoudnessLUFS is measured from the PCM above (IntegratedLoudnessMeter). Essentia's
+                    // lowlevel.average_loudness is a 0–1 dynamic-range descriptor, not LUFS; storing it
+                    // here showed "0.8 LUFS" and made loudness normalisation cut every track ~15 dB.
                     if (essentiaOutput.Rhythm?.Danceability is > 0 and var dance)
                         features.Danceability = dance;
 

@@ -4,1034 +4,733 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:models="clr-namespace:SLSKDONET.Models"
+             xmlns:svc="clr-namespace:SLSKDONET.Services"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              xmlns:avConverters="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
              mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="800"
              x:Class="SLSKDONET.Views.Avalonia.AnalysisPage"
              x:DataType="vm:AnalysisPageViewModel"
+             x:CompileBindings="True"
              SizeChanged="OnPageSizeChanged"
-             Background="{DynamicResource BrushBg1}" Foreground="White">
+             Background="{StaticResource BrushBg1}"
+             Foreground="{StaticResource BrushText0}">
+
+    <!-- Analysis. Layout contract (DOCS/UI_DESIGN_SYSTEM.md):
+         header (title + pipeline state left; run metrics, Start analysis, overflow right)
+         → library stats strip + notices (incomplete analysis, integrity scan) in a capped scroll area
+         → two panes: Library (search + track list) | Queue (staged + finished runs).
+         On narrow windows a segmented Library|Queue switch shows one pane at a time. -->
 
     <UserControl.Styles>
-
-        <!-- ── Chip / badge ─────────────────────────────────────────────────── -->
-        <Style Selector="Border.chip">
-            <Setter Property="CornerRadius" Value="10"/>
-            <Setter Property="Padding" Value="8,3"/>
-            <Setter Property="Margin" Value="3,2"/>
+        <!-- Track rows: 40px, hover tint. -->
+        <Style Selector="Border.an-row">
+            <Setter Property="MinHeight" Value="40"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}"/>
         </Style>
-
-        <!-- ── Queue / library row ──────────────────────────────────────────── -->
-        <Style Selector="Border.trackRow">
-            <Setter Property="Background" Value="{DynamicResource BrushBg2}"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="Padding" Value="10,8"/>
-            <Setter Property="Margin" Value="0,2"/>
+        <Style Selector="Border.an-row:pointerover">
+            <Setter Property="Background" Value="{StaticResource BrushHover}"/>
         </Style>
-        <Style Selector="Border.trackRow:pointerover">
-            <Setter Property="Background" Value="{DynamicResource BrushBg3}"/>
+        <!-- Stat values and inline numbers: mono so columns don't jitter. -->
+        <Style Selector="TextBlock.stat-value">
+            <Setter Property="FontFamily" Value="{StaticResource FontMono}"/>
+            <Setter Property="FontSize" Value="{StaticResource TextSizeH3}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText0}"/>
         </Style>
-
-        <!-- ── Primary action button ────────────────────────────────────────── -->
-        <Style Selector="Button.primary">
-            <Setter Property="Background" Value="{DynamicResource BrushAccent}"/>
-            <Setter Property="Foreground" Value="Black"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="Padding" Value="16,8"/>
+        <Style Selector="TextBlock.num">
+            <Setter Property="FontFamily" Value="{StaticResource FontMono}"/>
+            <Setter Property="FontSize" Value="{StaticResource TextSizeCaption}"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText1}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
-        <Style Selector="Button.primary:pointerover">
-            <Setter Property="Background" Value="{DynamicResource BrushAccentDim}"/>
+        <!-- Phrase timeline blocks: neutral, the drop is the one highlighted block. -->
+        <Style Selector="Border.phrase">
+            <Setter Property="Height" Value="16"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusXs}"/>
+            <Setter Property="Background" Value="{StaticResource BrushBg4}"/>
         </Style>
-        <Style Selector="Button.primary:disabled">
-            <Setter Property="Background" Value="{DynamicResource BrushBorder1}"/>
-            <Setter Property="Foreground" Value="{DynamicResource BrushText2}"/>
-        </Style>
-
-        <!-- ── Secondary action button ──────────────────────────────────────── -->
-        <Style Selector="Button.secondary">
-            <Setter Property="Background" Value="{DynamicResource BrushBg2}"/>
-            <Setter Property="Foreground" Value="{DynamicResource BrushAccent}"/>
-            <Setter Property="FontSize" Value="11"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="Padding" Value="10,5"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource BrushAccent}"/>
+        <Style Selector="Border.phrase.drop">
+            <Setter Property="Background" Value="{StaticResource BrushAccentSubtle}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccentBorder}"/>
             <Setter Property="BorderThickness" Value="1"/>
         </Style>
-        <Style Selector="Button.secondary:pointerover">
-            <Setter Property="Background" Value="{DynamicResource BrushAccentSubtle}"/>
+        <Style Selector="ProgressBar.meter.inline">
+            <Setter Property="Width" Value="56"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
-        <Style Selector="Button.secondary:disabled">
-            <Setter Property="Background" Value="{DynamicResource BrushBg2}"/>
-            <Setter Property="Foreground" Value="{DynamicResource BrushTextDisabled}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource BrushBorder1}"/>
-        </Style>
-
-        <!-- ── Danger / remove button ───────────────────────────────────────── -->
-        <Style Selector="Button.removeBtn">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{DynamicResource BrushError}"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Padding" Value="4,2"/>
-            <Setter Property="BorderThickness" Value="0"/>
-        </Style>
-        <Style Selector="Button.removeBtn:pointerover">
-            <Setter Property="Foreground" Value="{DynamicResource BrushError}"/>
-        </Style>
-
-        <!-- ── Add button ───────────────────────────────────────────────────── -->
-        <Style Selector="Button.addBtn">
-            <Setter Property="Background" Value="{DynamicResource BrushAccent}"/>
-            <Setter Property="Foreground" Value="Black"/>
-            <Setter Property="CornerRadius" Value="16"/>
-            <Setter Property="Width" Value="30"/>
-            <Setter Property="Height" Value="30"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="FontSize" Value="16"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="HorizontalContentAlignment" Value="Center"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-        </Style>
-        <Style Selector="Button.addBtn:disabled">
-            <Setter Property="Background" Value="{DynamicResource BrushAccentSubtle}"/>
-            <Setter Property="Foreground" Value="{DynamicResource BrushAccent}"/>
-            <Setter Property="Opacity" Value="0.7"/>
-        </Style>
-
     </UserControl.Styles>
 
-    <!-- ═══════════════════════════════════════════════════════════════════════
-         Root layout: header + two-pane body
+    <Grid RowDefinitions="Auto,Auto,*">
 
-         Wrapped in an outer ScrollViewer (HorizontalScrollBarVisibility="Disabled" —
-         see the Library sidebar fix for why that matters, same failure shape) so the whole page
-         has a scroll fallback: on a shorter window, the header + queue-metrics row could exceed
-         the available height on their own, squeezing the two-pane body's "*" row toward zero with
-         no way to reach it. The row spec below changes from "Auto,Auto,*" to "Auto,Auto,Auto" to
-         match — a star row measured against the effectively-infinite height an outer ScrollViewer
-         offers just becomes "however tall the content wants", the same as Auto.
-    ════════════════════════════════════════════════════════════════════════ -->
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-    <Grid RowDefinitions="Auto,Auto,Auto">
-
-        <!-- ── Page Header ────────────────────────────────────────────────── -->
-        <Border Grid.Row="0"
-                Background="{DynamicResource BrushBg0}"
-                BorderBrush="{DynamicResource BrushBorder1}"
-                BorderThickness="0,0,0,1"
-                Padding="20,14">
-            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                <TextBlock Text="🔬" FontSize="22" VerticalAlignment="Center"/>
-                <StackPanel VerticalAlignment="Center">
-                    <TextBlock Text="Audio Analysis Pipeline"
-                               FontSize="18" FontWeight="Bold" Foreground="White"/>
-                    <TextBlock Text="Queue tracks for ML analysis · Inspect results"
-                               FontSize="12" Foreground="{DynamicResource BrushText1}"/>
-                </StackPanel>
-
-                <!-- Processing state label -->
-                <Border CornerRadius="10" Padding="10,4" Margin="16,0,0,0"
-                        Background="{DynamicResource BrushBg2}">
-                    <TextBlock Text="{Binding ProcessingState}"
-                               FontSize="11" FontWeight="SemiBold"
-                               Foreground="{DynamicResource BrushAccent}"/>
-                </Border>
-
-                <!-- Queue runtime metrics (avg time · throughput · elapsed) -->
-                <StackPanel Orientation="Horizontal" Spacing="20" Margin="16,0,0,0"
-                            IsVisible="{Binding HasQueueMetrics}"
-                            VerticalAlignment="Center">
-                    <StackPanel>
-                        <TextBlock Text="AVG TIME" FontSize="9" Foreground="{DynamicResource BrushText2}" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding AvgAnalysisTimeDisplay}" FontSize="12" Foreground="{DynamicResource BrushAccent}" FontWeight="SemiBold"/>
-                    </StackPanel>
-                    <StackPanel>
-                        <TextBlock Text="THROUGHPUT" FontSize="9" Foreground="{DynamicResource BrushText2}" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding ThroughputDisplay}" FontSize="12" Foreground="{DynamicResource BrushAccent}" FontWeight="SemiBold"/>
-                    </StackPanel>
-                    <StackPanel>
-                        <TextBlock Text="ELAPSED" FontSize="9" Foreground="{DynamicResource BrushText2}" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding ElapsedTimeDisplay}" FontSize="12" Foreground="{DynamicResource BrushAccent}" FontWeight="SemiBold"/>
-                    </StackPanel>
-                </StackPanel>
-            </StackPanel>
-        </Border>
-
-        <Border Grid.Row="1"
-                Margin="16,12,16,0"
-                Background="{DynamicResource BrushBg1}"
-                BorderBrush="{DynamicResource BrushBorder1}"
-                BorderThickness="1"
-                CornerRadius="12"
-                Padding="12">
-            <StackPanel Spacing="10">
-                <Border Background="{DynamicResource BrushError}" Opacity="0.15"
-                        BorderBrush="{DynamicResource BrushError}" BorderThickness="1"
-                        CornerRadius="8" Padding="10,7"
-                        IsVisible="{Binding LibraryLoadErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                    <TextBlock Text="{Binding LibraryLoadErrorMessage}"
-                               FontSize="11" Foreground="{DynamicResource BrushError}" TextWrapping="Wrap"/>
-                </Border>
-                <Grid ColumnDefinitions="*,*,*,*,*">
-                    <Border Grid.Column="0" Background="{DynamicResource BrushBg2}" CornerRadius="10" Padding="12,10">
-                        <StackPanel Spacing="2">
-                            <TextBlock Text="ON DISK" FontSize="10" Foreground="{DynamicResource BrushText1}" FontWeight="SemiBold"/>
-                            <TextBlock Text="{Binding OnDiskIndexedTrackCount}" FontSize="22" FontWeight="Bold" Foreground="White"/>
-                            <TextBlock Text="Indexed and physically present" FontSize="11" Foreground="{DynamicResource BrushText1}"/>
-                        </StackPanel>
-                    </Border>
-                <Border Grid.Column="1" Background="{DynamicResource BrushAccentSubtle}" CornerRadius="10" Padding="12,10">
-                    <StackPanel Spacing="2">
-                        <TextBlock Text="ANALYZED" FontSize="10" Foreground="{DynamicResource BrushSuccess}" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding AnalyzedTrackCount}" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource BrushText0}"/>
-                        <TextBlock Text="{Binding CompletionRateDisplay, StringFormat='{}{0} complete'}" FontSize="11" Foreground="{DynamicResource BrushText1}"/>
-                    </StackPanel>
-                </Border>
-                <Border Grid.Column="2" Background="{DynamicResource BrushBg2}" CornerRadius="10" Padding="12,10">
-                    <StackPanel Spacing="2">
-                        <TextBlock Text="PENDING" FontSize="10" Foreground="{DynamicResource BrushWarning}" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding PendingTrackCount}" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource BrushText0}"/>
-                        <TextBlock Text="Awaiting analysis" FontSize="11" Foreground="{DynamicResource BrushText1}"/>
-                    </StackPanel>
-                </Border>
-                <Border Grid.Column="3" Background="{DynamicResource BrushBg2}" CornerRadius="10" Padding="12,10">
-                    <StackPanel Spacing="2">
-                        <TextBlock Text="QUEUE" FontSize="10" Foreground="{DynamicResource BrushInfo}" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding QueueTrackCount}" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource BrushText0}"/>
-                        <TextBlock Text="Ready for next run" FontSize="11" Foreground="{DynamicResource BrushText1}"/>
-                    </StackPanel>
-                </Border>
-                <Border Grid.Column="4" Background="{DynamicResource BrushBg2}" CornerRadius="10" Padding="12,10">
-                    <StackPanel Spacing="2">
-                        <TextBlock Text="WANTED" FontSize="10" Foreground="{DynamicResource BrushStemOther}" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding DesiredDownloadCount}" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource BrushText0}"/>
-                        <TextBlock Text="Pending/hold/failed targets" FontSize="11" Foreground="{DynamicResource BrushText1}"/>
-                    </StackPanel>
-                </Border>
-                </Grid>
-                <Border Background="{DynamicResource BrushBg2}"
-                        BorderBrush="{DynamicResource BrushBorder2}"
-                        BorderThickness="1"
-                        CornerRadius="8"
-                        Padding="10,7">
-                    <TextBlock Text="{Binding LibraryCountDifferentiationSummary}"
-                               FontSize="11"
-                               Foreground="{DynamicResource BrushText1}"
-                               TextWrapping="Wrap"/>
-                </Border>
-            </StackPanel>
-        </Border>
-
-        <!-- ── Two-pane body ─────────────────────────────────────────────── -->
-        <Grid Grid.Row="2" ColumnDefinitions="1*,Auto,1*" RowDefinitions="Auto,*">
-
-            <Border Grid.Row="0"
-                    Grid.Column="0"
-                    Grid.ColumnSpan="3"
-                    Margin="16,8,16,0"
-                    Padding="8,6"
-                    Background="{DynamicResource BrushBg2}"
-                    BorderBrush="{DynamicResource BrushBorder2}"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    IsVisible="{Binding IsCompactLayout}">
+        <!-- ═══ Header ═══════════════════════════════════════════════════════════════════ -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="24,16,24,12">
+            <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                <TextBlock Classes="h1" Text="Analysis"/>
                 <StackPanel Orientation="Horizontal" Spacing="8">
-                    <ToggleButton Classes="secondary"
+                    <Ellipse Classes="status-dot" Classes.accent="{Binding IsProcessing}" VerticalAlignment="Center"/>
+                    <TextBlock Classes="subtitle" Text="{Binding ProcessingState}"/>
+                    <TextBlock Classes="subtitle muted" Text="·"/>
+                    <TextBlock Classes="subtitle">
+                        <Run Text="{Binding AnalyzedTrackCount}" FontFamily="{StaticResource FontMono}"/>
+                        <Run Text="of"/>
+                        <Run Text="{Binding TotalTrackCount}" FontFamily="{StaticResource FontMono}"/>
+                        <Run Text="tracks analysed"/>
+                    </TextBlock>
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                <!-- Run metrics, only once a run has something to report -->
+                <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center"
+                            IsVisible="{Binding HasQueueMetrics}">
+                    <StackPanel ToolTip.Tip="Average analysis time per track this session">
+                        <TextBlock Classes="stat-value" HorizontalAlignment="Right" Text="{Binding AvgAnalysisTimeDisplay}"/>
+                        <TextBlock Classes="caption" Text="avg / track" HorizontalAlignment="Right"/>
+                    </StackPanel>
+                    <StackPanel ToolTip.Tip="Tracks analysed per minute this session">
+                        <TextBlock Classes="stat-value" HorizontalAlignment="Right" Text="{Binding ThroughputDisplay}"/>
+                        <TextBlock Classes="caption" Text="throughput" HorizontalAlignment="Right"/>
+                    </StackPanel>
+                    <StackPanel ToolTip.Tip="Time since this analysis session started">
+                        <TextBlock Classes="stat-value" HorizontalAlignment="Right" Text="{Binding ElapsedTimeDisplay}"/>
+                        <TextBlock Classes="caption" Text="elapsed" HorizontalAlignment="Right"/>
+                    </StackPanel>
+                    <Border Classes="divider vertical" Height="32"/>
+                </StackPanel>
+
+                <Button Classes="primary" Command="{Binding StartAnalysisCommand}"
+                        IsEnabled="{Binding CanStartAnalysis}"
+                        ToolTip.Tip="Analyse every track in the queue">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="{StaticResource icon_play}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                        <TextBlock Text="Start analysis"/>
+                    </StackPanel>
+                </Button>
+
+                <Button Classes="icon" ToolTip.Tip="More actions">
+                    <PathIcon Data="{StaticResource icon_more}" Width="{StaticResource IconSizeMd}" Height="{StaticResource IconSizeMd}"/>
+                    <Button.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                            <MenuItem Header="Re-analyse incomplete tracks" Command="{Binding ReanalyzeAllIncompleteCommand}"
+                                      ToolTip.Tip="Clear stale analysis payloads and queue every incomplete track again"/>
+                            <MenuItem Header="Regenerate all cues" Command="{Binding RegenerateAllCuesCommand}"
+                                      ToolTip.Tip="Re-map cue points for every analysed track from its stored data. Fast, no re-analysis. Use after a cue-detection change."/>
+                            <MenuItem Header="Force re-analyse entire library" Command="{Binding ReanalyzeAllTracksCommand}"
+                                      ToolTip.Tip="Queue every track for a fresh pass, even ones that look complete. Use after a detection pipeline upgrade."/>
+                            <Separator/>
+                            <MenuItem Header="Scan library integrity" Command="{Binding ScanLibraryIntegrityCommand}"
+                                      IsEnabled="{Binding CanScanIntegrity}"
+                                      ToolTip.Tip="Probe every local file for corruption (FFmpeg + NAudio)"/>
+                            <Separator IsVisible="{Binding IsDeveloperMode}"/>
+                            <MenuItem Header="Run filter-latency probe" Command="{Binding RunPerformanceProbeCommand}"
+                                      IsVisible="{Binding IsDeveloperMode}"/>
+                            <MenuItem Header="Copy diagnostics snapshot" Command="{Binding CopyPerformanceSnapshotCommand}"
+                                      IsVisible="{Binding IsDeveloperMode}"/>
+                            <MenuItem Header="Clear probe history" Command="{Binding ClearPerformanceProbeHistoryCommand}"
+                                      IsVisible="{Binding IsDeveloperMode}"/>
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <!-- ═══ Stats + notices (capped so the panes below always keep their space) ═══════ -->
+        <ScrollViewer Grid.Row="1" MaxHeight="320" Margin="24,0,24,0"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="12">
+
+                <!-- Library stats strip -->
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="*,*,*,*,*">
+                            <StackPanel Grid.Column="0" Spacing="2" ToolTip.Tip="Indexed and physically present on disk">
+                                <TextBlock Classes="section" Text="ON DISK"/>
+                                <TextBlock Classes="stat-value" Text="{Binding OnDiskIndexedTrackCount}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="4" Margin="0,0,24,0">
+                                <TextBlock Classes="section" Text="ANALYSED"/>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Classes="stat-value" Text="{Binding AnalyzedTrackCount}"/>
+                                    <TextBlock Classes="num" Text="{Binding CompletionRateDisplay}"/>
+                                </StackPanel>
+                                <ProgressBar Classes="meter" Value="{Binding AnalyzedTrackCount}" Maximum="{Binding TotalTrackCount}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Spacing="2" ToolTip.Tip="Tracks with no analysis yet">
+                                <TextBlock Classes="section" Text="PENDING"/>
+                                <TextBlock Classes="stat-value" Text="{Binding PendingTrackCount}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="3" Spacing="2" ToolTip.Tip="Tracks staged for the next run">
+                                <TextBlock Classes="section" Text="QUEUED"/>
+                                <TextBlock Classes="stat-value" Text="{Binding QueueTrackCount}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="4" Spacing="2" ToolTip.Tip="Pending, on-hold or failed download targets">
+                                <TextBlock Classes="section" Text="WANTED"/>
+                                <TextBlock Classes="stat-value" Text="{Binding DesiredDownloadCount}"/>
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock Classes="caption" Text="{Binding LibraryCountDifferentiationSummary}" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Incomplete analysis notice -->
+                <Border Classes="card" BorderBrush="{StaticResource BrushWarningBorder}"
+                        IsVisible="{Binding HasIncompleteAnalysisTracks}">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <PathIcon Grid.Column="0" Data="{StaticResource icon_alert}" Foreground="{StaticResource BrushWarning}"
+                                      Width="{StaticResource IconSizeMd}" Height="{StaticResource IconSizeMd}"
+                                      VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding IncompleteAnalysisSummary}"
+                                       TextWrapping="Wrap" VerticalAlignment="Center"/>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0">
+                                <Button Classes="danger small" Content="Fix corrupt files"
+                                        IsVisible="{Binding HasIncompleteCorruptTracks}"
+                                        Command="{Binding RemediateAllIncompleteCorruptCommand}"
+                                        ToolTip.Tip="Delete every corrupt file listed here and reset it to Missing so the download queue fetches a clean copy"/>
+                                <Button Classes="secondary small" Content="Re-analyse incomplete"
+                                        Command="{Binding ReanalyzeAllIncompleteCommand}"
+                                        ToolTip.Tip="Clear stale analysis payloads and queue all incomplete tracks again"/>
+                            </StackPanel>
+                        </Grid>
+                        <Expander Header="Show tracks" IsExpanded="False">
+                            <ScrollViewer MaxHeight="160" VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding IncompleteAnalysisTracks}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:AnalysisTrackItem">
+                                            <Grid ColumnDefinitions="*,Auto,Auto" MinHeight="28">
+                                                <TextBlock Grid.Column="0" Classes="caption" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
+                                                    <Run Text="{Binding Artist}"/>
+                                                    <Run Text="—"/>
+                                                    <Run Text="{Binding Title}"/>
+                                                </TextBlock>
+                                                <TextBlock Grid.Column="1" Classes="caption" Classes.error="{Binding IsLikelyCorruptFile}"
+                                                           Text="{Binding IncompleteAnalysisSummary}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                <Button Grid.Column="2" Classes="icon small danger" Margin="4,0,0,0"
+                                                        IsVisible="{Binding IsLikelyCorruptFile}"
+                                                        Command="{ReflectionBinding $parent[UserControl].DataContext.RemediateTrackCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Delete this corrupt file and reset it to Missing so the download queue fetches a clean copy">
+                                                    <PathIcon Data="{StaticResource icon_delete}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                </Button>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Expander>
+                    </StackPanel>
+                </Border>
+
+                <!-- Loudness backfill: tracks analysed before real LUFS metering. Hidden when none. -->
+                <Border Classes="callout info"
+                        IsVisible="{Binding LoudnessBackfill.IsVisible, FallbackValue=False}">
+                    <Grid DataContext="{Binding LoudnessBackfill}" x:DataType="vm:LoudnessBackfillViewModel"
+                          ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto">
+                        <PathIcon Grid.Column="0" Grid.RowSpan="2" Data="{StaticResource icon_waves}"
+                                  Foreground="{StaticResource BrushInfo}"
+                                  Width="{StaticResource IconSizeMd}" Height="{StaticResource IconSizeMd}"
+                                  VerticalAlignment="Top" Margin="0,0,12,0"/>
+                        <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                            <TextBlock Classes="body-sm" Text="{Binding NoticeText}" TextWrapping="Wrap"/>
+                            <TextBlock Classes="caption" Text="{Binding DetailText}" TextWrapping="Wrap"
+                                       IsVisible="{Binding IsIdle}"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0"
+                                    VerticalAlignment="Center">
+                            <Button Classes="secondary small" Content="Measure loudness"
+                                    Command="{Binding StartCommand}" IsVisible="{Binding IsIdle}"
+                                    ToolTip.Tip="Read each listed file once and store its integrated loudness (EBU R128). Runs in the background, two files at a time, and waits while the analysis queue is busy."/>
+                            <Button Classes="ghost small" Content="Cancel"
+                                    Command="{Binding CancelCommand}" IsVisible="{Binding IsRunning}"
+                                    ToolTip.Tip="Stop after the files in progress. What was measured is kept; run it again to continue."/>
+                        </StackPanel>
+                        <Grid Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" ColumnDefinitions="*,Auto"
+                              Margin="0,8,0,0" IsVisible="{Binding IsRunning}">
+                            <ProgressBar Grid.Column="0" Classes="meter info" VerticalAlignment="Center"
+                                         Value="{Binding Done}" Maximum="{Binding Total}"/>
+                            <TextBlock Grid.Column="1" Classes="mono" Text="{Binding ProgressText}"
+                                       VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        </Grid>
+                    </Grid>
+                </Border>
+
+                <!-- Library metadata enrichment (Services/Enrichment): count, progress, per-provider status. -->
+                <Border Classes="card" IsVisible="{Binding HasEnrichment}">
+                    <StackPanel DataContext="{Binding Enrichment}" x:DataType="vm:EnrichmentViewModel" Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <PathIcon Grid.Column="0" Data="{StaticResource icon_wand}" Foreground="{StaticResource BrushAccent}"
+                                      Width="{StaticResource IconSizeMd}" Height="{StaticResource IconSizeMd}"
+                                      VerticalAlignment="Top" Margin="0,2,12,0"/>
+                            <StackPanel Grid.Column="1" Spacing="4">
+                                <TextBlock Classes="section" Text="ENRICHMENT"/>
+                                <TextBlock Classes="body-sm" Text="{Binding NoticeText}" TextWrapping="Wrap"/>
+                                <TextBlock Classes="caption" Text="{Binding DetailText}" TextWrapping="Wrap" IsVisible="{Binding IsIdle}"/>
+                                <TextBlock Classes="caption error" Text="{Binding LastError}" TextWrapping="Wrap" IsVisible="{Binding HasError}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0" VerticalAlignment="Top">
+                                <Button Classes="secondary small" Content="Enrich library" Command="{Binding StartCommand}"
+                                        IsVisible="{Binding CanStart}"
+                                        ToolTip.Tip="Look up every track still missing cover art, album, label, year or genre. Runs in the background at each source's rate limit and waits while the analysis queue is busy."/>
+                                <Button Classes="ghost small" Content="Pause" Command="{Binding PauseCommand}"
+                                        IsVisible="{Binding IsRunning}" ToolTip.Tip="Pause after the tracks in progress; the queue is kept."/>
+                                <Button Classes="secondary small" Content="Resume" Command="{Binding ResumeCommand}"
+                                        IsVisible="{Binding IsPaused}" ToolTip.Tip="Continue where it stopped."/>
+                                <Button Classes="ghost small" Content="Cancel" Command="{Binding CancelCommand}"
+                                        IsVisible="{Binding ShowProgress}"
+                                        ToolTip.Tip="Stop and drop the remaining queue. Metadata found so far is kept; run it again to continue."/>
+                            </StackPanel>
+                        </Grid>
+                        <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding ShowProgress}">
+                            <ProgressBar Grid.Column="0" Classes="meter" VerticalAlignment="Center"
+                                         Value="{Binding Done}" Maximum="{Binding Total}"/>
+                            <TextBlock Grid.Column="1" Classes="mono" Text="{Binding ProgressText}"
+                                       VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        </Grid>
+                        <ItemsControl ItemsSource="{Binding Providers}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:EnrichmentProviderRowViewModel">
+                                    <Grid ColumnDefinitions="Auto,120,*,Auto" Margin="0,2">
+                                        <Ellipse Grid.Column="0" Classes="status-dot" Classes.success="{Binding IsOk}"
+                                                 Classes.warning="{Binding IsWarning}" Classes.error="{Binding IsError}"
+                                                 VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding DisplayName}" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Classes="caption" Text="{Binding StatusText}" VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding StatusText}"/>
+                                        <TextBlock Grid.Column="3" Classes="mono" Text="{Binding CountsText}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- Integrity scan results (appears once a scan has run; started from the overflow menu) -->
+                <Border Classes="card" IsVisible="{Binding ShowIntegrityPanel}">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Classes="section" Text="FILE INTEGRITY" VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Classes="ghost small" Content="Scan again"
+                                    Command="{Binding ScanLibraryIntegrityCommand}"
+                                    IsEnabled="{Binding CanScanIntegrity}"
+                                    ToolTip.Tip="Probe every local file for corruption (FFmpeg + NAudio)"/>
+                        </Grid>
+                        <ProgressBar Classes="meter" Value="{Binding IntegrityScanProgress}" Maximum="100"
+                                     IsVisible="{Binding IsIntegrityScanRunning}"/>
+                        <TextBlock Classes="caption" Text="{Binding IntegrityScanStatusText}" TextWrapping="Wrap"
+                                   IsVisible="{Binding IntegrityScanStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                        <StackPanel Spacing="8" IsVisible="{Binding HasScanIssues}">
+                            <WrapPanel Orientation="Horizontal">
+                                <Border Classes="fact error" Margin="0,0,8,0"
+                                        IsVisible="{Binding CorruptIssueCount, Converter={x:Static avConverters:NumericConverters.IsNotZero}}">
+                                    <TextBlock Text="{Binding CorruptIssueCount, StringFormat='{}{0} corrupt'}"/>
+                                </Border>
+                                <Border Classes="fact warning" Margin="0,0,16,0"
+                                        IsVisible="{Binding MissingIssueCount, Converter={x:Static avConverters:NumericConverters.IsNotZero}}">
+                                    <TextBlock Text="{Binding MissingIssueCount, StringFormat='{}{0} missing'}"/>
+                                </Border>
+                                <Button Classes="secondary small" Margin="0,0,8,0"
+                                        Command="{Binding FixCorruptCommand}"
+                                        IsEnabled="{Binding CanRemediate}"
+                                        IsVisible="{Binding CorruptIssueCount, Converter={x:Static avConverters:NumericConverters.IsNotZero}}"
+                                        ToolTip.Tip="Delete corrupt files from disk and queue them for download again">
+                                    <TextBlock Text="{Binding CorruptIssueCount, StringFormat='Fix corrupt ({0})'}"/>
+                                </Button>
+                                <Button Classes="secondary small" Margin="0,0,8,0"
+                                        Command="{Binding FixMissingCommand}"
+                                        IsEnabled="{Binding CanRemediate}"
+                                        IsVisible="{Binding MissingIssueCount, Converter={x:Static avConverters:NumericConverters.IsNotZero}}"
+                                        ToolTip.Tip="Clean up stale records and queue missing files for download again">
+                                    <TextBlock Text="{Binding MissingIssueCount, StringFormat='Fix missing ({0})'}"/>
+                                </Button>
+                                <Button Classes="danger small"
+                                        Command="{Binding FixAllIssuesCommand}"
+                                        IsEnabled="{Binding CanRemediate}"
+                                        ToolTip.Tip="Fix every corrupt and missing file: deletes from disk and queues for download again">
+                                    <TextBlock Text="{Binding ScanIssues.Count, StringFormat='Fix all ({0})'}"/>
+                                </Button>
+                            </WrapPanel>
+                            <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding ScanIssues}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="svc:CorruptFileScanEntry">
+                                            <Grid ColumnDefinitions="72,*,Auto" MinHeight="24">
+                                                <Border Grid.Column="0" Classes="fact" Classes.warning="{Binding IsMissing}" Classes.error="{Binding !IsMissing}"
+                                                        HorizontalAlignment="Left">
+                                                    <TextBlock Text="{Binding StatusBadge}"/>
+                                                </Border>
+                                                <TextBlock Grid.Column="1" Classes="caption" Text="{Binding DisplayLabel}"
+                                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                           ToolTip.Tip="{Binding FilePath}"/>
+                                                <TextBlock Grid.Column="2" Classes="caption muted" Text="{Binding Details}"
+                                                           TextTrimming="CharacterEllipsis" MaxWidth="200" Margin="8,0,0,0"
+                                                           VerticalAlignment="Center" ToolTip.Tip="{Binding Details}"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </StackPanel>
+
+                        <ProgressBar Classes="meter" IsIndeterminate="True" IsVisible="{Binding IsRemediating}"/>
+                        <TextBlock Classes="caption" Text="{Binding RemediationStatusText}" TextWrapping="Wrap"
+                                   IsVisible="{Binding RemediationStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Developer diagnostics (debugger / Development environment only) -->
+                <Border Classes="card" IsVisible="{Binding IsDeveloperMode}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="section" Text="DIAGNOSTICS"/>
+                        <TextBlock Classes="mono" Text="{Binding PerformanceDiagnosticsSummary}" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Classes="mono" Text="{Binding PerformanceProbeSummary}" TextTrimming="CharacterEllipsis"
+                                   IsVisible="{Binding PerformanceProbeSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        <ItemsControl ItemsSource="{Binding PerformanceProbeRuns}" IsVisible="{Binding HasPerformanceProbeRuns}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PerformanceProbeRun">
+                                    <TextBlock Classes="mono" Classes.success="{Binding IsGood}" Classes.warning="{Binding IsWarn}"
+                                               Classes.error="{Binding IsSlow}" Text="{Binding DisplayLabel}" TextTrimming="CharacterEllipsis"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- ═══ Two-pane body ════════════════════════════════════════════════════════════ -->
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,*" RowDefinitions="Auto,*" Margin="24,16,24,16">
+
+            <!-- Narrow-window pane switch -->
+            <Border Grid.Row="0" Grid.ColumnSpan="3" Classes="segmented" HorizontalAlignment="Left" Margin="0,0,0,12"
+                    IsVisible="{Binding IsCompactLayout}">
+                <StackPanel Orientation="Horizontal" Spacing="2">
+                    <ToggleButton Classes="chip" Content="Library"
                                   IsChecked="{Binding IsLibraryPaneSelected, Mode=OneWay}"
                                   Command="{Binding SetPaneModeCommand}"
-                                  CommandParameter="{x:Static vm:AnalysisPaneMode.Library}">Library</ToggleButton>
-                    <ToggleButton Classes="secondary"
+                                  CommandParameter="{x:Static vm:AnalysisPaneMode.Library}"/>
+                    <ToggleButton Classes="chip" Content="Queue"
                                   IsChecked="{Binding IsQueuePaneSelected, Mode=OneWay}"
                                   Command="{Binding SetPaneModeCommand}"
-                                  CommandParameter="{x:Static vm:AnalysisPaneMode.Queue}">Queue</ToggleButton>
+                                  CommandParameter="{x:Static vm:AnalysisPaneMode.Queue}"/>
                 </StackPanel>
             </Border>
 
-            <!-- ════════════════════════════════════════════════════════════
-                 LEFT PANE — Track Library
-            ════════════════════════════════════════════════════════════ -->
-            <DockPanel Grid.Row="1"
-                       Grid.Column="0"
-                       Grid.ColumnSpan="{Binding LibraryPaneColumnSpan}"
-                       Margin="16,16,8,16"
-                       LastChildFill="True"
+            <!-- ── Library pane ───────────────────────────────────────────────────────── -->
+            <DockPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="{Binding LibraryPaneColumnSpan}"
                        IsVisible="{Binding ShowLibraryPane}">
-
-                <!-- Pane header -->
-                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10" Spacing="8">
-
-                    <!-- Title row with bulk-action buttons -->
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Grid.Column="0"
-                                   Text="📚  Track Library"
-                                   FontSize="14" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource BrushText0}"
-                                   VerticalAlignment="Center"/>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                            <Button Classes="secondary"
-                                    Content="＋ Queue All Unanalyzed"
-                                    Command="{Binding QueueAllUnanalyzedCommand}"
-                                    ToolTip.Tip="Add all unanalyzed visible tracks to the analysis queue"/>
-                            <Button Classes="secondary"
-                                    Content="⟲ Force Reanalyze All"
-                                    Command="{Binding ReanalyzeAllTracksCommand}"
-                                    ToolTip.Tip="Queue every track for a fresh analysis pass, even ones that already look complete. Use this after a detection pipeline upgrade — 'incomplete' tracks alone won't catch tracks analysed with older, worse logic."/>
-                            <Button Classes="secondary"
-                                    Content="🎯 Regenerate All Cues"
-                                    Command="{Binding RegenerateAllCuesCommand}"
-                                    ToolTip.Tip="Re-map cue points for every already-analysed track from its stored data — fast, no re-analysis. Use this after a cue-detection logic change specifically, not a BPM/key/energy change."/>
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Height="32" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <TextBlock Classes="section" Text="LIBRARY" VerticalAlignment="Center"/>
+                        <TextBlock Classes="num" Text="{Binding FilteredLibraryTracks.Count}"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Classes="ghost small" Command="{Binding QueueAllUnanalyzedCommand}"
+                            ToolTip.Tip="Add every unanalysed visible track to the queue">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <PathIcon Data="{StaticResource icon_add}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                            <TextBlock Text="Queue unanalysed"/>
                         </StackPanel>
-                    </Grid>
+                    </Button>
+                </Grid>
 
-                    <Border Padding="10"
-                            Background="{DynamicResource BrushBg2}"
-                            BorderBrush="{DynamicResource BrushWarning}"
-                            BorderThickness="1"
-                            CornerRadius="6"
-                            IsVisible="{Binding HasIncompleteAnalysisTracks}">
-                        <StackPanel Spacing="8">
-                            <Grid ColumnDefinitions="*,Auto,Auto">
-                                <TextBlock Grid.Column="0"
-                                           Text="{Binding IncompleteAnalysisSummary}"
-                                           FontSize="11"
-                                           Foreground="{DynamicResource BrushWarning}"
-                                           TextWrapping="Wrap"
-                                           VerticalAlignment="Center"/>
-                                <Button Grid.Column="1"
-                                        Classes="secondary"
-                                        Content="🗑 Fix All Corrupt"
-                                        IsVisible="{Binding HasIncompleteCorruptTracks}"
-                                        Command="{Binding RemediateAllIncompleteCorruptCommand}"
-                                        Margin="0,0,8,0"
-                                        ToolTip.Tip="Delete every corrupt file flagged below and reset it to Missing so the download queue re-acquires a clean copy"/>
-                                <Button Grid.Column="2"
-                                        Classes="secondary"
-                                        Content="↺ Reanalyze All Incomplete"
-                                        Command="{Binding ReanalyzeAllIncompleteCommand}"
-                                        ToolTip.Tip="Clear stale analysis payloads and queue all incomplete tracks for reanalysis"/>
-                            </Grid>
+                <TextBox DockPanel.Dock="Top" Classes="search" Margin="0,0,0,8"
+                         Text="{Binding SearchText, Mode=TwoWay}"
+                         Watermark="Search by title or artist"/>
 
-                            <ItemsControl ItemsSource="{Binding IncompleteAnalysisTracks}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,2">
-                                            <TextBlock Grid.Column="0"
-                                                       Foreground="{DynamicResource BrushText1}"
-                                                       FontSize="10"
-                                                       TextWrapping="Wrap">
-                                                <Run Text="{Binding Artist}"/>
-                                                <Run Text=" — "/>
-                                                <Run Text="{Binding Title}"/>
-                                            </TextBlock>
-                                            <TextBlock Grid.Column="1"
-                                                       Foreground="{Binding IsLikelyCorruptFile, Converter={StaticResource BooleanToRedBrushConverter}}"
-                                                       FontSize="10"
-                                                       Text="{Binding IncompleteAnalysisSummary}"/>
-                                            <Button Grid.Column="2"
-                                                    Classes="secondary"
-                                                    Content="🗑 Fix"
-                                                    FontSize="10"
-                                                    Padding="6,2"
-                                                    Margin="6,0,0,0"
-                                                    IsVisible="{Binding IsLikelyCorruptFile}"
-                                                    Command="{Binding $parent[UserControl].DataContext.RemediateTrackCommand}"
-                                                    CommandParameter="{Binding}"
-                                                    ToolTip.Tip="Delete this corrupt file and reset it to Missing so the download queue re-acquires a clean copy"/>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
-                    </Border>
+                <Panel>
+                    <!-- Loading -->
+                    <StackPanel Classes="empty-state" IsVisible="{Binding IsLibraryLoading}">
+                        <ProgressBar Classes="meter" IsIndeterminate="True" Width="160"/>
+                        <TextBlock Classes="caption" Text="Loading your library…"/>
+                    </StackPanel>
 
-                    <!-- Integrity scan panel -->
-                    <Border Padding="10"
-                            Background="{DynamicResource BrushBg2}"
-                            BorderBrush="{DynamicResource BrushBorder2}"
-                            BorderThickness="1"
-                            CornerRadius="6">
-                        <StackPanel Spacing="6">
+                    <!-- Error -->
+                    <StackPanel Classes="empty-state" IsVisible="{Binding HasLibraryLoadError}">
+                        <PathIcon Data="{StaticResource icon_alert}" Foreground="{StaticResource BrushError}"/>
+                        <TextBlock Classes="h3" Text="Couldn't load your library"/>
+                        <TextBlock Classes="caption" Text="{Binding LibraryLoadErrorMessage}" TextWrapping="Wrap"/>
+                        <Button Classes="secondary" Content="Retry" Command="{Binding RetryLoadLibraryCommand}"/>
+                    </StackPanel>
 
-                            <!-- Header row: title + Scan button -->
-                            <Grid ColumnDefinitions="*,Auto">
-                                <TextBlock Grid.Column="0"
-                                           Text="File Integrity Scanner"
-                                           FontSize="11" FontWeight="SemiBold"
-                                           Foreground="{DynamicResource BrushText1}"
-                                           VerticalAlignment="Center"/>
-                                <Button Grid.Column="1"
-                                        Classes="secondary"
-                                        Content="⚕ Scan Library"
-                                        Command="{Binding ScanLibraryIntegrityCommand}"
-                                        IsEnabled="{Binding CanScanIntegrity}"
-                                        ToolTip.Tip="Run FFmpeg + NAudio corruption probe on every local file"/>
-                            </Grid>
+                    <!-- Empty library -->
+                    <StackPanel Classes="empty-state" IsVisible="{Binding ShowNoLibraryTracks}">
+                        <PathIcon Data="{StaticResource icon_music}"/>
+                        <TextBlock Classes="h3" Text="No tracks in your library"/>
+                        <TextBlock Classes="caption" Text="Import or download tracks, then queue them here for analysis."/>
+                    </StackPanel>
 
-                            <!-- Scan progress bar -->
-                            <ProgressBar Value="{Binding IntegrityScanProgress}"
-                                         Maximum="100"
-                                         Height="4"
-                                         CornerRadius="2"
-                                         IsVisible="{Binding IsIntegrityScanRunning}"/>
+                    <!-- No search matches -->
+                    <StackPanel Classes="empty-state" IsVisible="{Binding ShowNoSearchMatches}">
+                        <PathIcon Data="{StaticResource icon_search}"/>
+                        <TextBlock Classes="h3" Text="No tracks match your search"/>
+                        <TextBlock Classes="caption" Text="Try a different title or artist."/>
+                    </StackPanel>
 
-                            <!-- Scan status text -->
-                            <TextBlock Text="{Binding IntegrityScanStatusText}"
-                                       FontSize="10"
-                                       Foreground="{DynamicResource BrushText2}"
-                                       TextWrapping="Wrap"
-                                       IsVisible="{Binding IntegrityScanStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-
-                            <!-- Remediation panel — shown after scan finds issues -->
-                            <Border IsVisible="{Binding HasScanIssues}"
-                                    Background="{DynamicResource BrushBg3}"
-                                    BorderBrush="{DynamicResource BrushBorder2}"
-                                    BorderThickness="1"
-                                    CornerRadius="4"
-                                    Padding="8,6">
-                                <StackPanel Spacing="6">
-
-                                    <!-- Issue summary + fix buttons -->
-                                    <WrapPanel Orientation="Horizontal">
-                                        <!-- Corrupt badge -->
-                                        <Border Background="#662222" CornerRadius="3" Padding="5,1" Margin="0,0,4,0"
-                                                IsVisible="{Binding CorruptIssueCount, Converter={x:Static avConverters:NumericConverters.IsNotZero}}">
-                                            <TextBlock FontSize="10" FontWeight="SemiBold" Foreground="#FF7070"
-                                                       Text="{Binding CorruptIssueCount, StringFormat='{}{0} corrupt'}"/>
-                                        </Border>
-                                        <!-- Missing badge -->
-                                        <Border Background="#664400" CornerRadius="3" Padding="5,1" Margin="0,0,8,0"
-                                                IsVisible="{Binding MissingIssueCount, Converter={x:Static avConverters:NumericConverters.IsNotZero}}">
-                                            <TextBlock FontSize="10" FontWeight="SemiBold" Foreground="#FFBB55"
-                                                       Text="{Binding MissingIssueCount, StringFormat='{}{0} missing'}"/>
-                                        </Border>
-                                        <!-- Fix Corrupt button -->
-                                        <Button Classes="secondary" FontSize="10" Padding="6,2" Margin="0,0,4,0"
-                                                Command="{Binding FixCorruptCommand}"
-                                                IsEnabled="{Binding CanRemediate}"
-                                                IsVisible="{Binding CorruptIssueCount, Converter={x:Static avConverters:NumericConverters.IsNotZero}}"
-                                                ToolTip.Tip="Delete corrupt files from disk and re-queue for download">
-                                            <TextBlock>
-                                                <Run Text="Fix Corrupt ("/>
-                                                <Run Text="{Binding CorruptIssueCount}"/>
-                                                <Run Text=")"/>
-                                            </TextBlock>
-                                        </Button>
-                                        <!-- Fix Missing button -->
-                                        <Button Classes="secondary" FontSize="10" Padding="6,2" Margin="0,0,4,0"
-                                                Command="{Binding FixMissingCommand}"
-                                                IsEnabled="{Binding CanRemediate}"
-                                                IsVisible="{Binding MissingIssueCount, Converter={x:Static avConverters:NumericConverters.IsNotZero}}"
-                                                ToolTip.Tip="Clean up stale DB records and re-queue missing files for download">
-                                            <TextBlock>
-                                                <Run Text="Fix Missing ("/>
-                                                <Run Text="{Binding MissingIssueCount}"/>
-                                                <Run Text=")"/>
-                                            </TextBlock>
-                                        </Button>
-                                        <!-- Fix All button -->
-                                        <Button Classes="primary" FontSize="10" Padding="8,2"
-                                                Command="{Binding FixAllIssuesCommand}"
-                                                IsEnabled="{Binding CanRemediate}"
-                                                ToolTip.Tip="Fix all corrupt and missing files — deletes from disk and re-queues for download">
-                                            <TextBlock>
-                                                <Run Text="Fix All ("/>
-                                                <Run Text="{Binding ScanIssues.Count}"/>
-                                                <Run Text=")"/>
-                                            </TextBlock>
-                                        </Button>
-                                    </WrapPanel>
-
-                                    <!-- Remediation progress -->
-                                    <ProgressBar IsIndeterminate="True" Height="3" CornerRadius="2"
-                                                 IsVisible="{Binding IsRemediating}"/>
-
-                                    <!-- Remediation status / result -->
-                                    <TextBlock Text="{Binding RemediationStatusText}"
-                                               FontSize="10" Foreground="{DynamicResource BrushText2}"
-                                               TextWrapping="Wrap"
-                                               IsVisible="{Binding RemediationStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-
-                                    <!-- Issue list (scrollable, max 120px) -->
-                                    <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto">
-                                        <ItemsControl ItemsSource="{Binding ScanIssues}">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Grid ColumnDefinitions="Auto,Auto,*,Auto" Margin="0,1">
-                                                        <!-- Missing badge -->
-                                                        <Border Grid.Column="0"
-                                                                Background="#664400" CornerRadius="2" Padding="3,0" Margin="0,0,4,0"
-                                                                IsVisible="{Binding IsMissing}">
-                                                            <TextBlock Text="Missing" FontSize="9" FontWeight="SemiBold" Foreground="#FFBB55"/>
-                                                        </Border>
-                                                        <!-- Corrupt/Warning badge -->
-                                                        <Border Grid.Column="1"
-                                                                Background="#662222" CornerRadius="2" Padding="3,0" Margin="0,0,4,0"
-                                                                IsVisible="{Binding !IsMissing}">
-                                                            <TextBlock Text="{Binding StatusBadge}" FontSize="9" FontWeight="SemiBold" Foreground="#FF7070"/>
-                                                        </Border>
-                                                        <TextBlock Grid.Column="2"
-                                                                   Text="{Binding DisplayLabel}"
-                                                                   FontSize="10"
-                                                                   Foreground="{DynamicResource BrushText2}"
-                                                                   TextTrimming="CharacterEllipsis"
-                                                                   ToolTip.Tip="{Binding FilePath}"/>
-                                                        <TextBlock Grid.Column="3"
-                                                                   Text="{Binding Details}"
-                                                                   FontSize="9"
-                                                                   Foreground="{DynamicResource BrushText3}"
-                                                                   TextTrimming="CharacterEllipsis"
-                                                                   MaxWidth="180"
-                                                                   Margin="6,0,0,0"
-                                                                   ToolTip.Tip="{Binding Details}"/>
-                                                    </Grid>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </ScrollViewer>
-
-                                </StackPanel>
-                            </Border>
-
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Search bar -->
-                    <TextBox Text="{Binding SearchText, Mode=TwoWay}"
-                             Watermark="Search by title or artist…"
-                             Background="{DynamicResource BrushBg2}"
-                             BorderBrush="{DynamicResource BrushBorder2}"
-                             BorderThickness="1"
-                             CornerRadius="6"
-                             Padding="10,6"
-                             Foreground="White"
-                             CaretBrush="White"
-                             FontSize="12"/>
-                </StackPanel>
-
-                <!-- Track list (scrollable) -->
-                <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto">
-                    <Panel>
-                        <!-- Empty state: shown when search returns no results -->
-                        <Border IsVisible="{Binding IsLibraryEmpty}"
-                                Padding="24,40"
-                                HorizontalAlignment="Stretch">
-                            <StackPanel HorizontalAlignment="Center" Spacing="8">
-                                <TextBlock Text="🔍" FontSize="32"
-                                           HorizontalAlignment="Center" Opacity="0.4"/>
-                                <TextBlock Text="No tracks match your search"
-                                           FontSize="13" Foreground="{DynamicResource BrushText2}"
-                                           HorizontalAlignment="Center"/>
-                                <TextBlock Text="Try a different title or artist name"
-                                           FontSize="11" Foreground="{DynamicResource BrushTextDisabled}"
-                                           HorizontalAlignment="Center"/>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- Track list -->
-                        <ItemsControl ItemsSource="{Binding FilteredLibraryTracks}"
-                                      IsVisible="{Binding !IsLibraryEmpty}">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <!-- Rows only when the library actually loaded: never under the error state. -->
+                        <ScrollViewer.IsVisible>
+                            <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                <Binding Path="!IsLibraryEmpty"/>
+                                <Binding Path="!HasLibraryLoadError"/>
+                            </MultiBinding>
+                        </ScrollViewer.IsVisible>
+                        <ItemsControl ItemsSource="{Binding FilteredLibraryTracks}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <VirtualizingStackPanel/>
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Classes="trackRow">
-                                        <Grid ColumnDefinitions="*,Auto">
-
-                                            <!-- Track metadata -->
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
-                                                <TextBlock Text="{Binding Title}"
-                                                           FontSize="13" FontWeight="SemiBold"
-                                                           Foreground="White"/>
-                                                <TextBlock Text="{Binding Artist}"
-                                                           FontSize="11" Foreground="{DynamicResource BrushText1}"/>
-                                                <!-- BPM / Key / analyzed badges -->
-                                                <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,3,0,0">
-                                                    <Border Classes="chip"
-                                                            Background="{Binding Bpm, Converter={StaticResource BpmBackgroundConverter}}"
-                                                            IsVisible="{Binding Bpm, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                                        <TextBlock FontSize="10"
-                                                                   Foreground="{Binding Bpm, Converter={StaticResource BpmForegroundConverter}}">
-                                                            <Run Text="{Binding Bpm, StringFormat='{}{0:F0} BPM'}"/>
-                                                        </TextBlock>
-                                                    </Border>
-                                                    <Border Classes="chip" Background="{DynamicResource BrushBg2}"
-                                                            IsVisible="{Binding MusicalKey, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                                        <TextBlock Text="{Binding MusicalKey}"
-                                                                   FontSize="10" Foreground="{DynamicResource BrushInfo}"/>
-                                                    </Border>
-                                                    <Border Classes="chip" Background="{DynamicResource BrushAccentSubtle}"
-                                                            IsVisible="{Binding HasAnalysis}">
-                                                        <TextBlock Text="✓ Analyzed"
-                                                                   FontSize="10" Foreground="{DynamicResource BrushSuccess}"/>
-                                                    </Border>
-                                                </StackPanel>
+                                <DataTemplate x:DataType="vm:AnalysisTrackItem">
+                                    <Border Classes="an-row">
+                                        <Grid ColumnDefinitions="*,Auto,Auto,24,Auto">
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                                <TextBlock Classes="body" Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Classes="caption" Text="{Binding Artist}" TextTrimming="CharacterEllipsis"/>
                                             </StackPanel>
-
-                                            <!-- Add to Queue button: shows ✓ and is disabled when already queued -->
-                                            <Button Grid.Column="1"
-                                                    Classes="addBtn"
-                                                    Content="{Binding IsInQueue, Converter={StaticResource BoolToStringConverter}, ConverterParameter='✓|＋'}"
-                                                    IsEnabled="{Binding !IsInQueue}"
-                                                    VerticalAlignment="Center"
-                                                    ToolTip.Tip="{Binding IsInQueue, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Already queued|Add to analysis queue'}"
-                                                    Command="{Binding $parent[UserControl].DataContext.AddToQueueCommand}"
-                                                    CommandParameter="{Binding}"/>
+                                            <Border Grid.Column="1" Classes="fact" Margin="8,0,0,0"
+                                                    IsVisible="{Binding Bpm, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                                <TextBlock Text="{Binding Bpm, StringFormat='{}{0:F0}'}"/>
+                                            </Border>
+                                            <Border Grid.Column="2" Classes="fact" Margin="4,0,0,0"
+                                                    IsVisible="{Binding MusicalKey, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                                <TextBlock Text="{Binding MusicalKey}"/>
+                                            </Border>
+                                            <PathIcon Grid.Column="3" Data="{StaticResource icon_check}" Foreground="{StaticResource BrushSuccess}"
+                                                      Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"
+                                                      HorizontalAlignment="Center" IsVisible="{Binding HasAnalysis}"
+                                                      ToolTip.Tip="Analysed"/>
+                                            <Panel Grid.Column="4" Margin="4,0,0,0">
+                                                <Button Classes="icon small"
+                                                        IsVisible="{Binding !IsInQueue}"
+                                                        Command="{ReflectionBinding $parent[UserControl].DataContext.AddToQueueCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Add to analysis queue">
+                                                    <PathIcon Data="{StaticResource icon_add}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                                                </Button>
+                                                <!-- Queued marker: status, not an action -->
+                                                <Border Width="26" Height="26" Background="Transparent"
+                                                        IsVisible="{Binding IsInQueue}" ToolTip.Tip="In the analysis queue">
+                                                    <PathIcon Data="{StaticResource icon_queue}" Foreground="{StaticResource BrushAccent}"
+                                                              Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                                                </Border>
+                                            </Panel>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                    </Panel>
-                </ScrollViewer>
+                    </ScrollViewer>
+                </Panel>
             </DockPanel>
 
-            <!-- ── Divider ────────────────────────────────────────────────── -->
-            <Rectangle Grid.Row="1"
-                       Grid.Column="1" Width="1"
-                       Fill="{DynamicResource BrushBorder1}"
-                       VerticalAlignment="Stretch"
-                       Margin="0,16"
-                       IsVisible="{Binding !IsCompactLayout}"/>
+            <!-- ── Divider ────────────────────────────────────────────────────────────── -->
+            <Border Grid.Row="1" Grid.Column="1" Classes="divider vertical" Margin="16,0"
+                    VerticalAlignment="Stretch" IsVisible="{Binding !IsCompactLayout}"/>
 
-            <!-- ════════════════════════════════════════════════════════════
-                 RIGHT PANE — Analysis Queue
-            ════════════════════════════════════════════════════════════ -->
-            <DockPanel Grid.Row="1"
-                       Grid.Column="{Binding QueuePaneColumn}"
-                       Grid.ColumnSpan="{Binding QueuePaneColumnSpan}"
-                       Margin="8,16,16,16"
-                       LastChildFill="True"
+            <!-- ── Queue pane ─────────────────────────────────────────────────────────── -->
+            <DockPanel Grid.Row="1" Grid.Column="{Binding QueuePaneColumn}" Grid.ColumnSpan="{Binding QueuePaneColumnSpan}"
                        IsVisible="{Binding ShowQueuePane}">
-
-                <!-- Pane header + Start button -->
-                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto,Auto,Auto" Margin="0,0,0,6">
-                    <StackPanel Grid.Column="0" Spacing="2">
-                        <TextBlock Text="🧪  Analysis Queue"
-                                   FontSize="14" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource BrushText0}"
-                                   VerticalAlignment="Center"/>
-                        <!-- Queue metrics summary -->
-                        <TextBlock Text="{Binding QueueMetricsSummary}"
-                                   FontSize="11" Foreground="{DynamicResource BrushText2}"
-                                   IsVisible="{Binding QueueMetricsSummary,
-                                       Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                        <TextBlock Text="{Binding PerformanceDiagnosticsSummary}"
-                                   FontSize="10"
-                                   Foreground="{DynamicResource BrushText1}"
-                                   IsVisible="{Binding IsDeveloperMode}"/>
-                        <TextBlock Text="{Binding PerformanceProbeSummary}"
-                               FontSize="10"
-                               Foreground="{DynamicResource BrushText1}"
-                               IsVisible="{Binding IsDeveloperMode}"
-                               TextTrimming="CharacterEllipsis"/>
-                        <ItemsControl ItemsSource="{Binding PerformanceProbeRuns}"
-                                      IsVisible="{Binding HasPerformanceProbeRuns}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding DisplayLabel}"
-                                               FontSize="9"
-                                               Foreground="{Binding SeverityColor}"
-                                               TextTrimming="CharacterEllipsis"/>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Height="32" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <TextBlock Classes="section" Text="QUEUE" VerticalAlignment="Center"/>
+                        <TextBlock Classes="num" Text="{Binding QueueTrackCount}"/>
                     </StackPanel>
-
-                    <Button Grid.Column="1"
-                            Classes="primary"
-                            Content="▶  Start Analysis"
-                            IsEnabled="{Binding CanStartAnalysis}"
-                            Command="{Binding StartAnalysisCommand}"
-                            ToolTip.Tip="Start processing all queued tracks"
-                            Margin="0,0,8,0"/>
-
-                        <Button Grid.Column="2"
-                            Classes="ghost"
-                            Content="Run Probe"
-                            Command="{Binding RunPerformanceProbeCommand}"
-                            IsVisible="{Binding IsDeveloperMode}"
-                            ToolTip.Tip="Run developer filter-latency probe"/>
-
-                            <Button Grid.Column="3"
-                                Classes="ghost"
-                                Content="Copy Snapshot"
-                                Command="{Binding CopyPerformanceSnapshotCommand}"
-                                IsVisible="{Binding IsDeveloperMode}"
-                                ToolTip.Tip="Copy diagnostics snapshot to clipboard"/>
-
-                            <Button Grid.Column="4"
-                                Classes="ghost"
-                                Content="Clear History"
-                                Command="{Binding ClearPerformanceProbeHistoryCommand}"
-                                IsVisible="{Binding IsDeveloperMode}"
-                                ToolTip.Tip="Clear probe run history"/>
+                    <TextBlock Grid.Column="1" Classes="caption" Text="{Binding QueueMetricsSummary}" VerticalAlignment="Center"
+                               IsVisible="{Binding !IsQueueEmpty}"/>
                 </Grid>
 
-                <!-- Processing indicator banner -->
-                <Border DockPanel.Dock="Top"
-                        Background="{DynamicResource BrushAccentSubtle}"
-                        BorderBrush="{DynamicResource BrushAccent}"
-                        BorderThickness="1"
-                        CornerRadius="6"
-                        Padding="12,8"
-                        Margin="0,0,0,8"
-                        IsVisible="{Binding IsProcessing}">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="⏳" FontSize="14" VerticalAlignment="Center"/>
-                        <TextBlock Text="Processing tracks…"
-                                   FontSize="12" Foreground="{DynamicResource BrushAccent}"
-                                   VerticalAlignment="Center"/>
+                <Panel>
+                    <StackPanel Classes="empty-state" IsVisible="{Binding IsQueueEmpty}">
+                        <PathIcon Data="{StaticResource icon_queue}"/>
+                        <TextBlock Classes="h3" Text="The analysis queue is empty"/>
+                        <TextBlock Classes="caption" Text="Add tracks with + in the library, or queue every unanalysed track at once."/>
+                        <Button Classes="secondary" Content="Queue unanalysed" Command="{Binding QueueAllUnanalyzedCommand}"/>
                     </StackPanel>
-                </Border>
 
-                <!-- Queue items -->
-                <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto">
-                    <Panel>
-
-                        <!-- Empty state: shown when nothing has been staged yet -->
-                        <Border IsVisible="{Binding IsQueueEmpty}"
-                                Padding="24,40"
-                                HorizontalAlignment="Stretch">
-                            <StackPanel HorizontalAlignment="Center" Spacing="8">
-                                <TextBlock Text="🧪" FontSize="32"
-                                           HorizontalAlignment="Center" Opacity="0.4"/>
-                                <TextBlock Text="Your analysis queue is empty"
-                                           FontSize="13" Foreground="{DynamicResource BrushText2}"
-                                           HorizontalAlignment="Center"/>
-                                <TextBlock Text='Click ＋ on a track or use "Queue All Unanalyzed"'
-                                           FontSize="11" Foreground="{DynamicResource BrushTextDisabled}"
-                                           HorizontalAlignment="Center"/>
-                            </StackPanel>
-                        </Border>
-
-                        <ItemsControl ItemsSource="{Binding AnalysisQueue}"
-                                      IsVisible="{Binding !IsQueueEmpty}">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" IsVisible="{Binding !IsQueueEmpty}">
+                        <ItemsControl ItemsSource="{Binding AnalysisQueue}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <VirtualizingStackPanel/>
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Classes="trackRow">
-                                        <StackPanel Spacing="6">
-
-                                            <!-- Track info row -->
-                                            <Grid ColumnDefinitions="*,Auto">
+                                <DataTemplate x:DataType="vm:AnalysisTrackItem">
+                                    <Border Classes="an-row">
+                                        <StackPanel Spacing="4">
+                                            <!-- Title row + status + remove -->
+                                            <Grid ColumnDefinitions="*,Auto,Auto" MinHeight="32">
                                                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                                    <TextBlock Text="{Binding Title}"
-                                                               FontSize="13" FontWeight="SemiBold"
-                                                               Foreground="White"/>
-                                                    <TextBlock Text="{Binding Artist}"
-                                                               FontSize="11" Foreground="{DynamicResource BrushText1}"/>
+                                                    <TextBlock Classes="body" Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Classes="caption" Text="{Binding Artist}" TextTrimming="CharacterEllipsis"/>
                                                 </StackPanel>
-
-                                                <!-- Status icon + remove button -->
-                                                <StackPanel Grid.Column="1"
-                                                            Orientation="Horizontal"
-                                                            Spacing="6"
-                                                            VerticalAlignment="Center">
-                                                    <!-- Queued -->
-                                                    <TextBlock Text="⏸"
-                                                               FontSize="14"
-                                                               VerticalAlignment="Center"
-                                                               IsVisible="{Binding IsQueued}"/>
-
-                                                    <!-- Completed checkmark -->
-                                                    <TextBlock Text="✓"
-                                                               FontSize="14"
-                                                               Foreground="{DynamicResource BrushAccent}"
-                                                               VerticalAlignment="Center"
-                                                               IsVisible="{Binding IsCompleted}"/>
-
-                                                    <!-- Failed indicator -->
-                                                    <TextBlock Text="⚠️"
-                                                               FontSize="14"
-                                                               Foreground="{DynamicResource BrushError}"
-                                                               VerticalAlignment="Center"
-                                                               IsVisible="{Binding IsFailed}"
-                                                               ToolTip.Tip="{Binding AnalysisError}"/>
-
-                                                    <Button Classes="removeBtn"
-                                                            Content="✕"
-                                                            IsVisible="{Binding !IsProcessing}"
-                                                            Command="{Binding $parent[UserControl].DataContext.RemoveFromQueueCommand}"
-                                                            CommandParameter="{Binding}"
-                                                            ToolTip.Tip="Remove from queue"/>
-                                                </StackPanel>
+                                                <Panel Grid.Column="1" VerticalAlignment="Center" Margin="8,0,0,0">
+                                                    <TextBlock Classes="caption" Text="Queued" IsVisible="{Binding IsQueued}"/>
+                                                    <TextBlock Classes="num" Foreground="{StaticResource BrushAccent}" Text="{Binding ProgressPercent, StringFormat='{}{0}%'}" IsVisible="{Binding IsProcessing}"/>
+                                                    <PathIcon Data="{StaticResource icon_check}" Foreground="{StaticResource BrushSuccess}"
+                                                              Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"
+                                                              IsVisible="{Binding IsCompleted}" ToolTip.Tip="Analysed"/>
+                                                    <PathIcon Data="{StaticResource icon_alert}" Foreground="{StaticResource BrushError}"
+                                                              Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"
+                                                              IsVisible="{Binding IsFailed}" ToolTip.Tip="Analysis failed"/>
+                                                </Panel>
+                                                <Button Grid.Column="2" Classes="icon small" Margin="4,0,0,0"
+                                                        IsVisible="{Binding !IsProcessing}"
+                                                        Command="{ReflectionBinding $parent[UserControl].DataContext.RemoveFromQueueCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Remove from queue">
+                                                    <PathIcon Data="{StaticResource icon_close}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                </Button>
                                             </Grid>
 
-                                            <!-- Progress bar (visible while processing) -->
-                                            <StackPanel IsVisible="{Binding IsProcessing}" Spacing="3">
-                                                <ProgressBar Value="{Binding ProgressPercent}"
-                                                             Minimum="0" Maximum="100"
-                                                             Height="4"
-                                                             Foreground="{DynamicResource BrushAccent}"
-                                                             Background="{DynamicResource BrushBorder1}"/>
-                                                <TextBlock Text="{Binding CurrentStep}"
-                                                           FontSize="10"
-                                                           Foreground="{DynamicResource BrushText1}"/>
+                                            <!-- Processing -->
+                                            <StackPanel Spacing="4" IsVisible="{Binding IsProcessing}">
+                                                <ProgressBar Classes="meter" Value="{Binding ProgressPercent}" Maximum="100"/>
+                                                <TextBlock Classes="caption" Text="{Binding CurrentStep}"/>
                                             </StackPanel>
 
-                                            <!-- ── Completed track: enriched card ── -->
-                                            <StackPanel IsVisible="{Binding IsCompleted}" Spacing="6">
-                                                <!-- Always-visible summary strip -->
-                                                <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto" Margin="0,0,0,2">
-                                                    <Border Grid.Column="0" Classes="chip"
-                                                            Background="{DynamicResource BrushBg2}"
+                                            <!-- Failed -->
+                                            <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding IsFailed}">
+                                                <TextBlock Classes="caption error" Text="Analysis failed. Fix the file or try again." VerticalAlignment="Center"/>
+                                                <Button Grid.Column="1" Classes="secondary small" Content="Re-analyse"
+                                                        Command="{ReflectionBinding $parent[UserControl].DataContext.ReanalyzeCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Clear the error and run analysis again"/>
+                                            </Grid>
+
+                                            <!-- Error details (failed runs, or completed runs with a partial error) -->
+                                            <Border Classes="inset" IsVisible="{Binding HasAnalysisError}">
+                                                <StackPanel Spacing="4">
+                                                    <TextBlock Classes="caption error" Text="Pipeline error"/>
+                                                    <TextBlock Classes="mono" Text="{Binding AnalysisError}" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </Border>
+                                            <Border Classes="inset" IsVisible="{Binding HasStemError}">
+                                                <StackPanel Spacing="4">
+                                                    <TextBlock Classes="caption error" Text="Stem separation error"/>
+                                                    <TextBlock Classes="mono" Text="{Binding StemError}" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Completed: summary + details -->
+                                            <StackPanel Spacing="4" IsVisible="{Binding IsCompleted}">
+                                                <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                                    <Border Grid.Column="0" Classes="fact" Margin="0,0,8,0"
                                                             IsVisible="{Binding CueCount, Converter={x:Static avConverters:NumericConverters.IsNotZero}}">
-                                                        <TextBlock FontSize="10" Foreground="{DynamicResource BrushStemOther}">
-                                                            <Run Text="🎯 "/>
-                                                            <Run Text="{Binding CueCount}"/>
-                                                            <Run Text=" cues"/>
-                                                        </TextBlock>
+                                                        <TextBlock Text="{Binding CueCount, StringFormat='{}{0} cues'}"/>
                                                     </Border>
-                                                    <Border Grid.Column="1" Classes="chip" Background="{DynamicResource BrushAccentSubtle}">
-                                                        <TextBlock Text="{Binding BpmConfidenceTier, StringFormat='Tonal {0}'}" FontSize="10" Foreground="{DynamicResource BrushSuccess}"/>
-                                                    </Border>
-                                                    <Border Grid.Column="2" Classes="chip" Background="{DynamicResource BrushBg2}">
-                                                        <TextBlock Text="{Binding KeyConfidenceTier, StringFormat='Key {0}'}" FontSize="10" Foreground="{DynamicResource BrushInfo}"/>
-                                                    </Border>
-
-                                                    <StackPanel Grid.Column="3" Margin="8,0,6,0" Spacing="1" VerticalAlignment="Center">
-                                                        <TextBlock Text="{Binding DominantMoodLabel}" FontSize="10" Foreground="{DynamicResource BrushText0}"/>
-                                                        <TextBlock Text="{Binding GenreSummary}" FontSize="10" Foreground="{DynamicResource BrushText1}" TextTrimming="CharacterEllipsis" MaxWidth="320"/>
-                                                    </StackPanel>
-
-                                                        <Button Grid.Column="4"
-                                                            Background="{DynamicResource BrushBg2}"
-                                                            BorderBrush="{DynamicResource BrushError}"
-                                                            BorderThickness="1"
-                                                            Foreground="{DynamicResource BrushError}"
-                                                            CornerRadius="6"
-                                                            Content="↺ Re-analyze"
-                                                            FontSize="10" Padding="6,3"
-                                                            Command="{Binding $parent[UserControl].DataContext.ReanalyzeCommand}"
+                                                    <TextBlock Grid.Column="1" Classes="caption" Text="{Binding GenreSummary}"
+                                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                    <Button Grid.Column="2" Classes="icon small" Margin="4,0,0,0"
+                                                            Command="{ReflectionBinding $parent[UserControl].DataContext.ReanalyzeCommand}"
                                                             CommandParameter="{Binding}"
-                                                            ToolTip.Tip="Clear results and re-run analysis"
-                                                            Margin="4,0,0,0"/>
-
-                                                        <Button Grid.Column="5"
-                                                            Classes="secondary"
-                                                            Content="{}{} JSON"
-                                                            FontSize="10" Padding="6,3"
-                                                            Command="{Binding $parent[UserControl].DataContext.CopyAnalysisJsonCommand}"
+                                                            ToolTip.Tip="Clear results and analyse again">
+                                                        <PathIcon Data="{StaticResource icon_sync}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                    </Button>
+                                                    <Button Grid.Column="3" Classes="icon small" Margin="4,0,0,0"
+                                                            IsVisible="{ReflectionBinding $parent[UserControl].DataContext.IsDeveloperMode}"
+                                                            Command="{ReflectionBinding $parent[UserControl].DataContext.CopyAnalysisJsonCommand}"
                                                             CommandParameter="{Binding}"
-                                                            ToolTip.Tip="Copy full analysis JSON to clipboard"
-                                                            IsVisible="{Binding $parent[UserControl].DataContext.IsDeveloperMode}"
-                                                            Margin="4,0,0,0"/>
+                                                            ToolTip.Tip="Copy the full analysis JSON">
+                                                        <PathIcon Data="{StaticResource icon_copy}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                    </Button>
                                                 </Grid>
 
-                                                <!-- Collapse details under Expander to prevent UI clutter -->
-                                                <Expander Header="Analysis Failure Details"
-                                                          IsExpanded="False"
-                                                          Foreground="{DynamicResource BrushError}"
-                                                          IsVisible="{Binding HasAnalysisError}"
-                                                          Margin="0,4,0,0">
-                                                    <Border Background="{DynamicResource BrushBg2}"
-                                                            BorderBrush="{DynamicResource BrushError}"
-                                                            BorderThickness="1"
-                                                            CornerRadius="6"
-                                                            Padding="8,6">
-                                                        <StackPanel Spacing="6">
-                                                            <TextBlock Text="Pipeline Error:" FontWeight="Bold" FontSize="10" Foreground="{DynamicResource BrushError}"/>
-                                                            <TextBlock Text="{Binding AnalysisError}" FontSize="10" Foreground="White" TextWrapping="Wrap"/>
-                                                            
-                                                            <StackPanel Spacing="4" IsVisible="{Binding HasStemError}">
-                                                                <TextBlock Text="Stem Separator Error:" FontWeight="Bold" FontSize="10" Foreground="{DynamicResource BrushError}"/>
-                                                                <TextBlock Text="{Binding StemError}" FontSize="10" Foreground="White" TextWrapping="Wrap"/>
-                                                            </StackPanel>
-                                                        </StackPanel>
-                                                    </Border>
-                                                </Expander>
-
-                                                <Expander Header="Insight details" IsExpanded="False" Foreground="{DynamicResource BrushText1}">
-                                                    <StackPanel Spacing="6" Margin="0,6,0,0">
-                                                        <controls:WaveformControl
-                                                            WaveformData="{Binding WaveformData}"
-                                                            Height="56"
-                                                            IsVisible="{Binding HasWaveform}"/>
-
-                                                        <Border Background="{DynamicResource BrushBg2}" BorderBrush="{DynamicResource BrushBorder2}" BorderThickness="1" CornerRadius="6" Padding="8,6">
-                                                            <StackPanel Spacing="4">
-                                                                <TextBlock Text="Energy arc" FontSize="10" Foreground="{DynamicResource BrushInfo}" FontWeight="SemiBold"/>
-                                                                <controls:SparklineControl
-                                                                    Points="{Binding EnergyCurvePoints}"
-                                                                    LineBrush="{DynamicResource BrushSuccess}"
-                                                                    FillBrush="{DynamicResource BrushAccentSubtle}"
-                                                                    Height="30"
-                                                                    IsVisible="{Binding HasEnergyCurve}"/>
-                                                                <TextBlock Text="{Binding StructuralSummary}" FontSize="10" Foreground="{DynamicResource BrushText1}"/>
-                                                            </StackPanel>
+                                                <Expander Header="Details" IsExpanded="False">
+                                                    <StackPanel Spacing="12">
+                                                        <Border Classes="inset" IsVisible="{Binding HasWaveform}">
+                                                            <controls:WaveformControl WaveformData="{Binding WaveformData}" Height="56"/>
                                                         </Border>
 
-                                                        <Border Background="{DynamicResource BrushBg2}" BorderBrush="{DynamicResource BrushBorder2}" BorderThickness="1" CornerRadius="6" Padding="8,6">
-                                                            <StackPanel Spacing="4">
-                                                                <TextBlock Text="Phrase shape" FontSize="10" Foreground="{DynamicResource BrushInfo}" FontWeight="SemiBold"/>
-                                                                <controls:SparklineControl
-                                                                    Points="{Binding SegmentedEnergyPoints}"
-                                                                    LineBrush="{DynamicResource BrushAccent}"
-                                                                    FillBrush="{DynamicResource BrushAccentSubtle}"
-                                                                    Height="26"
-                                                                    IsVisible="{Binding HasSegmentedEnergy}"/>
-                                                                <ItemsControl ItemsSource="{Binding PhraseTimelineBlocks}"
-                                                                              IsVisible="{Binding HasPhraseTimeline}">
-                                                                    <ItemsControl.ItemsPanel>
-                                                                        <ItemsPanelTemplate>
-                                                                            <StackPanel Orientation="Horizontal" Spacing="4"/>
-                                                                        </ItemsPanelTemplate>
-                                                                    </ItemsControl.ItemsPanel>
-                                                                    <ItemsControl.ItemTemplate>
-                                                                        <DataTemplate>
-                                                                            <Border Width="{Binding WidthPx}"
-                                                                                    Height="16"
-                                                                                    CornerRadius="3"
-                                                                                    Background="{Binding FillColor}"
-                                                                                    ToolTip.Tip="{Binding Tooltip}">
-                                                                                <TextBlock Text="{Binding Label}"
-                                                                                           FontSize="9"
-                                                                                           Foreground="{DynamicResource BrushText0}"
-                                                                                           HorizontalAlignment="Center"
-                                                                                           VerticalAlignment="Center"
-                                                                                           TextTrimming="CharacterEllipsis"
-                                                                                           Margin="3,0"/>
-                                                                            </Border>
-                                                                        </DataTemplate>
-                                                                    </ItemsControl.ItemTemplate>
-                                                                </ItemsControl>
-                                                            </StackPanel>
-                                                        </Border>
+                                                        <!-- Measured scores as bars -->
+                                                        <Grid ColumnDefinitions="96,*,48" RowDefinitions="Auto,Auto,Auto,Auto">
+                                                            <TextBlock Grid.Row="0" Classes="caption" Text="BPM confidence" IsVisible="{Binding HasMeasuredBpmConfidence}" VerticalAlignment="Center"/>
+                                                            <ProgressBar Grid.Row="0" Grid.Column="1" Classes="meter" Maximum="1" Value="{Binding MeasuredBpmConfidence}" IsVisible="{Binding HasMeasuredBpmConfidence}" VerticalAlignment="Center"/>
+                                                            <TextBlock Grid.Row="0" Grid.Column="2" Classes="num" HorizontalAlignment="Right" Text="{Binding MeasuredBpmConfidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}" IsVisible="{Binding HasMeasuredBpmConfidence}"/>
 
-                                                        <Grid ColumnDefinitions="*,*" Margin="0,2,0,0">
-                                                            <TextBlock Grid.Column="0" Text="{Binding ConfidenceSemanticsSummary}" FontSize="10" Foreground="{DynamicResource BrushSuccess}"/>
-                                                            <TextBlock Grid.Column="1" Text="{Binding VocalProfileSummary}" FontSize="10" Foreground="{DynamicResource BrushText0}"/>
+                                                            <TextBlock Grid.Row="1" Classes="caption" Text="Key confidence" IsVisible="{Binding HasMeasuredKeyConfidence}" VerticalAlignment="Center"/>
+                                                            <ProgressBar Grid.Row="1" Grid.Column="1" Classes="meter" Maximum="1" Value="{Binding MeasuredKeyConfidence}" IsVisible="{Binding HasMeasuredKeyConfidence}" VerticalAlignment="Center"/>
+                                                            <TextBlock Grid.Row="1" Grid.Column="2" Classes="num" HorizontalAlignment="Right" Text="{Binding MeasuredKeyConfidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}" IsVisible="{Binding HasMeasuredKeyConfidence}"/>
+
+                                                            <TextBlock Grid.Row="2" Classes="caption" Text="Energy" IsVisible="{Binding HasMeasuredEnergy}" VerticalAlignment="Center"/>
+                                                            <ProgressBar Grid.Row="2" Grid.Column="1" Classes="meter" Maximum="1" Value="{Binding MeasuredEnergy}" IsVisible="{Binding HasMeasuredEnergy}" VerticalAlignment="Center"/>
+                                                            <TextBlock Grid.Row="2" Grid.Column="2" Classes="num" HorizontalAlignment="Right" Text="{Binding MeasuredEnergy, Converter={StaticResource NumberConverter}, ConverterParameter=pct}" IsVisible="{Binding HasMeasuredEnergy}"/>
+
+                                                            <TextBlock Grid.Row="3" Classes="caption" Text="Valence" IsVisible="{Binding HasMeasuredValence}" VerticalAlignment="Center"/>
+                                                            <ProgressBar Grid.Row="3" Grid.Column="1" Classes="meter" Maximum="1" Value="{Binding MeasuredValence}" IsVisible="{Binding HasMeasuredValence}" VerticalAlignment="Center"/>
+                                                            <TextBlock Grid.Row="3" Grid.Column="2" Classes="num" HorizontalAlignment="Right" Text="{Binding MeasuredValence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}" IsVisible="{Binding HasMeasuredValence}"/>
                                                         </Grid>
 
-                                                        <Border Background="{DynamicResource BrushBg2}"
-                                                                BorderBrush="{DynamicResource BrushError}"
-                                                                BorderThickness="1"
-                                                                CornerRadius="6"
-                                                                Padding="8,6"
-                                                                IsVisible="{Binding HasStemError}">
-                                                            <TextBlock Text="{Binding StemError}" FontSize="10" Foreground="{DynamicResource BrushError}" TextWrapping="Wrap"/>
-                                                        </Border>
-
-                                                        <TextBlock Text="{Binding HarmonicProfileSummary}" FontSize="10" Foreground="{DynamicResource BrushText0}"/>
-                                                        <TextBlock Text="{Binding QualityProfileSummary}" FontSize="10" Foreground="{DynamicResource BrushText1}"/>
-
-                                                        <TextBlock Text="Mood profile" FontSize="10" Foreground="{DynamicResource BrushText2}" FontWeight="SemiBold"/>
-                                                        <Grid ColumnDefinitions="74,*"
-                                                              RowDefinitions="Auto,Auto,Auto,Auto,Auto">
-                                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Happy" FontSize="10" Foreground="{DynamicResource BrushText1}"/>
-                                                            <ProgressBar Grid.Row="0" Grid.Column="1" Value="{Binding AnalysisData.Moods.Happy}" Minimum="0" Maximum="100" Height="5" Foreground="{DynamicResource BrushWarning}" Background="{DynamicResource BrushBorder1}" Margin="0,2"/>
-
-                                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Sad" FontSize="10" Foreground="{DynamicResource BrushText1}"/>
-                                                            <ProgressBar Grid.Row="1" Grid.Column="1" Value="{Binding AnalysisData.Moods.Sad}" Minimum="0" Maximum="100" Height="5" Foreground="{DynamicResource BrushInfo}" Background="{DynamicResource BrushBorder1}" Margin="0,2"/>
-
-                                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Aggressive" FontSize="10" Foreground="{DynamicResource BrushText1}"/>
-                                                            <ProgressBar Grid.Row="2" Grid.Column="1" Value="{Binding AnalysisData.Moods.Aggressive}" Minimum="0" Maximum="100" Height="5" Foreground="{DynamicResource BrushError}" Background="{DynamicResource BrushBorder1}" Margin="0,2"/>
-
-                                                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Relaxed" FontSize="10" Foreground="{DynamicResource BrushText1}"/>
-                                                            <ProgressBar Grid.Row="3" Grid.Column="1" Value="{Binding AnalysisData.Moods.Relaxed}" Minimum="0" Maximum="100" Height="5" Foreground="{DynamicResource BrushInfo}" Background="{DynamicResource BrushBorder1}" Margin="0,2"/>
-
-                                                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Party" FontSize="10" Foreground="{DynamicResource BrushText1}"/>
-                                                            <ProgressBar Grid.Row="4" Grid.Column="1" Value="{Binding AnalysisData.Moods.Party}" Minimum="0" Maximum="100" Height="5" Foreground="{DynamicResource BrushStemOther}" Background="{DynamicResource BrushBorder1}" Margin="0,2"/>
-                                                        </Grid>
-
-                                                        <StackPanel Orientation="Horizontal" Spacing="12">
-                                                            <TextBlock FontSize="10" Foreground="{DynamicResource BrushText1}">
-                                                                <Run Text="Arousal "/>
-                                                                <Run Text="{Binding AnalysisData.Affective.Arousal, StringFormat='{}{0:+0.00;-0.00}'}" Foreground="{DynamicResource BrushStemOther}"/>
-                                                            </TextBlock>
-                                                            <TextBlock FontSize="10" Foreground="{DynamicResource BrushText1}">
-                                                                <Run Text="Valence "/>
-                                                                <Run Text="{Binding AnalysisData.Affective.Valence, StringFormat='{}{0:+0.00;-0.00}'}" Foreground="{DynamicResource BrushStemOther}"/>
-                                                            </TextBlock>
+                                                        <!-- Energy arc -->
+                                                        <StackPanel Spacing="4" IsVisible="{Binding HasEnergyCurve}">
+                                                            <TextBlock Classes="section" Text="ENERGY ARC"/>
+                                                            <controls:SparklineControl Points="{Binding EnergyCurvePoints}" Height="32"
+                                                                                       LineBrush="{StaticResource BrushAccent}"
+                                                                                       FillBrush="{StaticResource BrushAccentSubtle}"/>
+                                                            <TextBlock Classes="caption" Text="{Binding StructuralSummary}"/>
                                                         </StackPanel>
 
-                                                        <ItemsControl ItemsSource="{Binding AnalysisData.Genres}">
-                                                            <ItemsControl.ItemsPanel>
-                                                                <ItemsPanelTemplate>
-                                                                    <WrapPanel Orientation="Horizontal"/>
-                                                                </ItemsPanelTemplate>
-                                                            </ItemsControl.ItemsPanel>
-                                                            <ItemsControl.ItemTemplate>
-                                                                <DataTemplate>
-                                                                    <Border Classes="chip" Background="{DynamicResource BrushBg2}">
-                                                                        <TextBlock FontSize="10" Foreground="{DynamicResource BrushStemOther}">
-                                                                            <Run Text="{Binding Label}"/>
-                                                                            <Run Text=" "/>
-                                                                            <Run Text="{Binding Confidence, StringFormat='{}{0:P0}'}"/>
-                                                                        </TextBlock>
-                                                                    </Border>
-                                                                </DataTemplate>
-                                                            </ItemsControl.ItemTemplate>
-                                                        </ItemsControl>
+                                                        <!-- Phrase shape -->
+                                                        <StackPanel Spacing="4" IsVisible="{Binding HasSegmentedEnergy}">
+                                                            <TextBlock Classes="section" Text="PHRASES"/>
+                                                            <controls:SparklineControl Points="{Binding SegmentedEnergyPoints}" Height="24"
+                                                                                       LineBrush="{StaticResource BrushText1}"
+                                                                                       FillBrush="{StaticResource BrushHover}"/>
+                                                            <ItemsControl ItemsSource="{Binding PhraseTimelineBlocks}" IsVisible="{Binding HasPhraseTimeline}">
+                                                                <ItemsControl.ItemsPanel>
+                                                                    <ItemsPanelTemplate>
+                                                                        <StackPanel Orientation="Horizontal" Spacing="4"/>
+                                                                    </ItemsPanelTemplate>
+                                                                </ItemsControl.ItemsPanel>
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate x:DataType="vm:PhraseTimelineBlock">
+                                                                        <Border Classes="phrase" Classes.drop="{Binding IsDrop}"
+                                                                                Width="{Binding WidthPx}" ToolTip.Tip="{Binding Tooltip}">
+                                                                            <TextBlock Classes="caption" Text="{Binding Label}"
+                                                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                                       TextTrimming="CharacterEllipsis" Margin="4,0"/>
+                                                                        </Border>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                        </StackPanel>
+
+                                                        <!-- Profile summaries -->
+                                                        <StackPanel Spacing="2">
+                                                            <TextBlock Classes="caption" Text="{Binding HarmonicProfileSummary}" TextWrapping="Wrap"/>
+                                                            <TextBlock Classes="caption" Text="{Binding VocalProfileSummary}" TextWrapping="Wrap"/>
+                                                            <TextBlock Classes="caption" Text="{Binding QualityProfileSummary}" TextWrapping="Wrap"/>
+                                                        </StackPanel>
+
+                                                        <!-- Genres as ranked bars -->
+                                                        <StackPanel Spacing="4" IsVisible="{Binding HasGenres}">
+                                                            <TextBlock Classes="section" Text="GENRE"/>
+                                                            <ItemsControl ItemsSource="{Binding AnalysisData.Genres}">
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate x:DataType="models:GenrePrediction">
+                                                                        <Grid ColumnDefinitions="96,*,48" MinHeight="20">
+                                                                            <TextBlock Classes="caption" Text="{Binding Label}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                                            <ProgressBar Grid.Column="1" Classes="meter" Maximum="1" Value="{Binding Confidence}" VerticalAlignment="Center"/>
+                                                                            <TextBlock Grid.Column="2" Classes="num" HorizontalAlignment="Right" Text="{Binding Confidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                                                                        </Grid>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                        </StackPanel>
                                                     </StackPanel>
                                                 </Expander>
-
-                                                <TextBlock FontSize="10" Foreground="{DynamicResource BrushTextDisabled}" ToolTip.Tip="{Binding ModelVersion}">
-                                                    <Run Text="Analyzed: "/>
-                                                    <Run Text="{Binding LastAnalyzedDisplay}" Foreground="{DynamicResource BrushText2}"/>
-                                                </TextBlock>
-
                                             </StackPanel>
-
-                                            <!-- ── Failed track: error details card ── -->
-                                            <StackPanel IsVisible="{Binding IsFailed}" Spacing="6">
-                                                <Expander Header="Analysis Failure Details"
-                                                          IsExpanded="True"
-                                                          Foreground="{DynamicResource BrushError}"
-                                                          Margin="0,2,0,0">
-                                                    <Border Background="{DynamicResource BrushBg2}"
-                                                            BorderBrush="{DynamicResource BrushError}"
-                                                            BorderThickness="1"
-                                                            CornerRadius="6"
-                                                            Padding="8,6">
-                                                        <StackPanel Spacing="6">
-                                                            <TextBlock Text="Pipeline Error:" FontWeight="Bold" FontSize="10" Foreground="{DynamicResource BrushError}"/>
-                                                            <TextBlock Text="{Binding AnalysisError}" FontSize="10" Foreground="White" TextWrapping="Wrap"/>
-                                                            
-                                                            <StackPanel Spacing="4" IsVisible="{Binding HasStemError}">
-                                                                <TextBlock Text="Stem Separator Error:" FontWeight="Bold" FontSize="10" Foreground="{DynamicResource BrushError}"/>
-                                                                <TextBlock Text="{Binding StemError}" FontSize="10" Foreground="White" TextWrapping="Wrap"/>
-                                                            </StackPanel>
-                                                        </StackPanel>
-                                                    </Border>
-                                                </Expander>
-                                                
-                                                <!-- Action row to allow retrying analysis manually -->
-                                                <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,2">
-                                                    <TextBlock Text="Please fix files or choose Re-analyze" FontSize="10" Foreground="{DynamicResource BrushText2}" VerticalAlignment="Center"/>
-                                                    <Button Grid.Column="1"
-                                                            Background="{DynamicResource BrushBg2}"
-                                                            BorderBrush="{DynamicResource BrushError}"
-                                                            BorderThickness="1"
-                                                            Foreground="{DynamicResource BrushError}"
-                                                            CornerRadius="6"
-                                                            Content="↺ Re-analyze"
-                                                            FontSize="10" Padding="6,3"
-                                                            Command="{Binding $parent[UserControl].DataContext.ReanalyzeCommand}"
-                                                            CommandParameter="{Binding}"
-                                                            ToolTip.Tip="Clear errors and retry analysis"/>
-                                                </Grid>
-                                            </StackPanel>
-
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                    </Panel>
-                </ScrollViewer>
-
+                    </ScrollViewer>
+                </Panel>
             </DockPanel>
         </Grid>
     </Grid>
-    </ScrollViewer>
 </UserControl>
-

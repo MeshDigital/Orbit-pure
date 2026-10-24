@@ -3,30 +3,32 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Globalization;
 using System.Linq;
+using System.Runtime.InteropServices;
 using SLSKDONET.Models;
-using SLSKDONET.Services.Timeline;
+using SLSKDONET.ViewModels;
 
 namespace SLSKDONET.Views.Avalonia.Controls;
 
 /// <summary>
-/// Full-canvas RGB waveform renderer with interactive cue/loop overlays,
-/// phrase-map strip, energy curve, onset density curve, and vocal overlay.
+/// Cue Forge's zoomable detail waveform with editable cue and loop markers.
 ///
-/// Rendering layer order (back → front):
-///   1. Background fill
-///   2. Phrase-map strip (bottom 12px colored bands by section type)
-///   3. Beat grid (bar + beat lines)
-///   4. Onset density fill (translucent fill showing activity density)
-///   5. RGB waveform (Low=Red, Mid=Green, High=Blue — Rekordbox convention)
-///   6. Energy curve overlay (bright green line)
-///   7. Vocal density overlay (red tint strips)
-///   8. Loop blocks (translucent shaded regions with edge handles)
-///   9. Cue markers (vertical colored lines + flag triangles)
-///  10. Playhead (bright cyan)
+/// Interaction: click empty waveform = move the playhead (hold and drag to scrub); drag a cue
+/// marker or loop edge to move it (snapped to the grid, hold Shift for free placement) with a
+/// live time / bar readout; mouse wheel zooms around the cursor, Shift/Ctrl + wheel (or a
+/// horizontal swipe) scrolls.
+///
+/// Rendering: everything except the playhead and the drag readout is drawn once into a cached
+/// bitmap (rebuilt only when data, cues, zoom/scroll or size change). The waveform itself is
+/// written straight into a pixel buffer, and every pen, brush and label is cached, so playback
+/// redraws (~30 fps) only blit the cache and draw one line. Control.Render runs on the UI thread,
+/// so reading styled properties here is safe (unlike ICustomDrawOperation.Render).
 /// </summary>
 public class CueForgeWaveformControl : Control
 {
@@ -48,19 +50,30 @@ public class CueForgeWaveformControl : Control
         AvaloniaProperty.Register<CueForgeWaveformControl, double>(nameof(TrackDuration), 300.0);
     public double TrackDuration { get => GetValue(TrackDurationProperty); set => SetValue(TrackDurationProperty, value); }
 
+    /// <summary>Rounded BPM; used only when <see cref="GridBpm"/> isn't set.</summary>
     public static readonly StyledProperty<int> BpmProperty =
         AvaloniaProperty.Register<CueForgeWaveformControl, int>(nameof(Bpm), 120);
     public int Bpm { get => GetValue(BpmProperty); set => SetValue(BpmProperty, value); }
+
+    /// <summary>Precise BPM for the beat grid and snapping.</summary>
+    public static readonly StyledProperty<double> GridBpmProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, double>(nameof(GridBpm));
+    public double GridBpm { get => GetValue(GridBpmProperty); set => SetValue(GridBpmProperty, value); }
+
+    /// <summary>Downbeat offset (seconds) the grid is anchored at.</summary>
+    public static readonly StyledProperty<double> GridOffsetProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, double>(nameof(GridOffset));
+    public double GridOffset { get => GetValue(GridOffsetProperty); set => SetValue(GridOffsetProperty, value); }
 
     public static readonly StyledProperty<bool> SnapToGridProperty =
         AvaloniaProperty.Register<CueForgeWaveformControl, bool>(nameof(SnapToGrid), true);
     public bool SnapToGrid { get => GetValue(SnapToGridProperty); set => SetValue(SnapToGridProperty, value); }
 
-    public static readonly StyledProperty<string> QuantizeBeatStringProperty =
-        AvaloniaProperty.Register<CueForgeWaveformControl, string>(nameof(QuantizeBeatString), "16 beats");
-    public string QuantizeBeatString { get => GetValue(QuantizeBeatStringProperty); set => SetValue(QuantizeBeatStringProperty, value); }
+    /// <summary>Snap resolution in beats (1 = beat, 4 = bar…).</summary>
+    public static readonly StyledProperty<int> SnapBeatsProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, int>(nameof(SnapBeats), 1);
+    public int SnapBeats { get => GetValue(SnapBeatsProperty); set => SetValue(SnapBeatsProperty, value); }
 
-    // Waveform data channels (0-255 per sample)
     public static readonly StyledProperty<byte[]?> WaveformLowProperty =
         AvaloniaProperty.Register<CueForgeWaveformControl, byte[]?>(nameof(WaveformLow));
     public byte[]? WaveformLow { get => GetValue(WaveformLowProperty); set => SetValue(WaveformLowProperty, value); }
@@ -85,120 +98,837 @@ public class CueForgeWaveformControl : Control
         AvaloniaProperty.Register<CueForgeWaveformControl, float[]?>(nameof(OnsetDensityCurve));
     public float[]? OnsetDensityCurve { get => GetValue(OnsetDensityCurveProperty); set => SetValue(OnsetDensityCurveProperty, value); }
 
-    // ── Seek command (click-to-seek binds to VM's SeekPlayheadCommand) ────────
+    public static readonly StyledProperty<IBrush?> BackgroundProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, IBrush?>(nameof(Background));
+    public IBrush? Background { get => GetValue(BackgroundProperty); set => SetValue(BackgroundProperty, value); }
 
+    /// <summary>Bump to redraw after an in-place cue edit (rename, recolour, move).</summary>
+    public static readonly StyledProperty<int> RevisionProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, int>(nameof(Revision));
+    public int Revision { get => GetValue(RevisionProperty); set => SetValue(RevisionProperty, value); }
+
+    public static readonly StyledProperty<double> MaxZoomProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, double>(nameof(MaxZoom), 32.0);
+    public double MaxZoom { get => GetValue(MaxZoomProperty); set => SetValue(MaxZoomProperty, value); }
+
+    /// <summary>Executed with the clicked / scrubbed time in seconds (double).</summary>
     public static readonly StyledProperty<System.Windows.Input.ICommand?> SeekCommandProperty =
         AvaloniaProperty.Register<CueForgeWaveformControl, System.Windows.Input.ICommand?>(nameof(SeekCommand));
     public System.Windows.Input.ICommand? SeekCommand { get => GetValue(SeekCommandProperty); set => SetValue(SeekCommandProperty, value); }
 
-    // ── Selection / edit commands ───────────────────────────────────────────
-
-    /// <summary>Fired the instant a cue is hit-tested on press (click OR the start of a drag) —
-    /// this is what makes clicking/dragging a cue on the waveform open it in the CUE DETAIL
-    /// panel, same as clicking it in the list.</summary>
+    /// <summary>Fired when a cue or loop is pressed, so it opens in the inspector.</summary>
     public static readonly StyledProperty<System.Windows.Input.ICommand?> SelectCueCommandProperty =
         AvaloniaProperty.Register<CueForgeWaveformControl, System.Windows.Input.ICommand?>(nameof(SelectCueCommand));
     public System.Windows.Input.ICommand? SelectCueCommand { get => GetValue(SelectCueCommandProperty); set => SetValue(SelectCueCommandProperty, value); }
 
-    /// <summary>Fired on the same press, before any drag movement — lets the ViewModel push an
-    /// undo snapshot of the pre-drag state.</summary>
+    /// <summary>Fired on the first real drag movement, before the cue moves (undo snapshot).</summary>
     public static readonly StyledProperty<System.Windows.Input.ICommand?> CueDragStartedCommandProperty =
         AvaloniaProperty.Register<CueForgeWaveformControl, System.Windows.Input.ICommand?>(nameof(CueDragStartedCommand));
     public System.Windows.Input.ICommand? CueDragStartedCommand { get => GetValue(CueDragStartedCommandProperty); set => SetValue(CueDragStartedCommandProperty, value); }
 
-    /// <summary>Fired on release once a cue or loop handle actually moved — this is what marks
-    /// the track dirty (HasUncommittedChanges) so the Commit button appears; without it, a
-    /// waveform drag mutated the cue in place but the ViewModel never found out.</summary>
+    /// <summary>Fired on release once a cue or loop edge actually moved.</summary>
     public static readonly StyledProperty<System.Windows.Input.ICommand?> CueUpdatedCommandProperty =
         AvaloniaProperty.Register<CueForgeWaveformControl, System.Windows.Input.ICommand?>(nameof(CueUpdatedCommand));
     public System.Windows.Input.ICommand? CueUpdatedCommand { get => GetValue(CueUpdatedCommandProperty); set => SetValue(CueUpdatedCommandProperty, value); }
 
-    /// <summary>The cue currently selected in the CUE DETAIL/list panel — drawn with a highlight
-    /// so it's visually obvious which marker corresponds to the open editor.</summary>
     public static readonly StyledProperty<OrbitCue?> SelectedCueProperty =
         AvaloniaProperty.Register<CueForgeWaveformControl, OrbitCue?>(nameof(SelectedCue));
     public OrbitCue? SelectedCue { get => GetValue(SelectedCueProperty); set => SetValue(SelectedCueProperty, value); }
 
-    // ── Zoom / Scroll (bindable so the nav bar can drive them) ─────────────
-
+    /// <summary>Magnification (1 = whole track).</summary>
     public static readonly StyledProperty<double> ZoomLevelProperty =
-        AvaloniaProperty.Register<CueForgeWaveformControl, double>(nameof(ZoomLevel), 1.0);
+        AvaloniaProperty.Register<CueForgeWaveformControl, double>(nameof(ZoomLevel), 1.0,
+            defaultBindingMode: global::Avalonia.Data.BindingMode.TwoWay);
     public double ZoomLevel { get => GetValue(ZoomLevelProperty); set => SetValue(ZoomLevelProperty, value); }
 
+    /// <summary>Fraction of the track at the left edge (0..1 - 1/zoom).</summary>
     public static readonly StyledProperty<double> ScrollOffsetProperty =
-        AvaloniaProperty.Register<CueForgeWaveformControl, double>(nameof(ScrollOffset), 0.0);
+        AvaloniaProperty.Register<CueForgeWaveformControl, double>(nameof(ScrollOffset), 0.0,
+            defaultBindingMode: global::Avalonia.Data.BindingMode.TwoWay);
     public double ScrollOffset { get => GetValue(ScrollOffsetProperty); set => SetValue(ScrollOffsetProperty, value); }
 
-    // ── Drag State ─────────────────────────────────────────────────────────
+    /// <summary>Fired on a click (press + release without dragging) on a cue flag or loop: Cue Forge
+    /// plays from the cue (prelisten). A drag moves the marker instead and never fires this.</summary>
+    public static readonly StyledProperty<System.Windows.Input.ICommand?> CueClickedCommandProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, System.Windows.Input.ICommand?>(nameof(CueClickedCommand));
+    public System.Windows.Input.ICommand? CueClickedCommand { get => GetValue(CueClickedCommandProperty); set => SetValue(CueClickedCommandProperty, value); }
 
-    private OrbitCue? _draggedCue;
-    private OrbitCue? _draggedLoop;
-    private bool _isDraggingLoopStart;
-    private bool _isDraggingLoopEnd;
-    private const double HitRadius = 18.0;
-    private const double PhraseMapHeight = 12.0;
+    // Section regions (Intro end / Outro markers) — token brushes from the view.
+    public static readonly StyledProperty<IBrush?> IntroRegionFillProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, IBrush?>(nameof(IntroRegionFill));
+    public IBrush? IntroRegionFill { get => GetValue(IntroRegionFillProperty); set => SetValue(IntroRegionFillProperty, value); }
+    public static readonly StyledProperty<IBrush?> IntroRegionEdgeProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, IBrush?>(nameof(IntroRegionEdge));
+    public IBrush? IntroRegionEdge { get => GetValue(IntroRegionEdgeProperty); set => SetValue(IntroRegionEdgeProperty, value); }
+    public static readonly StyledProperty<IBrush?> OutroRegionFillProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, IBrush?>(nameof(OutroRegionFill));
+    public IBrush? OutroRegionFill { get => GetValue(OutroRegionFillProperty); set => SetValue(OutroRegionFillProperty, value); }
+    public static readonly StyledProperty<IBrush?> OutroRegionEdgeProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, IBrush?>(nameof(OutroRegionEdge));
+    public IBrush? OutroRegionEdge { get => GetValue(OutroRegionEdgeProperty); set => SetValue(OutroRegionEdgeProperty, value); }
 
-    // ── Static-layer cache ──────────────────────────────────────────────────
-    // Layers 1-9 (everything except the playhead) don't change during normal
-    // playback — only CurrentPlayPosition does, at ~30fps. Re-rendering all 9
-    // layers (several of which allocate a Brush/Pen per pixel column) on every
-    // playhead tick was the dominant cost during scrubbing/playback. They're
-    // now rendered once into a bitmap and only rebuilt when something that
-    // actually affects them changes (data, cues, zoom/scroll, size).
+    /// <summary>Shown while hovering a cue flag.</summary>
+    public const string CueFlagTip = "Click to play from here · drag to move";
+
+    /// <summary>True while the user holds the mouse down scrubbing the playhead.</summary>
+    public event EventHandler<bool>? ScrubbingChanged;
+
+    // ── Layout ─────────────────────────────────────────────────────────────
+
+    private const double RulerHeight = 16.0;
+    private const double PhraseMapHeight = 10.0;
+    private const double HitRadius = 6.0;
+    private const double FlagWidth = 16.0;
+    private const double FlagHeight = 14.0;
+
+    // ── Cached drawing resources (allocated once, never in Render) ─────────
+
+    private static readonly IBrush RulerBrush = new SolidColorBrush(Color.FromArgb(255, 18, 19, 22)).ToImmutable();
+    private static readonly IBrush RulerTextBrush = new SolidColorBrush(Color.FromArgb(200, 168, 173, 181)).ToImmutable();
+    private static readonly IBrush LabelBgBrush = new SolidColorBrush(Color.FromArgb(200, 15, 16, 18)).ToImmutable();
+    private static readonly IBrush LabelTextBrush = new SolidColorBrush(Color.FromArgb(255, 232, 234, 237)).ToImmutable();
+    private static readonly IBrush FlagTextBrush = new SolidColorBrush(Color.FromArgb(255, 15, 16, 18)).ToImmutable();
+    private static readonly IBrush SelectionBrush = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)).ToImmutable();
+    private static readonly IBrush DoubleDropBrush = new SolidColorBrush(Color.FromArgb(22, 170, 114, 255)).ToImmutable();
+    private static readonly IPen BeatPen = new Pen(new SolidColorBrush(Color.FromArgb(20, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
+    private static readonly IPen BarPen = new Pen(new SolidColorBrush(Color.FromArgb(46, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
+    private static readonly IPen PhrasePen = new Pen(new SolidColorBrush(Color.FromArgb(90, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
+    private static readonly IPen DividerPen = new Pen(new SolidColorBrush(Color.FromArgb(30, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
+    private static readonly IPen EnergyPen = new Pen(new SolidColorBrush(Color.FromArgb(90, 78, 201, 176)).ToImmutable(), 1.5).ToImmutable();
+    private static readonly IBrush PlayheadBrush = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)).ToImmutable();
+    private static readonly IPen PlayheadPen = new Pen(PlayheadBrush, 1.5).ToImmutable();
+    private static readonly IBrush ReadoutBgBrush = new SolidColorBrush(Color.FromArgb(235, 34, 35, 39)).ToImmutable();
+    private static readonly Typeface UiTypeface = new("Inter");
+    private static readonly Typeface MonoTypeface = new(new FontFamily("Cascadia Mono, Consolas, monospace"));
+    private static readonly Cursor HandleCursor = new(StandardCursorType.SizeWestEast);
+    private static readonly Cursor ScrubCursor = new(StandardCursorType.Ibeam);
+    private static readonly Geometry PlayheadHead = CreateTriangle(new Point(-5, 0), new Point(5, 0), new Point(0, 7));
+    private static readonly Geometry EdgeArrowLeft = CreateTriangle(new Point(0, 0), new Point(7, -5), new Point(7, 5));
+    private static readonly Geometry EdgeArrowRight = CreateTriangle(new Point(0, 0), new Point(-7, -5), new Point(-7, 5));
+
+    private static readonly Dictionary<string, (IBrush Fill, IBrush Band, IPen Edge)> PhraseStyles = new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Dictionary<string, IBrush> _brushCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IBrush> _loopFillCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IPen> _penCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, FormattedText> _textCache = new();
+
+    // ── Static-layer cache ─────────────────────────────────────────────────
+
     private RenderTargetBitmap? _staticBitmap;
+    private WriteableBitmap? _waveBitmap;
+    private int[]? _pixels;
     private Size _staticBitmapSize;
+    private double _staticScale;
     private bool _staticDirty = true;
+
+    // ── Drag state ─────────────────────────────────────────────────────────
+
+    private enum DragKind { None, Scrub, Cue, LoopStart, LoopEnd }
+    private DragKind _drag;
+    private OrbitCue? _dragCue;
+    private bool _dragMoved;
+    private Point _pressPoint;
+    private FormattedText? _readout;
+    private double _readoutX;
+    private DateTime _lastInvalidate = DateTime.MinValue;
+    private DateTime _lastScrubSeek = DateTime.MinValue;
+    private const double ThrottleMs = 33.0;
+
+    public CueForgeWaveformControl()
+    {
+        ClipToBounds = true;
+        Focusable = false;
+    }
+
+    // ── Coordinate mapping ─────────────────────────────────────────────────
+
+    private double EffectiveBpm => GridBpm > 0 ? GridBpm : Bpm;
+    private double Zoom => Math.Max(1.0, ZoomLevel);
+
+    private double TimeToX(double seconds, double width) =>
+        TrackDuration <= 0 ? 0 : (seconds / TrackDuration - ScrollOffset) * Zoom * width;
+
+    private double XToTime(double x, double width) =>
+        width <= 0 ? 0 : (x / width / Zoom + ScrollOffset) * TrackDuration;
+
+    /// <summary>Track time (seconds) under a point in this control — used by the page's context menu.</summary>
+    public double TimeAt(Point p) => Math.Clamp(XToTime(p.X, Bounds.Width), 0, Math.Max(0, TrackDuration));
+
+    private double ApplySnap(double t, KeyModifiers mods)
+    {
+        t = Math.Clamp(t, 0, TrackDuration);
+        if (!SnapToGrid || (mods & KeyModifiers.Shift) != 0) return t;
+        return Math.Clamp(CueForgeGrid.Snap(t, EffectiveBpm, GridOffset, Math.Max(1, SnapBeats)), 0, TrackDuration);
+    }
 
     // ── Rendering ──────────────────────────────────────────────────────────
 
     public override void Render(DrawingContext ctx)
     {
         base.Render(ctx);
-        var b = new Rect(0, 0, Bounds.Width, Bounds.Height);
-        if (b.Width < 1 || b.Height < 1) return;
+        var size = Bounds.Size;
+        if (size.Width < 1 || size.Height < 1) return;
 
-        EnsureStaticBitmap(b.Size);
+        EnsureStaticBitmap(size);
         if (_staticBitmap is not null)
-            ctx.DrawImage(_staticBitmap, new Rect(b.Size));
+            ctx.DrawImage(_staticBitmap, new Rect(size));
 
-        var waveformBounds = new Rect(b.X, b.Y, b.Width, b.Height - PhraseMapHeight);
-        DrawPlayhead(ctx, waveformBounds);
+        DrawPlayhead(ctx, size);
+
+        if (_readout != null && _drag is DragKind.Cue or DragKind.LoopStart or DragKind.LoopEnd)
+        {
+            double w = _readout.Width + 12, h = _readout.Height + 6;
+            double x = Math.Clamp(_readoutX + 8, 0, Math.Max(0, size.Width - w));
+            double y = RulerHeight + 4;
+            ctx.FillRectangle(ReadoutBgBrush, new Rect(x, y, w, h), 4);
+            ctx.DrawText(_readout, new Point(x + 6, y + 3));
+        }
+    }
+
+    private void DrawPlayhead(DrawingContext ctx, Size size)
+    {
+        if (TrackDuration <= 0) return;
+        double bottom = size.Height - PhraseMapHeight;
+        double x = TimeToX(CurrentPlayPosition, size.Width);
+        if (x < 0)
+        {
+            using (ctx.PushTransform(Matrix.CreateTranslation(2, RulerHeight / 2)))
+                ctx.DrawGeometry(PlayheadBrush, null, EdgeArrowLeft);
+            return;
+        }
+        if (x > size.Width)
+        {
+            using (ctx.PushTransform(Matrix.CreateTranslation(size.Width - 2, RulerHeight / 2)))
+                ctx.DrawGeometry(PlayheadBrush, null, EdgeArrowRight);
+            return;
+        }
+        ctx.DrawLine(PlayheadPen, new Point(x, 0), new Point(x, bottom));
+        using (ctx.PushTransform(Matrix.CreateTranslation(x, 0)))
+            ctx.DrawGeometry(PlayheadBrush, null, PlayheadHead);
     }
 
     private void EnsureStaticBitmap(Size size)
     {
-        if (size.Width < 1 || size.Height < 1) return;
-
+        double scale = VisualRoot?.RenderScaling ?? 1.0;
         bool sizeChanged = _staticBitmap is null ||
             Math.Abs(_staticBitmapSize.Width - size.Width) > 0.5 ||
-            Math.Abs(_staticBitmapSize.Height - size.Height) > 0.5;
+            Math.Abs(_staticBitmapSize.Height - size.Height) > 0.5 ||
+            Math.Abs(_staticScale - scale) > 0.01;
         if (!_staticDirty && !sizeChanged) return;
 
-        _staticBitmap?.Dispose();
-        var pixelSize = new PixelSize((int)Math.Ceiling(size.Width), (int)Math.Ceiling(size.Height));
-        _staticBitmap = new RenderTargetBitmap(pixelSize, new Vector(96, 96));
-
-        using (var ctx = _staticBitmap.CreateDrawingContext())
+        var pixelSize = new PixelSize(Math.Max(1, (int)Math.Ceiling(size.Width * scale)),
+                                      Math.Max(1, (int)Math.Ceiling(size.Height * scale)));
+        if (sizeChanged)
         {
-            var b = new Rect(0, 0, size.Width, size.Height);
-            ctx.FillRectangle(new SolidColorBrush(Color.Parse("#0A0E27")), b);
-            var waveformBounds = new Rect(b.X, b.Y, b.Width, b.Height - PhraseMapHeight);
+            _staticBitmap?.Dispose();
+            _staticBitmap = new RenderTargetBitmap(pixelSize, new Vector(96 * scale, 96 * scale));
+        }
 
-            DrawPhraseMap(ctx, b);
-            DrawSectionBands(ctx, waveformBounds);
-            DrawBeatGrid(ctx, waveformBounds);
-            DrawOnsetDensityFill(ctx, waveformBounds);
-            DrawRgbWaveform(ctx, waveformBounds);
-            DrawEnergyOverlay(ctx, waveformBounds);
-            DrawVocalOverlay(ctx, waveformBounds);
-            DrawDoubleDropZone(ctx, waveformBounds);
-            DrawLoopBlocks(ctx, waveformBounds);
-            DrawCueMarkers(ctx, waveformBounds);
+        int waveTopPx = (int)Math.Round(RulerHeight * scale);
+        int waveBottomPx = (int)Math.Round((size.Height - PhraseMapHeight) * scale);
+        RenderWavePixels(pixelSize.Width, Math.Max(1, waveBottomPx - waveTopPx), scale);
+
+        using (var ctx = _staticBitmap!.CreateDrawingContext())
+        {
+            var wave = new Rect(0, RulerHeight, size.Width, Math.Max(1, size.Height - RulerHeight - PhraseMapHeight));
+            ctx.FillRectangle(RulerBrush, new Rect(0, 0, size.Width, RulerHeight));
+            if (_waveBitmap != null) ctx.DrawImage(_waveBitmap, wave);
+            DrawSectionBands(ctx, wave);
+            DrawSectionRegions(ctx, wave);
+            DrawPhraseMap(ctx, size, wave);
+            DrawEnergy(ctx, wave);
+            DrawGridAndRuler(ctx, size, wave);
+            DrawDoubleDropZone(ctx, wave);
+            DrawLoops(ctx, wave);
+            DrawCueMarkers(ctx, wave);
+            ctx.DrawLine(DividerPen, new Point(0, RulerHeight - 0.5), new Point(size.Width, RulerHeight - 0.5));
         }
 
         _staticBitmapSize = size;
+        _staticScale = scale;
         _staticDirty = false;
     }
+
+    /// <summary>Writes background + vocal/onset tint + RGB waveform columns into a pixel buffer.</summary>
+    private void RenderWavePixels(int w, int h, double scale)
+    {
+        if (_waveBitmap == null || _waveBitmap.PixelSize.Width != w || _waveBitmap.PixelSize.Height != h)
+        {
+            _waveBitmap?.Dispose();
+            _waveBitmap = new WriteableBitmap(new PixelSize(w, h), new Vector(96 * scale, 96 * scale),
+                PixelFormat.Bgra8888, AlphaFormat.Premul);
+            _pixels = new int[w * h];
+        }
+        var px = _pixels!;
+
+        var bg = (Background as ISolidColorBrush)?.Color ?? Color.FromRgb(15, 16, 18);
+        var low = WaveformLow; var mid = WaveformMid; var high = WaveformHigh;
+        var vocal = VocalDensityCurve; var onset = OnsetDensityCurve;
+        double dur = TrackDuration;
+        bool hasWave = low is { Length: > 1 } && mid is { Length: > 0 } && high is { Length: > 0 } &&
+                       mid.Length == low.Length && high.Length == low.Length && dur > 0;
+        int n = hasWave ? low!.Length : 0;
+        double centerY = h * 0.5;
+        double maxHalf = h * 0.47;
+
+        for (int x = 0; x < w; x++)
+        {
+            double t0 = XToTime(x / scale, w / scale);
+            double t1 = XToTime((x + 1) / scale, w / scale);
+            double frac0 = dur > 0 ? t0 / dur : 0;
+
+            // Column background, tinted by vocal / onset density at this time.
+            float br = bg.R, bgc = bg.G, bb = bg.B;
+            if (frac0 >= 0 && frac0 <= 1)
+            {
+                if (vocal is { Length: > 1 })
+                {
+                    float v = vocal[(int)Math.Clamp(frac0 * vocal.Length, 0, vocal.Length - 1)];
+                    if (v > 0.3f) { float a = v * 0.18f; br += (229 - br) * a; bgc += (96 - bgc) * a; bb += (90 - bb) * a; }
+                }
+                if (onset is { Length: > 1 })
+                {
+                    float d = onset[(int)Math.Clamp(frac0 * onset.Length, 0, onset.Length - 1)];
+                    if (d > 0.05f) { float a = d * 0.08f; br += (90 - br) * a; bgc += (167 - bgc) * a; bb += (232 - bb) * a; }
+                }
+            }
+            int bgPixel = Pack(255, (int)br, (int)bgc, (int)bb);
+
+            int top = 0, bottom = -1, wavePixel = 0;
+            if (hasWave && frac0 >= 0 && frac0 <= 1)
+            {
+                double i0f = t0 / dur * n, i1f = t1 / dur * n;
+                int i0 = (int)Math.Clamp(Math.Floor(i0f), 0, n - 1);
+                int i1 = (int)Math.Clamp(Math.Ceiling(i1f), i0 + 1, n);
+                int r, g, b;
+                if (i1 - i0 <= 1)
+                {
+                    // Zoomed past the sample resolution: interpolate instead of stepping.
+                    double exact = Math.Clamp(i0f, 0, n - 1);
+                    int a0 = (int)exact, a1 = Math.Min(a0 + 1, n - 1);
+                    double f = exact - a0;
+                    r = (int)(low![a0] + (low[a1] - low[a0]) * f);
+                    g = (int)(mid![a0] + (mid[a1] - mid[a0]) * f);
+                    b = (int)(high![a0] + (high[a1] - high[a0]) * f);
+                }
+                else
+                {
+                    int sr = 0, sg = 0, sb = 0;
+                    for (int i = i0; i < i1; i++) { sr += low![i]; sg += mid![i]; sb += high![i]; }
+                    int c = i1 - i0;
+                    r = sr / c; g = sg / c; b = sb / c;
+                }
+                double amp = (r + g + b) / 3.0 / 255.0;
+                double half = Math.Max(0.5, amp * maxHalf);
+                top = (int)Math.Floor(centerY - half);
+                bottom = (int)Math.Ceiling(centerY + half);
+                // Brighten so quiet passages stay readable on the dark background.
+                double boost = 255.0 / Math.Max(64, Math.Max(r, Math.Max(g, b)));
+                boost = Math.Min(boost, 1.6);
+                wavePixel = Pack(255, (int)Math.Min(255, r * boost), (int)Math.Min(255, g * boost), (int)Math.Min(255, b * boost));
+            }
+
+            for (int y = 0; y < h; y++)
+                px[y * w + x] = y >= top && y <= bottom ? wavePixel : bgPixel;
+        }
+
+        using var fb = _waveBitmap.Lock();
+        int rowInts = fb.RowBytes / 4;
+        if (rowInts == w)
+            Marshal.Copy(px, 0, fb.Address, w * h);
+        else
+            for (int y = 0; y < h; y++)
+                Marshal.Copy(px, y * w, fb.Address + y * fb.RowBytes, w);
+    }
+
+    private static int Pack(int a, int r, int g, int b) =>
+        (Math.Clamp(a, 0, 255) << 24) | (Math.Clamp(r, 0, 255) << 16) | (Math.Clamp(g, 0, 255) << 8) | Math.Clamp(b, 0, 255);
+
+    private void DrawSectionBands(DrawingContext ctx, Rect wave)
+    {
+        if (PhraseSegments is not { Count: > 0 } segments) return;
+        foreach (var seg in segments)
+        {
+            double x1 = TimeToX(seg.Start, wave.Width), x2 = TimeToX(seg.Start + seg.Duration, wave.Width);
+            if (x2 <= 0 || x1 >= wave.Width) continue;
+            var style = GetPhraseStyle(seg.Label);
+            ctx.FillRectangle(style.Band, new Rect(Math.Max(0, x1), wave.Top, Math.Min(wave.Width, x2) - Math.Max(0, x1), wave.Height));
+            if (x1 >= 0) ctx.DrawLine(style.Edge, new Point(x1, wave.Top), new Point(x1, wave.Bottom));
+        }
+    }
+
+    /// <summary>Intro region (track start / Intro cue → Intro end) and outro region (Outro → end),
+    /// tinted with the view's token brushes. Drawn into the cached static layer.</summary>
+    private void DrawSectionRegions(DrawingContext ctx, Rect wave)
+    {
+        if (Cues is null || TrackDuration <= 0) return;
+        if (Engine.Cueing.SectionMarkers.IntroRegion(Cues) is { } intro)
+            DrawRegion(ctx, wave, intro.Start, intro.End, IntroRegionFill, IntroRegionEdge, edgeAtStart: false);
+        if (Engine.Cueing.SectionMarkers.OutroRegion(Cues, TrackDuration) is { } outro)
+            DrawRegion(ctx, wave, outro.Start, outro.End, OutroRegionFill, OutroRegionEdge, edgeAtStart: true);
+    }
+
+    private void DrawRegion(DrawingContext ctx, Rect wave, double start, double end, IBrush? fill, IBrush? edge, bool edgeAtStart)
+    {
+        double x1 = TimeToX(start, wave.Width), x2 = TimeToX(end, wave.Width);
+        if (x2 <= 0 || x1 >= wave.Width || x2 - x1 < 0.5) return;
+        double l = Math.Max(0, x1), r = Math.Min(wave.Width, x2);
+        if (fill != null) ctx.FillRectangle(fill, new Rect(l, wave.Top, r - l, wave.Height));
+        if (edge == null) return;
+        double ex = edgeAtStart ? x1 : x2;
+        if (ex >= 0 && ex <= wave.Width) ctx.DrawLine(GetRegionPen(edge), new Point(ex, wave.Top), new Point(ex, wave.Bottom));
+    }
+
+    private readonly Dictionary<IBrush, IPen> _regionPens = new();
+    private IPen GetRegionPen(IBrush brush)
+    {
+        if (!_regionPens.TryGetValue(brush, out var pen))
+            _regionPens[brush] = pen = new Pen(brush, 1, dashStyle: new DashStyle(new double[] { 3, 3 }, 0)).ToImmutable();
+        return pen;
+    }
+
+    private void DrawPhraseMap(DrawingContext ctx, Size size, Rect wave)
+    {
+        var strip = new Rect(0, size.Height - PhraseMapHeight, size.Width, PhraseMapHeight);
+        ctx.FillRectangle(RulerBrush, strip);
+        if (PhraseSegments is { Count: > 0 } segments)
+        {
+            foreach (var seg in segments)
+            {
+                double x1 = TimeToX(seg.Start, size.Width), x2 = TimeToX(seg.Start + seg.Duration, size.Width);
+                if (x2 <= 0 || x1 >= size.Width) continue;
+                x1 = Math.Max(0, x1); x2 = Math.Min(size.Width, x2);
+                ctx.FillRectangle(GetPhraseStyle(seg.Label).Fill, new Rect(x1, strip.Top + 2, Math.Max(1, x2 - x1 - 1), PhraseMapHeight - 3));
+            }
+        }
+        ctx.DrawLine(DividerPen, new Point(0, strip.Top + 0.5), new Point(size.Width, strip.Top + 0.5));
+    }
+
+    private void DrawEnergy(DrawingContext ctx, Rect wave)
+    {
+        var curve = EnergyCurve;
+        if (curve is not { Length: > 1 } || TrackDuration <= 0) return;
+        int steps = Math.Max(2, (int)(wave.Width / 3));
+        var geo = new StreamGeometry();
+        using (var g = geo.Open())
+        {
+            for (int i = 0; i <= steps; i++)
+            {
+                double x = wave.Width * i / steps;
+                double frac = XToTime(x, wave.Width) / TrackDuration;
+                float v = curve[(int)Math.Clamp(frac * curve.Length, 0, curve.Length - 1)];
+                var p = new Point(x, wave.Bottom - 4 - v * wave.Height * 0.3);
+                if (i == 0) g.BeginFigure(p, false); else g.LineTo(p);
+            }
+            g.EndFigure(false);
+        }
+        ctx.DrawGeometry(null, EnergyPen, geo);
+    }
+
+    private void DrawGridAndRuler(DrawingContext ctx, Size size, Rect wave)
+    {
+        double bpm = EffectiveBpm;
+        if (bpm <= 0 || TrackDuration <= 0) return;
+        double beatSec = 60.0 / bpm, barSec = beatSec * 4;
+        double pxPerSec = size.Width * Zoom / TrackDuration;
+        double barPx = barSec * pxPerSec, beatPx = beatSec * pxPerSec;
+        double tStart = XToTime(0, size.Width), tEnd = XToTime(size.Width, size.Width);
+
+        // Bar numbering step so labels never overlap (~40 px apart).
+        int labelStep = 1;
+        while (labelStep * barPx < 40 && labelStep < 1024) labelStep *= 2;
+
+        long firstBar = (long)Math.Floor((tStart - GridOffset) / barSec);
+        long lastBar = (long)Math.Ceiling((tEnd - GridOffset) / barSec);
+        if (lastBar - firstBar > 4000) return;
+
+        for (long k = firstBar; k <= lastBar; k++)
+        {
+            double t = GridOffset + k * barSec;
+            double x = TimeToX(t, size.Width);
+            if (x >= -1 && x <= size.Width + 1 && t >= 0)
+            {
+                bool phrase = k % 8 == 0;
+                if (phrase || barPx >= 4)
+                    ctx.DrawLine(phrase ? PhrasePen : BarPen, new Point(Math.Round(x) + 0.5, wave.Top), new Point(Math.Round(x) + 0.5, wave.Bottom));
+                if (k >= 0 && k % labelStep == 0)
+                {
+                    var label = GetText((k + 1).ToString(CultureInfo.InvariantCulture), MonoTypeface, 10, RulerTextBrush);
+                    ctx.DrawText(label, new Point(x + 3, (RulerHeight - label.Height) / 2));
+                    ctx.DrawLine(BarPen, new Point(Math.Round(x) + 0.5, RulerHeight - 5), new Point(Math.Round(x) + 0.5, RulerHeight));
+                }
+            }
+            if (beatPx >= 7)
+            {
+                for (int i = 1; i < 4; i++)
+                {
+                    double bx = TimeToX(t + beatSec * i, size.Width);
+                    if (bx >= 0 && bx <= size.Width)
+                        ctx.DrawLine(BeatPen, new Point(Math.Round(bx) + 0.5, wave.Top), new Point(Math.Round(bx) + 0.5, wave.Bottom));
+                }
+            }
+        }
+    }
+
+    private void DrawDoubleDropZone(DrawingContext ctx, Rect wave)
+    {
+        if (Cues is null) return;
+        double? d1 = null, d2 = null;
+        foreach (var c in Cues)
+        {
+            if (c.IsLoop || c.Role != CueRole.Drop) continue;
+            if (d1 == null || c.Timestamp < d1) { d2 = d1; d1 = c.Timestamp; }
+            else if (d2 == null || c.Timestamp < d2) d2 = c.Timestamp;
+        }
+        if (d1 is not { } a || d2 is not { } b) return;
+        double x1 = TimeToX(a, wave.Width), x2 = TimeToX(b, wave.Width);
+        if (x2 - x1 < 2 || x2 < 0 || x1 > wave.Width) return;
+        ctx.FillRectangle(DoubleDropBrush, new Rect(Math.Max(0, x1), wave.Top, Math.Min(wave.Width, x2) - Math.Max(0, x1), wave.Height));
+    }
+
+    private void DrawLoops(DrawingContext ctx, Rect wave)
+    {
+        if (Cues is null) return;
+        foreach (var loop in Cues)
+        {
+            if (!loop.IsLoop) continue;
+            double x1 = TimeToX(loop.Timestamp, wave.Width), x2 = TimeToX(loop.LoopEndSeconds, wave.Width);
+            if (x2 <= 0 || x1 >= wave.Width) continue;
+            bool selected = ReferenceEquals(loop, SelectedCue);
+            ctx.FillRectangle(GetLoopFill(loop.Color, selected), new Rect(Math.Max(0, x1), wave.Top, Math.Min(wave.Width, x2) - Math.Max(0, x1), wave.Height));
+            var pen = GetPen(loop.Color, selected ? 2 : 1.5);
+            var brush = GetBrush(loop.Color);
+            ctx.DrawLine(pen, new Point(x1, wave.Top), new Point(x1, wave.Bottom));
+            ctx.DrawLine(pen, new Point(x2, wave.Top), new Point(x2, wave.Bottom));
+            // Grab handles
+            ctx.FillRectangle(brush, new Rect(x1, wave.Top, 6, 10));
+            ctx.FillRectangle(brush, new Rect(x2 - 6, wave.Top, 6, 10));
+            var name = GetText(loop.Name, UiTypeface, 10, LabelTextBrush);
+            if (x2 - x1 > name.Width + 16)
+            {
+                ctx.FillRectangle(LabelBgBrush, new Rect(x1 + 8, wave.Bottom - name.Height - 6, name.Width + 6, name.Height + 2), 2);
+                ctx.DrawText(name, new Point(x1 + 11, wave.Bottom - name.Height - 5));
+            }
+        }
+    }
+
+    private void DrawCueMarkers(DrawingContext ctx, Rect wave)
+    {
+        if (Cues is null) return;
+        OrbitCue? selected = null;
+        foreach (var cue in Cues)
+        {
+            if (cue.IsLoop) continue;
+            if (ReferenceEquals(cue, SelectedCue)) { selected = cue; continue; }
+            DrawCue(ctx, wave, cue, false);
+        }
+        if (selected != null) DrawCue(ctx, wave, selected, true);
+    }
+
+    private void DrawCue(DrawingContext ctx, Rect wave, OrbitCue cue, bool isSelected)
+    {
+        double x = TimeToX(cue.Timestamp, wave.Width);
+        if (x < -FlagWidth || x > wave.Width + 1) return;
+        var brush = GetBrush(cue.Color);
+        if (isSelected) ctx.FillRectangle(SelectionBrush, new Rect(x - 3, wave.Top, 6, wave.Height));
+        ctx.DrawLine(GetPen(cue.Color, isSelected ? 2 : 1), new Point(x, wave.Top), new Point(x, wave.Bottom));
+
+        double labelX;
+        if (cue.SlotIndex is >= 0 and <= 7)
+        {
+            // Hot cue: coloured flag with its pad letter.
+            ctx.FillRectangle(brush, new Rect(x, wave.Top, FlagWidth, FlagHeight), 2);
+            var letter = GetText(cue.SlotLabel, UiTypeface, 10, FlagTextBrush, FontWeight.Bold);
+            ctx.DrawText(letter, new Point(x + (FlagWidth - letter.Width) / 2, wave.Top + (FlagHeight - letter.Height) / 2));
+            labelX = x + FlagWidth + 3;
+        }
+        else
+        {
+            // Memory cue: small downward triangle, like the CDJ's memory markers.
+            using (ctx.PushTransform(Matrix.CreateTranslation(x, wave.Top)))
+                ctx.DrawGeometry(brush, null, MemoryMarker);
+            labelX = x + 7;
+        }
+
+        var name = string.IsNullOrWhiteSpace(cue.Name) ? cue.Role.ToString() : cue.Name;
+        var label = GetText(name, UiTypeface, isSelected ? 11 : 10, LabelTextBrush, isSelected ? FontWeight.SemiBold : FontWeight.Normal);
+        ctx.FillRectangle(LabelBgBrush, new Rect(labelX - 2, wave.Top + 1, label.Width + 4, label.Height), 2);
+        ctx.DrawText(label, new Point(labelX, wave.Top + 1));
+    }
+
+    private static readonly Geometry MemoryMarker = CreateTriangle(new Point(-5, 0), new Point(5, 0), new Point(0, 8));
+
+    // ── Resource caches ────────────────────────────────────────────────────
+
+    private static Geometry CreateTriangle(Point a, Point b, Point c)
+    {
+        var geo = new StreamGeometry();
+        using (var g = geo.Open()) { g.BeginFigure(a, true); g.LineTo(b); g.LineTo(c); g.EndFigure(true); }
+        return geo;
+    }
+
+    private static Color ParseColor(string? hex)
+    {
+        if (!string.IsNullOrWhiteSpace(hex) && Color.TryParse(hex, out var c)) return c;
+        return Color.FromRgb(232, 234, 237);
+    }
+
+    private IBrush GetBrush(string? hex)
+    {
+        hex ??= "";
+        if (!_brushCache.TryGetValue(hex, out var b))
+            _brushCache[hex] = b = new SolidColorBrush(ParseColor(hex)).ToImmutable();
+        return b;
+    }
+
+    private IBrush GetLoopFill(string? hex, bool selected)
+    {
+        var key = (hex ?? "") + (selected ? "|s" : "");
+        if (!_loopFillCache.TryGetValue(key, out var b))
+        {
+            var c = ParseColor(hex);
+            _loopFillCache[key] = b = new SolidColorBrush(Color.FromArgb(selected ? (byte)70 : (byte)45, c.R, c.G, c.B)).ToImmutable();
+        }
+        return b;
+    }
+
+    private IPen GetPen(string? hex, double thickness)
+    {
+        var key = (hex ?? "") + "|" + thickness.ToString(CultureInfo.InvariantCulture);
+        if (!_penCache.TryGetValue(key, out var p))
+            _penCache[key] = p = new Pen(GetBrush(hex), thickness).ToImmutable();
+        return p;
+    }
+
+    private FormattedText GetText(string text, Typeface typeface, double size, IBrush brush, FontWeight weight = FontWeight.Normal)
+    {
+        var key = $"{text}|{size}|{(int)weight}|{typeface.FontFamily.Name}|{brush.GetHashCode()}";
+        if (_textCache.TryGetValue(key, out var ft)) return ft;
+        if (_textCache.Count > 1024) _textCache.Clear();
+        ft = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+            new Typeface(typeface.FontFamily, FontStyle.Normal, weight), size, brush);
+        _textCache[key] = ft;
+        return ft;
+    }
+
+    private static (IBrush Fill, IBrush Band, IPen Edge) GetPhraseStyle(string? label)
+    {
+        label ??= "";
+        if (PhraseStyles.TryGetValue(label, out var s)) return s;
+        var c = label.ToLowerInvariant() switch
+        {
+            "intro" => Color.FromRgb(90, 167, 232),
+            "build" or "buildup" => Color.FromRgb(229, 166, 69),
+            "drop" => Color.FromRgb(229, 96, 90),
+            "breakdown" => Color.FromRgb(170, 114, 255),
+            "outro" => Color.FromRgb(78, 201, 176),
+            "bridge" => Color.FromRgb(122, 128, 138),
+            _ => Color.FromRgb(92, 98, 107),
+        };
+        s = (new SolidColorBrush(Color.FromArgb(170, c.R, c.G, c.B)).ToImmutable(),
+             new SolidColorBrush(Color.FromArgb(12, c.R, c.G, c.B)).ToImmutable(),
+             new Pen(new SolidColorBrush(Color.FromArgb(50, c.R, c.G, c.B)).ToImmutable(), 1).ToImmutable());
+        PhraseStyles[label] = s;
+        return s;
+    }
+
+    // ── Mouse interaction ──────────────────────────────────────────────────
+
+    private (DragKind Kind, OrbitCue? Cue) HitTest(Point pt)
+    {
+        if (Cues is null) return (DragKind.None, null);
+        double w = Bounds.Width;
+        double best = HitRadius;
+        (DragKind, OrbitCue?) hit = (DragKind.None, null);
+
+        foreach (var c in Cues)
+        {
+            if (c.IsLoop)
+            {
+                double d1 = Math.Abs(pt.X - TimeToX(c.Timestamp, w));
+                double d2 = Math.Abs(pt.X - TimeToX(c.LoopEndSeconds, w));
+                if (d1 < best) { best = d1; hit = (DragKind.LoopStart, c); }
+                if (d2 < best) { best = d2; hit = (DragKind.LoopEnd, c); }
+            }
+            else
+            {
+                double x = TimeToX(c.Timestamp, w);
+                double d = Math.Abs(pt.X - x);
+                // The hot cue flag (to the right of the line) is grabbable too.
+                bool onFlag = c.SlotIndex >= 0 && pt.Y >= RulerHeight && pt.Y <= RulerHeight + FlagHeight && pt.X >= x && pt.X <= x + FlagWidth;
+                if (onFlag) d = Math.Min(d, 0.5);
+                if (d < best) { best = d; hit = (DragKind.Cue, c); }
+            }
+        }
+        return hit;
+    }
+
+    protected override void OnPointerPressed(PointerPressedEventArgs e)
+    {
+        base.OnPointerPressed(e);
+        var props = e.GetCurrentPoint(this).Properties;
+        if (!props.IsLeftButtonPressed || TrackDuration <= 0) return;
+        var pt = e.GetPosition(this);
+        _pressPoint = pt;
+        _dragMoved = false;
+
+        var (kind, cue) = HitTest(pt);
+        if (kind != DragKind.None && cue != null)
+        {
+            _drag = kind;
+            _dragCue = cue;
+            if (SelectCueCommand?.CanExecute(cue) == true) SelectCueCommand.Execute(cue);
+            e.Pointer.Capture(this);
+            return;
+        }
+
+        // Empty waveform: move the playhead, and keep scrubbing while held.
+        _drag = DragKind.Scrub;
+        e.Pointer.Capture(this);
+        ScrubbingChanged?.Invoke(this, true);
+        Seek(TimeAt(pt), force: true);
+    }
+
+    private void Seek(double seconds, bool force)
+    {
+        var now = DateTime.UtcNow;
+        if (!force && (now - _lastScrubSeek).TotalMilliseconds < ThrottleMs) return;
+        _lastScrubSeek = now;
+        if (SeekCommand?.CanExecute(seconds) == true) SeekCommand.Execute(seconds);
+    }
+
+    protected override void OnPointerMoved(PointerEventArgs e)
+    {
+        base.OnPointerMoved(e);
+        var pt = e.GetPosition(this);
+        double w = Bounds.Width;
+
+        switch (_drag)
+        {
+            case DragKind.None:
+                var (kind, _) = HitTest(pt);
+                Cursor = kind == DragKind.None ? ScrubCursor : HandleCursor;
+                SetHoverTip(kind != DragKind.None);
+                return;
+
+            case DragKind.Scrub:
+                Seek(TimeAt(pt), force: false);
+                return;
+        }
+
+        if (_dragCue == null) return;
+        if (!_dragMoved)
+        {
+            if (Math.Abs(pt.X - _pressPoint.X) < MarkerGesture<OrbitCue>.DragThresholdPixels) return; // a click, not a drag
+            _dragMoved = true;
+            if (CueDragStartedCommand?.CanExecute(_dragCue) == true) CueDragStartedCommand.Execute(_dragCue);
+        }
+
+        double t = ApplySnap(XToTime(pt.X, w), e.KeyModifiers);
+        switch (_drag)
+        {
+            case DragKind.Cue: _dragCue.Timestamp = t; break;
+            case DragKind.LoopStart: _dragCue.Timestamp = Math.Min(t, _dragCue.LoopEndSeconds - 0.05); t = _dragCue.Timestamp; break;
+            case DragKind.LoopEnd: _dragCue.LoopEndSeconds = Math.Max(t, _dragCue.Timestamp + 0.05); t = _dragCue.LoopEndSeconds; break;
+        }
+
+        _readoutX = TimeToX(t, w);
+        var bar = CueForgeGrid.FormatBarBeat(t, EffectiveBpm, GridOffset);
+        var text = bar.Length > 0 ? $"{CueForgeGrid.FormatTime(t)}  {bar}" : CueForgeGrid.FormatTime(t);
+        _readout = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, MonoTypeface, 11, LabelTextBrush);
+        InvalidateStaticThrottled();
+    }
+
+    private bool _hoverTipShown;
+    private void SetHoverTip(bool overMarker)
+    {
+        if (overMarker == _hoverTipShown) return;
+        _hoverTipShown = overMarker;
+        ToolTip.SetTip(this, overMarker ? CueFlagTip : null);
+    }
+
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+        SetHoverTip(false);
+    }
+
+    private void InvalidateStaticThrottled()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastInvalidate).TotalMilliseconds < ThrottleMs) { InvalidateVisual(); return; }
+        _lastInvalidate = now;
+        InvalidateStaticCache();
+    }
+
+    protected override void OnPointerReleased(PointerReleasedEventArgs e)
+    {
+        base.OnPointerReleased(e);
+        EndDrag(e.Pointer, commit: true, e.GetPosition(this));
+    }
+
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        base.OnPointerCaptureLost(e);
+        EndDrag(null, commit: true, null);
+    }
+
+    private void EndDrag(IPointer? pointer, bool commit, Point? at)
+    {
+        var kind = _drag;
+        var cue = _dragCue;
+        bool moved = _dragMoved;
+        _drag = DragKind.None;
+        _dragCue = null;
+        _dragMoved = false;
+        _readout = null;
+        pointer?.Capture(null);
+
+        if (kind == DragKind.Scrub)
+        {
+            if (at is { } p) Seek(TimeAt(p), force: true);
+            ScrubbingChanged?.Invoke(this, false);
+        }
+        else if (commit && moved && cue != null)
+        {
+            InvalidateStaticCache();
+            if (CueUpdatedCommand?.CanExecute(cue) == true) CueUpdatedCommand.Execute(cue);
+        }
+        else if (commit && !moved && cue != null && at != null)
+        {
+            // Released without passing the drag threshold: a click — play from the cue. The cue
+            // itself was never touched, so a click can't nudge it.
+            if (CueClickedCommand?.CanExecute(cue) == true) CueClickedCommand.Execute(cue);
+        }
+        InvalidateVisual();
+    }
+
+    protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
+    {
+        base.OnPointerWheelChanged(e);
+        if (TrackDuration <= 0 || Bounds.Width <= 0) return;
+        double zoom = Zoom;
+        double window = 1.0 / zoom;
+        bool scrollMode = (e.KeyModifiers & (KeyModifiers.Shift | KeyModifiers.Control)) != 0 || Math.Abs(e.Delta.X) > Math.Abs(e.Delta.Y);
+
+        if (scrollMode)
+        {
+            double delta = Math.Abs(e.Delta.X) > Math.Abs(e.Delta.Y) ? e.Delta.X : e.Delta.Y;
+            ScrollOffset = CueForgeGrid.ClampScroll(ScrollOffset - delta * window * 0.15, zoom);
+        }
+        else
+        {
+            double anchor = e.GetPosition(this).X / Bounds.Width;
+            double newZoom = Math.Clamp(zoom * Math.Pow(1.2, e.Delta.Y), 1.0, Math.Max(1.0, MaxZoom));
+            double scroll = CueForgeGrid.ZoomAround(ScrollOffset, zoom, newZoom, anchor);
+            ZoomLevel = newZoom;
+            ScrollOffset = scroll;
+        }
+        e.Handled = true;
+    }
+
+    // ── Invalidation ───────────────────────────────────────────────────────
 
     private void InvalidateStaticCache()
     {
@@ -206,569 +936,54 @@ public class CueForgeWaveformControl : Control
         InvalidateVisual();
     }
 
-    // ── Layer Drawers ──────────────────────────────────────────────────────
-
-    private void DrawPhraseMap(DrawingContext ctx, Rect fullBounds)
-    {
-        var stripBounds = new Rect(0, fullBounds.Height - PhraseMapHeight, fullBounds.Width, PhraseMapHeight);
-        ctx.FillRectangle(new SolidColorBrush(Color.Parse("#111111")), stripBounds);
-
-        if (PhraseSegments is null || PhraseSegments.Count == 0) return;
-
-        foreach (var seg in PhraseSegments)
-        {
-            double x1 = TimeToPixel(seg.Start, fullBounds);
-            double x2 = TimeToPixel(seg.Start + seg.Duration, fullBounds);
-            if (x2 <= 0 || x1 >= fullBounds.Width) continue;
-            x1 = Math.Max(0, x1); x2 = Math.Min(fullBounds.Width, x2);
-
-            var color = GetPhraseColor(seg.Label);
-            ctx.FillRectangle(new SolidColorBrush(color), new Rect(x1, stripBounds.Top, x2 - x1, PhraseMapHeight));
-        }
-
-        // Divider line
-        ctx.DrawLine(new Pen(new SolidColorBrush(Color.Parse("#333333"))),
-            new Point(0, stripBounds.Top), new Point(fullBounds.Width, stripBounds.Top));
-    }
-
-    private void DrawSectionBands(DrawingContext ctx, Rect b)
-    {
-        if (PhraseSegments is null || PhraseSegments.Count == 0) return;
-        foreach (var seg in PhraseSegments)
-        {
-            double x1 = TimeToPixel(seg.Start, b);
-            double x2 = TimeToPixel(seg.Start + seg.Duration, b);
-            if (x2 <= 0 || x1 >= b.Width) continue;
-            x1 = Math.Max(0, x1); x2 = Math.Min(b.Width, x2);
-
-            var baseColor = GetPhraseColor(seg.Label);
-            // Very low alpha fill so waveform remains primary
-            ctx.FillRectangle(
-                new SolidColorBrush(Color.FromArgb(14, baseColor.R, baseColor.G, baseColor.B)),
-                new Rect(x1, b.Top, x2 - x1, b.Height));
-            // Visible left-edge boundary line
-            ctx.DrawLine(
-                new Pen(new SolidColorBrush(Color.FromArgb(55, baseColor.R, baseColor.G, baseColor.B))),
-                new Point(x1, b.Top), new Point(x1, b.Bottom));
-        }
-    }
-
-    private void DrawBeatGrid(DrawingContext ctx, Rect b)
-    {
-        if (Bpm <= 0 || TrackDuration <= 0) return;
-        double beatSec = 60.0 / Bpm;
-        double barSec = beatSec * 4;
-
-        // Every 8 bars = 32 beats = standard EDM/DnB phrase boundary
-        var phrasePen = new Pen(new SolidColorBrush(Color.Parse("#2A2A40")));
-        var barPen    = new Pen(new SolidColorBrush(Color.Parse("#1A1A28")));
-        var beatPen   = new Pen(new SolidColorBrush(Color.Parse("#131320")));
-
-        int barCount = 0;
-        for (double t = 0; t < TrackDuration; t += barSec)
-        {
-            double x = TimeToPixel(t, b);
-            if (x >= 0 && x <= b.Width)
-            {
-                bool isPhraseBoundary = (barCount % 8 == 0);
-                ctx.DrawLine(isPhraseBoundary ? phrasePen : barPen,
-                    new Point(x, b.Top), new Point(x, b.Bottom));
-            }
-            for (int i = 1; i < 4; i++)
-            {
-                double bx = TimeToPixel(t + beatSec * i, b);
-                if (bx >= 0 && bx <= b.Width)
-                    ctx.DrawLine(beatPen, new Point(bx, b.Top), new Point(bx, b.Bottom));
-            }
-            barCount++;
-        }
-    }
-
-    private void DrawOnsetDensityFill(DrawingContext ctx, Rect b)
-    {
-        var density = OnsetDensityCurve;
-        if (density is null || density.Length == 0) return;
-
-        int width = (int)b.Width;
-        for (int x = 0; x < width; x++)
-        {
-            int idx = (int)Math.Clamp((double)x / width * density.Length, 0, density.Length - 1);
-            float d = density[idx];
-            if (d < 0.05f) continue;
-            byte alpha = (byte)(d * 28); // very subtle fill
-            ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(alpha, 80, 120, 200)),
-                new Rect(x, b.Top, 1, b.Height));
-        }
-    }
-
-    private void DrawRgbWaveform(DrawingContext ctx, Rect b)
-    {
-        var low = WaveformLow; var mid = WaveformMid; var high = WaveformHigh;
-
-        // Fall back to placeholder gradient if no real data
-        if (low is null || mid is null || high is null || low.Length == 0)
-        {
-            DrawPlaceholderWaveform(ctx, b);
-            return;
-        }
-
-        int n = low.Length;
-        int width = (int)b.Width;
-        double centerY = b.Top + b.Height * 0.5;
-        double maxHalf = b.Height * 0.45;
-
-        for (int px = 0; px < width; px++)
-        {
-            // Map this pixel column to the sample range it covers, respecting zoom/scroll.
-            double idxStartF = PixelToTime(px, b) / TrackDuration * n;
-            double idxEndF = PixelToTime(px + 1, b) / TrackDuration * n;
-
-            byte r, g, bv;
-            int idxStart = (int)Math.Clamp(Math.Floor(idxStartF), 0, n - 1);
-            int idxEnd = (int)Math.Clamp(Math.Ceiling(idxEndF), idxStart + 1, n);
-
-            if (idxEnd - idxStart <= 1)
-            {
-                // Zoomed in past native sample resolution — interpolate between the two
-                // nearest samples instead of repeating one flat value across many pixels.
-                double exact = Math.Clamp(idxStartF, 0, n - 1);
-                int i0 = (int)Math.Floor(exact);
-                int i1 = Math.Min(i0 + 1, n - 1);
-                double frac = exact - i0;
-                r = (byte)(low[i0] + (low[i1] - low[i0]) * frac);
-                g = (byte)(mid[i0] + (mid[i1] - mid[i0]) * frac);
-                bv = (byte)(high[i0] + (high[i1] - high[i0]) * frac);
-            }
-            else
-            {
-                // More samples than pixels — average the covered range instead of picking
-                // whichever single sample happens to land nearest (which discards detail
-                // and can alias between adjacent columns).
-                int sumR = 0, sumG = 0, sumB = 0;
-                for (int i = idxStart; i < idxEnd; i++) { sumR += low[i]; sumG += mid[i]; sumB += high[i]; }
-                int count = idxEnd - idxStart;
-                r = (byte)(sumR / count);
-                g = (byte)(sumG / count);
-                bv = (byte)(sumB / count);
-            }
-
-            float amp = (r + g + bv) / 3f / 255f; // average amplitude for height
-            double halfH = amp * maxHalf;
-
-            var color = Color.FromArgb(220, r, g, bv);
-            var pen = new Pen(new SolidColorBrush(color));
-            ctx.DrawLine(pen, new Point(px, centerY - halfH), new Point(px, centerY + halfH));
-        }
-    }
-
-    private static void DrawPlaceholderWaveform(DrawingContext ctx, Rect b)
-    {
-        // Simple placeholder — horizontal bar to show the control is alive
-        var brush = new SolidColorBrush(Color.FromArgb(40, 100, 140, 200));
-        ctx.FillRectangle(brush, new Rect(b.Left, b.Top + b.Height * 0.3, b.Width, b.Height * 0.4));
-        var textBrush = new SolidColorBrush(Color.Parse("#444466"));
-        var text = new FormattedText("Load a track to see the waveform",
-            System.Globalization.CultureInfo.CurrentCulture,
-            FlowDirection.LeftToRight,
-            Typeface.Default, 12, textBrush);
-        ctx.DrawText(text, new Point(b.Width / 2 - text.Width / 2, b.Height / 2 - 8));
-    }
-
-    private void DrawEnergyOverlay(DrawingContext ctx, Rect b)
-    {
-        var curve = EnergyCurve;
-        if (curve is null || curve.Length < 2) return;
-
-        int width = (int)b.Width;
-        var pen = new Pen(new SolidColorBrush(Color.FromArgb(80, 80, 220, 100)), 1.5);
-
-        for (int x = 0; x < width - 1; x++)
-        {
-            int i1 = (int)Math.Clamp((double)x / width * curve.Length, 0, curve.Length - 1);
-            int i2 = (int)Math.Clamp((double)(x + 1) / width * curve.Length, 0, curve.Length - 1);
-            double y1 = b.Bottom - curve[i1] * b.Height * 0.35 - b.Height * 0.08;
-            double y2 = b.Bottom - curve[i2] * b.Height * 0.35 - b.Height * 0.08;
-            ctx.DrawLine(pen, new Point(x, y1), new Point(x + 1, y2));
-        }
-    }
-
-    private void DrawVocalOverlay(DrawingContext ctx, Rect b)
-    {
-        var curve = VocalDensityCurve;
-        if (curve is null || curve.Length < 2) return;
-
-        int width = (int)b.Width;
-        for (int x = 0; x < width; x++)
-        {
-            int idx = (int)Math.Clamp((double)x / width * curve.Length, 0, curve.Length - 1);
-            float v = curve[idx];
-            if (v <= 0.3f) continue;
-            byte alpha = (byte)(v * 55);
-            ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(alpha, 255, 80, 80)), new Rect(x, b.Top, 1, b.Height));
-        }
-    }
-
-    private void DrawDoubleDropZone(DrawingContext ctx, Rect b)
-    {
-        if (Cues is null) return;
-        var drops = Cues
-            .Where(c => !c.IsLoop && c.Role == CueRole.Drop)
-            .OrderBy(c => c.Timestamp)
-            .Take(2)
-            .ToList();
-        if (drops.Count < 2) return;
-
-        double x1 = TimeToPixel(drops[0].Timestamp, b);
-        double x2 = TimeToPixel(drops[1].Timestamp, b);
-        double w = x2 - x1;
-        if (w < 2) return;
-
-        // Translucent purple fill between the two drops
-        var fillBrush = new SolidColorBrush(Color.FromArgb(28, 180, 60, 255));
-        ctx.FillRectangle(fillBrush, new Rect(x1, b.Top, w, b.Height));
-
-        // Dashed border on each edge using short segments
-        var edgePen = new Pen(new SolidColorBrush(Color.FromArgb(160, 180, 60, 255)), 1.5,
-            new DashStyle(new double[] { 5, 4 }, 0));
-        ctx.DrawLine(edgePen, new Point(x1, b.Top), new Point(x1, b.Bottom));
-        ctx.DrawLine(edgePen, new Point(x2, b.Top), new Point(x2, b.Bottom));
-
-        // "DOUBLE DROP" label at top center
-        var label = new FormattedText("DOUBLE DROP",
-            System.Globalization.CultureInfo.InvariantCulture,
-            FlowDirection.LeftToRight, Typeface.Default, 8,
-            new SolidColorBrush(Color.FromArgb(180, 200, 100, 255)));
-        double lx = x1 + (w - label.Width) / 2;
-        if (lx >= 0 && lx + label.Width <= b.Width)
-            ctx.DrawText(label, new Point(lx, b.Top + 16));
-    }
-
-    private void DrawLoopBlocks(DrawingContext ctx, Rect b)
-    {
-        if (Cues is null) return;
-        foreach (var loop in Cues.Where(c => c.IsLoop))
-        {
-            double x1 = TimeToPixel(loop.Timestamp, b);
-            double x2 = TimeToPixel(loop.LoopEndSeconds, b);
-            if (x2 <= 0 || x1 >= b.Width) continue;
-            x1 = Math.Max(b.Left, x1); x2 = Math.Min(b.Right, x2);
-
-            var col = ParseColor(loop.Color, 0x00FF88);
-            ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(45, col.R, col.G, col.B)), new Rect(x1, b.Top, x2 - x1, b.Height));
-
-            // Edge handles
-            var edgePen = new Pen(new SolidColorBrush(col), 2);
-            ctx.DrawLine(edgePen, new Point(x1, b.Top), new Point(x1, b.Bottom));
-            ctx.DrawLine(edgePen, new Point(x2, b.Top), new Point(x2, b.Bottom));
-
-            // Grip triangles
-            DrawGripTriangle(ctx, col, x1, b.Top, false);
-            DrawGripTriangle(ctx, col, x2, b.Top, true);
-        }
-    }
-
-    private void DrawCueMarkers(DrawingContext ctx, Rect b)
-    {
-        if (Cues is null) return;
-        // Selected cue drawn last so its highlight/label never sits underneath a neighbor.
-        var ordered = Cues.Where(c => !c.IsLoop).OrderBy(c => ReferenceEquals(c, SelectedCue) ? 1 : 0);
-        foreach (var cue in ordered)
-        {
-            double x = TimeToPixel(cue.Timestamp, b);
-            if (x < 0 || x > b.Width) continue;
-
-            bool isSelected = ReferenceEquals(cue, SelectedCue);
-            var col = ParseColor(cue.Color, 0xFFFF00);
-
-            // Selection highlight — a soft vertical glow behind the marker, so it's obvious at a
-            // glance which cue corresponds to the open CUE DETAIL panel without hunting through
-            // the list.
-            if (isSelected)
-            {
-                ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)),
-                    new Rect(x - 4, b.Top, 8, b.Height));
-            }
-
-            var pen = new Pen(new SolidColorBrush(col), isSelected ? 2.5 : 1.5);
-            ctx.DrawLine(pen, new Point(x, b.Top + 14), new Point(x, b.Bottom));
-
-            // Flag rectangle
-            ctx.FillRectangle(new SolidColorBrush(col), new Rect(x, b.Top, isSelected ? 3 : 2, b.Height * 0.85));
-
-            // Slot number badge
-            double badgeRight = x + 2;
-            if (cue.SlotIndex >= 0)
-            {
-                var badge = new SolidColorBrush(col);
-                ctx.FillRectangle(badge, new Rect(x + 2, b.Top, 14, 13));
-                var txt = new FormattedText((cue.SlotIndex + 1).ToString(),
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    FlowDirection.LeftToRight, Typeface.Default, 9,
-                    new SolidColorBrush(Colors.Black));
-                ctx.DrawText(txt, new Point(x + 3, b.Top + 1));
-                badgeRight = x + 17;
-            }
-
-            // Name label — previously nothing at all identified a cue beyond its raw color, so
-            // every marker looked the same unless it happened to have a hot-cue slot assigned.
-            var name = string.IsNullOrWhiteSpace(cue.Name) ? cue.Role.ToString() : cue.Name;
-            var label = new FormattedText(name,
-                System.Globalization.CultureInfo.InvariantCulture,
-                FlowDirection.LeftToRight, Typeface.Default, isSelected ? 10.5 : 9.5,
-                new SolidColorBrush(Colors.White));
-            double lx = badgeRight + 2;
-            double ly = b.Top + 14;
-            ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(190, 10, 10, 20)),
-                new Rect(lx - 2, ly - 1, label.Width + 4, label.Height + 2));
-            ctx.DrawText(label, new Point(lx, ly));
-
-            // Confidence indicator (small dot at flag top)
-            if (cue.Confidence > 0f)
-            {
-                byte alpha = (byte)(cue.Confidence * 255);
-                ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(alpha, 255, 255, 255)),
-                    new Rect(x - 1, b.Top, 4, 3));
-            }
-        }
-    }
-
-    private void DrawPlayhead(DrawingContext ctx, Rect b)
-    {
-        double x = TimeToPixel(CurrentPlayPosition, b);
-        if (x < 0 || x > b.Width) return;
-        var pen = new Pen(new SolidColorBrush(Color.Parse("#00D7FF")), 1.5);
-        ctx.DrawLine(pen, new Point(x, b.Top), new Point(x, b.Bottom));
-        // Triangle head
-        var pts = new[] { new Point(x - 5, b.Top), new Point(x + 5, b.Top), new Point(x, b.Top + 8) };
-        var geo = new StreamGeometry();
-        using (var sgc = geo.Open()) { sgc.BeginFigure(pts[0], true); sgc.LineTo(pts[1]); sgc.LineTo(pts[2]); sgc.EndFigure(true); }
-        ctx.DrawGeometry(new SolidColorBrush(Color.Parse("#00D7FF")), null, geo);
-    }
-
-    private static void DrawGripTriangle(DrawingContext ctx, Color col, double x, double y, bool flipped)
-    {
-        double dir = flipped ? -1 : 1;
-        var pts = new[] { new Point(x, y + 2), new Point(x + dir * 6, y + 2), new Point(x, y + 9) };
-        var geo = new StreamGeometry();
-        using (var sgc = geo.Open()) { sgc.BeginFigure(pts[0], true); sgc.LineTo(pts[1]); sgc.LineTo(pts[2]); sgc.EndFigure(true); }
-        ctx.DrawGeometry(new SolidColorBrush(col), null, geo);
-    }
-
-    // ── Mouse Interaction ──────────────────────────────────────────────────
-
-    protected override void OnPointerPressed(PointerPressedEventArgs e)
-    {
-        base.OnPointerPressed(e);
-        var pt = e.GetPosition(this);
-        var b = new Rect(0, 0, Bounds.Width, Bounds.Height - PhraseMapHeight);
-
-        if (Cues is null) return;
-
-        // Loop handle hit test — nearest edge within HitRadius, across ALL loop
-        // cues (not just the first one), so multiple loops are each independently
-        // draggable.
-        OrbitCue? bestLoop = null;
-        bool bestLoopIsStart = false;
-        double bestLoopDist = HitRadius;
-        foreach (var loop in Cues.Where(c => c.IsLoop))
-        {
-            double lx1 = TimeToPixel(loop.Timestamp, b);
-            double lx2 = TimeToPixel(loop.LoopEndSeconds, b);
-            double d1 = Math.Abs(pt.X - lx1);
-            double d2 = Math.Abs(pt.X - lx2);
-            if (d1 < bestLoopDist) { bestLoopDist = d1; bestLoop = loop; bestLoopIsStart = true; }
-            if (d2 < bestLoopDist) { bestLoopDist = d2; bestLoop = loop; bestLoopIsStart = false; }
-        }
-        if (bestLoop is not null)
-        {
-            _draggedLoop = bestLoop;
-            _isDraggingLoopStart = bestLoopIsStart;
-            _isDraggingLoopEnd = !bestLoopIsStart;
-            if (SelectCueCommand?.CanExecute(bestLoop) == true) SelectCueCommand.Execute(bestLoop);
-            if (CueDragStartedCommand?.CanExecute(bestLoop) == true) CueDragStartedCommand.Execute(bestLoop);
-            e.Pointer.Capture(this);
-            return;
-        }
-
-        // Cue hit test — nearest cue within HitRadius wins, not the first one
-        // found in collection order (matters when two cues sit close together).
-        OrbitCue? bestCue = null;
-        double bestCueDist = HitRadius;
-        foreach (var cue in Cues.Where(c => !c.IsLoop))
-        {
-            double d = Math.Abs(pt.X - TimeToPixel(cue.Timestamp, b));
-            if (d < bestCueDist) { bestCueDist = d; bestCue = cue; }
-        }
-        if (bestCue is not null)
-        {
-            _draggedCue = bestCue;
-            if (SelectCueCommand?.CanExecute(bestCue) == true) SelectCueCommand.Execute(bestCue);
-            if (CueDragStartedCommand?.CanExecute(bestCue) == true) CueDragStartedCommand.Execute(bestCue);
-            e.Pointer.Capture(this);
-            return;
-        }
-
-        // No hit — click-to-seek playhead
-        double seekTime = Math.Clamp(PixelToTime(pt.X, b), 0, TrackDuration);
-        SeekCommand?.Execute(seekTime);
-    }
-
-    // Dragging a cue/loop handle fires OnPointerMoved continuously (mouse-poll rate, easily
-    // 100+/sec) and each call used to invoke InvalidateStaticCache() unconditionally — forcing
-    // EnsureStaticBitmap's full 10-pass rebuild (phrase map, section bands, beat grid, onset
-    // density, RGB waveform, energy/vocal overlays, double-drop zone, loop blocks, cue markers)
-    // on every single one, with no frame-rate cap (WaveformControl.cs has one for exactly this
-    // reason; it was never applied here). Throttling the *trigger* here, rather than touching
-    // EnsureStaticBitmap's own dirty/size-change gate, keeps that method's correctness logic
-    // untouched. OnPointerReleased always forces one final, unthrottled rebuild so the settled
-    // position is never left showing a stale, mid-throttle-window frame.
-    private DateTime _lastCueDragInvalidateTime = DateTime.MinValue;
-    private const double CueDragInvalidateThrottleMs = 33.33; // ~30 FPS max
-
-    protected override void OnPointerMoved(PointerEventArgs e)
-    {
-        base.OnPointerMoved(e);
-        var pt = e.GetPosition(this);
-        var b = new Rect(0, 0, Bounds.Width, Bounds.Height - PhraseMapHeight);
-
-        if (_draggedCue is not null)
-        {
-            _draggedCue.Timestamp = Math.Clamp(ApplySnapping(PixelToTime(pt.X, b)), 0, TrackDuration);
-            InvalidateStaticCacheThrottled();
-        }
-        else if (_draggedLoop is not null && (_isDraggingLoopStart || _isDraggingLoopEnd))
-        {
-            double t = Math.Clamp(ApplySnapping(PixelToTime(pt.X, b)), 0, TrackDuration);
-            if (_isDraggingLoopStart) _draggedLoop.Timestamp = t; else _draggedLoop.LoopEndSeconds = t;
-            InvalidateStaticCacheThrottled();
-        }
-    }
-
-    private void InvalidateStaticCacheThrottled()
-    {
-        var now = DateTime.UtcNow;
-        if ((now - _lastCueDragInvalidateTime).TotalMilliseconds < CueDragInvalidateThrottleMs) return;
-        _lastCueDragInvalidateTime = now;
-        InvalidateStaticCache();
-    }
-
-    protected override void OnPointerReleased(PointerReleasedEventArgs e)
-    {
-        base.OnPointerReleased(e);
-        var droppedCue = _draggedCue ?? _draggedLoop;
-        bool wasDragging = droppedCue is not null;
-        _draggedCue = null;
-        _draggedLoop = null;
-        _isDraggingLoopStart = false;
-        _isDraggingLoopEnd = false;
-        e.Pointer.Capture(null);
-
-        // Guarantee the final dropped position is rendered exactly, even if the last
-        // OnPointerMoved during the drag landed inside the throttle window and got skipped.
-        if (wasDragging)
-        {
-            InvalidateStaticCache();
-            if (CueUpdatedCommand?.CanExecute(droppedCue) == true) CueUpdatedCommand.Execute(droppedCue);
-        }
-    }
-
-    protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
-    {
-        base.OnPointerWheelChanged(e);
-        if (e.KeyModifiers == KeyModifiers.Control)
-        {
-            ZoomLevel = Math.Clamp(ZoomLevel * (e.Delta.Y > 0 ? 1.25 : 0.8), 1.0, 32.0);
-        }
-        else
-        {
-            // Fixed fraction of the FULL track per wheel tick, not a fraction of the shrinking
-            // visible window — the old `range * 0.05` step meant scrolling got proportionally
-            // slower the more you zoomed in, to the point that reaching the end of the track at
-            // high zoom took an impractical number of wheel ticks.
-            double range = 1.0 / Math.Max(1.0, ZoomLevel);
-            const double stepFraction = 0.03;
-            ScrollOffset = Math.Clamp(ScrollOffset - e.Delta.Y * stepFraction, 0, 1.0 - range);
-        }
-        // OnPropertyChanged fires InvalidateVisual for these properties
-    }
-
-    private void OnCuesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
-        => InvalidateStaticCache();
+    private void OnCuesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => InvalidateStaticCache();
+    private void OnPhrasesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => InvalidateStaticCache();
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
         if (change.Property == CuesProperty)
         {
-            if (change.OldValue is ObservableCollection<OrbitCue> old)
-                old.CollectionChanged -= OnCuesCollectionChanged;
-            if (change.NewValue is ObservableCollection<OrbitCue> fresh)
-                fresh.CollectionChanged += OnCuesCollectionChanged;
+            if (change.OldValue is ObservableCollection<OrbitCue> old) old.CollectionChanged -= OnCuesCollectionChanged;
+            if (change.NewValue is ObservableCollection<OrbitCue> fresh) fresh.CollectionChanged += OnCuesCollectionChanged;
+        }
+        else if (change.Property == PhraseSegmentsProperty)
+        {
+            if (change.OldValue is ObservableCollection<PhraseSegment> old) old.CollectionChanged -= OnPhrasesCollectionChanged;
+            if (change.NewValue is ObservableCollection<PhraseSegment> fresh) fresh.CollectionChanged += OnPhrasesCollectionChanged;
         }
 
-        // Playhead-only: cheap, drawn fresh every frame, never touches the static cache.
         if (change.Property == CurrentPlayPositionProperty)
         {
-            InvalidateVisual();
+            InvalidateVisual(); // playhead only — never rebuilds the cache
+            return;
+        }
+
+        if (change.Property == RevisionProperty)
+        {
+            if (_drag is DragKind.Cue or DragKind.LoopStart or DragKind.LoopEnd) InvalidateStaticThrottled();
+            else InvalidateStaticCache();
             return;
         }
 
         if (change.Property == CuesProperty || change.Property == PhraseSegmentsProperty ||
-            change.Property == BpmProperty || change.Property == TrackDurationProperty ||
+            change.Property == BpmProperty || change.Property == GridBpmProperty || change.Property == GridOffsetProperty ||
+            change.Property == TrackDurationProperty || change.Property == BackgroundProperty ||
             change.Property == WaveformLowProperty || change.Property == WaveformMidProperty ||
             change.Property == WaveformHighProperty || change.Property == EnergyCurveProperty ||
             change.Property == VocalDensityCurveProperty || change.Property == OnsetDensityCurveProperty ||
             change.Property == ZoomLevelProperty || change.Property == ScrollOffsetProperty ||
-            change.Property == SelectedCueProperty)
+            change.Property == SelectedCueProperty ||
+            change.Property == IntroRegionFillProperty || change.Property == IntroRegionEdgeProperty ||
+            change.Property == OutroRegionFillProperty || change.Property == OutroRegionEdgeProperty)
         {
             InvalidateStaticCache();
         }
     }
 
-    // ── Helpers ────────────────────────────────────────────────────────────
-
-    private double ApplySnapping(double t)
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
-        if (!SnapToGrid || Bpm <= 0) return t;
-        int q = ParseQuantize();
-        if (q > 0)
-        {
-            double? snappedToQuantize = BeatGridService.GetNearestBeatMultipleSeconds(t, Bpm, q, snapRadiusSeconds: 0.05);
-            if (snappedToQuantize.HasValue) return snappedToQuantize.Value;
-        }
-        return BeatGridService.GetNearestBeatSeconds(t, Bpm, snapRadiusSeconds: 0.05) ?? t;
+        base.OnDetachedFromVisualTree(e);
+        if (_drag != DragKind.None) EndDrag(null, commit: true, null);
     }
-
-    private int ParseQuantize() => QuantizeBeatString switch
-    { "Off" => 0, "1 beat" => 1, "2 beats" => 2, "4 beats" => 4, "8 beats" => 8,
-      "16 beats" => 16, "32 beats" => 32, "64 beats (16 bars)" => 64, "128 beats (32 bars)" => 128, _ => 16 };
-
-    private double TimeToPixel(double seconds, Rect b)
-    {
-        double visibleDuration = TrackDuration / Math.Max(1.0, ZoomLevel);
-        return (seconds / visibleDuration - ScrollOffset) * b.Width;
-    }
-
-    private double PixelToTime(double px, Rect b)
-    {
-        double visibleDuration = TrackDuration / Math.Max(1.0, ZoomLevel);
-        return (px / b.Width + ScrollOffset) * visibleDuration;
-    }
-
-    private static Color ParseColor(string hex, uint fallback)
-    {
-        try { return Color.Parse(hex); }
-        catch { return Color.FromArgb(255, (byte)((fallback >> 16) & 0xFF), (byte)((fallback >> 8) & 0xFF), (byte)(fallback & 0xFF)); }
-    }
-
-    private static Color GetPhraseColor(string label) => label?.ToLowerInvariant() switch
-    {
-        "intro"                 => Color.FromArgb(180, 0, 200, 200),
-        "build" or "buildup"   => Color.FromArgb(180, 220, 180, 0),
-        "drop"                  => Color.FromArgb(180, 220, 40, 40),
-        "breakdown"             => Color.FromArgb(180, 140, 50, 200),
-        "outro"                 => Color.FromArgb(180, 0, 160, 180),
-        "bridge"                => Color.FromArgb(180, 80, 140, 220),
-        _                       => Color.FromArgb(100, 100, 100, 120),
-    };
 }

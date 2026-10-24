@@ -11,6 +11,7 @@ using SLSKDONET.Services;
 using SLSKDONET.Views; // For RelayCommand
 using SLSKDONET.Data; // For IntegrityLevel
 using SLSKDONET.Events;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -21,7 +22,7 @@ public sealed record GenreScore(string Label, double Confidence);
 /// ViewModel representing a track in the download queue.
 /// Manages state, progress, and updates for the UI.
 /// </summary>
-public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNode, IDisposable
+public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNode, IDisposable, IPlaceholderRow
 {
     private PlaylistTrackState _state;
     private double _progress;
@@ -49,6 +50,10 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         get => _isSelected;
         set
         {
+            // The shared "Loading…" placeholder stands in for every not-yet-loaded row at once;
+            // selecting it once used to leave a phantom "1 selected" bar (and every loading row
+            // highlighted) with nothing real selected.
+            if (value && IsPlaceholder) return;
             if (SetProperty(ref _isSelected, value) && value)
             {
                 // Trigger the lazy-load of waveform data from DB
@@ -95,7 +100,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     // Phase 2: Pure UX Alignment - DataGrid Extras
     public DateTime? CompletedAt => Model.CompletedAt;
     public string CompletedAtDisplay => CompletedAt.HasValue ? CompletedAt.Value.ToString("yyyy-MM-dd HH:mm") : "—";
-    public string FormatDisplay => !string.IsNullOrEmpty(Format) ? Format.ToUpper() : "—";
+    public string FormatDisplay => !string.IsNullOrEmpty(Format) ? Format.ToUpperInvariant() : "—";
 
     public bool IsPrepared => Model.IsPrepared;
     public string PreparationStatus => IsPrepared ? "Prepared" : "Raw";
@@ -179,6 +184,9 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
                 OnPropertyChanged(nameof(IntegrityBadge));
                 OnPropertyChanged(nameof(IntegrityColor));
                 OnPropertyChanged(nameof(IntegrityTooltip));
+                OnPropertyChanged(nameof(ForensicVerdictText));
+                OnPropertyChanged(nameof(IsIntegrityTrusted));
+                OnPropertyChanged(nameof(IsIntegritySuspicious));
             }
         }
     }
@@ -214,6 +222,30 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         _ => "Not Analyzed"
     };
 
+    /// <summary>Track-list forensics column: green dot for Gold/Verified, amber for Suspicious.</summary>
+    public bool IsIntegrityTrusted => Model.Integrity is Data.IntegrityLevel.Gold or Data.IntegrityLevel.Verified;
+    public bool IsIntegritySuspicious => Model.Integrity == Data.IntegrityLevel.Suspicious;
+
+    /// <summary>Track-list quality badge. Same thresholds as TrackRepository.ApplyQualityTierFilter
+    /// (and the "Lossless / 320k / Low" filter chips): FLAC/WAV/AIFF is lossless, under 320 kbps is low.</summary>
+    public bool IsTierLossless => SLSKDONET.Services.Audio.AudioFormats.IsLossless(Format);
+    public bool IsTierLowBitrate => !IsTierLossless && Model.Bitrate is > 0 and < 320;
+
+    /// <summary>"FLAC", "MP3 320", "320 kbps" when only the bitrate is known, empty when neither is —
+    /// the badge then hides (<see cref="HasQualityBadge"/>) instead of saying "UNKNOWN".</summary>
+    public string QualityBadgeText
+    {
+        get
+        {
+            var fmt = Format.ToUpperInvariant();
+            bool hasBitrate = !IsTierLossless && Model.Bitrate is > 0;
+            if (fmt.Length == 0) return hasBitrate ? $"{Model.Bitrate} kbps" : string.Empty;
+            return hasBitrate ? $"{fmt} {Model.Bitrate}" : fmt;
+        }
+    }
+
+    public bool HasQualityBadge => QualityBadgeText.Length > 0;
+
     // 2026 Forensic UX: compact quality pill + detailed hover HUD.
     public string ForensicVerdictText => Model.Integrity switch
     {
@@ -232,7 +264,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
             if (Model.FrequencyCutoff.HasValue && Model.FrequencyCutoff.Value > 0)
             {
                 var khz = Model.FrequencyCutoff.Value / 1000.0;
-                cutoffText = $"\nHard cutoff at {khz:F1}kHz detected.";
+                cutoffText = $"\nHard cutoff at {khz.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)} kHz detected.";
             }
 
             if (string.IsNullOrWhiteSpace(details))
@@ -515,12 +547,14 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
             var parts = new List<string>();
             if (Model.Bitrate.HasValue) parts.Add($"{Model.Bitrate}k");
             if (!string.IsNullOrEmpty(Format)) parts.Add(Format.ToUpper());
-            if (FileSizeBytes > 0) parts.Add($"{FileSizeBytes / 1024.0 / 1024.0:F1}MB");
+            if (FileSizeBytes > 0) parts.Add((FileSizeBytes / 1024.0 / 1024.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "MB");
             return string.Join(" • ", parts);
         }
     }
 
-    public string Format => Model.Format ?? "Unknown";
+    /// <summary>Lower-case format ("flac"), from the stored value or else the file extension; empty when
+    /// unknown. Never the literal "Unknown" (that rendered as an "UNKNOWN" badge), see AudioFileFormat.</summary>
+    public string Format => AudioFileFormat.Resolve(Model.Format, Model.ResolvedFilePath) ?? string.Empty;
     public IEnumerable<OrbitCue> Cues => _cues;
     public bool HasCues => _cues.Count > 0;
     public bool HasAnalysisData => HasBpm || HasKey || HasCues || HasGenre || SampleRate > 0 || EnergyCurvePoints.Count > 0;
@@ -537,8 +571,8 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
                 return Math.Clamp(a, 0.0, 1.0);
 
             // Heuristic fallback when no Essentia data is present
-            var loudnessNorm = Model.Loudness.HasValue
-                ? Math.Clamp((Model.Loudness.Value + 18.0) / 18.0, 0.0, 1.0)
+            var loudnessNorm = Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(Model.Loudness) is double lufs
+                ? Math.Clamp((lufs + 18.0) / 18.0, 0.0, 1.0)
                 : 0.5;
             return Math.Clamp((RadarEnergy * 0.65) + (loudnessNorm * 0.35), 0.0, 1.0);
         }
@@ -704,7 +738,9 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
             ? $"Analysis run: {dt.ToLocalTime():yyyy-MM-dd HH:mm:ss} UTC"
             : "No analysis recorded";
 
-    public string FileSizeDisplay => FileSizeBytes > 0 ? $"{FileSizeBytes / 1024.0 / 1024.0:F1} MB" : "—";
+    public string FileSizeDisplay => FileSizeBytes > 0
+        ? (FileSizeBytes / 1024.0 / 1024.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " MB"
+        : "—";
     public string BpmDisplay => Model.BPM.HasValue ? $"{Model.BPM:0}" : "—";
     public string KeyDisplay
     {
@@ -891,9 +927,9 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
             if (!string.IsNullOrEmpty(DetectedSubGenre)) list.Add($"Sub-Genre: {DetectedSubGenre}");
             if (!string.IsNullOrEmpty(PrimaryGenre)) list.Add($"Primary Genre: {PrimaryGenre}");
             if (!string.IsNullOrEmpty(MoodTag)) list.Add($"Mood: {MoodTag}");
-            if (Energy > 0) list.Add($"Energy: {Energy:P0}");
-            if (Valence > 0) list.Add($"Valence: {Valence:P0}");
-            if (Model.InstrumentalProbability > 0) list.Add($"Instrumental: {Model.InstrumentalProbability:P0}");
+            if (Energy > 0) list.Add(NumFormat.Ui($"Energy: {Energy:P0}"));
+            if (Valence > 0) list.Add(NumFormat.Ui($"Valence: {Valence:P0}"));
+            if (Model.InstrumentalProbability > 0) list.Add(NumFormat.Ui($"Instrumental: {Model.InstrumentalProbability:P0}"));
             
             return list.Count > 0 ? string.Join("\n", list) : "No AI analysis data";
         }
@@ -989,7 +1025,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     // Technical Stats
     public int SampleRate => Model.SpectralSampleRateHz ?? 0;
     public string SampleRateDisplay => Model.SpectralSampleRateHz.HasValue && Model.SpectralSampleRateHz.Value > 0
-        ? $"{Model.SpectralSampleRateHz.Value / 1000.0:F1} kHz"
+        ? (Model.SpectralSampleRateHz.Value / 1000.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " kHz"
         : "—";
 
     public string LastPlayedDisplay => Model.LastPlayedAt.HasValue
@@ -1008,7 +1044,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     public string SpectralAnalysisDisplay => SpectralAnalysisAvailable ? "Analyzed" : "—";
 
     // Fix: LoudnessDisplay was previously incorrectly bound to QualityConfidence
-    public string ConfidenceDisplay => Model.QualityConfidence.HasValue ? $"{Model.QualityConfidence:P0} Confidence" : "—";
+    public string ConfidenceDisplay => Model.QualityConfidence.HasValue ? NumFormat.Ui($"{Model.QualityConfidence:P0} Confidence") : "—";
     
     public double MatchConfidence => (Model.QualityConfidence ?? 0) * 100;
     
@@ -1023,10 +1059,12 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     public bool IsHighRisk => Model.IsFlagged && State != PlaylistTrackState.Searching && State != PlaylistTrackState.Queued && State != PlaylistTrackState.Pending;
     public string? FlagReason => Model.FlagReason;
     
-    public string LoudnessDisplay => Model.Loudness.HasValue ? $"{Model.Loudness:F1} LUFS" : "—";
-    public string TruePeakDisplay => Model.TruePeak.HasValue ? $"{Model.TruePeak:F1} dBTP" : "—";
-    public string DynamicRangeDisplay => Model.DynamicRange.HasValue ? $"{Model.DynamicRange:F1} LU" : "—";
-    
+    // Invariant decimals: the current culture turned "-9.4 LUFS" into "-9,4 LUFS". Loudness ≥ 0 is a
+    // legacy Essentia 0–1 value, not LUFS, and shows "—" until the track is re-analysed.
+    public string LoudnessDisplay => Services.AudioAnalysis.IntegratedLoudnessMeter.Format(Model.Loudness);
+    public string TruePeakDisplay => Model.TruePeak is double tp ? tp.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " dBTP" : "—";
+    public string DynamicRangeDisplay => Model.DynamicRange is double dr ? dr.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " LU" : "—";
+
     public string IntegritySymbol => IntegrityBadge;
     public string IntegrityText => IntegrityTooltip;
     
@@ -1119,13 +1157,18 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         {
             if (Model.Rating != value)
             {
+                var previous = Model.Rating;
                 Model.Rating = value;
                 OnPropertyChanged();
-                
-                // Persistence
+
+                // Persistence — failures revert the stars and raise a toast (see PersistEngagementAsync)
                 if (_libraryService != null)
                 {
-                    _ = _libraryService.UpdateRatingAsync(GlobalId, value);
+                    var service = _libraryService;
+                    _ = PersistEngagementAsync(() => service.UpdateRatingAsync(GlobalId, value), "rating", () =>
+                    {
+                        if (Model.Rating == value) { Model.Rating = previous; OnPropertyChanged(nameof(Rating)); }
+                    });
                 }
             }
         }
@@ -1162,11 +1205,15 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
             {
                 Model.IsLiked = value;
                 OnPropertyChanged();
-                
-                // Persistence
+
+                // Persistence — failures revert the heart and raise a toast (see PersistEngagementAsync)
                 if (_libraryService != null)
                 {
-                    _ = _libraryService.UpdateLikeStatusAsync(GlobalId, value);
+                    var service = _libraryService;
+                    _ = PersistEngagementAsync(() => service.UpdateLikeStatusAsync(GlobalId, value), "like", () =>
+                    {
+                        if (Model.IsLiked == value) { Model.IsLiked = !value; OnPropertyChanged(nameof(IsLiked)); }
+                    });
                 }
             }
         }
@@ -1189,7 +1236,6 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     public ICommand RetryCommand { get; }
     public ICommand HardRetryCommand { get; }
     public ICommand ForceStartCommand { get; }
-    public ICommand BumpToTopCommand { get; }
     public ICommand PauseCommand { get; }
     public ICommand ResumeCommand { get; }
     public ICommand CancelCommand { get; }
@@ -1208,22 +1254,24 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     public ICommand NextInspectorTabCommand { get; }
     public ICommand SearchAgainCommand { get; }
 
-    private int _selectedInspectorTab = 0; // default to IDENTITY tab
+    /// <summary>Shared across tracks — see <c>s_lastInspectorTab</c> in PlaylistTrackViewModel.Inspector.cs.</summary>
     public int SelectedInspectorTab
     {
-        get => _selectedInspectorTab;
+        get => s_lastInspectorTab;
         set
         {
-            if (SetProperty(ref _selectedInspectorTab, value))
-                OnPropertyChanged(nameof(InspectorTabName));
+            if (value < 0 || s_lastInspectorTab == value) return;
+            s_lastInspectorTab = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(InspectorTabName));
         }
     }
 
     public string InspectorTabName => SelectedInspectorTab switch
     {
-        0 => "IDENTITY",
-        1 => "ANALYSIS",
-        2 => "ACTIONS",
+        InspectorTabOverview => "Overview",
+        InspectorTabCues => "Cues",
+        InspectorTabFile => "File",
         _ => ""
     };
 
@@ -1277,14 +1325,15 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         RetryCommand = new RelayCommand(FindNewVersion, () => CanHardRetry);
         HardRetryCommand = RetryCommand;
         ForceStartCommand = new RelayCommand(ForceStart, () => CanForceStart);
-        BumpToTopCommand = new RelayCommand(BumpToTop, () => CanBumpToTop);
         ToggleLikeCommand = new RelayCommand(() => IsLiked = !IsLiked);
         FilterByKeyCommand = new RelayCommand<string>(key => _eventBus?.Publish(new SetCamelotKeyFilterEvent(key)));
         RequestRemoveCommand = new RelayCommand(() => _eventBus?.Publish(new Models.RemoveTrackFromInspectorEvent(GlobalId)));
         RequestEditTagsCommand = new RelayCommand(() => _eventBus?.Publish(new Models.EditTagsFromInspectorEvent(GlobalId)));
         PreviousInspectorTabCommand = new RelayCommand(() => { if (SelectedInspectorTab > 0) SelectedInspectorTab--; });
         NextInspectorTabCommand = new RelayCommand(() => { if (SelectedInspectorTab < 2) SelectedInspectorTab++; });
-        SearchAgainCommand = new RelayCommand(Reset);
+        // Was RelayCommand(Reset): it only flipped this row's in-memory State to Pending, so
+        // nothing was ever searched. Routed to the library's real hard-retry (re-queue) instead.
+        SearchAgainCommand = new RelayCommand(() => _eventBus?.Publish(new Models.RetryDownloadFromInspectorEvent(GlobalId)));
         
         // REMOVED: 8000+ redundant event listeners eliminated.
         // Centralized dispatch moved to VirtualizedTrackCollection.
@@ -1301,6 +1350,17 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     {
         Dispose(true);
         GC.SuppressFinalize(this);
+    }
+
+    /// <summary>One-shot wait for the inspector's "Measure" result (Take(1) unsubscribes on it;
+    /// the composite disposes the subscription if this row goes away first).</summary>
+    private void ListenForLoudnessResult(string hash)
+    {
+        if (_eventBus == null) return;
+        _disposables.Add(System.Reactive.Linq.Observable.Take(
+                System.Reactive.Linq.Observable.Where(_eventBus.GetEvent<Models.TrackLoudnessMeasuredEvent>(), e => e.TrackGlobalId == hash),
+                1)
+            .Subscribe(e => Avalonia.Threading.Dispatcher.UIThread.Post(() => ApplyLoudnessResult(e))));
     }
 
     protected virtual void Dispose(bool disposing)
@@ -1325,29 +1385,55 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     internal void OnMetadataUpdated(Models.TrackMetadataUpdatedEvent evt)
     {
         if (evt.TrackGlobalId != GlobalId) return;
-        
-        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+        _ = RefreshFromLibraryAsync(reloadTechnical: true);
+    }
+
+    /// <summary>
+    /// Re-reads this row and applies it. The query runs off the UI thread (Sqlite's "async"
+    /// calls run synchronously on the caller, and this used to run inside
+    /// Dispatcher.UIThread.InvokeAsync, so every enrichment/analysis update of a visible row was a
+    /// blocking query on the UI thread). Collections that refresh many rows at once use
+    /// <see cref="ApplyRefreshed"/> with one batched query instead.
+    /// <para>
+    /// GetPagedPlaylistTracksAsync routes "All Tracks" rows (PlaylistId == Guid.Empty, no real
+    /// PlaylistTracks row) to the LibraryEntries adapter, so one single-hash query covers both.
+    /// </para>
+    /// </summary>
+    internal async Task RefreshFromLibraryAsync(bool reloadTechnical)
+    {
+        try
         {
+            PlaylistTrack? updated = null;
+            if (_libraryService != null)
+            {
+                var playlistId = Model.PlaylistId;
+                var hash = GlobalId;
+                var refetched = await Task.Run(() => _libraryService.GetPagedPlaylistTracksAsync(playlistId, 0, 1, hashFilter: new[] { hash })).ConfigureAwait(false);
+                updated = refetched.FirstOrDefault();
+            }
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => ApplyRefreshed(updated, reloadTechnical));
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "Re-reading row {GlobalId} after a metadata update failed", GlobalId);
+        }
+    }
+
+    /// <summary>
+    /// Applies freshly read track data in place (UI thread). <paramref name="reloadTechnical"/>
+    /// also reloads waveform/cue data, which only analysis changes; enrichment updates
+    /// (cover, album, label, genre) skip that query.
+    /// </summary>
+    internal void ApplyRefreshed(PlaylistTrack? updatedTrack, bool reloadTechnical = true)
+    {
+        if (_isDisposed) return;
           try
           {
              _isAnalyzing = false; // Clear analyzing flag
-
-             // Reload track data from database to get updated metadata.
-             // GetPlaylistTrackByHashAsync queries the real PlaylistTracks table scoped by
-             // PlaylistId — but "All Tracks" rows carry the synthetic sentinel PlaylistId ==
-             // Guid.Empty (TrackRepository.GetPagedAllTracksAsync), which no real PlaylistTracks
-             // row ever has, so that lookup always returned null there — refresh silently no-op'd
-             // for the primary Library browsing mode. GetPagedPlaylistTracksAsync already knows
-             // how to route Guid.Empty to the LibraryEntries-backed adapter instead, so reuse it
-             // with a single-hash filter rather than duplicating that routing here.
-             if (_libraryService != null)
              {
-                 var refetched = await _libraryService.GetPagedPlaylistTracksAsync(
-                     Model.PlaylistId, 0, 1, hashFilter: new[] { GlobalId });
-                 var updatedTrack = refetched.FirstOrDefault();
-
                  if (updatedTrack != null)
                  {
+                     var previousArtwork = _artwork == null ? null : Model.AlbumArtUrl;
                      // Update model with fresh data
                      Model.AlbumArtUrl = updatedTrack.AlbumArtUrl;
                      Model.SpotifyTrackId = updatedTrack.SpotifyTrackId;
@@ -1407,8 +1493,10 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
                      Model.TruePeak = updatedTrack.TruePeak;
                      Model.DynamicRange = updatedTrack.DynamicRange;
                      
-                      // Load artwork if URL is available
-                      if (!string.IsNullOrWhiteSpace(updatedTrack.AlbumArtUrl))
+                      // New artwork only when the source changed: rebuilding the proxy for every
+                      // refresh re-decoded the same cover and flashed the row on each update.
+                      if (!string.IsNullOrWhiteSpace(updatedTrack.AlbumArtUrl) &&
+                          !string.Equals(previousArtwork, updatedTrack.AlbumArtUrl, StringComparison.Ordinal))
                       {
                           // Refresh proxy
                           _artwork = new ArtworkProxy(_artworkCacheService!, updatedTrack.AlbumArtUrl);
@@ -1431,7 +1519,8 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
              OnPropertyChanged(nameof(MetadataStatus));
              OnPropertyChanged(nameof(MetadataStatusColor));
              OnPropertyChanged(nameof(MetadataStatusSymbol));
-             
+             InvalidateMetadataSources();
+
              // Notify Extended Props
              OnPropertyChanged(nameof(BPM));
              OnPropertyChanged(nameof(MusicalKey));
@@ -1490,15 +1579,27 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
              // Model fields above were correctly refreshed.
              OnPropertyChanged(nameof(DurationDisplay));
              OnPropertyChanged(nameof(FormatDisplay));
+             OnPropertyChanged(nameof(Format));
+             OnPropertyChanged(nameof(QualityBadgeText));
+             OnPropertyChanged(nameof(HasQualityBadge));
+             OnPropertyChanged(nameof(IsTierLossless));
+             OnPropertyChanged(nameof(IsTierLowBitrate));
              OnPropertyChanged(nameof(SampleRate));
              OnPropertyChanged(nameof(SampleRateDisplay));
              OnPropertyChanged(nameof(SpectralAnalysisAvailable));
 
-             // CRITICAL: Reload technical data (waveforms) from TechnicalDetails table
-             _ = LoadTechnicalDataAsync();
+             // CRITICAL: Reload technical data (waveforms) from TechnicalDetails table. The
+             // loaded-once guard has to be reset first — otherwise this call returned instantly
+             // and cues/energy curve stayed at their pre-analysis values until an app restart.
+             if (reloadTechnical)
+             {
+                 _technicalDataLoaded = false;
+                 _ = LoadTechnicalDataAsync();
+             }
              OnPropertyChanged(nameof(Duration));
 
              OnPropertyChanged(nameof(LoudnessDisplay));
+             OnPropertyChanged(nameof(CanMeasureLoudness));
              OnPropertyChanged(nameof(TruePeakDisplay));
              OnPropertyChanged(nameof(DynamicRangeDisplay));
              OnPropertyChanged(nameof(ConfidenceDisplay));
@@ -1519,16 +1620,16 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
               OnPropertyChanged(nameof(CurationIcon));
               OnPropertyChanged(nameof(CurationColor));
               OnPropertyChanged(nameof(ProvenanceTooltip));
+
+              RaiseInspectorDerivedPropertiesChanged();
+              AnalysisDataRefreshed?.Invoke(this, EventArgs.Empty);
           }
           catch (Exception ex)
           {
-              // This whole handler runs fire-and-forget from Dispatcher.UIThread.InvokeAsync
-              // (OnMetadataUpdated itself doesn't await it) — an unobserved exception here used
-              // to vanish silently, permanently leaving the Inspector showing stale/pre-analysis
-              // data with no error anywhere to explain why.
+              // Callers fire and forget; an unobserved exception here used to vanish silently,
+              // permanently leaving the Inspector showing stale/pre-analysis data.
               Serilog.Log.Warning(ex, "OnMetadataUpdated refresh failed for track {GlobalId}", GlobalId);
           }
-        });
     }
 
     internal void OnStateChanged(TrackStateChangedEvent evt)
@@ -1939,8 +2040,8 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
               
             if (_technicalEntity != null)
             {
-                // Parse Cues
-                if (!string.IsNullOrEmpty(_technicalEntity.CuePointsJson))
+                // Parse legacy cues — only when the CuePoints table hasn't supplied the real ones
+                if (!_cuesFromCueTable && !string.IsNullOrEmpty(_technicalEntity.CuePointsJson))
                 {
                     try
                     {
@@ -1965,7 +2066,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
                 OnPropertyChanged(nameof(MidData));
                 OnPropertyChanged(nameof(HighData));
                 OnPropertyChanged(nameof(TechnicalSummary));
-                OnPropertyChanged(nameof(Cues));
+                RaiseCuePropertiesChanged();
                 OnPropertyChanged(nameof(PhraseSegments));
                 OnPropertyChanged(nameof(EnergyCurvePoints));
                 OnPropertyChanged(nameof(HasAnalysisData));
@@ -1975,6 +2076,10 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
                 OnPropertyChanged(nameof(FileSizeBytes));
                 OnPropertyChanged(nameof(LoudnessDisplay));
                 OnPropertyChanged(nameof(Format));
+                OnPropertyChanged(nameof(QualityBadgeText));
+                OnPropertyChanged(nameof(HasQualityBadge));
+                OnPropertyChanged(nameof(IsTierLossless));
+                OnPropertyChanged(nameof(IsTierLowBitrate));
             }
         }
         catch (Exception ex)
@@ -1985,25 +2090,6 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
 
     /// <summary>Loads analysis/technical data for this track. Alias for <see cref="LoadTechnicalDataAsync"/>.</summary>
     public Task LoadAnalysisDataAsync() => LoadTechnicalDataAsync();
-
-    /// <summary>Updates the label on a cue point and persists the full cue list for this track.</summary>
-    public async Task SaveCueLabelAsync(OrbitCue cue, string newLabel)
-    {
-        cue.Name = newLabel;
-
-        if (_libraryService == null || string.IsNullOrEmpty(GlobalId))
-            return;
-
-        try
-        {
-            var json = System.Text.Json.JsonSerializer.Serialize(_cues);
-            await _libraryService.UpdateTrackCuePointsAsync(GlobalId, json);
-        }
-        catch (Exception ex)
-        {
-            Serilog.Log.Warning(ex, "Failed to persist cue label change for track {GlobalId}", GlobalId);
-        }
-    }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -2175,13 +2261,9 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         }
     }
 
-    public void BumpToTop()
-    {
-        if (CanBumpToTop && _eventBus != null)
-        {
-            _eventBus.Publish(new Models.BumpToTopRequestEvent(GlobalId));
-        }
-    }
-
+    /// <summary>True while the track is still waiting to download, so it can be moved to the front of
+    /// the download queue (Library "Download next" → TrackOperationsViewModel.DownloadNextCommand →
+    /// DownloadManager.BumpTrackToTop). This used to back a BumpToTopCommand that published a
+    /// BumpToTopRequestEvent nobody subscribed to, and no view bound it.</summary>
     public bool CanBumpToTop => (State == PlaylistTrackState.Pending || State == PlaylistTrackState.Paused || State == PlaylistTrackState.Stalled) && !IsCompleted;
 }

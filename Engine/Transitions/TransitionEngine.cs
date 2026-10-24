@@ -55,7 +55,9 @@ public sealed class TransitionEngine
         // Label.Contains("Drop") check (as this used to be) matches the approach marker first
         // (cues arrive time-ordered from CuePointService), landing every "drop-in" transition on
         // the phrase 8 bars before the actual drop instead of the drop itself.
-        var mixOutCue = sourceCues.FirstOrDefault(c => c.Label.Contains("Mix-Out")) ??
+        // A marked outro section (Cue Forge / Flow Builder "Outro") is where the DJ mixes out.
+        var mixOutCue = sourceCues.LastOrDefault(c => c.Type == CuePointType.OutroStart) ??
+                        sourceCues.FirstOrDefault(c => c.Label.Contains("Mix-Out")) ??
                         sourceCues.LastOrDefault(c => c.Type == CuePointType.Outro);
         var mixInCue = targetCues.FirstOrDefault(c => c.Label.Contains("Mix-In")) ??
                        targetCues.FirstOrDefault(c => c.Type == CuePointType.Intro);

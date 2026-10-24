@@ -16,6 +16,7 @@ using System.Collections.Generic; // Added this using directive
 using SLSKDONET.Models;
 using System.Reactive.Linq;
 using ReactiveUI;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Views;
 
@@ -54,6 +55,14 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public SearchViewModel SearchViewModel { get; }
     public ConnectionViewModel ConnectionViewModel { get; }
     public SettingsViewModel SettingsViewModel { get; }
+    /// <summary>First-run setup wizard and quick tour (null only in tests that build the shell by hand).</summary>
+    public SLSKDONET.ViewModels.Setup.SetupShellViewModel? Setup { get; }
+
+    /// <summary>The folder import sheet / top-bar chip (Library folders, Settings and setup "Scan now").</summary>
+    public SLSKDONET.ViewModels.LibraryImportViewModel? Import { get; }
+
+    /// <summary>The one background-activity chip (import, analysis, enrichment, loudness).</summary>
+    public SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? Activity { get; }
     public HomeViewModel HomeViewModel { get; }
     public TimelineViewModel TimelineViewModel { get; }
     public StatusBarViewModel StatusBar { get; }
@@ -117,7 +126,10 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         SidebarViewModel sidebarViewModel,
         IRightPanelService rightPanelService,
         PerformanceTracker perfTracker,
-        FlowBuilderViewModel flowBuilderViewModel)
+        FlowBuilderViewModel flowBuilderViewModel,
+        SLSKDONET.ViewModels.Setup.SetupShellViewModel? setup = null,
+        SLSKDONET.ViewModels.LibraryImportViewModel? import = null,
+        SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? activity = null)
 
     {
         _logger = logger;
@@ -140,6 +152,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _flowBuilderViewModel = flowBuilderViewModel;
 
         Sidebar = sidebarViewModel;
+        Setup = setup;
+        Import = import;
+        Activity = activity;
         _rightPanelService = rightPanelService;
         PerfTracker = perfTracker;
 
@@ -223,6 +238,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _disposables.Add(_eventBus.GetEvent<OpenLibraryForPlaylistEvent>()
             .Subscribe(evt => Dispatcher.UIThread.Post(() => HandleOpenLibraryForPlaylist(evt))));
 
+        _disposables.Add(_eventBus.GetEvent<OpenPlaylistInLibraryEvent>()
+            .Subscribe(evt => Dispatcher.UIThread.Post(() => HandleOpenPlaylistInLibrary(evt))));
+
         // Initialize commands
         NavigateHomeCommand = new RelayCommand(NavigateToHome); // Phase 6D
         NavigateSearchCommand = new RelayCommand(NavigateToSearch);
@@ -235,7 +253,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateWorkstationCommand = new RelayCommand(NavigateToWorkstation);
         NavigateDecksCommand = new RelayCommand(NavigateToDecks);
         NavigateTimelineCommand = new RelayCommand(NavigateToTimeline);
-        NavigateStemsCommand = new RelayCommand(NavigateToStems);
+        NavigateEditLabCommand = new RelayCommand(NavigateToEditLab);
         NavigateCueForgeCommand = new RelayCommand(NavigateToCueForge);
         NavigateUsersCommand = new RelayCommand(NavigateToUsers);
         NavigateFlowBuilderCommand = new RelayCommand(NavigateToFlowBuilder);
@@ -455,8 +473,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.RegisterPage("Analysis", typeof(Avalonia.AnalysisPage));
         _navigationService.RegisterPage("NowPlaying", typeof(Avalonia.NowPlayingPage));
         _navigationService.RegisterPage("Workstation", typeof(Avalonia.WorkstationPage));
-        _navigationService.RegisterPage("Stems", typeof(Avalonia.StemsPage));
-        _navigationService.RegisterPage("CueForge", typeof(Avalonia.CueForgePagee));
+        _navigationService.RegisterPage("EditLab", typeof(Avalonia.EditLabPage));
+        _navigationService.RegisterPage("CueForge", typeof(Avalonia.CueForgePage));
         _navigationService.RegisterPage("Users", typeof(Avalonia.UsersPage));
         _navigationService.RegisterPage("FlowBuilder", typeof(Avalonia.FlowBuilderPage));
 
@@ -501,6 +519,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             LibraryViewModel?.Dispose();
             SearchViewModel?.Dispose();
             SettingsViewModel?.Dispose();
+            Setup?.Dispose();
             HomeViewModel?.Dispose();
             _globalHotkeyService?.Dispose();
         }
@@ -549,17 +568,41 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     /// between sessions. Bounded so the page beside it always keeps room for a track list.</summary>
     public double ContextPanelWidth
     {
-        get => Math.Clamp(_config.ContextPanelWidth, MinContextPanelWidth, MaxContextPanelWidth);
+        get => FitContextPanelWidth(_config.ContextPanelWidth, _windowWidth);
         set
         {
-            int width = (int)Math.Round(Math.Clamp(value, MinContextPanelWidth, MaxContextPanelWidth));
+            int width = (int)Math.Round(FitContextPanelWidth(value, _windowWidth));
             if (width == _config.ContextPanelWidth) return;
             _config.ContextPanelWidth = width;
             OnPropertyChanged(nameof(ContextPanelWidth));
         }
     }
 
-    public const double MinContextPanelWidth = 300, MaxContextPanelWidth = 800;
+    public const double MinContextPanelWidth = 300, MaxContextPanelWidth = 800, ContextPanelMaxWindowShare = 0.35;
+
+    /// <summary>The width the context panel is shown at: the saved width, but never more than 35% of
+    /// the window (and 300–800 px). A saved ~590 px panel on a ~1400 px window left the Library track
+    /// list ~320 px, too narrow for a title. The saved width is kept, so a wider window gets it back.</summary>
+    public static double FitContextPanelWidth(double savedWidth, double windowWidth)
+    {
+        double max = MaxContextPanelWidth;
+        if (windowWidth > 0)
+            max = Math.Min(max, Math.Max(MinContextPanelWidth, windowWidth * ContextPanelMaxWindowShare));
+        return Math.Clamp(savedWidth, MinContextPanelWidth, max);
+    }
+
+    private double _windowWidth;
+    /// <summary>Set by MainWindow on resize so <see cref="ContextPanelWidth"/> can follow the window.</summary>
+    public double WindowWidth
+    {
+        get => _windowWidth;
+        set
+        {
+            if (Math.Abs(_windowWidth - value) < 1) return;
+            _windowWidth = value;
+            OnPropertyChanged(nameof(ContextPanelWidth));
+        }
+    }
 
     /// <summary>Called when a resize drag ends, so dragging doesn't write the config on every pixel.</summary>
     public void SaveContextPanelWidth()
@@ -923,6 +966,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsSettingsOverlayActive => CurrentPageType == PageType.Settings;
     public bool IsWorkstationOverlayActive => IsCreativeOverlayPage(CurrentPageType);
     public bool IsCueForgeOverlayActive => CurrentPageType == PageType.CueForge;
+    public bool IsEditLabOverlayActive => CurrentPageType == PageType.EditLab;
     public bool IsUsersOverlayActive => CurrentPageType == PageType.Users;
     public bool IsFlowBuilderOverlayActive => CurrentPageType == PageType.FlowBuilder;
 
@@ -941,6 +985,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         nameof(IsSettingsOverlayActive),
         nameof(IsWorkstationOverlayActive),
         nameof(IsCueForgeOverlayActive),
+        nameof(IsEditLabOverlayActive),
         nameof(IsUsersOverlayActive),
         nameof(IsFlowBuilderOverlayActive)
     ];
@@ -961,7 +1006,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         if (typeof(Avalonia.NowPlayingPage).IsAssignableFrom(pageType)) return PageType.NowPlaying;
         if (typeof(Avalonia.SettingsPage).IsAssignableFrom(pageType)) return PageType.Settings;
         if (typeof(Avalonia.WorkstationPage).IsAssignableFrom(pageType)) return PageType.Workstation;
-        if (pageType.Name.Contains("StemsPage", StringComparison.Ordinal)) return PageType.Stems;
+        if (typeof(Avalonia.EditLabPage).IsAssignableFrom(pageType)) return PageType.EditLab;
         if (typeof(Avalonia.UsersPage).IsAssignableFrom(pageType)) return PageType.Users;
         if (typeof(Avalonia.FlowBuilderPage).IsAssignableFrom(pageType)) return PageType.FlowBuilder;
 
@@ -1010,7 +1055,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         if (normalizedSource.StartsWith("FlowBuilder.", StringComparison.Ordinal))
         {
-            return currentPageType is PageType.Workstation or PageType.Decks or PageType.Timeline or PageType.Stems;
+            return currentPageType is PageType.Workstation or PageType.Decks or PageType.Timeline;
         }
 
         return true;
@@ -1038,7 +1083,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public static bool IsAcquireOverlayPage(PageType pageType) => pageType is PageType.Search or PageType.Projects or PageType.Import;
     public static bool IsSystemOverlayPage(PageType pageType) => pageType is PageType.Home or PageType.Library or PageType.Analysis or PageType.NowPlaying or PageType.Settings;
-    public static bool IsCreativeOverlayPage(PageType pageType) => pageType is PageType.Workstation or PageType.Decks or PageType.Timeline or PageType.Stems;
+    public static bool IsCreativeOverlayPage(PageType pageType) => pageType is PageType.Workstation or PageType.Decks or PageType.Timeline;
 
     private void EnsureNavigationGroupExpanded(PageType pageType)
     {
@@ -1052,7 +1097,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             IsSystemExpanded = true;
         }
 
-        if (IsCreativeOverlayPage(pageType))
+        if (IsCreativeOverlayPage(pageType) || pageType == PageType.EditLab)
         {
             IsCreativeExpanded = true;
         }
@@ -1086,7 +1131,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public double FontSizeSmall => BaseFontSize * 0.85;
     public double FontSizeMedium => BaseFontSize;
     public double FontSizeLarge => BaseFontSize * 1.2;
-    public string UIScalePercentage => $"{(BaseFontSize / 14.0):P0}";
+    public string UIScalePercentage => NumFormat.Ui($"{(BaseFontSize / 14.0):P0}");
 
     private string _applicationVersion = "Unknown";
     public string ApplicationVersion
@@ -1177,7 +1222,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateWorkstationCommand { get; }
     public ICommand NavigateDecksCommand { get; }
     public ICommand NavigateTimelineCommand { get; }
-    public ICommand NavigateStemsCommand { get; }
+    public ICommand NavigateEditLabCommand { get; }
     public ICommand NavigateCueForgeCommand { get; }
     public ICommand NavigateUsersCommand { get; }
     public ICommand NavigateFlowBuilderCommand { get; }
@@ -1333,9 +1378,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void NavigateToTimeline() => NavigateToWorkstation();
 
-    private void NavigateToStems()
+    private void NavigateToEditLab()
     {
-        _navigationService.NavigateTo("Stems");
+        _navigationService.NavigateTo("EditLab");
     }
 
     private void NavigateToCueForge()
@@ -1416,6 +1461,35 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     /// this to get back to exactly the playlist + track pair the user came from, instead of a
     /// dead end once they're done fixing a cue.
     /// </summary>
+    /// <summary>Import page "Recent imports" → open that playlist in the Library.</summary>
+    private async void HandleOpenPlaylistInLibrary(OpenPlaylistInLibraryEvent evt)
+    {
+        NavigateToLibrary();
+        try
+        {
+            if (evt.PlaylistId == Guid.Empty)
+            {
+                // "All Tracks" (the import sheet's "Open in Library").
+                LibraryViewModel.Projects.LoadAllTracksCommand.Execute(null);
+                return;
+            }
+
+            var playlist = LibraryViewModel.Projects.AllProjects.FirstOrDefault(p => p.Id == evt.PlaylistId);
+            if (playlist == null)
+            {
+                await LibraryViewModel.Projects.LoadProjectsAsync();
+                playlist = LibraryViewModel.Projects.AllProjects.FirstOrDefault(p => p.Id == evt.PlaylistId);
+            }
+
+            if (playlist != null) LibraryViewModel.SelectedProject = playlist;
+            else _logger.LogWarning("Open playlist: {PlaylistId} not found in the Library", evt.PlaylistId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to open playlist {PlaylistId} in the Library", evt.PlaylistId);
+        }
+    }
+
     private async void HandleOpenLibraryForPlaylist(OpenLibraryForPlaylistEvent evt)
     {
         NavigateToLibrary();

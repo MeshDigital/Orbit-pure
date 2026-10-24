@@ -18,6 +18,7 @@ using SLSKDONET.ViewModels;
 using SLSKDONET.Views;
 using System.Collections.Generic;
 using System.Globalization;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels.Workstation;
 
@@ -233,7 +234,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     public string SectionJumpSummary => BuildSectionJumpSummary(CueEditor.Cues);
     public string StemControlSummary => BuildStemControlSummary(StemsVisible, Stems.IsSeparating, Stems.SeparationProgress, Stems.Vocals.IsMuted, Stems.Drums.IsSoloed);
     public string WaveformDetailSummary => BuildWaveformDetailSummary(IsSemanticDetailMode, WaveformZoomLevel, WaveformViewOffset);
-    public string CurrentKeyShiftText => Deck.SemitoneShift == 0 ? "0 st" : $"{Deck.SemitoneShift:+#;-#;0} st";
+    public string CurrentKeyShiftText => Deck.SemitoneShift == 0 ? "0 st" : NumFormat.Ui($"{Deck.SemitoneShift:+#;-#;0} st");
 
     private string _harmonicSuggestionText = "Native key • load another deck for harmonic advice";
     public string HarmonicSuggestionText
@@ -412,7 +413,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
             if (!LoopIsReady || DisplayBpm <= 0) return string.Empty;
             double barLength = 240.0 / DisplayBpm; // 4/4 bar in seconds
             double loopBars = (_loopOutSeconds!.Value - _loopInSeconds!.Value) / barLength;
-            return loopBars >= 0.5 ? $"{loopBars:0.##} bar{(Math.Abs(loopBars - 1.0) < 0.01 ? "" : "s")}" : string.Empty;
+            return loopBars >= 0.5 ? NumFormat.Ui($"{loopBars:0.##} bar{(Math.Abs(loopBars - 1.0) < 0.01 ? "" : "s")}") : string.Empty;
         }
     }
 
@@ -698,6 +699,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         }
         catch (Exception ex)
         {
+            Serilog.Log.Warning(ex, "Workstation deck {Deck}: failed to load {Path}", DeckLabel, filePath);
             TrackLoadError = ex.InnerException?.Message ?? ex.Message;
             return;
         }
@@ -788,6 +790,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         }
         catch (Exception ex)
         {
+            Serilog.Log.Warning(ex, "Workstation deck {Deck}: failed to load {Path}", DeckLabel, track.ResolvedFilePath);
             TrackLoadError = ex.InnerException?.Message ?? ex.Message;
             return;
         }
@@ -1208,7 +1211,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
 
     public static string BuildHarmonicSuggestionText(string? currentKey, string? referenceKey, int semitoneShift)
     {
-        var shiftText = semitoneShift == 0 ? "0 st" : $"{semitoneShift:+#;-#;0} st";
+        var shiftText = semitoneShift == 0 ? "0 st" : NumFormat.Ui($"{semitoneShift:+#;-#;0} st");
 
         if (string.IsNullOrWhiteSpace(currentKey))
             return $"Key pending • shift {shiftText}";

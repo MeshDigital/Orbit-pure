@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Data.Essentia;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services.AudioAnalysis;
 
@@ -98,7 +99,7 @@ public sealed class BpmDetectionService
             && rhythm.OnsetRate >= OnsetRateCorroborationThreshold)
         {
             float corrected = rawBpm * 2f;
-            RecordAnomaly(target, $"bpm_halftime_corrected:{rawBpm:F1}->{corrected:F1}");
+            RecordAnomaly(target, NumFormat.Ui($"bpm_halftime_corrected:{rawBpm:F1}->{corrected:F1}"));
             rawBpm = corrected;
             confidence *= HalfTimeCorrectionConfidencePenalty;
         }

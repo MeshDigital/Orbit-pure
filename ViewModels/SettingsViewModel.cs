@@ -81,6 +81,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private readonly ISpotifyMetadataService _spotifyMetadataService;
     private readonly DatabaseService _databaseService;
     private readonly LibraryFolderScannerService _libraryFolderScannerService;
+    private readonly ILibraryImportLauncher? _importLauncher;
     private readonly IEventBus _eventBus;
     private readonly NetworkActivityMonitor? _networkActivityMonitor;
     private readonly EngineDiagnosticsService? _engineDiagnosticsService;
@@ -107,6 +108,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             {
                 _config.DownloadDirectory = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(EditLabOutputDirectoryDisplay));
                 SaveSettings(); 
             }
         }
@@ -128,6 +130,81 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>Settings → Library: queue every finished download for analysis.</summary>
+    public bool AnalyzeNewDownloads
+    {
+        get => _config.AnalyzeNewDownloads;
+        set
+        {
+            if (_config.AnalyzeNewDownloads != value)
+            {
+                _config.AnalyzeNewDownloads = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    /// <summary>Settings → Downloads: where Edit Lab renders go. Empty = &lt;download folder&gt;/ORBIT Edits.</summary>
+    public string EditLabOutputDirectory
+    {
+        get => _config.EditLabOutputDirectory ?? "";
+        set
+        {
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value;
+            if (_config.EditLabOutputDirectory != normalized)
+            {
+                _config.EditLabOutputDirectory = normalized;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(EditLabOutputDirectoryDisplay));
+                OnPropertyChanged(nameof(HasCustomEditLabOutputDirectory));
+                SaveSettings();
+            }
+        }
+    }
+
+    public string EditLabOutputDirectoryDisplay => string.IsNullOrWhiteSpace(_config.EditLabOutputDirectory)
+        ? System.IO.Path.Combine(DownloadPath, "ORBIT Edits")
+        : _config.EditLabOutputDirectory!;
+
+    public bool HasCustomEditLabOutputDirectory => !string.IsNullOrWhiteSpace(_config.EditLabOutputDirectory);
+
+    private ICommand? _browseEditLabOutputDirectoryCommand;
+    public ICommand BrowseEditLabOutputDirectoryCommand => _browseEditLabOutputDirectoryCommand ??= new AsyncRelayCommand(async () =>
+    {
+        var path = await _fileInteractionService.OpenFolderDialogAsync("Select Edit Lab Output Folder");
+        if (!string.IsNullOrEmpty(path)) EditLabOutputDirectory = path;
+    });
+
+    private ICommand? _resetEditLabOutputDirectoryCommand;
+    public ICommand ResetEditLabOutputDirectoryCommand => _resetEditLabOutputDirectoryCommand ??= new RelayCommand(() => EditLabOutputDirectory = "");
+
+    /// <summary>Settings → Advanced → Setup: reopen the first-run wizard / start the quick tour.</summary>
+    private ICommand? _runSetupAgainCommand;
+    public ICommand RunSetupAgainCommand => _runSetupAgainCommand ??= new RelayCommand(() => _eventBus.Publish(new SLSKDONET.Services.Setup.OpenSetupWizardRequestedEvent()));
+    private ICommand? _takeTourCommand;
+    public ICommand TakeTourCommand => _takeTourCommand ??= new RelayCommand(() => _eventBus.Publish(new SLSKDONET.Services.Setup.StartTourRequestedEvent()));
+
+    /// <summary>Cancels a Spotify sign-in started from here or from the setup wizard.</summary>
+    public void CancelSpotifyConnect() => _connectCts?.Cancel();
+
+    /// <summary>
+    /// Re-reads every value the setup wizard can change (it writes AppConfig directly), so this
+    /// page shows the same values right away.
+    /// </summary>
+    public void RefreshFromConfig()
+    {
+        foreach (var name in new[]
+                 {
+                     nameof(DownloadPath), nameof(SharedFolderPath), nameof(EnableLibrarySharing),
+                     nameof(AudioOutputMode), nameof(AudioOutputDeviceName), nameof(AnalyzeNewDownloads),
+                     nameof(EditLabOutputDirectory), nameof(EditLabOutputDirectoryDisplay), nameof(HasCustomEditLabOutputDirectory),
+                     nameof(SoulseekUsername), nameof(SoulseekAutoConnectEnabled), nameof(SoulseekRememberPassword),
+                 })
+            OnPropertyChanged(name);
+        RefreshAvailableAudioOutputDevices();
+    }
+
     public bool EnableLibrarySharing
     {
         get => _config.EnableLibrarySharing;
@@ -140,8 +217,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 SaveSettings();
                 // Reflect toggle change in share state immediately
                 _ = Task.Run(() => _soulseek.RefreshShareStateAsync());
-                OnPropertyChanged(nameof(ShareStatusSummary));
-                OnPropertyChanged(nameof(ShareStatusColor));
+                RaiseShareStatusChanged();
             }
         }
     }
@@ -155,6 +231,24 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             if (_config.EnableKeyboardTelemetry != value)
             {
                 _config.EnableKeyboardTelemetry = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Close button minimises ORBIT to the tray (downloads keep running) instead of quitting.
+    /// Read by MainWindow at close time, so it applies immediately.
+    /// </summary>
+    public bool CloseToTray
+    {
+        get => _config.CloseToTray;
+        set
+        {
+            if (_config.CloseToTray != value)
+            {
+                _config.CloseToTray = value;
                 OnPropertyChanged();
                 SaveSettings();
             }
@@ -596,20 +690,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             if (_config.WaveformShowPhraseSections != value)
             {
                 _config.WaveformShowPhraseSections = value;
-                OnPropertyChanged();
-                SaveSettings();
-            }
-        }
-    }
-
-    public bool WaveformShowBeatGrid
-    {
-        get => _config.WaveformShowBeatGrid;
-        set
-        {
-            if (_config.WaveformShowBeatGrid != value)
-            {
-                _config.WaveformShowBeatGrid = value;
                 OnPropertyChanged();
                 SaveSettings();
             }
@@ -1246,7 +1326,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             Id = "Quality First",
             Title = "Audiophile",
             Description = "Prioritizes lossless, high-bitrate, and perfect rips. No compromises.",
-            Icon = "🎧",
             IsSelected = _config.RankingProfile == "Quality First"
         });
 
@@ -1255,7 +1334,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             Id = "Balanced",
             Title = "Balanced",
             Description = "The best mix of quality, speed, and metadata accuracy. Recommended.",
-            Icon = "⚖️",
             IsSelected = _config.RankingProfile == "Balanced" || string.IsNullOrEmpty(_config.RankingProfile)
         });
 
@@ -1264,7 +1342,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             Id = "DJ Mode",
             Title = "DJ Ready",
             Description = "Prioritizes BPM, Key, and mix-friendly files (Extended Mixes).",
-            Icon = "🎛️",
             IsSelected = _config.RankingProfile == "DJ Mode"
         });
 
@@ -1325,9 +1402,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         IsSpotifyConnecting = newState == SpotifyAuthStatus.Connecting;
         IsSpotifyConnected = newState == SpotifyAuthStatus.Connected;
         
-        OnPropertyChanged(nameof(SpotifyStatusColor));
-        OnPropertyChanged(nameof(SpotifyStatusIcon));
-        
         // Refresh commands
         (ConnectSpotifyCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (DisconnectSpotifyCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
@@ -1359,10 +1433,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         get => _isSpotifyConnected;
         set => SetProperty(ref _isSpotifyConnected, value);
     }
-
-    // SSO State (Legacy compat where needed, but driven by State now)
-    public string SpotifyStatusColor => IsSpotifyConnected ? "#1DB954" : (IsSpotifyConnecting ? "#FFB900" : "#333333");
-    public string SpotifyStatusIcon => IsSpotifyConnected ? "✓" : (IsSpotifyConnecting ? "⏳" : "🚫");
 
 
 
@@ -1479,7 +1549,10 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public ICommand RevokeAndReAuthCommand { get; }
     public ICommand RestartSpotifyAuthCommand { get; }
     public ICommand CheckFfmpegCommand { get; } // Phase 8: Dependency validation
+    public ICommand OpenFfmpegDownloadPageCommand { get; }
     public ICommand ResetDatabaseCommand { get; }
+    public ICommand BackupLibraryNowCommand { get; }
+    public ICommand OpenBackupsFolderCommand { get; }
     public ICommand ResetToDefaultsCommand { get; }
     public ICommand ScanLibraryCommand { get; } // [NEW] Manual Scan
     public ICommand ReconcileLibraryCommand { get; }
@@ -1522,14 +1595,16 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         set => SetProperty(ref _enrichStatus, value);
     }
 
-    private bool _isEnriching;
-    public bool IsEnriching
-    {
-        get => _isEnriching;
-        set { SetProperty(ref _isEnriching, value); OnPropertyChanged(nameof(CanEnrich)); }
-    }
+    private readonly EnrichmentViewModel? _enrichment;
 
-    public bool CanEnrich => !_isEnriching;
+    /// <summary>Settings → Connection → Metadata sources (null in design/test construction).</summary>
+    public MetadataSourcesSettingsViewModel? MetadataSources { get; }
+    public bool HasMetadataSources => MetadataSources != null;
+
+    /// <summary>True while the library enrichment run (MetadataEnrichmentOrchestrator) works.</summary>
+    public bool IsEnriching => _enrichment?.IsRunning == true;
+
+    public bool CanEnrich => _enrichment != null && !_enrichment.IsRunning;
 
     private bool _isReconciling;
     public bool IsReconciling
@@ -1564,13 +1639,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public bool IsFfmpegInstalled
     {
         get => _isFfmpegInstalled;
-        set
-        {
-            if (SetProperty(ref _isFfmpegInstalled, value))
-            {
-                OnPropertyChanged(nameof(FfmpegBorderColor));
-            }
-        }
+        set => SetProperty(ref _isFfmpegInstalled, value);
     }
 
     private string _ffmpegStatus = "Checking...";
@@ -1586,8 +1655,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         get => _ffmpegVersion;
         set => SetProperty(ref _ffmpegVersion, value);
     }
-
-    public string FfmpegBorderColor => IsFfmpegInstalled ? "#1DB954" : "#FFA500";
 
     // Phase 6: Security Audit Feed
     private const int AuditFeedMaxEntries = 100;
@@ -1775,18 +1842,28 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public int ShareFileCount
     {
         get => _shareFileCount;
-        private set { _shareFileCount = value; OnPropertyChanged(); OnPropertyChanged(nameof(ShareStatusSummary)); OnPropertyChanged(nameof(ShareStatusColor)); }
+        private set { _shareFileCount = value; OnPropertyChanged(); RaiseShareStatusChanged(); }
     }
 
-    public string ShareStatusColor => !EnableLibrarySharing ? "#666666" :
-        _shareFileCount == 0 ? "#F44336" :
-        _shareFileCount <  500 ? "#FFA500" : "#1DB954";
+    // Share health drives the status dot on the Settings page (Ellipse.status-dot + Classes.*).
+    // Disabled sharing leaves all three false, which renders the neutral grey dot.
+    public bool ShareIsEmpty   => EnableLibrarySharing && _shareFileCount == 0;
+    public bool ShareIsLow     => EnableLibrarySharing && _shareFileCount is > 0 and < 500;
+    public bool ShareIsHealthy => EnableLibrarySharing && _shareFileCount >= 500;
+
+    private void RaiseShareStatusChanged()
+    {
+        OnPropertyChanged(nameof(ShareStatusSummary));
+        OnPropertyChanged(nameof(ShareIsEmpty));
+        OnPropertyChanged(nameof(ShareIsLow));
+        OnPropertyChanged(nameof(ShareIsHealthy));
+    }
 
     public string ShareStatusSummary => !EnableLibrarySharing
         ? "Sharing is disabled"
         : _shareFileCount == 0
             ? "No shared files detected — check the folder path"
-            : $"{_shareFileCount:N0} files shared · {_shareReputationLabel}";
+            : $"{SLSKDONET.Utils.CountFormat.N(_shareFileCount)} files shared · {_shareReputationLabel}";
 
     public ICommand RefreshShareNowCommand { get; private set; } = null!;
 
@@ -1826,10 +1903,27 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         ILibraryService? libraryService = null,
         IDialogService? dialogService = null,
         NetworkActivityMonitor? networkActivityMonitor = null,
-        EngineDiagnosticsService? engineDiagnosticsService = null)
+        EngineDiagnosticsService? engineDiagnosticsService = null,
+        ILibraryImportLauncher? importLauncher = null,
+        EnrichmentViewModel? enrichment = null,
+        MetadataSourcesSettingsViewModel? metadataSources = null)
     {
         _logger = logger;
         _config = config;
+        _enrichment = enrichment;
+        MetadataSources = metadataSources;
+        if (_enrichment != null)
+            _enrichment.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName is nameof(EnrichmentViewModel.IsRunning) or nameof(EnrichmentViewModel.NoticeText))
+                {
+                    OnPropertyChanged(nameof(CanEnrich));
+                    OnPropertyChanged(nameof(IsEnriching));
+                    EnrichStatus = _enrichment.IsRunning ? _enrichment.NoticeText + " · progress on the Analysis page" : _enrichment.NoticeText;
+                    (EnrichMissingMetadataCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+                }
+            };
+        _importLauncher = importLauncher;
         _networkActivityMonitor = networkActivityMonitor;
         _engineDiagnosticsService = engineDiagnosticsService;
         _configManager = configManager;
@@ -1866,8 +1960,11 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         ClearSpotifyCacheCommand = new AsyncRelayCommand(ClearSpotifyCacheAsync);
         RevokeAndReAuthCommand = new AsyncRelayCommand(RevokeAndReAuthAsync);
         CheckFfmpegCommand = new AsyncRelayCommand(CheckFfmpegAsync); // Phase 8
+        OpenFfmpegDownloadPageCommand = new RelayCommand(OpenFfmpegDownloadPage);
         RestartSpotifyAuthCommand = new AsyncRelayCommand(RestartSpotifyAuthAsync, () => IsSpotifyConnecting);
         ResetDatabaseCommand = new AsyncRelayCommand(ResetDatabaseAsync);
+        BackupLibraryNowCommand = new AsyncRelayCommand(BackupLibraryNowAsync);
+        OpenBackupsFolderCommand = new RelayCommand(OpenBackupsFolder);
         ResetToDefaultsCommand = new AsyncRelayCommand(ResetToDefaultsAsync);
         ScanLibraryCommand = new AsyncRelayCommand(ScanLibraryAsync, () => !IsScanning && !IsFullSyncing);
         ReconcileLibraryCommand = new AsyncRelayCommand(ReconcileLibraryAsync, () => !IsReconciling && !IsFullSyncing);
@@ -2000,7 +2097,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>
     /// Phase 8: Enhanced FFmpeg dependency checker with timeout, stderr capture, and fallback paths.
     /// </summary>
-    private async Task CheckFfmpegAsync()
+    /// <summary>Also used by the setup wizard's Audio &amp; analysis step.</summary>
+    public async Task CheckFfmpegAsync()
     {
         try
         {
@@ -2135,7 +2233,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             return (false, "");
         }
     }
-    private async Task ConnectSpotifyAsync()
+    /// <summary>Spotify OAuth sign-in (browser). Also used by the setup wizard's Connections step.</summary>
+    public async Task ConnectSpotifyAsync()
     {
         // Cancel any previous attempts to free up the port
         _connectCts?.Cancel();
@@ -2302,6 +2401,20 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    public void OpenFfmpegDownloadPage()
+    {
+        const string url = "https://ffmpeg.org/download.html";
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = url, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not open the FFmpeg download page");
+            _eventBus.Publish(new ToastRequestedEvent("Couldn't open browser", $"Open {url} manually to download FFmpeg.", NotificationType.Warning, TimeSpan.FromSeconds(6)));
+        }
+    }
+
     private async Task BrowseDownloadPathAsync()
     {
         var path = await _fileInteractionService.OpenFolderDialogAsync("Select Download Folder");
@@ -2343,182 +2456,61 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-
-    
+    /// <summary>
+    /// "Enrich library metadata": queues every LibraryEntries and download track still missing cover
+    /// art / album / label / year / genre into the background enrichment pipeline (file tags,
+    /// Deezer, MusicBrainz, … per Settings → Connection → Metadata sources). Replaces the old
+    /// 100-PlaylistTracks-per-click Spotify loop that never touched folder-imported tracks.
+    /// </summary>
     private async Task EnrichMissingMetadataAsync()
     {
-        if (IsEnriching) return;
-        IsEnriching = true;
-        EnrichStatus = "Looking for unenriched tracks...";
-        ((AsyncRelayCommand)EnrichMissingMetadataCommand).RaiseCanExecuteChanged();
+        if (_enrichment == null)
+        {
+            EnrichStatus = "Library enrichment is unavailable.";
+            _eventBus.Publish(new ToastRequestedEvent("Enrich library", EnrichStatus, NotificationType.Error, null));
+            return;
+        }
         try
         {
-            const int BatchSize = 100;
-            const int DelayMs = 300;
-
-            var entities = await _databaseService.GetPlaylistTracksNeedingEnrichmentAsync(BatchSize);
-            if (entities.Count == 0)
-            {
-                EnrichStatus = "✅ All tracks already have metadata";
-                await Task.Delay(3000);
-                EnrichStatus = string.Empty;
-                return;
-            }
-
-            EnrichStatus = $"Enriching {entities.Count} tracks...";
-            int enriched = 0;
-            int failed = 0;
-
-            foreach (var entity in entities)
-            {
-                try
-                {
-                    var pt = new Models.PlaylistTrack
-                    {
-                        Id = entity.Id,
-                        PlaylistId = entity.PlaylistId,
-                        Artist = entity.Artist ?? string.Empty,
-                        Title = entity.Title ?? string.Empty,
-                        Album = entity.Album,
-                        TrackUniqueHash = entity.TrackUniqueHash,
-                        Status = entity.Status,
-                        SpotifyTrackId = entity.SpotifyTrackId,
-                        AlbumArtUrl = entity.AlbumArtUrl,
-                        CanonicalDuration = entity.CanonicalDuration,
-                        BPM = entity.BPM,
-                        MusicalKey = entity.MusicalKey,
-                    };
-
-                    if (await _spotifyMetadataService.EnrichTrackAsync(pt))
-                    {
-                        var result = new Services.Models.TrackEnrichmentResult
-                        {
-                            Success = true,
-                            SpotifyId = pt.SpotifyTrackId ?? string.Empty,
-                            SpotifyAlbumId = pt.SpotifyAlbumId,
-                            SpotifyArtistId = pt.SpotifyArtistId,
-                            AlbumArtUrl = pt.AlbumArtUrl ?? string.Empty,
-                            ISRC = pt.ISRC,
-                            Bpm = (float)(pt.BPM ?? 0),
-                            MusicalKey = pt.MusicalKey,
-                            Energy = (float)(pt.Energy ?? 0),
-                        };
-                        await _databaseService.UpdatePlaylistTrackEnrichmentAsync(entity.Id, result);
-                        enriched++;
-                        EnrichStatus = $"Enriched {enriched}/{entities.Count}...";
-                    }
-                    else
-                    {
-                        failed++;
-                    }
-
-                    await Task.Delay(DelayMs);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Enrichment failed for {Artist} - {Title}", entity.Artist, entity.Title);
-                    failed++;
-                }
-            }
-
-            EnrichStatus = $"✅ Enrichment done — {enriched} updated, {failed} not found";
-            _logger.LogInformation("Bulk enrichment complete: {Enriched} updated, {Failed} not found out of {Total}", enriched, failed, entities.Count);
-            await Task.Delay(5000);
-            EnrichStatus = string.Empty;
+            await _enrichment.StartAsync();
+            EnrichStatus = _enrichment.IsRunning ? "Running in the background · progress on the Analysis page" : _enrichment.NoticeText;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Bulk metadata enrichment failed");
-            EnrichStatus = "❌ Enrichment failed";
-            await Task.Delay(3000);
-            EnrichStatus = string.Empty;
+            _logger.LogError(ex, "Could not start library enrichment");
+            EnrichStatus = "Could not start: " + ex.Message;
+            _eventBus.Publish(new ToastRequestedEvent("Enrich library", EnrichStatus, NotificationType.Error, null));
         }
         finally
         {
-            IsEnriching = false;
+            OnPropertyChanged(nameof(CanEnrich));
             ((AsyncRelayCommand)EnrichMissingMetadataCommand).RaiseCanExecuteChanged();
         }
     }
 
+    /// <summary>
+    /// "Scan library": registers the download/shared folders, then runs the import sheet over every
+    /// Library Source (phases, counters and a summary live there, not in this status line).
+    /// </summary>
     private async Task ScanLibraryAsync()
     {
+        if (IsScanning) return;
         try
         {
-            if (IsScanning) return;
             IsScanning = true;
-            ScanStatus = "Preparing to scan...";
-            
-            _logger.LogInformation("Starting manual library scan...");
-            
-            // 1. Ensure configured folders are registered as library scan targets.
-            // Both the download directory and the Soulseek shared folder are included
-            // so files on different drives are always picked up.
-            if (!string.IsNullOrEmpty(_config.DownloadDirectory))
-                await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.DownloadDirectory);
-            else
-                _logger.LogWarning("No download directory configured for scanning.");
+            (ScanLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            (FullLibrarySyncCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            ScanStatus = "Scanning — see the import sheet";
 
-            if (!string.IsNullOrEmpty(_config.SharedFolderPath) &&
-                !string.Equals(_config.SharedFolderPath, _config.DownloadDirectory, StringComparison.OrdinalIgnoreCase))
-                await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.SharedFolderPath);
-
-            // 2. Run Scan
-            var progress = new Progress<ScanProgress>(p =>
-            {
-                var lines = new System.Text.StringBuilder();
-
-                // Completed folders — one summary line each
-                foreach (var f in p.CompletedFolders)
-                    lines.AppendLine(f.Display());
-
-                // Active folder — live counter
-                var active = string.IsNullOrWhiteSpace(p.CurrentFile) ? string.Empty : $"  ⟳ {p.CurrentFile}";
-                lines.Append($"Total: {p.FilesDiscovered} found  |  {p.FilesImported} new  |  {p.FilesDuplicateByPath + p.FilesDuplicateByHash} known  |  {p.FilesAutoUpgraded} upgraded{active}");
-
-                ScanStatus = lines.ToString();
-            });
-
-            var results = await _libraryFolderScannerService.ScanAllFoldersAsync(progress);
-            
-            // 3. Summarize
-            int totalImported = results.Values.Sum(r => r.FilesImported);
-            int totalSkipped = results.Values.Sum(r => r.FilesSkipped);
-            int totalDupPath = results.Values.Sum(r => r.FilesDuplicateByPath);
-            int totalDupHash = results.Values.Sum(r => r.FilesDuplicateByHash);
-            int totalMetadataFailed = results.Values.Sum(r => r.FilesMetadataFailed);
-            int totalUpgraded = results.Values.Sum(r => r.FilesAutoUpgraded);
-            int totalRemovalCandidates = results.Values.Sum(r => r.FilesMarkedForRemoval);
-
-            // Per-folder breakdown for the final status
-            int idx = 0;
-            var folderLines = new System.Text.StringBuilder();
-            folderLines.AppendLine($"✅ Scan complete — {totalImported} new, {totalDupPath + totalDupHash} known, {totalUpgraded} upgraded");
-            foreach (var r in results.Values)
-            {
-                idx++;
-                var name = System.IO.Path.GetFileName(r.FolderPath.TrimEnd(
-                    System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar));
-                if (string.IsNullOrEmpty(name)) name = r.FolderPath;
-                var tag = r.FilesImported > 0 ? $"+{r.FilesImported} new" : (r.TotalFilesFound > 0 ? "all known" : "empty/inaccessible");
-                folderLines.AppendLine($"  [{idx}] {name}  —  {r.TotalFilesFound} files  {tag}");
-            }
-            ScanStatus = folderLines.ToString().TrimEnd();
-            _logger.LogInformation(
-                "Manual scan complete. Imported: {Imported}, Upgraded: {Upgraded}, RemoveCandidates: {RemoveCandidates}, Skipped: {Skipped}, DupPath: {DupPath}, DupHash: {DupHash}, MetaFailed: {MetaFailed}",
-                totalImported,
-                totalUpgraded,
-                totalRemovalCandidates,
-                totalSkipped,
-                totalDupPath,
-                totalDupHash,
-                totalMetadataFailed);
-
+            await EnsureConfiguredFoldersRegisteredAsync();
+            var result = await RunImportSheetAsync("Scanning your library folders");
+            ScanStatus = DescribeImport(result);
             await LoadRemovalCandidatesAsync();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Manual scan failed");
-            ScanStatus = "Scan Failed";
+            ScanStatus = "Scan failed — see logs.";
         }
         finally
         {
@@ -2527,6 +2519,35 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             (FullLibrarySyncCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }
+
+    /// <summary>The download directory and Soulseek shared folder are always Library Sources.</summary>
+    private async Task EnsureConfiguredFoldersRegisteredAsync()
+    {
+        if (!string.IsNullOrEmpty(_config.DownloadDirectory))
+            await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.DownloadDirectory);
+        else
+            _logger.LogWarning("No download directory configured for scanning.");
+
+        if (!string.IsNullOrEmpty(_config.SharedFolderPath) &&
+            !string.Equals(_config.SharedFolderPath, _config.DownloadDirectory, StringComparison.OrdinalIgnoreCase))
+            await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.SharedFolderPath);
+    }
+
+    /// <summary>Runs the import sheet when the shell provides it; tests and headless hosts import directly.</summary>
+    private async Task<LibraryImportResult?> RunImportSheetAsync(string title)
+    {
+        if (_importLauncher != null)
+            return await _importLauncher.RunImportAsync(null, title);
+        return await _libraryFolderScannerService.ImportFoldersAsync(new LibraryImportRequest { Trigger = LibraryImportTrigger.Maintenance });
+    }
+
+    internal static string DescribeImport(LibraryImportResult? result) => result switch
+    {
+        null => "Another import is running. Its progress is in the import sheet.",
+        { Error: not null } => $"Scan stopped: {result.Error}",
+        { WasCancelled: true } => $"Scan cancelled. {SLSKDONET.Utils.CountFormat.N(result.Added)} new tracks kept.",
+        _ => $"Scan complete: {SLSKDONET.Utils.CountFormat.N(result.Added)} new, {SLSKDONET.Utils.CountFormat.N(result.AlreadyInLibrary + result.Duplicates)} already known, {SLSKDONET.Utils.CountFormat.N(result.ProblemCount)} not added.",
+    };
 
     private async Task ReconcileLibraryAsync()
     {
@@ -2571,25 +2592,15 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             (ScanLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
             (ReconcileLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
 
-            if (!string.IsNullOrEmpty(_config.DownloadDirectory))
-                await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.DownloadDirectory);
-
-            if (!string.IsNullOrEmpty(_config.SharedFolderPath) &&
-                !string.Equals(_config.SharedFolderPath, _config.DownloadDirectory, StringComparison.OrdinalIgnoreCase))
-                await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.SharedFolderPath);
-
-            var progress = new Progress<ScanProgress>(p =>
+            await EnsureConfiguredFoldersRegisteredAsync();
+            var import = await RunImportSheetAsync("Full library sync: scanning folders");
+            if (import == null)
             {
-                var folderLabel = string.IsNullOrWhiteSpace(p.CurrentFile)
-                    ? (string.IsNullOrWhiteSpace(p.CurrentFolder) ? string.Empty
-                        : $" ({System.IO.Path.GetFileName(p.CurrentFolder.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar))})")
-                    : $" ({p.CurrentFile})";
-                FullSyncStatus = $"Scanning{folderLabel}: {p.FilesDiscovered} found, {p.FilesImported} imported...";
-            });
-
-            var results = await _libraryFolderScannerService.ScanAllFoldersAsync(progress);
-            int totalImported = results.Values.Sum(r => r.FilesImported);
-            int totalUpgraded = results.Values.Sum(r => r.FilesAutoUpgraded);
+                FullSyncStatus = "Another import is running. Try again when it finishes.";
+                return;
+            }
+            int totalImported = import.Added;
+            int totalUpgraded = import.Upgraded;
 
             FullSyncStatus = "Step 2/2: Reconciling file paths...";
             var (reset, checked_, relinked) = await _libraryService.ReconcileLibraryAsync();
@@ -2868,22 +2879,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         DiagnosticsSnapshotStatus = "";
     }
 
-    // ── Settings help panel ──────────────────────────────────────────────────
-
-    private string _focusedHelpTitle = "Settings";
-    public string FocusedHelpTitle
-    {
-        get => _focusedHelpTitle;
-        set => SetProperty(ref _focusedHelpTitle, value);
-    }
-
-    private string _focusedHelpText = "Hover over or click a field to see context-sensitive guidance here.";
-    public string FocusedHelpText
-    {
-        get => _focusedHelpText;
-        set => SetProperty(ref _focusedHelpText, value);
-    }
-
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
@@ -2956,14 +2951,64 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             (RevokeAndReAuthCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }
+    /// <summary>
+    /// "Back up now" (backlog B6): a consistent snapshot of library.db into the Backups folder.
+    /// Manual backups use their own prefix, so the startup rotation (newest 5) never prunes them.
+    /// </summary>
+    private async Task BackupLibraryNowAsync()
+    {
+        try
+        {
+            var path = await Task.Run(() => SLSKDONET.Services.LibraryDatabaseMaintenance.CreateBackup());
+            LastLibraryBackupText = $"Last backup: {System.IO.Path.GetFileName(path)}";
+            _eventBus.Publish(new ToastRequestedEvent("Library backed up", $"Saved {System.IO.Path.GetFileName(path)} to the Backups folder.", NotificationType.Success, TimeSpan.FromSeconds(5)));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Manual library backup failed");
+            _eventBus.Publish(new ToastRequestedEvent("Backup failed", ex.Message, NotificationType.Error, TimeSpan.FromSeconds(8)));
+        }
+    }
+
+    private void OpenBackupsFolder()
+    {
+        var dir = SLSKDONET.Services.LibraryDatabaseMaintenance.GetBackupDirectory();
+        try { System.IO.Directory.CreateDirectory(dir); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Could not create backups folder {Dir}", dir); }
+        OpenPathInExplorer(dir);
+    }
+
+    private string _lastLibraryBackupText = "Backups are taken automatically every launch (newest 5 kept).";
+    public string LastLibraryBackupText
+    {
+        get => _lastLibraryBackupText;
+        private set => SetProperty(ref _lastLibraryBackupText, value);
+    }
+
     private async Task ResetDatabaseAsync()
     {
-        try 
+        // This deletes library.db on the next launch and rebuilds it from the newest startup
+        // backup. It used to fire on a single click with no confirmation; anything changed since
+        // the last launch would be gone.
+        if (_dialogService != null)
         {
-            // Create marker file
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var markerPath = System.IO.Path.Combine(appData, "ORBIT", ".force_schema_reset");
-            
+            var confirmed = await _dialogService.ConfirmAsync(
+                "Refresh Database Schema",
+                "ORBIT will restart, delete the library database and rebuild it from the most recent startup backup. " +
+                "Changes made since ORBIT last started may be lost. A safety backup of the current database is taken first. Continue?",
+                confirmLabel: "Restart and Rebuild",
+                cancelLabel: "Cancel");
+            if (!confirmed) return;
+        }
+
+        try
+        {
+            // Safety net first: if this fails, don't delete anything.
+            var safety = await Task.Run(() => SLSKDONET.Services.LibraryDatabaseMaintenance.CreateBackup());
+            _logger.LogWarning("Pre-reset safety backup written to {Path}", safety);
+
+            var markerPath = SchemaMigratorService.ForceResetMarkerPath();
+
             await System.IO.File.WriteAllTextAsync(markerPath, DateTime.Now.ToString());
             _logger.LogWarning("Force Reset Marker created at {Path}", markerPath);
             
@@ -2980,6 +3025,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to initiate database reset");
+            _eventBus.Publish(new ToastRequestedEvent("Schema refresh not started", ex.Message, NotificationType.Error, TimeSpan.FromSeconds(8)));
         }
     }
 
@@ -3005,39 +3051,27 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>Settings → Library "Add folder": the same picker + import sheet as Library folders.</summary>
     private async Task AddLibraryFolderAsync()
     {
         try
         {
-            var path = await _fileInteractionService.OpenFolderDialogAsync("Select Music Library Folder");
-            if (string.IsNullOrEmpty(path)) return;
-
-            await using var context = _dbFactory != null ? _dbFactory.CreateDbContext() : new AppDbContext();
-
-            // Check duplicates
-            if (await context.LibraryFolders.AnyAsync(f => f.FolderPath == path))
+            if (_importLauncher != null)
             {
-                _logger.LogWarning("Folder already exists: {Path}", path);
+                await _importLauncher.PickFolderAndStartImportAsync();
                 return;
             }
 
-            var folder = new LibraryFolderEntity
-            {
-                Id = Guid.NewGuid(),
-                FolderPath = path,
-                IsEnabled = true,
-                AddedAt = DateTime.UtcNow
-            };
-
-            context.LibraryFolders.Add(folder);
-            await context.SaveChangesAsync();
-
+            var path = await _fileInteractionService.OpenFolderDialogAsync("Select Music Library Folder");
+            if (string.IsNullOrEmpty(path)) return;
+            await _libraryFolderScannerService.RegisterFolderAsync(path);
             _eventBus.Publish(new LibraryFoldersChangedEvent());
             _logger.LogInformation("Added library folder: {Path}", path);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to add library folder");
+            _eventBus.Publish(new ToastRequestedEvent("Couldn't add the folder", ex.Message, NotificationType.Error, TimeSpan.FromSeconds(6)));
         }
     }
 

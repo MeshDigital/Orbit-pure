@@ -15,6 +15,9 @@ public sealed class AmbientModeService : IAmbientModeService, IDisposable
     private bool _isPlaying;
     private DateTime _lastActivity = DateTime.UtcNow;
     private DateTime _pausedSince = DateTime.MaxValue;
+    // True when the idle/pause timers switched Ambient on (user activity exits it); false when the
+    // user turned it on themselves (it stays until they turn it off).
+    private bool _activatedAutomatically;
     private readonly System.Timers.Timer _pollTimer;
     private bool _disposed;
 
@@ -32,18 +35,25 @@ public sealed class AmbientModeService : IAmbientModeService, IDisposable
         _pollTimer.Start();
     }
 
-    public void Activate()
+    public void Activate() => Activate(automatic: false);
+
+    private void Activate(bool automatic)
     {
         if (_isActive) return;
         _isActive = true;
+        _activatedAutomatically = automatic;
         _logger.LogInformation("Ambient Mode activated.");
         ActiveChanged?.Invoke(this, true);
     }
 
     public void Deactivate()
     {
+        // Leaving Ambient (e.g. the user picked visuals) counts as activity, so the idle timer
+        // doesn't immediately switch it back on.
+        _lastActivity = DateTime.UtcNow;
         if (!_isActive) return;
         _isActive = false;
+        _activatedAutomatically = false;
         _logger.LogInformation("Ambient Mode deactivated.");
         ActiveChanged?.Invoke(this, false);
     }
@@ -56,8 +66,8 @@ public sealed class AmbientModeService : IAmbientModeService, IDisposable
     public void NotifyUserActivity()
     {
         _lastActivity = DateTime.UtcNow;
-        // Any user activity exits Ambient Mode
-        if (_isActive) Deactivate();
+        // Activity exits Ambient only if a timer turned it on; a manual choice sticks.
+        if (_isActive && _activatedAutomatically) Deactivate();
     }
 
     public void NotifyPlaybackState(bool isPlaying)
@@ -84,16 +94,17 @@ public sealed class AmbientModeService : IAmbientModeService, IDisposable
     }
 
     private void OnPollTimerElapsed(object? sender, System.Timers.ElapsedEventArgs e)
+        => EvaluateTimeouts(DateTime.UtcNow);
+
+    internal void EvaluateTimeouts(DateTime now)
     {
         if (_isActive) return; // Already active, nothing to do
 
-        var now = DateTime.UtcNow;
-
-        // Check idle timeout
-        if ((now - _lastActivity).TotalSeconds >= _config.IdleTimeoutSeconds)
+        // Idle timeout: only while nothing is playing — music-reactive visuals stay up during playback.
+        if (!_isPlaying && (now - _lastActivity).TotalSeconds >= _config.IdleTimeoutSeconds)
         {
             _logger.LogDebug("Ambient Mode triggered by idle timeout.");
-            Activate();
+            Activate(automatic: true);
             return;
         }
 
@@ -102,7 +113,7 @@ public sealed class AmbientModeService : IAmbientModeService, IDisposable
             && (now - _pausedSince).TotalSeconds >= _config.PausedTimeoutSeconds)
         {
             _logger.LogDebug("Ambient Mode triggered by pause timeout.");
-            Activate();
+            Activate(automatic: true);
         }
     }
 

@@ -265,6 +265,70 @@ namespace SLSKDONET.Services
             return null;
         }
 
+        /// <summary>
+        /// Downloads remote artwork into the disk cache without decoding it (metadata enrichment
+        /// calls this before storing an AlbumArtUrl, so the Library shows the cover instantly and
+        /// a dead URL is never stored). True when the bytes are cached (or already were).
+        /// Failures are logged and return false.
+        /// </summary>
+        public async Task<bool> PrefetchAsync(string url, System.Threading.CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(url) || !url.StartsWith("http", StringComparison.OrdinalIgnoreCase)) return false;
+            var diskCachePath = GetDiskCachePath(url);
+            if (diskCachePath != null && File.Exists(diskCachePath)) return true;
+            try
+            {
+                using var response = await _httpClient.GetAsync(url, ct).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogDebug("Artwork prefetch {Url} returned {Status}", url, (int)response.StatusCode);
+                    return false;
+                }
+                var data = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+                if (data.Length < 64) return false;
+                if (diskCachePath != null)
+                    await File.WriteAllBytesAsync(diskCachePath, data, ct).ConfigureAwait(false);
+                return true;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning("Artwork prefetch failed for {Url}: {Message}", url, ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Stores embedded cover bytes (read from a file's tags) in the artwork cache as a regular
+        /// file and returns its path, which works as an AlbumArtUrl (this service reads local
+        /// paths). Content-addressed, so identical covers of one album are stored once. Null when
+        /// the cache directory isn't writable (logged).
+        /// </summary>
+        public async Task<string?> StoreEmbeddedArtworkAsync(byte[] bytes, System.Threading.CancellationToken ct = default)
+        {
+            if (bytes == null || bytes.Length < 64) return null;
+            try
+            {
+                var dir = Path.Combine(_diskCacheDir, "embedded");
+                Directory.CreateDirectory(dir);
+                var hash = Convert.ToHexString(SHA256.HashData(bytes))[..40];
+                var ext = bytes.Length > 3 && bytes[0] == 0x89 && bytes[1] == 0x50 ? ".png" : ".jpg";
+                var path = Path.Combine(dir, hash + ext);
+                if (!File.Exists(path))
+                {
+                    var temp = path + ".tmp";
+                    await File.WriteAllBytesAsync(temp, bytes, ct).ConfigureAwait(false);
+                    File.Move(temp, path, overwrite: true);
+                }
+                return path;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Could not store embedded artwork in {Dir}", _diskCacheDir);
+                return null;
+            }
+        }
+
         /// <summary>Stable, collision-safe disk cache filename for a remote artwork URL. Returns null if the disk cache directory couldn't be created.</summary>
         private string? GetDiskCachePath(string url)
         {

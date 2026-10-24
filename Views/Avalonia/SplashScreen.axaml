@@ -13,18 +13,15 @@
         Background="Transparent"
         TransparencyLevelHint="Transparent">
     
-    <Border Background="#1E1E1E" BorderBrush="#3E3E3E" BorderThickness="1" CornerRadius="12" Margin="10">
-        <Border.Effect>
-            <DropShadowDirectionEffect ShadowDepth="4" BlurRadius="10" Opacity="0.4" Color="Black" Direction="270" />
-        </Border.Effect>
-
-        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="24">
-            <TextBlock Text="ORBIT" FontSize="48" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" LetterSpacing="8"/>
-            <TextBlock Text="INITIALIZATION SEQUENCE" FontSize="12" FontWeight="SemiBold" Foreground="#4EC9B0" HorizontalAlignment="Center" LetterSpacing="2" Margin="0,-16,0,0"/>
-            
-            <StackPanel Spacing="16" Margin="0,24,0,0">
-                <ProgressBar IsIndeterminate="True" Width="280" Height="4" Foreground="#4EC9B0" Background="#333333"/>
-                <TextBlock x:Name="StatusTextBlock" Text="Ready" FontSize="13" Foreground="#888888" HorizontalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="340"/>
+    <Border Background="{DynamicResource BrushBg2}" BorderBrush="{DynamicResource BrushBorder1}" BorderThickness="1"
+            CornerRadius="{DynamicResource RadiusXl}" Margin="12" BoxShadow="{DynamicResource ShadowLg}">
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+            <TextBlock Classes="display" Text="ORBIT" HorizontalAlignment="Center" LetterSpacing="8"/>
+            <TextBlock Classes="section" Text="STARTING UP" HorizontalAlignment="Center"/>
+            <StackPanel Spacing="12" Margin="0,24,0,0">
+                <ProgressBar Classes="meter" IsIndeterminate="True" Width="280"/>
+                <TextBlock x:Name="StatusTextBlock" Classes="body-sm" Text="Ready" HorizontalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" MaxWidth="340"/>
             </StackPanel>
         </StackPanel>
     </Border>

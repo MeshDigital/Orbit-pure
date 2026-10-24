@@ -2,101 +2,95 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
+        xmlns:avConverters="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
         x:Class="SLSKDONET.Views.Avalonia.ErrorStreamWindow"
-        Title="ORBIT-Pure Error Stream"
+        x:DataType="views:ErrorStreamWindow"
+        Title="ORBIT Error Stream"
         WindowStartupLocation="CenterScreen"
         CanResize="true"
         MinWidth="600"
         MinHeight="400"
-        Background="#1A1A1A"
-        Foreground="White">
-
-    <Window.Styles>
-        <Style Selector="Button.primary">
-            <Setter Property="Background" Value="#007ACC"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Padding" Value="16,8"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="BorderThickness" Value="0"/>
-        </Style>
-        <Style Selector="Button.secondary">
-            <Setter Property="Background" Value="#2D2D30"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Padding" Value="16,8"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="#3E3E42"/>
-        </Style>
-        <Style Selector="TextBox">
-            <Setter Property="Background" Value="#2D2D30"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderBrush" Value="#3E3E42"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="8"/>
-        </Style>
-        <Style Selector="Border.errorItem">
-            <Setter Property="Background" Value="#2D2D30"/>
-            <Setter Property="BorderBrush" Value="#3E3E42"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="Margin" Value="0,4"/>
-        </Style>
-    </Window.Styles>
+        Background="{StaticResource BrushBg1}"
+        Foreground="{StaticResource BrushText0}">
 
     <Grid RowDefinitions="Auto,*,Auto">
         <!-- Header -->
-        <Border Grid.Row="0" Background="#252526" Padding="20" BorderBrush="#3E3E42" BorderThickness="0,0,0,1">
+        <Border Grid.Row="0" Background="{StaticResource BrushBg0}" Padding="24,16"
+                BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
             <Grid ColumnDefinitions="Auto,*,Auto">
-                <TextBlock Grid.Column="0" Text="🚨" FontSize="24" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                    <TextBlock Text="ORBIT-Pure Error Stream" FontSize="18" FontWeight="SemiBold"/>
-                    <TextBlock Text="Real-time error monitoring and reporting" FontSize="12" Foreground="#888" Margin="0,4,0,0"/>
+                <PathIcon Grid.Column="0" Data="{StaticResource icon_alert}" Margin="0,0,12,0"
+                          Width="{StaticResource IconSizeLg}" Height="{StaticResource IconSizeLg}"
+                          Foreground="{StaticResource BrushError}" VerticalAlignment="Center"/>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                    <TextBlock Classes="h1" Text="Error stream"/>
+                    <TextBlock Classes="subtitle" Text="Errors raised while ORBIT runs, newest first"/>
                 </StackPanel>
-                <TextBlock Grid.Column="2" Text="{Binding ErrorCount, StringFormat='Errors: {0}'}" 
-                          VerticalAlignment="Center" FontSize="14" Foreground="#FF6B6B"/>
+                <Border Grid.Column="2" Classes="fact error" VerticalAlignment="Center"
+                        ToolTip.Tip="Errors in this session"
+                        IsVisible="{Binding ErrorCount, Converter={x:Static avConverters:NumericConverters.IsNotZero}}">
+                    <TextBlock Text="{Binding ErrorCount, StringFormat='{}{0} errors'}"/>
+                </Border>
             </Grid>
         </Border>
 
-        <!-- Error List -->
-        <ScrollViewer Grid.Row="1" Margin="20,20,20,0">
-            <ItemsControl ItemsSource="{Binding Errors}" Margin="0,0,0,20">
+        <!-- Empty state -->
+        <StackPanel Grid.Row="1" Classes="empty-state"
+                    IsVisible="{Binding ErrorCount, Converter={x:Static avConverters:NumericConverters.IsZero}}">
+            <PathIcon Data="{StaticResource icon_check}"/>
+            <TextBlock Classes="h3" Text="No errors"/>
+            <TextBlock Classes="caption" Text="New errors appear here as they happen. They are also written to the log files."/>
+        </StackPanel>
+
+        <!-- Error list -->
+        <ScrollViewer Grid.Row="1" Padding="24,16,24,0">
+            <ItemsControl ItemsSource="{Binding Errors}" Margin="0,0,0,16">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><StackPanel Spacing="8"/></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <Border Classes="errorItem" Padding="16">
+                    <DataTemplate x:DataType="views:ErrorItem">
+                        <Border Classes="card" Padding="16,12">
                             <Grid RowDefinitions="Auto,Auto,Auto,Auto">
-                                <!-- Timestamp and Type -->
+                                <!-- Timestamp and source -->
                                 <Grid Grid.Row="0" ColumnDefinitions="Auto,*" Margin="0,0,0,8">
-                                    <TextBlock Grid.Column="0" Text="{Binding Timestamp, StringFormat='{}{0:yyyy-MM-dd HH:mm:ss}'}" 
-                                              FontFamily="Consolas" FontSize="11" Foreground="#888"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding Source}" 
-                                              FontSize="12" FontWeight="SemiBold" Foreground="#FF6B6B" 
-                                              HorizontalAlignment="Right"/>
+                                    <TextBlock Grid.Column="0" Classes="mono muted"
+                                               Text="{Binding Timestamp, StringFormat='{}{0:yyyy-MM-dd HH:mm:ss}'}"/>
+                                    <TextBlock Grid.Column="1" Classes="body-sm error" FontWeight="SemiBold"
+                                               HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" Margin="12,0,0,0"
+                                               Text="{Binding Source}"/>
                                 </Grid>
 
-                                <!-- Error Message -->
-                                <TextBlock Grid.Row="1" Text="{Binding Message}" 
-                                          TextWrapping="Wrap" FontSize="13" Margin="0,0,0,8"/>
+                                <!-- Message -->
+                                <TextBlock Grid.Row="1" Classes="body" TextWrapping="Wrap" Margin="0,0,0,8"
+                                           Text="{Binding Message}"/>
 
-                                <!-- Stack Trace (Collapsible) -->
-                                <Expander Grid.Row="2" Header="Technical Details" Margin="0,0,0,8">
+                                <!-- Stack trace (collapsed) -->
+                                <Expander Grid.Row="2" Header="Technical details" Margin="0,0,0,8">
                                     <TextBox Text="{Binding StackTrace}"
-                                            IsReadOnly="true"
-                                            FontFamily="Consolas"
-                                            FontSize="10"
-                                            Height="150"
-                                            TextWrapping="Wrap"
-                                            ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+                                             IsReadOnly="true"
+                                             FontFamily="{StaticResource FontMono}"
+                                             FontSize="{StaticResource TextSizeCaption}"
+                                             Height="152"
+                                             TextWrapping="Wrap"
+                                             ScrollViewer.VerticalScrollBarVisibility="Auto"/>
                                 </Expander>
 
                                 <!-- Actions -->
                                 <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                                    <Button Content="📋 Copy Error" Classes="secondary" 
-                                            Command="{Binding $parent[Window].DataContext.CopyErrorCommand}" 
-                                            CommandParameter="{Binding}"/>
-                                    <Button Content="❌ Clear" Classes="secondary" 
-                                            Command="{Binding $parent[Window].DataContext.ClearErrorCommand}" 
-                                            CommandParameter="{Binding}"/>
+                                    <Button Classes="ghost small"
+                                            Command="{Binding $parent[views:ErrorStreamWindow].CopyErrorCommand}"
+                                            CommandParameter="{Binding}">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <PathIcon Data="{StaticResource icon_copy}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                            <TextBlock Text="Copy"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Classes="ghost small"
+                                            Command="{Binding $parent[views:ErrorStreamWindow].ClearErrorCommand}"
+                                            CommandParameter="{Binding}"
+                                            Content="Dismiss"/>
                                 </StackPanel>
                             </Grid>
                         </Border>
@@ -106,16 +100,20 @@
         </ScrollViewer>
 
         <!-- Footer -->
-        <Border Grid.Row="2" Background="#252526" Padding="20" BorderBrush="#3E3E42" BorderThickness="0,1,0,0">
+        <Border Grid.Row="2" Background="{StaticResource BrushBg0}" Padding="24,12"
+                BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,1,0,0">
             <Grid ColumnDefinitions="*,Auto,Auto,Auto">
-                <TextBlock Grid.Column="0" Text="Errors are logged to help improve ORBIT-Pure" 
-                          VerticalAlignment="Center" FontSize="12" Foreground="#888"/>
-                <Button Grid.Column="1" Content="📁 Open Logs" Classes="secondary" 
-                        Command="{Binding OpenLogsCommand}" Margin="0,0,8,0"/>
-                <Button Grid.Column="2" Content="🗑️ Clear All" Classes="secondary" 
-                        Command="{Binding ClearAllCommand}" Margin="0,0,8,0"/>
-                <Button Grid.Column="3" Content="❌ Close" Classes="primary" 
-                        Command="{Binding CloseCommand}"/>
+                <TextBlock Grid.Column="0" Classes="caption" VerticalAlignment="Center"
+                           Text="Errors are logged to help improve ORBIT"/>
+                <Button Grid.Column="1" Classes="secondary" Command="{Binding OpenLogsCommand}" Margin="0,0,8,0">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="{StaticResource icon_folder}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                        <TextBlock Text="Open logs"/>
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="2" Classes="ghost" Command="{Binding ClearAllCommand}" Margin="0,0,8,0"
+                        Content="Clear all"/>
+                <Button Grid.Column="3" Classes="primary" Command="{Binding CloseCommand}" Content="Close"/>
             </Grid>
         </Border>
     </Grid>

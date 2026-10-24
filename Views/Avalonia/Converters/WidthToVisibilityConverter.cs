@@ -14,7 +14,7 @@ public class WidthToVisibilityConverter : IValueConverter
     {
         if (value is double width && parameter is string minWidthStr)
         {
-            if (double.TryParse(minWidthStr, out double minWidth))
+            if (double.TryParse(minWidthStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double minWidth))
             {
                 return width >= minWidth;
             }

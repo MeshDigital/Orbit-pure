@@ -11,6 +11,7 @@ using NWaves.Transforms;
 using NWaves.Windows;
 using SLSKDONET.Services.AudioAnalysis;
 using TagLib;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services;
 
@@ -496,7 +497,7 @@ public sealed class AudioIntegrityService : IAudioIntegrityService
             {
                 verdict = AudioAuthenticityVerdict.TranscodedHighBitrate;
                 confidence = 0.65;
-                reason = $"Spectral content reaches {cutoffHz / 1000:F1} kHz but the sharp " +
+                reason = NumFormat.Ui($"Spectral content reaches {cutoffHz / 1000:F1} kHz but the sharp ") +
                          $"rolloff ({slopeDpkHz:F0} dB/kHz) and declared bitrate " +
                          $"({meta.BitrateKbps} kbps) suggest a high-bitrate lossy source.";
             }
@@ -504,7 +505,7 @@ public sealed class AudioIntegrityService : IAudioIntegrityService
             {
                 confidence = veryShallowRolloff ? 0.92 : 0.78;
                 verdict = AudioAuthenticityVerdict.GenuineLossless;
-                reason = $"Spectral content extends to {cutoffHz / 1000:F1} kHz " +
+                reason = NumFormat.Ui($"Spectral content extends to {cutoffHz / 1000:F1} kHz ") +
                          $"with a natural rolloff slope ({slopeDpkHz:F0} dB/kHz). " +
                          "No lossy-encoder cutoff pattern detected.";
             }
@@ -514,7 +515,7 @@ public sealed class AudioIntegrityService : IAudioIntegrityService
             // 18–20 kHz — classic 256–320 kbps MP3 / 256 kbps AAC territory
             confidence = steepCutoff ? 0.88 : 0.68;
             verdict = AudioAuthenticityVerdict.TranscodedHighBitrate;
-            reason = $"Spectral cutoff at {cutoffHz / 1000:F1} kHz" +
+            reason = NumFormat.Ui($"Spectral cutoff at {cutoffHz / 1000:F1} kHz") +
                      (steepCutoff ? $" with steep rolloff ({slopeDpkHz:F0} dB/kHz)" : "") +
                      " is consistent with a 256–320 kbps lossy source.";
         }
@@ -523,7 +524,7 @@ public sealed class AudioIntegrityService : IAudioIntegrityService
             // 15–18 kHz — typical 128–192 kbps MP3
             confidence = steepCutoff ? 0.92 : 0.75;
             verdict = AudioAuthenticityVerdict.TranscodedMediumBitrate;
-            reason = $"Spectral cutoff at {cutoffHz / 1000:F1} kHz" +
+            reason = NumFormat.Ui($"Spectral cutoff at {cutoffHz / 1000:F1} kHz") +
                      (steepCutoff ? $" with steep rolloff ({slopeDpkHz:F0} dB/kHz)" : "") +
                      " is consistent with a 128–192 kbps lossy source.";
         }
@@ -532,7 +533,7 @@ public sealed class AudioIntegrityService : IAudioIntegrityService
             // < 15 kHz — low-bitrate lossy
             confidence = 0.95;
             verdict = AudioAuthenticityVerdict.TranscodedLowBitrate;
-            reason = $"Spectral cutoff at {cutoffHz / 1000:F1} kHz indicates a low-bitrate " +
+            reason = NumFormat.Ui($"Spectral cutoff at {cutoffHz / 1000:F1} kHz indicates a low-bitrate ") +
                      "lossy source (≤ 128 kbps).";
         }
 

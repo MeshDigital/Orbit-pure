@@ -75,6 +75,20 @@ public class RoomsViewModel : ReactiveObject, IDisposable
 
     public bool HasJoinStatusMessage => !string.IsNullOrWhiteSpace(JoinStatusMessage);
 
+    private string? _roomListErrorMessage;
+    /// <summary>Set when the server room list couldn't be fetched; shown above the list with a retry.</summary>
+    public string? RoomListErrorMessage
+    {
+        get => _roomListErrorMessage;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _roomListErrorMessage, value);
+            this.RaisePropertyChanged(nameof(HasRoomListError));
+        }
+    }
+
+    public bool HasRoomListError => !string.IsNullOrEmpty(RoomListErrorMessage);
+
     /// <summary>
     /// Free-text room name for joining or creating a room not in <see cref="AvailableRooms"/> —
     /// per the Soulseek protocol, joining a room name that doesn't exist yet creates it, so this
@@ -159,10 +173,12 @@ public class RoomsViewModel : ReactiveObject, IDisposable
             _allAvailableRooms.Clear();
             _allAvailableRooms.AddRange(rooms.OrderByDescending(r => r.UserCount));
             ApplyRoomFilter();
+            RoomListErrorMessage = null;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to refresh Soulseek room list");
+            RoomListErrorMessage = $"Couldn't load the room list: {ex.Message}";
         }
         finally
         {

@@ -5,193 +5,93 @@
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Workstation"
              xmlns:orbitControls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
-             mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="120"
+             mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="64"
              x:Class="SLSKDONET.Views.Avalonia.Workstation.WorkstationDeckRow"
              x:DataType="vm:WorkstationDeckViewModel">
 
     <UserControl.Styles>
-        <Style Selector="ToggleButton.stem-toggle">
-            <Setter Property="Background" Value="#202020"/>
-            <Setter Property="BorderBrush" Value="#404040"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Foreground" Value="#DDDDDD"/>
-            <Setter Property="Padding" Value="{StaticResource WsPadStemToggle}"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="FontSize" Value="{StaticResource WsFontXs}"/>
-            <Setter Property="MinWidth" Value="60"/>
-        </Style>
-        <Style Selector="Button.phrase-chip">
-            <Setter Property="Background" Value="#20242A"/>
-            <Setter Property="BorderBrush" Value="#3E4958"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Foreground" Value="#D9E2F2"/>
-            <Setter Property="Padding" Value="{StaticResource WsPadPhraseChip}"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="FontSize" Value="{StaticResource WsFontXs}"/>
-            <Setter Property="MinWidth" Value="52"/>
-        </Style>
-        <Style Selector="ToggleButton.stem-v:checked">
-            <Setter Property="Background" Value="#C2185B"/>
-            <Setter Property="BorderBrush" Value="#E91E63"/>
-            <Setter Property="Foreground" Value="White"/>
-        </Style>
-        <Style Selector="ToggleButton.stem-d:checked">
-            <Setter Property="Background" Value="#1B5E20"/>
-            <Setter Property="BorderBrush" Value="#4CAF50"/>
-            <Setter Property="Foreground" Value="White"/>
-        </Style>
-        <Style Selector="ToggleButton.stem-b:checked">
-            <Setter Property="Background" Value="#0D47A1"/>
-            <Setter Property="BorderBrush" Value="#2196F3"/>
-            <Setter Property="Foreground" Value="White"/>
-        </Style>
-        <Style Selector="ToggleButton.stem-o:checked">
-            <Setter Property="Background" Value="#E65100"/>
-            <Setter Property="BorderBrush" Value="#FF9800"/>
-            <Setter Property="Foreground" Value="White"/>
+        <!-- Focus / drop-target state: a 2px accent rule along the bottom edge of the row. -->
+        <Style Selector="Border.deck-dropzone.focused">
+            <Setter Property="BorderBrush" Value="{DynamicResource BrushAccent}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,2"/>
         </Style>
         <Style Selector="Border.deck-dropzone.drag-over">
-            <Setter Property="BorderBrush" Value="#00D7FF"/>
+            <Setter Property="Background" Value="{DynamicResource BrushAccentSubtle}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BrushAccentHover}"/>
             <Setter Property="BorderThickness" Value="0,0,0,2"/>
-        </Style>
-        <Style Selector="Border.deck-dropzone.focused">
-            <Setter Property="BorderBrush" Value="#4EC9B0"/>
-            <Setter Property="BorderThickness" Value="0,0,0,2"/>
-        </Style>
-
-        <Style Selector="Expander.deck-group">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{DynamicResource BrushText1}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource BrushBorder1}"/>
-            <Setter Property="BorderThickness" Value="0"/>
-        </Style>
-
-        <!-- Hot-cue pad styles (CDJ colour scheme) -->
-        <Style Selector="Button.hotcue">
-            <Setter Property="Width" Value="{StaticResource WsHotCueWidth}"/>
-            <Setter Property="Height" Value="{StaticResource WsHotCueHeight}"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="FontSize" Value="{StaticResource WsHotCueFontSize}"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="CornerRadius" Value="3"/>
-            <Setter Property="HorizontalContentAlignment" Value="Center"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Opacity" Value="0.65"/>
-        </Style>
-        <Style Selector="Button.hotcue:pointerover"><Setter Property="Opacity" Value="1.0"/></Style>
-        <Style Selector="Button.hotcue-1"><Setter Property="Background" Value="#E91E63"/></Style>
-        <Style Selector="Button.hotcue-2"><Setter Property="Background" Value="#FF9800"/></Style>
-        <Style Selector="Button.hotcue-3"><Setter Property="Background" Value="#CDDC39"/><Setter Property="Foreground" Value="#111"/></Style>
-        <Style Selector="Button.hotcue-4"><Setter Property="Background" Value="#4CAF50"/></Style>
-        <Style Selector="Button.hotcue-5"><Setter Property="Background" Value="#00BCD4"/></Style>
-        <Style Selector="Button.hotcue-6"><Setter Property="Background" Value="#2196F3"/></Style>
-        <Style Selector="Button.hotcue-7"><Setter Property="Background" Value="#9C27B0"/></Style>
-        <Style Selector="Button.hotcue-8"><Setter Property="Background" Value="#9E9E9E"/></Style>
-
-        <Style Selector="UserControl.ws-density-compact Button.hotcue">
-            <Setter Property="Width" Value="{StaticResource WsHotCueWidthCompact}"/>
-            <Setter Property="Height" Value="{StaticResource WsHotCueHeightCompact}"/>
-            <Setter Property="FontSize" Value="{StaticResource WsHotCueFontSizeCompact}"/>
-        </Style>
-
-        <Style Selector="UserControl.ws-density-compact ToggleButton.stem-toggle">
-            <Setter Property="Padding" Value="{StaticResource WsPadStemToggleCompact}"/>
-            <Setter Property="FontSize" Value="{StaticResource WsFontXs}"/>
-            <Setter Property="MinWidth" Value="54"/>
-        </Style>
-
-        <Style Selector="UserControl.ws-density-compact Button.phrase-chip">
-            <Setter Property="Padding" Value="{StaticResource WsPadPhraseChipCompact}"/>
-            <Setter Property="FontSize" Value="{StaticResource WsFontXs}"/>
-            <Setter Property="MinWidth" Value="50"/>
         </Style>
     </UserControl.Styles>
 
     <Border x:Name="DeckDropZone"
             Classes="deck-dropzone"
             Background="{DynamicResource BrushBg2}"
-            BorderBrush="{DynamicResource BrushBorder1}"
+            BorderBrush="{DynamicResource BrushBorder0}"
             BorderThickness="0,0,0,1"
             Classes.focused="{Binding IsFocusedDeck}"
             PointerPressed="OnDeckPointerPressed"
-            Height="64"
-            >
+            Height="64">
         <Grid ColumnDefinitions="200,*">
 
-            <!-- Track strip floats above waveform edge -->
+            <!-- Track strip: deck badge, title/artist, facts, energy mini-bar -->
             <Border Grid.Column="0"
                     Background="{DynamicResource BrushBg1}"
-                    Padding="8,6"
-                    ZIndex="5"
-                    BoxShadow="4 0 10 0 #30000000">
-                <Grid RowDefinitions="*,*,6">
-                    <!-- Row 0: Badge + Title / Artist -->
-                    <Grid Grid.Row="0" ColumnDefinitions="Auto,*" VerticalAlignment="Center">
-                        <Border Grid.Column="0" Background="#2D2D2D" CornerRadius="4" Padding="5,1" Height="16" VerticalAlignment="Center">
+                    BorderBrush="{DynamicResource BrushBorder0}"
+                    BorderThickness="0,0,1,0"
+                    Padding="8,4"
+                    ZIndex="5">
+                <Grid RowDefinitions="*,*,4">
+                    <Grid Grid.Row="0" ColumnDefinitions="Auto,8,*" VerticalAlignment="Center">
+                        <Border Grid.Column="0" Classes="fact"
+                                ToolTip.Tip="Deck. Right-click for deck options">
                             <Border.ContextMenu>
                                 <ContextMenu>
-                                    <MenuItem Header="Remove This Deck"
+                                    <MenuItem Header="Remove this deck"
                                               Command="{Binding $parent[views:WorkstationPage].DataContext.RemoveDeckCommand}"
-                                              CommandParameter="{Binding}"/>
+                                              CommandParameter="{Binding}">
+                                        <MenuItem.Icon>
+                                            <PathIcon Data="{StaticResource icon_delete}" Width="14" Height="14"/>
+                                        </MenuItem.Icon>
+                                    </MenuItem>
                                 </ContextMenu>
                             </Border.ContextMenu>
-                            <TextBlock Text="{Binding DeckLabel}"
-                                       FontSize="10"
-                                       FontWeight="Bold"
-                                       Foreground="#F5F5F5"
-                                       VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding DeckLabel}" FontWeight="SemiBold"/>
                         </Border>
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="0">
-                            <TextBlock Text="{Binding TrackTitle, TargetNullValue='No Track Loaded'}"
-                                       FontSize="11"
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                            <TextBlock Classes="body-sm"
+                                       Text="{Binding TrackTitle, TargetNullValue='No track loaded'}"
                                        FontWeight="SemiBold"
-                                       Foreground="#E5E5E5"
+                                       Foreground="{DynamicResource BrushText0}"
                                        TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Text="{Binding TrackArtist, TargetNullValue='—'}"
-                                       FontSize="9"
-                                       Foreground="#A0A0A0"
+                            <TextBlock Classes="caption"
+                                       Text="{Binding TrackArtist, TargetNullValue='—'}"
                                        TextTrimming="CharacterEllipsis"/>
                         </StackPanel>
                     </Grid>
 
-                    <!-- Row 1: BPM, Key, Lock, VU -->
-                    <StackPanel Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Bottom" Margin="0,2,0,0">
-                        <TextBlock Text="{Binding DisplayBpm, StringFormat='{}{0:F1} BPM'}"
-                                   FontSize="9"
-                                   Foreground="#7FC7FF"
-                                   VerticalAlignment="Center"/>
-                        
-                        <Border Background="#1A2D1A" CornerRadius="3" Padding="4,1" Margin="6,0,0,0" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding TrackKey, TargetNullValue='—'}"
-                                       FontSize="9"
-                                       Foreground="#95D36A"
-                                       FontWeight="Bold"
-                                       VerticalAlignment="Center"/>
+                    <!-- BPM, key, position lock, level -->
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"
+                                IsVisible="{Binding IsLoaded}">
+                        <Border Classes="fact" ToolTip.Tip="Effective BPM (track BPM adjusted by pitch)">
+                            <TextBlock Text="{Binding DisplayBpm, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:F1}'}"/>
                         </Border>
-
-                        <TextBlock Text="🔒" 
-                                   FontSize="9" 
-                                   IsVisible="{Binding IsLocked}" 
-                                   VerticalAlignment="Center" 
-                                   Margin="6,0,0,0"/>
-
-                        <ProgressBar Minimum="0"
+                        <Border Classes="fact" ToolTip.Tip="Musical key">
+                            <TextBlock Text="{Binding TrackKey, TargetNullValue='—'}"/>
+                        </Border>
+                        <PathIcon Data="{StaticResource icon_lock}"
+                                  Width="12" Height="12"
+                                  Foreground="{DynamicResource BrushText2}"
+                                  IsVisible="{Binding IsLocked}"
+                                  ToolTip.Tip="Timeline position locked"/>
+                        <ProgressBar Classes="meter"
+                                     Minimum="0"
                                      Maximum="1"
                                      Value="{Binding VuLevel}"
-                                     Orientation="Horizontal"
-                                     Width="30"
-                                     Height="4"
-                                     Foreground="#4CAF50"
-                                     Background="#2A2A2A"
+                                     Width="32"
                                      VerticalAlignment="Center"
-                                     Margin="8,0,0,0"
-                                     ToolTip.Tip="Approximate playback-position indicator, not a true audio level meter"/>
+                                     ToolTip.Tip="Deck output level"/>
                     </StackPanel>
 
-                    <!-- Row 2: Energy curve mini-bar (6px) -->
+                    <!-- Energy curve mini-bar -->
                     <orbitControls:EnergyCurveBar
                         Grid.Row="2"
                         Points="{Binding EnergyCurveBarPoints}"
@@ -204,26 +104,31 @@
             <!-- Waveform lane -->
             <Border Grid.Column="1" Background="{DynamicResource BrushBg0}" Padding="8,4">
                 <Grid>
-                    <TextBlock Text="Load a track from the Flow Drawer to begin"
-                               FontSize="11"
-                               Foreground="#4A4A4A"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"
-                               IsVisible="{Binding !IsLoaded}"/>
+                    <!-- Empty deck -->
+                    <StackPanel Orientation="Horizontal" Spacing="8"
+                                HorizontalAlignment="Center" VerticalAlignment="Center"
+                                IsVisible="{Binding !IsLoaded}">
+                        <PathIcon Data="{StaticResource icon_music}" Width="14" Height="14"
+                                  Foreground="{DynamicResource BrushText3}"/>
+                        <TextBlock Classes="caption"
+                                   Text="Empty deck. Drag a track here or load one from the Flow Drawer."
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
 
-                    <!-- Track load error — file not found or codec failure -->
-                    <Border Background="#2B4A2A10"
-                            CornerRadius="6"
-                            Padding="12,8"
+                    <!-- Track load error: file not found or codec failure -->
+                    <Border Classes="fact warning"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
+                            Padding="12,4"
                             IsVisible="{Binding TrackLoadError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                        <TextBlock Text="{Binding TrackLoadError}"
-                                   FontSize="12"
-                                   Foreground="#E0BC86"
-                                   TextWrapping="Wrap"
-                                   MaxWidth="400"
-                                   TextAlignment="Center"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <PathIcon Data="{StaticResource icon_alert}" Width="14" Height="14"
+                                      Foreground="{DynamicResource BrushWarning}"/>
+                            <TextBlock Text="{Binding TrackLoadError}"
+                                       FontFamily="{DynamicResource FontUI}"
+                                       TextWrapping="Wrap"
+                                       MaxWidth="400"/>
+                        </StackPanel>
                     </Border>
 
                     <orbitControls:WaveformControl
@@ -242,7 +147,7 @@
                         CueUpdatedCommand="{Binding CueEditor.UpdateCueCommand}"
                         CueClickedCommand="{Binding Deck.SeekCommand}"
                         SeekCommand="{Binding Deck.SeekCommand}"
-                        Foreground="#4EC9B0"/>
+                        Foreground="{DynamicResource BrushAccent}"/>
                 </Grid>
             </Border>
         </Grid>

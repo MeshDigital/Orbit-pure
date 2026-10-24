@@ -163,6 +163,12 @@ public class AppConfig
     public double WindowY { get; set; } = double.NaN;
     public bool WindowMaximized { get; set; } = false;
 
+    /// <summary>
+    /// Close button (X / Alt+F4) hides ORBIT to the tray so downloads keep running; only the tray's
+    /// "Quit ORBIT" exits. Off: the close button quits. Stored as [Window] CloseToTray.
+    /// </summary>
+    public bool CloseToTray { get; set; } = true;
+
     // Dashboard layout persistence (three-column shell state)
     public double DashboardRightPanelWidth { get; set; } = 320; // Width of the right panel in pixels
     public bool DashboardIsNavigationCollapsed { get; set; } = false; // Whether the left navigation is collapsed
@@ -196,6 +202,15 @@ public class AppConfig
     public int ContextPanelWidth { get; set; } = 400;
     public bool DiscoverUseDeezer { get; set; } = true;
     public bool EnableFlowBuilderSuggestedFlowTelemetry { get; set; } = true;
+
+    // Library metadata enrichment (Services/Enrichment). API keys are NOT here: they live in the
+    // DPAPI-encrypted MetadataCredentialStore.
+    /// <summary>Enrich new imports/downloads automatically in the background.</summary>
+    public bool EnrichmentAutoRun { get; set; } = true;
+    /// <summary>Provider order, cheapest/most trusted first (comma-separated provider names).</summary>
+    public string EnrichmentProviderOrder { get; set; } = "tags,deezer,musicbrainz,discogs,acoustid,spotify,beatport";
+    /// <summary>Enabled providers. Beatport is off by default (scraped pages, easily rate-limited).</summary>
+    public string EnrichmentEnabledProviders { get; set; } = "tags,deezer,musicbrainz,discogs,acoustid,spotify";
 
     // Frequent Sources (privacy-first, local-only, opt-in)
     public bool EnableFrequentSources { get; set; } = false;
@@ -234,6 +249,11 @@ public class AppConfig
 
     // Audio Analysis Parallelism
     public int MaxConcurrentAnalyses { get; set; } = 0; // 0 = auto-detect based on CPU/RAM, 1 = sequential, >1 = parallel
+    /// <summary>Queue every finished download for analysis (BPM, key, cues, loudness). [Analysis] AnalyzeNewDownloads.</summary>
+    public bool AnalyzeNewDownloads { get; set; } = true;
+
+    // Edit Lab: where rendered edits are written. Empty = <download folder>/ORBIT Edits. [EditLab] OutputDirectory.
+    public string? EditLabOutputDirectory { get; set; }
 
     // Hyper-Drive: Adaptive lane autotuning
     public bool EnableAdaptiveLanes { get; set; } = true;
@@ -314,5 +334,17 @@ public class AppConfig
     /// No data is ever sent externally. Default off (opt-in).
     /// </summary>
     public bool EnableKeyboardTelemetry { get; set; } = false;
+
+    // ── [Setup] first-run wizard and quick tour ──────────────────────────────────────────
+    /// <summary>The first-run setup wizard was finished or skipped (or an existing install was detected).</summary>
+    public bool SetupCompleted { get; set; }
+    /// <summary>Wizard version that set <see cref="SetupCompleted"/>; lets a future wizard ask about new steps only.</summary>
+    public int SetupVersion { get; set; }
+    /// <summary>The quick tour was finished or skipped at least once.</summary>
+    public bool TourCompleted { get; set; }
+
+    /// <summary>Download folder used when config.ini has none (also what the first-run check treats as "not chosen yet").</summary>
+    public static string FallbackDownloadDirectory =>
+        System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile), "Downloads", "SLSKDONET");
 
 }

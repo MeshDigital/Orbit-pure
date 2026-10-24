@@ -17,11 +17,9 @@ namespace SLSKDONET.Views.Avalonia
         // grip moves with the panel's edge, so each delta is relative to where it is now.
         private void OnContextPanelResizeDelta(object? sender, global::Avalonia.Input.VectorEventArgs e)
         {
+            // MainViewModel clamps to the window (FitContextPanelWidth), so the drag can't exceed it.
             if (DataContext is MainViewModel vm)
-            {
-                double max = Math.Max(MainViewModel.MinContextPanelWidth, Bounds.Width * 0.55);
-                vm.ContextPanelWidth = Math.Min(max, vm.ContextPanelWidth - e.Vector.X);
-            }
+                vm.ContextPanelWidth = vm.ContextPanelWidth - e.Vector.X;
         }
 
         private void OnContextPanelResizeCompleted(object? sender, global::Avalonia.Input.VectorEventArgs e)
@@ -45,11 +43,25 @@ namespace SLSKDONET.Views.Avalonia
             return null;
         }
 
+        private SLSKDONET.Services.Entertainment.IAmbientModeService? _ambientModeService;
+        private DateTime _lastActivityReportUtc = DateTime.MinValue;
+
+        private void ReportUserActivity()
+        {
+            var now = DateTime.UtcNow;
+            if ((now - _lastActivityReportUtc).TotalSeconds < 1) return; // pointer moves fire constantly
+            _lastActivityReportUtc = now;
+            _ambientModeService ??= (App.Current as App)?.Services?.GetService(typeof(SLSKDONET.Services.Entertainment.IAmbientModeService))
+                as SLSKDONET.Services.Entertainment.IAmbientModeService;
+            _ambientModeService?.NotifyUserActivity();
+        }
+
         public MainWindow()
         {
             InitializeComponent();
 #if DEBUG
-            this.AttachDevTools();
+            // Not F12: that is ORBIT's perf-overlay shortcut (DevTools on F12 opened both at once).
+            this.AttachDevTools(new global::Avalonia.Input.KeyGesture(global::Avalonia.Input.Key.F12, global::Avalonia.Input.KeyModifiers.Control | global::Avalonia.Input.KeyModifiers.Shift));
 #endif
 
             // Get config from DataContext (MainViewModel will set it)
@@ -61,6 +73,12 @@ namespace SLSKDONET.Views.Avalonia
 
             // Global Keyboard Shortcuts
             this.KeyDown += OnKeyDown;
+
+            // Feed user activity to Ambient Mode's idle timer (it was never told, so it always
+            // thought the user was idle and kept flipping the visualizer back to Ambient).
+            AddHandler(global::Avalonia.Input.InputElement.PointerMovedEvent, (_, _) => ReportUserActivity(), global::Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+            AddHandler(global::Avalonia.Input.InputElement.PointerPressedEvent, (_, _) => ReportUserActivity(), global::Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+            AddHandler(global::Avalonia.Input.InputElement.KeyDownEvent, (_, _) => ReportUserActivity(), global::Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
 
             this.DataContextChanged += (_, _) =>
             {
@@ -198,7 +216,8 @@ namespace SLSKDONET.Views.Avalonia
             if (e.Property == BoundsProperty && DataContext is MainViewModel vm)
             {
                 var width = Bounds.Width;
-                
+                vm.WindowWidth = width; // the context panel's max width follows the window
+
                 // Auto-collapse navigation below 800px
                 if (width < 800 && !vm.IsNavigationCollapsed)
                     vm.IsNavigationCollapsed = true;
@@ -263,36 +282,47 @@ namespace SLSKDONET.Views.Avalonia
             }
         }
 
-        private bool _hasShownTrayHintThisSession;
-
         private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
             // Closing the window (X button, Alt+F4, taskbar close) hides to the tray instead of
-            // exiting, so the download engine keeps running unattended in the background — the
-            // tray icon already had Show/Hide/Exit as if this were the design, it just wasn't
-            // wired up. Only an explicit "Exit" from the tray menu actually shuts the app down.
+            // exiting, so the download engine keeps running unattended in the background — only
+            // the tray's "Quit ORBIT" shuts the app down. Settings → Advanced → "Close button
+            // minimises to tray" turns this off, and it is never done without a working tray
+            // icon (the window would be unreachable).
             if (App.Current is App exitCheckApp && !exitCheckApp.IsExitRequested)
             {
-                e.Cancel = true;
-                Hide();
+                var tray = exitCheckApp.Services?.GetService(typeof(SLSKDONET.Services.Shell.TrayIconController))
+                    as SLSKDONET.Services.Shell.TrayIconController;
 
-                if (!_hasShownTrayHintThisSession)
+                if (tray is { ShouldHideOnClose: true })
                 {
-                    _hasShownTrayHintThisSession = true;
-                    try
+                    e.Cancel = true;
+                    Hide();
+
+                    if (tray.TryClaimCloseHint())
                     {
-                        if (exitCheckApp.Services?.GetService(typeof(SLSKDONET.Services.WindowsToastService))
-                            is SLSKDONET.Services.WindowsToastService toastService)
+                        try
                         {
-                            toastService.ShowIfUnfocused(
-                                "ORBIT is still running",
-                                "Downloads continue in the background. Right-click the tray icon to reopen or exit.");
+                            if (exitCheckApp.Services?.GetService(typeof(SLSKDONET.Services.WindowsToastService))
+                                is SLSKDONET.Services.WindowsToastService toastService)
+                            {
+                                toastService.ShowIfUnfocused(
+                                    "ORBIT is still running",
+                                    "Downloads continue in the background. Click the tray icon to reopen ORBIT, or right-click it to quit. Change this in Settings, Advanced.");
+                            }
+                        }
+                        catch (Exception toastEx)
+                        {
+                            // Courtesy hint only; never worth failing the close over.
+                            Serilog.Log.Debug(toastEx, "Close-to-tray hint toast failed");
                         }
                     }
-                    catch { /* Toast is a courtesy hint, never worth failing the close over. */ }
+
+                    return;
                 }
 
-                return;
+                // Real quit (setting off, or no tray icon this session).
+                exitCheckApp.IsExitRequested = true;
             }
 
             // Save window state

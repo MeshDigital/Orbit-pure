@@ -36,11 +36,24 @@ public sealed class NotificationItem : ReactiveObject
         set => this.RaiseAndSetIfChanged(ref _isRead, value);
     }
 
-    public string KindIcon => Kind switch
+    // Kind flags drive the PathIcon the panel shows (no emoji glyphs).
+    public bool IsDownload => Kind == NotificationKind.DownloadCompleted;
+    public bool IsPrivateMessage => Kind == NotificationKind.PrivateMessage;
+    public bool IsRoomMessage => Kind == NotificationKind.RoomMessage;
+
+    /// <summary>Local time today ("14:05"), otherwise local date + time. <see cref="TimestampUtc"/> is UTC.</summary>
+    public string TimeDisplay
     {
-        NotificationKind.DownloadCompleted => "📥",
-        NotificationKind.PrivateMessage => "💬",
-        NotificationKind.RoomMessage => "👥",
-        _ => "🔔"
-    };
+        get
+        {
+            var local = DateTime.SpecifyKind(TimestampUtc, DateTimeKind.Utc).ToLocalTime();
+            return local.Date == DateTime.Now.Date ? local.ToString("HH:mm") : local.ToString("MMM d, HH:mm");
+        }
+    }
+
+    /// <summary>What clicking the row does, for its tooltip.</summary>
+    public string OpenHint =>
+        !string.IsNullOrWhiteSpace(NavigationUsername) ? $"Open conversation with {NavigationUsername}"
+        : !string.IsNullOrWhiteSpace(NavigationRoomName) ? $"Open room {NavigationRoomName}"
+        : "Mark as read";
 }

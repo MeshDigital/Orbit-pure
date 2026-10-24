@@ -32,7 +32,7 @@ public sealed class ChatAttachmentService
     public const string AnyoneRecipient = "*";
 
     public static string AttachmentsDirectory { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ORBIT-Pure", "ChatAttachments");
+        SLSKDONET.Data.OrbitPaths.RoamingRoot, "ORBIT-Pure", "ChatAttachments");
 
     // IServiceProvider (not ISoulseekAdapter directly) deliberately breaks a DI cycle:
     // SoulseekAdapter needs this service (to authorize incoming attachment requests) and this

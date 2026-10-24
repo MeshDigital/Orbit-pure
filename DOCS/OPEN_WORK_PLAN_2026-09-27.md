@@ -326,13 +326,22 @@ These come first. Most are small, and every one is a visible bug.
 - [ ] **B5. Album tree browser.** `HierarchicalLibraryViewModel` is created at
   `TrackListViewModel.cs:753` but no view binds to it, and `PlaylistGridView.axaml` isn't referenced.
   *Decide:* use them as an alternate Library view (Winamp Tier 1), or delete them. **M**
-- [ ] **B6. Database backup.** `DatabaseService.BackupDatabaseAsync` (`Services/DatabaseService.cs:2308`)
+- [x] **B6. Done 2026-10-14.** The audit missed that `SchemaMigratorService.PerformBackupAsync`
+  already snapshots the library on every launch (newest 5 kept). Added Settings > Database &
+  Maintenance "Back Up Now" / "Open Folder" (manual backups use their own prefix, never rotated).
+  All backups now use SQLite's online backup API (`Services/Data/LibraryDatabaseMaintenance.cs`)
+  instead of a WAL-unsafe `File.Copy`, the Backups folder is derived from the DB path (tests can no
+  longer restore/rotate the real backups), `BackupDatabaseAsync` throws instead of logging "success",
+  and "Update Schema" now confirms and takes a safety backup first. *Original:* **Database backup.** `DatabaseService.BackupDatabaseAsync` (`Services/DatabaseService.cs:2308`)
   has zero callers. *Wire up:* scheduled or startup backups plus a Settings button. **M**
 - [ ] **B7. Deck Sync and Phase-Align.** In `ViewModels/DeckViewModel.cs`, `SyncA/BToMasterCommand`
   (379/381), `PhaseAlignA/BToMasterCommand` (383/385), `SetPitchRangeCommand`, `DeleteHotCueCommand`
   and `StopOutputCommand` have no bindings. *Investigate:* is the Mixer still part of the product?
   If yes, add them to `MixerCenter.axaml`. **M**
-- [ ] **B8. Handlers that exist but are never triggered.**
+- [x] **B8. Done 2026-10-14.** `DownloadAlbumRequestEvent` and its DownloadManager handler were deleted:
+  every Download Album button already goes through LibraryViewModel / TrackOperationsViewModel /
+  AlbumNode. `StyleDefinitionsUpdatedEvent`: won't do; StyleDefinitions are static reference data
+  with no production writer, so there is nothing to publish from. *Original:* **Handlers that exist but are never triggered.**
   - The album download handler for `DownloadAlbumRequestEvent` (`DownloadManager.cs:267/293`).
     Compare it with `TrackOperationsViewModel`'s Download Album path.
   - The style-filter refresh for `StyleDefinitionsUpdatedEvent` (`TrackListViewModel.cs:853`).
@@ -347,16 +356,19 @@ These come first. Most are small, and every one is a visible bug.
 
   *Decide per command:* context menu or delete. The pause and resume commands probably duplicate the
   header's. **S**
-- [ ] **B10. Small commands with no buttons.**
+- [~] **B10. Partly done 2026-10-14:** the three export format commands were deleted (the dialog's
+  ComboBox binds `SelectedFormat`). Search presets (SearchViewModel, owned elsewhere) and Spotify
+  clipboard commands still open. *Original:* **Small commands with no buttons.**
   - Search presets: `ApplyPresetCommand` (`SearchViewModel.cs:397`)
   - Spotify import clipboard paste and copy (`SpotifyImportViewModel.cs:173-174`)
   - Export format commands (`ExportDialogViewModel.cs:103-105`). Probably redundant.
 
   **S**
-- [ ] **B11. Crash report dialog.** `Views/Avalonia/ErrorReportDialog.axaml` is never opened.
+- [x] **B11. Done 2026-10-14:** deleted. The global exception handler already streams to
+  `ErrorStreamWindow`. *Original:* **Crash report dialog.** `Views/Avalonia/ErrorReportDialog.axaml` is never opened.
   *Decide:* hook it into the unhandled-exception handler (for beta testers), or delete it. **S**
 - [ ] **B12. `BulkOperationProgressModal`** is unused. It could show progress for bulk rename and move. **S**
-- [ ] **B13. USB Drive Import** is a disabled "Coming Soon" card (`ImportPage.axaml:341-360`) with no
+- [x] **B13. Done 2026-10-14:** card removed. *Original:* **USB Drive Import** is a disabled "Coming Soon" card (`ImportPage.axaml:341-360`) with no
   backend. *Decide:* build it or remove the card. **S to remove, M to build**
 
 ## C. Half-finished features: decide to finish or drop
@@ -379,21 +391,30 @@ These come first. Most are small, and every one is a visible bug.
   (`RoomViewModel.cs:149-152`). **S–M**
 - [ ] **C7. Audio fingerprinting.** `AudioFingerprint` and `SpectralHash` are copied between objects but
   never computed. **M–L**
-- [ ] **C8. Crash-journal checkpoint.** A checkpoint is written on every progress tick above 1 KB
+- [x] **C8. Done 2026-10-14 (the real risk).** The write stays in the heartbeat loop, but a journal
+  failure (SQLITE_BUSY, or a null checkpoint id) used to escape to the loop's outer catch and end
+  the loop, silently disabling stall detection for the rest of the download. It is now contained,
+  logged once, and retried next tick. *Original:* **Crash-journal checkpoint.** A checkpoint is written on every progress tick above 1 KB
   (`DownloadManager.cs:3788`), inside the stall-detection timer. *Finish:* move it to its own
   heartbeat. **S–M**
 - [ ] **C9. `OnMetadataUpdated`** raises about 50 PropertyChanged events without checking whether
   anything changed. **S**
 - [ ] **C10. Non-Windows token storage** returns null (`WindowsTokenStorage.cs:120`). This only matters
   if cross-platform support is a goal. **M**
-- [~] **C11. Mostly done 2026-09-27/28** (commits `aa5ab68`, `addfea7`, `8084d38`).
-  - `TrackCueEditorViewModel` is a per-deck cue editor that auditions through the preview player
-    instead of the main player.
-  - It's hosted in the Flow Builder transition editor, with Edit cues mode, auto-save,
-    Previous/Next and the set mini strip.
-  - Drop countdowns and arrow-key fine-tuning work in both editors.
-  - *Still open:* move Cue Forge itself onto `TrackCueEditorViewModel`, so there's one editor
-    everywhere (the user chose "later").
+- [x] **C11. Done 2026-10-17** (earlier steps 2026-09-27/28: `aa5ab68`, `addfea7`, `8084d38`).
+  - One engine: `ViewModels/CueEditing/CueEditorSession` (per instance, no player or view
+    dependency) owns a track's cues, selection, rename, colour, role, pads A–H, loops, drops with
+    build-in cues, snapping, undo/redo, dirty state and save/revert through `ICuePointService`.
+    It plays through an injected `ICueAudition`.
+  - Cue Forge (`CueForgeViewModel`) and each Flow Builder / Mix deck (`TrackCueEditorViewModel`)
+    are hosts on it. Cue Forge borrows the shared player; a deck auditions through the preview
+    player. The deck strip gained pads, 1–16-bar memory loops, rename, Rekordbox swatches and
+    drag-snap-undo.
+  - Two editors on one track: `CueSessionRegistry` reloads clean peers when one saves, and warns
+    dirty ones (Save keeps yours, Revert loads theirs). Flow Builder saves its decks before
+    "Open in Cue Forge". The registry also holds the shared drop cue template.
+  - Not merged: the Workstation deck's own `Workstation/CueEditorViewModel` (hot cues while
+    playing). A candidate for the same session later.
 
   *Original:* **Cue Forge inside Flow Builder.** This needs a per-instance editor ViewModel with its own
   audition deck. The `CueForgeViewModel` singleton currently takes over the shared player
@@ -403,7 +424,12 @@ These come first. Most are small, and every one is a visible bug.
 The two audits disagree on some of these services. One says each one has no consumer. The other
 says every DI registration is referenced somewhere. Check each item with a grep before deleting.
 
-- [ ] **D1. Services that may be orphaned:**
+- [ ] **D1. Services that may be orphaned:** *Checked 2026-10-14 with a DI cross-reference: these are
+  registered but never resolved or injected anywhere —* `ProtectedDataService`, `SpotifyMetadataService`,
+  `SpotifyBulkFetcher`, `DiscoveryBridgeService`, `LibraryActionProvider`, `DownloadLogService`,
+  `IMetadataService`, `BulkOperationViewModel`, `DownloadOrchestrationService`, `PrefetchService`,
+  `YouTubeChapterExportService`, `RekordboxExportExtensions`. (`IUserInputService` was also dead and
+  broken; deleted.) Original list:
   - `Engine/Analysis/AnalysisPipeline.cs` (registered at `App.axaml.cs:824`; only its result type is
     used)
   - `DownloadOrchestrationService`
@@ -442,7 +468,8 @@ says every DI registration is referenced somewhere. Check each item with a grep 
     - Timeline: `NewSessionCommand`
     - StemChannel: `ResetCommand`
     - Workstation: `FocusDeckCommand`
-    - MainViewModel: `NavigatePlayer`, `NavigateTimeline`, `NavigateStems`, `ResetZoom`,
+    - MainViewModel: `NavigatePlayer`, `NavigateTimeline`, `NavigateStems` (gone 2026-10-17: the Stems
+      page was replaced by the Edit Lab, `NavigateEditLabCommand`), `ResetZoom`,
       `CancelDownloads`, and the Pause/Resume/Retry-All trio (`:309`)
 - [ ] **D4. Events with only one side connected.**
   - Subscribed to but never published: `TrackUpdatedEvent`, `TrackMovedEvent`,
@@ -459,7 +486,10 @@ says every DI registration is referenced somewhere. Check each item with a grep 
 
 ## E. Performance leftovers (from the 2026-09-27 performance work)
 
-- [ ] **E1. The database is VACUUMed on every launch.** This causes lock contention at startup: a
+- [x] **E1. Done 2026-10-14.** It ran inside a UI-thread continuation and Microsoft.Data.Sqlite's async
+  calls are synchronous, so the whole VACUUM blocked the UI. Now weekly (marker file in Backups) and the
+  whole startup maintenance pass runs on a pool thread. Tests: `LibraryDatabaseMaintenanceTests`.
+  *Original:* **The database is VACUUMed on every launch.** This causes lock contention at startup: a
   10.4 s UI stall and a 6.6 s page fetch. *Investigate:* run it weekly or when idle instead. **S**
 - [ ] **E2. The finalizer thread spends 29% of its time in `SKNativeObject.Finalize`.** The cause may be
   artwork bitmaps not being disposed. *Investigate:* take a profile trace. **M**
@@ -498,6 +528,16 @@ Big features. Plan these separately; this list only tracks them.
   - [ ] plugin API
   - [ ] Last.fm scrobbling
   - [ ] remote access
+- **Edit Lab** (v1 shipped 2026-10-17, branch `feature/edit-lab-2026-10-17`; see `DOCS/EDIT_LAB.md`).
+  Replaces the dead Stems page. *v2 candidates:*
+  - [ ] Better time-stretch (a WSOLA or Rubber Band-class stretcher) for stretches beyond ±8 % and
+    shifts beyond ±2 st. The SMB phase vocoder smears drums.
+  - [ ] An anti-aliased resampler (a windowed sinc) for SR conversion and speed-ups.
+  - [ ] Drag tracks from the Library into the bin (needs the Library visible next to the Edit Lab).
+  - [ ] Lane gain/pan, fade curves, gain automation.
+  - [ ] Waveform thumbnails on clips (from the stored waveform blobs or the stem files).
+  - [ ] A crossfade preview at clip joins, and a "glue" fade when splitting.
+  - [ ] A "Show in Library" jump after a render, and a playlist of all ORBIT Edits.
 - **Durability:**
   - [ ] Split the oversized classes: `WorkstationViewModel` (3,758 lines), `AnalysisPageViewModel`
     (2,523) and `DownloadManager` (4,762). This overlaps issue #163.

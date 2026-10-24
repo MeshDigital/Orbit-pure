@@ -18,6 +18,10 @@ public record TrackRemovedEvent(string TrackGlobalId);
 public record TrackMovedEvent(string TrackGlobalId, Guid OldProjectId, Guid NewProjectId);
 public record RemoveTrackFromInspectorEvent(string TrackGlobalId);
 public record EditTagsFromInspectorEvent(string TrackGlobalId);
+// Track Inspector actions routed to LibraryViewModel's existing Operations commands.
+public record OpenInCueForgeFromInspectorEvent(string TrackGlobalId);
+public record OpenInEditLabFromInspectorEvent(string TrackGlobalId);
+public record RetryDownloadFromInspectorEvent(string TrackGlobalId);
 // WasAlreadyPresent: true when a Completed transition came from a "file already exists locally /
 // in the library, just reuse it" fast path (DownloadManager.ProcessTrackAsync's three pre-checks)
 // rather than an actual Soulseek transfer finishing — lets listeners like the download-complete
@@ -30,7 +34,6 @@ public record TrackProgressChangedEvent(string TrackGlobalId, double Progress, l
 public record TrackMetadataUpdatedEvent(string TrackGlobalId);
 public record ForceStartRequestEvent(string TrackGlobalId);
 public record TrackQueuePositionUpdatedEvent(string TrackGlobalId, int Position, string PeerUsername);
-public record BumpToTopRequestEvent(string TrackGlobalId); // [NEW] Overhaul Phase
 
 // Transfer lifecycle events
 public record TransferProgressEvent(string Filename, string Username, long BytesTransferred, long TotalBytes);

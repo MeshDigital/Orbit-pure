@@ -1072,7 +1072,7 @@ public class DatabaseService
                         // created here silently kept the entity's 0/empty default, even when the
                         // matched LibraryEntries row (the same physical file) had the real values.
                         Bitrate = track.Bitrate > 0 ? track.Bitrate.Value : (entry?.Bitrate ?? 0),
-                        Format = !string.IsNullOrEmpty(track.Format) ? track.Format : entry?.Format,
+                        Format = SLSKDONET.Models.AudioFileFormat.Resolve(track.Format, null) ?? SLSKDONET.Models.AudioFileFormat.Resolve(entry?.Format, entry?.FilePath ?? track.ResolvedFilePath),
 
                         CuePointsJson = track.CuePointsJson,
                         AudioFingerprint = track.AudioFingerprint,
@@ -1151,7 +1151,7 @@ public class DatabaseService
                         // set here at all, so every re-sync of an existing project silently reset
                         // them to 0/empty on every track, even ones with a correct LibraryEntries match.
                         Bitrate = track.Bitrate > 0 ? track.Bitrate.Value : (entry?.Bitrate ?? 0),
-                        Format = !string.IsNullOrEmpty(track.Format) ? track.Format : entry?.Format,
+                        Format = SLSKDONET.Models.AudioFileFormat.Resolve(track.Format, null) ?? SLSKDONET.Models.AudioFileFormat.Resolve(entry?.Format, entry?.FilePath ?? track.ResolvedFilePath),
 
                         CuePointsJson = track.CuePointsJson,
                         AudioFingerprint = track.AudioFingerprint,
@@ -1813,31 +1813,6 @@ public class DatabaseService
     }
 
     /// <summary>
-    /// Phase 8: Maintenance - Vacuum database to reclaim space and optimize performance.
-    /// Should be called periodically (e.g., during daily maintenance).
-    /// </summary>
-    public async Task VacuumDatabaseAsync()
-    {
-        try
-        {
-            using var context = new AppDbContext();
-            var connection = context.Database.GetDbConnection();
-            await connection.OpenAsync();
-            
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText = "VACUUM";
-            await cmd.ExecuteNonQueryAsync();
-            
-            _logger.LogInformation("Database VACUUM completed successfully");
-            await connection.CloseAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Database VACUUM failed (this is non-critical)");
-        }
-    }
-
-    /// <summary>
     /// ⚠️ INITIATING DATABASE RESET ⚠️
     /// Safely deletes the database file and re-initializes a fresh schema.
     /// This will wipe ALL tracks, projects, and cached data.
@@ -2305,25 +2280,21 @@ public class DatabaseService
 
     // ===== Backup Methods =====
 
-    public async Task BackupDatabaseAsync(string backupPath)
+    /// <summary>
+    /// Writes a consistent snapshot of the library to <paramref name="backupPath"/> (or a
+    /// timestamped file in the Backups folder when null) and returns its path.
+    /// Uses SQLite's online backup API: a plain file copy of a WAL-mode database can miss
+    /// committed pages still in the -wal file. Throws on failure so the caller can report it —
+    /// it used to log and return as if it had succeeded.
+    /// </summary>
+    public Task<string> BackupDatabaseAsync(string? backupPath = null)
     {
-        var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
-        
-        if (!File.Exists(dbPath))
+        return Task.Run(() =>
         {
-            _logger.LogWarning("Database file not found at {Path}, skipping backup", dbPath);
-            return;
-        }
-
-        try
-        {
-            await _fileWriteService.CopyFileAtomicAsync(dbPath, backupPath, preserveTimestamps: true);
-            _logger.LogInformation("✅ Database backup created successfully at {Path}", backupPath);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to create database backup at {Path}", backupPath);
-        }
+            var path = SLSKDONET.Services.LibraryDatabaseMaintenance.CreateBackup(targetPath: backupPath);
+            _logger.LogInformation("Database backup created at {Path}", path);
+            return path;
+        });
     }
 
     public async Task<List<PlaylistTrackEntity>> SearchPlaylistTracksAsync(string query, int limit = 50)
@@ -2432,7 +2403,7 @@ public class DatabaseService
             row.Valence = features.Valence;
             row.Arousal = features.Arousal;
             row.IsDjTool = features.IsDjTool;
-            row.Loudness = features.LoudnessLUFS;
+            row.Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(features.LoudnessLUFS);
             row.CuePointsJson = features.CuePointsJson;
             row.MoodTag = features.MoodTag;
             row.DetectedSubGenre = features.DetectedSubGenre;
@@ -2458,7 +2429,7 @@ public class DatabaseService
             row.Valence = features.Valence;
             row.Arousal = features.Arousal;
             row.IsDjTool = features.IsDjTool;
-            row.Loudness = features.LoudnessLUFS;
+            row.Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(features.LoudnessLUFS);
             row.CuePointsJson = features.CuePointsJson;
             row.MoodTag = features.MoodTag;
             row.DetectedSubGenre = features.DetectedSubGenre;

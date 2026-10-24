@@ -1,4 +1,5 @@
 using System;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Models.Discovery;
 
@@ -104,7 +105,7 @@ public record DiscoverySearchResultDto
     public long FileSize { get; init; }
     
     /// <summary>File size for display</summary>
-    public string FileSizeDisplay => FileSize > 0 ? $"{FileSize / 1024.0 / 1024.0:F1} MB" : "N/A";
+    public string FileSizeDisplay => FileSize > 0 ? NumFormat.Ui($"{FileSize / 1024.0 / 1024.0:F1} MB") : "N/A";
     
     /// <summary>P2P username/host</summary>
     public string Username { get; init; } = string.Empty;

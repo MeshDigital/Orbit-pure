@@ -10,6 +10,7 @@ namespace SLSKDONET.Tests.Services.Audio;
 /// Files Windows Media Foundation can't decode (some FLAC, Opus, Ogg — 123 of the real library)
 /// must still play: PlayableAudio falls back to an ffmpeg-decoded WAV.
 /// </summary>
+[Collection(PlayableAudioCacheCollection.Name)]
 public class PlayableAudioTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), $"playable-{Guid.NewGuid():N}");
@@ -40,6 +41,20 @@ public class PlayableAudioTests : IDisposable
         // Second open reuses the cached copy.
         using (var again = PlayableAudio.Open(opus, out var playable2))
             Assert.Single(Directory.GetFiles(PlayableAudio.CacheDirectory, "*.wav"));
+    }
+
+    [Fact]
+    public void HiResFallbackCopy_OpensInNAudio()
+    {
+        // ffmpeg writes WAVE_FORMAT_EXTENSIBLE for 24-bit / >48 kHz; AudioFileReader used to reject
+        // those copies ("NoDriver calling acmFormatSuggest"), so 24-bit FLAC fallbacks never played.
+        var flac = Path.Combine(_dir, "hires.flac");
+        if (!TryFfmpeg($"-v error -y -f lavfi -i sine=frequency=440:duration=2:sample_rate=96000 -ac 2 -sample_fmt s32 -c:a flac \"{flac}\"")) return;
+
+        var copy = PlayableAudio.EnsureDecodedCopy(flac);
+        using var reader = new NAudio.Wave.AudioFileReader(copy);
+        Assert.Equal(96000, reader.WaveFormat.SampleRate);
+        Assert.InRange(reader.TotalTime.TotalSeconds, 1.95, 2.05);
     }
 
     [Fact]

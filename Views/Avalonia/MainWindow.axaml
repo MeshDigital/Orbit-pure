@@ -10,11 +10,12 @@
          xmlns:vmDownloads="clr-namespace:SLSKDONET.ViewModels.Downloads"
          xmlns:vmDiag="clr-namespace:SLSKDONET.ViewModels.Diagnostics"
          xmlns:svc="clr-namespace:SLSKDONET.Services"
+         xmlns:setupViews="clr-namespace:SLSKDONET.Views.Avalonia.Setup"
         mc:Ignorable="d" d:DesignWidth="1400" d:DesignHeight="900"
         x:Class="SLSKDONET.Views.Avalonia.MainWindow"
         x:DataType="vm:MainViewModel"
         Title="ORBIT"
-        Icon="avares://ORBIT/app_icon.png"
+        Icon="avares://ORBIT/app_icon.ico"
         Width="1400" Height="900"
         MinWidth="360" MinHeight="500"
         FontSize="{Binding BaseFontSize}"
@@ -49,14 +50,16 @@
     </Window.KeyBindings>
 
     <Window.Styles>
-        <StyleInclude Source="/Themes/AvaloniaTheme.axaml"/>
-        
-        <!-- Navigation Sidebar Styles -->
+        <!-- Theme is included once at Application level (App.axaml). The old Window-level
+             <StyleInclude Source="/Themes/AvaloniaTheme.axaml"/> re-applied every theme rule a
+             second time at higher priority than App.axaml's own styles (e.g. chips went blue here
+             but teal elsewhere). Shell-only layout rules below; all colours come from tokens. -->
+
+        <!-- Navigation sidebar -->
         <Style Selector="Border.nav-sidebar">
             <!-- Width is user-drag-resizable via the GridSplitter next to it — bound to
-                 NavSidebarWidth on the element itself (Views/Avalonia/MainWindow.axaml),
-                 which takes precedence over this style. Only the transition lives here. -->
-            <Setter Property="Background" Value="{StaticResource DeepBackgroundBrush}"/>
+                 NavSidebarWidth on the column, which takes precedence over this style. -->
+            <Setter Property="Background" Value="{StaticResource BrushBg0}"/>
             <Setter Property="Transitions">
                 <Transitions>
                     <DoubleTransition Property="Width" Duration="0:0:0.25" Easing="QuarticEaseOut"/>
@@ -64,15 +67,21 @@
                 </Transitions>
             </Setter>
         </Style>
+        <Style Selector="Border.nav-sidebar Button.nav">
+            <Setter Property="Margin" Value="8,0"/>
+            <Setter Property="MinHeight" Value="34"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        </Style>
+        <Style Selector="Border.nav-sidebar Button.nav PathIcon">
+            <Setter Property="Width" Value="16"/>
+            <Setter Property="Height" Value="16"/>
+        </Style>
         <Style Selector="Border.nav-sidebar.mini TextBlock:nth-child(2)">
             <Setter Property="Opacity" Value="0"/>
             <Setter Property="IsVisible" Value="False"/>
         </Style>
-        <!-- This selector used to target "Border.GroupHeader" — no such element exists (the
-             section headers are "ACQUIRE"/"SYSTEM"/"EXPERIMENTAL" Buttons with Classes=
-             "group-header", not a Border with Classes="GroupHeader") — so the rule never matched
-             anything and these labels stayed fully visible at mini width, clipped mid-word
-             ("buried" against the icon column) instead of hiding like every other nav label does. -->
+        <!-- Section headers ("ACQUIRE"/"SYSTEM"/"EXPERIMENTAL") are Button.group-header; hide at mini width
+             instead of clipping mid-word against the icon column. -->
         <Style Selector="Border.nav-sidebar.mini Button.group-header">
             <Setter Property="Opacity" Value="0"/>
             <Setter Property="IsVisible" Value="False"/>
@@ -86,169 +95,180 @@
             <Setter Property="Width" Value="40"/>
             <Setter Property="Height" Value="40"/>
             <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0"/>
             <Setter Property="HorizontalAlignment" Value="Center"/>
-        </Style>
-        <!-- Navigation sidebar touch-target rule — Epic 12 #113
-             On desktop the nav buttons are 40px; on touch/tablet modes we enforce 44px. -->
-        <Style Selector="Border.nav-sidebar Button.nav">
-            <Setter Property="MinHeight" Value="44"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
         </Style>
 
-        <!-- Right panel tab buttons -->
-        <Style Selector="Button.tab">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#888"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="10,5"/>
-            <Setter Property="CornerRadius" Value="4"/>
+        <!-- Top bar: icon buttons a touch smaller than the 32px default -->
+        <Style Selector="Border.shell-topbar Button.icon PathIcon">
+            <Setter Property="Width" Value="14"/>
+            <Setter Property="Height" Value="14"/>
         </Style>
-        <Style Selector="Button.tab:pointerover">
-            <Setter Property="Background" Value="#2D2D2D"/>
-            <Setter Property="Foreground" Value="#CCC"/>
+        <Style Selector="Border.shell-topbar Rectangle.sep">
+            <Setter Property="Width" Value="1"/>
+            <Setter Property="Height" Value="16"/>
+            <Setter Property="Fill" Value="{StaticResource BrushBorder1}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
-        <Style Selector="Button.tab.selected">
-            <Setter Property="Background" Value="#2D4A6B"/>
-            <Setter Property="Foreground" Value="#4EC9B0"/>
+        <Style Selector="Border.shell-topbar StackPanel.stat PathIcon">
+            <Setter Property="Width" Value="13"/>
+            <Setter Property="Height" Value="13"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText2}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Border.shell-topbar StackPanel.stat TextBlock">
+            <Setter Property="FontSize" Value="12"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText1}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+        <!-- Transport play/pause: the one solid-accent control in the top bar -->
+        <Style Selector="Button.transport-play">
+            <Setter Property="Width" Value="30"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="CornerRadius" Value="15"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Background" Value="{StaticResource BrushAccent}"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushOnAccent}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.transport-play:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource BrushAccentHover}"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushOnAccent}"/>
+        </Style>
+        <Style Selector="Button.transport-play:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource BrushAccentPressed}"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushOnAccent}"/>
+        </Style>
+        <Style Selector="Button.transport-play PathIcon">
+            <Setter Property="Width" Value="12"/>
+            <Setter Property="Height" Value="12"/>
         </Style>
     </Window.Styles>
     
     <Grid RowDefinitions="Auto,*,Auto">
         <!-- Unified Top Command Bar -->
-        <Border Grid.Row="0" 
-                Background="#1E1E1E" 
-                Padding="12,10" 
-                BorderBrush="#000" 
+        <Border Grid.Row="0"
+                Classes="shell-topbar"
+                Background="{StaticResource BrushBg0}"
+                Padding="8,6,12,6"
+                MinHeight="44"
+                BorderBrush="{StaticResource BrushBorder0}"
                 BorderThickness="0,0,0,1"
-                IsVisible="{Binding IsTopCommandBarVisible}">
+                IsVisible="{Binding IsTopCommandBarVisible}"
+                IsEnabled="{Binding !Import.IsOpen, FallbackValue=True}">
             <Grid ColumnDefinitions="Auto,*,Auto">
-                <!-- Left: Nav toggle + compact connection LEDs -->
-                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Spacing="12">
-                    <Button Command="{Binding ToggleNavigationCommand}"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            Padding="8,4"
-                            ToolTip.Tip="Toggle Navigation">
-                        <TextBlock Text="☰" FontSize="18" Foreground="#CCC"/>
+                <!-- Left: nav toggle + connection status + always-visible transport -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
+                    <Button Classes="icon" Command="{Binding ToggleNavigationCommand}"
+                            ToolTip.Tip="Toggle navigation (Ctrl+N)">
+                        <PathIcon Data="{StaticResource icon_menu}"/>
                     </Button>
-                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                        <Button Command="{Binding ConnectionViewModel.ShowLoginCommand}"
-                                Background="Transparent" BorderThickness="0" Padding="2"
+
+                    <!-- Connection status dots: Soulseek, Spotify, share health -->
+                    <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                        <Button Classes="icon small" Command="{Binding ConnectionViewModel.ShowLoginCommand}"
                                 ToolTip.Tip="Soulseek — click to manage connection">
-                            <Ellipse Width="8" Height="8" Fill="{Binding ConnectionViewModel.IsConnected, Converter={StaticResource BoolToColorConverter}}"/>
+                            <Ellipse Classes="status-dot" Fill="{Binding ConnectionViewModel.IsConnected, Converter={StaticResource BoolToColorConverter}}"/>
                         </Button>
-                        <Ellipse Width="8" Height="8"
-                                 Fill="{Binding ConnectionViewModel.IsSpotifyConnected, Converter={StaticResource BoolToColorConverter}}"
-                                 ToolTip.Tip="Spotify connection"
-                                 VerticalAlignment="Center"/>
-                        <Button Command="{Binding StatusBar.OpenShareSettingsCommand}"
-                                Background="Transparent" BorderThickness="0" Padding="2"
+                        <Border Width="26" Height="26" Background="Transparent" ToolTip.Tip="Spotify connection">
+                            <Ellipse Classes="status-dot" HorizontalAlignment="Center"
+                                     Fill="{Binding ConnectionViewModel.IsSpotifyConnected, Converter={StaticResource BoolToColorConverter}}"/>
+                        </Border>
+                        <Button Classes="icon small" Command="{Binding StatusBar.OpenShareSettingsCommand}"
                                 ToolTip.Tip="{Binding StatusBar.ShareHealthTooltip}">
-                            <Ellipse Width="8" Height="8" Fill="{Binding StatusBar.ShareHealthColor}"/>
+                            <Ellipse Classes="status-dot" Fill="{Binding StatusBar.ShareHealthColor}"/>
                         </Button>
                     </StackPanel>
 
                     <!-- Always-visible transport: the full player lives in the sidepanel/bottom
                          drawer, which are often closed, leaving no way to pause from anywhere. -->
-                    <Rectangle Width="1" Height="16" Fill="#333"/>
+                    <Rectangle Classes="sep"/>
                     <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                        <Button Command="{Binding PlayerViewModel.PreviousTrackCommand}"
-                                Background="Transparent" BorderThickness="0" Padding="6,2"
+                        <Button Classes="icon small" Command="{Binding PlayerViewModel.PreviousTrackCommand}"
                                 ToolTip.Tip="Previous track">
-                            <TextBlock Text="⏮" FontSize="13" Foreground="#BBB"/>
+                            <PathIcon Data="{StaticResource icon_skip_previous}"/>
                         </Button>
-                        <Button Command="{Binding PlayerViewModel.TogglePlayPauseCommand}"
-                                Width="30" Height="30" CornerRadius="15" Padding="0"
-                                Background="#4EC9B0" BorderThickness="0"
-                                HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        <Button Classes="transport-play" Command="{Binding PlayerViewModel.TogglePlayPauseCommand}"
                                 ToolTip.Tip="Play / pause">
                             <Panel>
-                                <TextBlock Text="▶" FontSize="13" Foreground="#111" Margin="2,0,0,0"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                                           IsVisible="{Binding !PlayerViewModel.IsPlaying}"/>
-                                <TextBlock Text="⏸" FontSize="13" Foreground="#111"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                                           IsVisible="{Binding PlayerViewModel.IsPlaying}"/>
+                                <PathIcon Data="{StaticResource icon_play}" Margin="1,0,0,0"
+                                          IsVisible="{Binding !PlayerViewModel.IsPlaying}"/>
+                                <PathIcon Data="{StaticResource icon_pause}"
+                                          IsVisible="{Binding PlayerViewModel.IsPlaying}"/>
                             </Panel>
                         </Button>
-                        <Button Command="{Binding PlayerViewModel.NextTrackCommand}"
-                                Background="Transparent" BorderThickness="0" Padding="6,2"
+                        <Button Classes="icon small" Command="{Binding PlayerViewModel.NextTrackCommand}"
                                 ToolTip.Tip="Next track">
-                            <TextBlock Text="⏭" FontSize="13" Foreground="#BBB"/>
+                            <PathIcon Data="{StaticResource icon_skip_next}"/>
                         </Button>
-                        <Button Command="{Binding PlayerViewModel.ToggleExpandedPlayerCommand}"
-                                Background="Transparent" BorderThickness="0" Padding="6,2"
+                        <Button Classes="icon small" Command="{Binding PlayerViewModel.ToggleExpandedPlayerCommand}"
                                 ToolTip.Tip="Fullscreen player">
-                            <TextBlock Text="⤢" FontSize="14" Foreground="#BBB"/>
+                            <PathIcon Data="{StaticResource icon_expand}"/>
                         </Button>
-                        <Button Command="{Binding Sidebar.SwitchToPlayerCommand}"
-                                Background="Transparent" BorderThickness="0" Padding="6,0"
-                                MaxWidth="260" ToolTip.Tip="Open Now Playing">
+                        <Button Classes="ghost small" Command="{Binding Sidebar.SwitchToPlayerCommand}"
+                                Padding="8,2" MaxWidth="260" HorizontalContentAlignment="Left"
+                                ToolTip.Tip="Open Now Playing">
                             <StackPanel Spacing="0">
-                                <TextBlock Text="{Binding PlayerViewModel.TrackTitle}" FontSize="11" FontWeight="SemiBold"
-                                           Foreground="#DDD" TextTrimming="CharacterEllipsis"/>
-                                <TextBlock Text="{Binding PlayerViewModel.TrackArtist}" FontSize="10" Foreground="#888"
-                                           TextTrimming="CharacterEllipsis"
+                                <TextBlock Text="{Binding PlayerViewModel.TrackTitle}" FontSize="12" FontWeight="Medium"
+                                           Foreground="{StaticResource BrushText0}" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{Binding PlayerViewModel.TrackArtist}" FontSize="11"
+                                           Foreground="{StaticResource BrushText2}" TextTrimming="CharacterEllipsis"
                                            IsVisible="{Binding PlayerViewModel.TrackArtist, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                             </StackPanel>
                         </Button>
                     </StackPanel>
                 </StackPanel>
 
-                <!-- Center: Status -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
-                    <TextBlock Text="⏳"
-                               FontSize="14"
-                               Foreground="#4EC9B0"
-                               IsVisible="{Binding IsGlobalActivityActive}"/>
+                <!-- Center: global status -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8"
+                            Margin="16,0">
+                    <Ellipse Classes="status-dot accent pulse_amber"
+                             IsVisible="{Binding IsGlobalActivityActive}"/>
                     <TextBlock Text="{Binding StatusText}"
                                FontSize="12"
-                               Foreground="#DDD"
-                               FontWeight="SemiBold"
+                               Foreground="{StaticResource BrushText1}"
+                               TextTrimming="CharacterEllipsis"
                                VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <!-- Right: Activity counts + Settings -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
-                    <StackPanel Orientation="Horizontal" Spacing="4" ToolTip.Tip="Downloads: In Progress / Failed">
-                        <TextBlock Text="📥" FontSize="12" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding TodoCount}" Foreground="#4EC9B0" FontWeight="Bold" FontSize="12" VerticalAlignment="Center"/>
-                        <StackPanel Orientation="Horizontal" IsVisible="{Binding FailedCount}" Margin="2,0,0,0">
-                            <TextBlock Text="⚠" FontSize="10" Foreground="#F44336" VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding FailedCount}" Foreground="#F44336" FontSize="11" VerticalAlignment="Center"/>
+                <!-- Right: activity counts + notifications + settings -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
+                    <!-- Background activity: import, analysis, enrichment, loudness in one chip + flyout
+                         (replaces the import sheet's own "Run in background" chip). -->
+                    <controls:BackgroundActivityChip DataContext="{Binding Activity}"/>
+                    <StackPanel Classes="stat" Orientation="Horizontal" Spacing="5" ToolTip.Tip="Downloads: in progress / failed">
+                        <PathIcon Data="{StaticResource icon_download}"/>
+                        <TextBlock Text="{Binding TodoCount}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="3" IsVisible="{Binding FailedCount}" Margin="2,0,0,0">
+                            <PathIcon Data="{StaticResource icon_alert}" Width="11" Height="11" Foreground="{StaticResource BrushError}"/>
+                            <TextBlock Text="{Binding FailedCount}" Foreground="{StaticResource BrushError}"/>
                         </StackPanel>
                     </StackPanel>
-                    <Rectangle Width="1" Height="16" Fill="#333"/>
-                    <StackPanel Orientation="Horizontal" Spacing="4" ToolTip.Tip="Analysis queue">
-                        <TextBlock Text="🧠" FontSize="12" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding AnalysisQueueCount}" Foreground="#C586C0" FontWeight="Bold" FontSize="12" VerticalAlignment="Center"/>
+                    <StackPanel Classes="stat" Orientation="Horizontal" Spacing="5" ToolTip.Tip="Analysis queue">
+                        <PathIcon Data="{StaticResource icon_brain}"/>
+                        <TextBlock Text="{Binding AnalysisQueueCount}"/>
                     </StackPanel>
-                    <Rectangle Width="1" Height="16" Fill="#333"/>
-                    <Button Command="{Binding Sidebar.OpenNotificationsCommand}"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            Padding="6,4"
+                    <Rectangle Classes="sep"/>
+                    <Button Classes="icon" Command="{Binding Sidebar.OpenNotificationsCommand}"
                             ToolTip.Tip="Notifications — downloads, messages, room replies">
-                        <Grid>
-                            <TextBlock Text="🔔" FontSize="14" Foreground="#A0A0A0"/>
-                            <Border IsVisible="{Binding Sidebar.NotificationCenter.UnreadCount}"
-                                    Background="#F44336" CornerRadius="8"
-                                    Padding="4,0" MinWidth="16" Height="14"
+                        <Panel>
+                            <PathIcon Data="{StaticResource icon_bell}"/>
+                            <Border Classes="badge"
+                                    IsVisible="{Binding Sidebar.NotificationCenter.UnreadCount}"
                                     HorizontalAlignment="Right" VerticalAlignment="Top"
-                                    Margin="0,-4,-6,0">
-                                <TextBlock Text="{Binding Sidebar.NotificationCenter.UnreadCount}"
-                                           FontSize="9" FontWeight="Bold" Foreground="White"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    Margin="0,-8,-10,0">
+                                <TextBlock Text="{Binding Sidebar.NotificationCenter.UnreadCount}"/>
                             </Border>
-                        </Grid>
+                        </Panel>
                     </Button>
-                    <Rectangle Width="1" Height="16" Fill="#333"/>
-                    <Button Command="{Binding NavigateSettingsCommand}"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            Padding="6,4"
-                            ToolTip.Tip="Settings">
-                        <TextBlock Text="⚙️" FontSize="14" Foreground="#A0A0A0"/>
+                    <Button x:Name="TopBarSettings" Classes="icon" Command="{Binding NavigateSettingsCommand}"
+                            ToolTip.Tip="Settings (Ctrl+Shift+S)">
+                        <PathIcon Data="{StaticResource icon_settings}"/>
                     </Button>
                 </StackPanel>
             </Grid>
@@ -264,7 +284,7 @@
              5 = GridSplitter (4px) for Overlays
              6 = Overlays panel (toggleable, min 140px)
         -->
-        <Grid Grid.Row="1" x:Name="MainLayoutGrid">
+        <Grid Grid.Row="1" x:Name="MainLayoutGrid" IsEnabled="{Binding !Import.IsOpen, FallbackValue=True}">
             <Grid.ColumnDefinitions>
                 <!-- MinWidth used to be a static 56 with no exception for the "collapsed" state —
                      IsNavigationCollapsed is set by Zen Mode, Theater Mode, and the narrow-window
@@ -289,8 +309,8 @@
             <!-- Left Navigation Sidebar -->
             <Border Grid.Column="0"
                     HorizontalAlignment="Stretch"
-                    Background="{StaticResource DeepBackgroundBrush}"
-                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderBrush="{StaticResource BrushBorder0}"
+                    BorderThickness="0,0,1,0"
                     Classes="nav-sidebar"
                     Classes.mini="{Binding IsNavigationMini}"
                     IsVisible="{Binding !IsNavigationCollapsed}">
@@ -304,103 +324,101 @@
                     </ContextMenu>
                 </Border.ContextMenu>
                 <ScrollViewer>
-                    <StackPanel Margin="0,16,0,0" Spacing="8">
-                        
+                    <StackPanel Margin="0,8,0,12" Spacing="4">
+
                         <!-- ACQUIRE -->
                         <StackPanel IsVisible="{Binding IsAcquireVisible}">
                             <Button Classes="group-header" Command="{Binding ToggleAcquireCommand}"
-                                    Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch"
-                                    Padding="16,8,12,4" ToolTip.Tip="Collapse / expand">                                <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="ACQUIRE" FontSize="11" FontWeight="Bold" Foreground="#666" LetterSpacing="1" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding AcquireChevron}" FontSize="11" Foreground="#555" VerticalAlignment="Center"/>
+                                    ToolTip.Tip="Collapse / expand">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Classes="section" Text="ACQUIRE" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Classes="caption" Text="{Binding AcquireChevron}" VerticalAlignment="Center"/>
                                 </Grid>
                             </Button>
-                            
+
                             <StackPanel Spacing="2" IsVisible="{Binding IsAcquireExpanded}">
-                                <Button Classes="nav" Command="{Binding NavigateSearchCommand}"
-                                        ToolTip.Tip="Search"
+                                <Button x:Name="NavSearch" Classes="nav" Command="{Binding NavigateSearchCommand}"
+                                        ToolTip.Tip="Search (Ctrl+2)"
                                         Classes.selected="{Binding IsSearchOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="🔍" FontSize="16"/>
-                                        <TextBlock Text="Search" FontSize="14"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_search}"/>
+                                        <TextBlock Text="Search" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigateProjectsCommand}"
-                                        ToolTip.Tip="Inbox"
+                                <Button x:Name="NavInbox" Classes="nav" Command="{Binding NavigateProjectsCommand}"
+                                        ToolTip.Tip="Inbox (Ctrl+4)"
                                         Classes.selected="{Binding IsProjectsOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="📥" FontSize="16"/>
-                                        <TextBlock Text="Inbox" FontSize="14"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_inbox}"/>
+                                        <TextBlock Text="Inbox" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigateImportCommand}"
+                                <Button x:Name="NavImport" Classes="nav" Command="{Binding NavigateImportCommand}"
                                         ToolTip.Tip="Import"
                                         Classes.selected="{Binding IsImportOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="🔗" FontSize="16"/>
-                                        <TextBlock Text="Import" FontSize="14"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_link}"/>
+                                        <TextBlock Text="Import" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
                             </StackPanel>
                         </StackPanel>
 
-                        <Border Height="1" Background="#333" Margin="12,12"/>
-
                         <!-- SYSTEM UTILITIES -->
                         <StackPanel IsVisible="{Binding IsSystemVisible}">
                             <Button Classes="group-header" Command="{Binding ToggleSystemCommand}"
-                                    Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch"
-                                    Padding="16,8,12,4" ToolTip.Tip="Collapse / expand">                                <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="SYSTEM" FontSize="11" FontWeight="Bold" Foreground="#666" LetterSpacing="1" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding SystemChevron}" FontSize="11" Foreground="#555" VerticalAlignment="Center"/>
+                                    ToolTip.Tip="Collapse / expand">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Classes="section" Text="SYSTEM" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Classes="caption" Text="{Binding SystemChevron}" VerticalAlignment="Center"/>
                                 </Grid>
                             </Button>
 
                             <StackPanel Spacing="2" IsVisible="{Binding IsSystemExpanded}">
-                                 <Button Classes="nav" Command="{Binding NavigateHomeCommand}"
-                                        ToolTip.Tip="Dashboard"
+                                <Button Classes="nav" Command="{Binding NavigateHomeCommand}"
+                                        ToolTip.Tip="Dashboard (Ctrl+1)"
                                         Classes.selected="{Binding IsHomeOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="🏠" FontSize="16"/>
-                                        <TextBlock Text="Dashboard" FontSize="14"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_home}"/>
+                                        <TextBlock Text="Dashboard" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigateLibraryCommand}"
-                                        ToolTip.Tip="Library"
+                                <Button x:Name="NavLibrary" Classes="nav" Command="{Binding NavigateLibraryCommand}"
+                                        ToolTip.Tip="Library (Ctrl+3)"
                                         Classes.selected="{Binding IsLibraryOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="📚" FontSize="16"/>
-                                        <TextBlock Text="Library" FontSize="14"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_library}"/>
+                                        <TextBlock Text="Library" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
 
                                 <Button Classes="nav" Command="{Binding NavigateUsersCommand}"
                                         ToolTip.Tip="Users &amp; Contacts"
                                         Classes.selected="{Binding IsUsersOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="👥" FontSize="16"/>
-                                        <TextBlock Text="Users" FontSize="14"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_users}"/>
+                                        <TextBlock Text="Users" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigateAnalysisCommand}"
+                                <Button x:Name="NavAnalysis" Classes="nav" Command="{Binding NavigateAnalysisCommand}"
                                         ToolTip.Tip="Analysis Pipeline"
                                         Classes.selected="{Binding IsAnalysisOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="🔬" FontSize="16"/>
-                                        <TextBlock Text="Analysis" FontSize="14"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_chart}"/>
+                                        <TextBlock Text="Analysis" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigateSettingsCommand}"
-                                        ToolTip.Tip="Settings"
+                                <Button x:Name="NavSettings" Classes="nav" Command="{Binding NavigateSettingsCommand}"
+                                        ToolTip.Tip="Settings (Ctrl+Shift+S)"
                                         Classes.selected="{Binding IsSettingsOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="⚙️" FontSize="16"/>
-                                        <TextBlock Text="Settings" FontSize="14"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_settings}"/>
+                                        <TextBlock Text="Settings" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
                             </StackPanel>
@@ -409,37 +427,46 @@
                         <!-- EXPERIMENTAL -->
                         <StackPanel IsVisible="{Binding IsCreativeVisible}">
                             <Button Classes="group-header" Command="{Binding ToggleCreativeCommand}"
-                                    Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch"
-                                    Padding="16,8,12,4" ToolTip.Tip="Collapse / expand">                                <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="EXPERIMENTAL" FontSize="11" FontWeight="Bold" Foreground="#666" LetterSpacing="1" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding CreativeChevron}" FontSize="11" Foreground="#555" VerticalAlignment="Center"/>
+                                    ToolTip.Tip="Collapse / expand">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Classes="section" Text="EXPERIMENTAL" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Classes="caption" Text="{Binding CreativeChevron}" VerticalAlignment="Center"/>
                                 </Grid>
                             </Button>
                             <StackPanel Spacing="2" IsVisible="{Binding IsCreativeExpanded}">
-                                <Button Classes="nav" Command="{Binding NavigateCueForgeCommand}"
+                                <Button x:Name="NavCueForge" Classes="nav" Command="{Binding NavigateCueForgeCommand}"
                                         ToolTip.Tip="Cue Forge — Visual cue generation and loop placement"
                                         Classes.selected="{Binding IsCueForgeOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="🎯" FontSize="16"/>
-                                        <TextBlock Text="Cue Forge" FontSize="14"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_target}"/>
+                                        <TextBlock Text="Cue Forge" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigateFlowBuilderCommand}"
+                                <Button x:Name="NavEditLab" Classes="nav" Command="{Binding NavigateEditLabCommand}"
+                                        ToolTip.Tip="Edit Lab — Combine tracks and stems into intros and edits, then render them to the library"
+                                        Classes.selected="{Binding IsEditLabOverlayActive}">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_mix}"/>
+                                        <TextBlock Text="Edit Lab" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <Button x:Name="NavFlowBuilder" Classes="nav" Command="{Binding NavigateFlowBuilderCommand}"
                                         ToolTip.Tip="Flow Builder — Suggest and apply a DJ-mix track order for a playlist"
                                         Classes.selected="{Binding IsFlowBuilderOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="🌊" FontSize="16"/>
-                                        <TextBlock Text="Flow Builder" FontSize="14"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_waves}"/>
+                                        <TextBlock Text="Flow Builder" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigateWorkstationCommand}"
-                                        ToolTip.Tip="Workstation — Decks, Timeline &amp; Stem Editor"
+                                <Button x:Name="NavWorkstation" Classes="nav" Command="{Binding NavigateWorkstationCommand}"
+                                        ToolTip.Tip="Workstation — Decks, Timeline &amp; Stem Editor (Ctrl+Shift+P)"
                                         Classes.selected="{Binding IsWorkstationOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="🎛️" FontSize="16"/>
-                                        <TextBlock Text="Workstation" FontSize="14"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_tune}"/>
+                                        <TextBlock Text="Workstation" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
                             </StackPanel>
@@ -452,7 +479,7 @@
                  defers the actual resize until mouse-up (only a detached preview line moves while
                  dragging), which reads as nothing responding until the drag finishes. -->
             <GridSplitter Grid.Column="1"
-                          Background="#3C3C3C"
+                          Classes="shell-splitter"
                           HorizontalAlignment="Stretch"
                           ResizeDirection="Columns"
                           ToolTip.Tip="Drag to resize navigation sidebar"/>
@@ -463,63 +490,47 @@
                        IsPaneOpen="{Binding IsGlobalSidebarOpen}"
                        DisplayMode="Inline"
                        PanePlacement="Right"
+                       PaneBackground="{StaticResource BrushBg2}"
                        OpenPaneLength="{Binding ContextPanelWidth}">
-                
+
                 <SplitView.Pane>
                     <Panel>
-                    <Border Background="#252526" BorderBrush="#3E3E3E" BorderThickness="1,0,0,0">
+                    <Border Classes="panel" BorderThickness="1,0,0,0">
                         <Grid RowDefinitions="Auto,*">
 
                             <!-- Context panel header -->
-                            <Border Grid.Row="0" Background="#1E1E1E" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="12,8">
+                            <Border Grid.Row="0" Classes="panel-header">
                                 <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Text="CONTEXT" FontSize="10" FontWeight="Bold" Foreground="#555" LetterSpacing="1.5" VerticalAlignment="Center"/>
-                                    <Button Grid.Column="1" Classes="tool" Command="{Binding Sidebar.CloseCommand}"
-                                            Content="✖" Foreground="#888" VerticalAlignment="Center"/>
+                                    <TextBlock Classes="section" Text="CONTEXT" VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1" Classes="icon small" Command="{Binding Sidebar.CloseCommand}"
+                                            ToolTip.Tip="Close side panel" VerticalAlignment="Center">
+                                        <PathIcon Data="{StaticResource icon_close}" Width="12" Height="12"/>
+                                    </Button>
                                 </Grid>
                             </Border>
 
                             <!-- Tabbed workstation panel — full height, no player. SelectedIndex is
                                  two-way bound to Sidebar.ActiveTabIndex so opening a panel (e.g. the
                                  notification bell) actually jumps to the right tab, and a manual tab
-                                 click keeps ActiveTab in sync for anything else that reads it. -->
-                            <TabControl Grid.Row="1" SelectedIndex="{Binding Sidebar.ActiveTabIndex}">
-                                <TabControl.Styles>
-                                    <Style Selector="TabItem">
-                                        <Setter Property="Background" Value="Transparent"/>
-                                        <Setter Property="Foreground" Value="#888"/>
-                                        <Setter Property="FontSize" Value="11"/>
-                                        <Setter Property="FontWeight" Value="Bold"/>
-                                        <!-- Tightened from 16,10 — a 5th tab (Mix) no longer fits
-                                             one row at the original padding, silently wrapping to
-                                             a second line with no visible affordance hinting it's
-                                             there. -->
-                                        <Setter Property="Padding" Value="9,10"/>
-                                        <Setter Property="BorderThickness" Value="0,0,0,2"/>
-                                        <Setter Property="BorderBrush" Value="Transparent"/>
-                                    </Style>
-                                    <Style Selector="TabItem:selected">
-                                        <Setter Property="Foreground" Value="White"/>
-                                        <Setter Property="BorderBrush" Value="#4EC9B0"/>
-                                    </Style>
-                                    <Style Selector="TabItem:pointerover">
-                                        <Setter Property="Foreground" Value="#AAA"/>
-                                        <Setter Property="Background" Value="#0DFFFFFF"/>
-                                    </Style>
-                                </TabControl.Styles>
+                                 click keeps ActiveTab in sync for anything else that reads it.
+                                 tabs-underline: tight 9px padding so all 6 tabs fit on one row. -->
+                            <TabControl Grid.Row="1" Classes="tabs-underline" SelectedIndex="{Binding Sidebar.ActiveTabIndex}">
 
                                 <TabItem Header="Inspector">
                                     <ContentControl Content="{Binding Sidebar.CurrentContent}">
                                         <ContentControl.DataTemplates>
                                             <DataTemplate DataType="vmCore:PlayerViewModel">
-                                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" Margin="0,48">
-                                                    <TextBlock Text="▶" FontSize="32" HorizontalAlignment="Center" Foreground="#555"/>
-                                                    <TextBlock Text="Inspector content is unavailable for this selection." Foreground="#888" FontSize="13"
-                                                               HorizontalAlignment="Center"/>
+                                                <StackPanel Classes="empty-state">
+                                                    <PathIcon Data="{StaticResource icon_info}"/>
+                                                    <TextBlock Classes="h3" Text="Nothing to inspect"/>
+                                                    <TextBlock Classes="caption" Text="Inspector content is unavailable for this selection."/>
                                                 </StackPanel>
                                             </DataTemplate>
                                             <DataTemplate DataType="vmCore:LibraryDoubleInspectorViewModel">
                                                 <controls:DoubleInspectorPanel/>
+                                            </DataTemplate>
+                                            <DataTemplate DataType="vmCore:LibraryMultiSelectionInspectorViewModel">
+                                                <controls:MultiSelectionInspectorPanel/>
                                             </DataTemplate>
                                             <DataTemplate DataType="vmCore:PlaylistIntelligenceViewModel">
                                                 <controls:PlaylistIntelligencePanel/>
@@ -587,31 +598,20 @@
                     </Panel>
                 </SplitView.Pane>
 
-                <Grid Background="#1E1E1E">
+                <Grid Background="{StaticResource BrushBg1}">
                     <TransitioningContentControl Content="{Binding CurrentPage}">
                         <TransitioningContentControl.PageTransition>
                             <CrossFade Duration="0:0:0.25"/>
                         </TransitioningContentControl.PageTransition>
                     </TransitioningContentControl>
 
-                    <Border Background="#1E1E1E"
+                    <Border Background="{StaticResource BrushBg1}"
                             IsVisible="{Binding CurrentPage, Converter={x:Static ObjectConverters.IsNull}}">
-                        <StackPanel HorizontalAlignment="Center"
-                                    VerticalAlignment="Center"
-                                    Spacing="10">
-                            <TextBlock Text="Page failed to load"
-                                       FontSize="18"
-                                       FontWeight="SemiBold"
-                                       Foreground="#DDFFFFFF"
-                                       HorizontalAlignment="Center"/>
-                            <TextBlock Text="Returning to Home usually restores the shell."
-                                       FontSize="12"
-                                       Foreground="#99FFFFFF"
-                                       HorizontalAlignment="Center"/>
-                            <Button Content="Go Home"
-                                    Command="{Binding NavigateHomeCommand}"
-                                    HorizontalAlignment="Center"
-                                    Padding="16,8"/>
+                        <StackPanel Classes="empty-state">
+                            <PathIcon Data="{StaticResource icon_alert}"/>
+                            <TextBlock Classes="h2" Text="Page failed to load"/>
+                            <TextBlock Classes="caption" Text="Returning to Home usually restores the shell."/>
+                            <Button Classes="primary" Content="Go Home" Command="{Binding NavigateHomeCommand}"/>
                         </StackPanel>
                     </Border>
                 </Grid>
@@ -619,8 +619,8 @@
 
             <!-- GridSplitter: Content ↔ Timeline (col 3) — Epic 12 #110 -->
             <GridSplitter Grid.Column="3"
+                          Classes="shell-splitter"
                           IsVisible="{Binding IsTimelinePanelOpen}"
-                          Background="#3C3C3C"
                           HorizontalAlignment="Stretch"
                           ResizeDirection="Columns"
                           ShowsPreview="True"
@@ -628,24 +628,19 @@
 
             <!-- Timeline Panel (col 4) — Epic 12 #110 -->
             <Border Grid.Column="4"
+                    Classes="panel"
                     IsVisible="{Binding IsTimelinePanelOpen}"
                     Width="{Binding TimelinePanelWidth}"
-                    MinWidth="160"
-                    Background="#1A1A2E"
-                    BorderBrush="#3C3C3C"
-                    BorderThickness="0,0,0,0">
+                    MinWidth="160">
                 <Grid RowDefinitions="Auto,*">
-                    <Border Grid.Row="0" Padding="10,8" Background="#111122"
-                            BorderBrush="#3C3C3C" BorderThickness="0,0,0,1">
+                    <Border Grid.Row="0" Classes="panel-header">
                         <Grid ColumnDefinitions="*,Auto">
-                            <TextBlock Text="⏱ TIMELINE" FontSize="11" FontWeight="Bold"
-                                       Foreground="#9B8DFF" LetterSpacing="1"
-                                       VerticalAlignment="Center"/>
-                            <Button Grid.Column="1" Classes="tool"
+                            <TextBlock Classes="section" Text="TIMELINE" VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Classes="icon small"
                                     Command="{Binding ToggleTimelinePanelCommand}"
-                                    Content="✕" Foreground="#888"
-                                    MinWidth="24" MinHeight="24"
-                                    ToolTip.Tip="Close Timeline panel"/>
+                                    ToolTip.Tip="Close Timeline panel">
+                                <PathIcon Data="{StaticResource icon_close}" Width="12" Height="12"/>
+                            </Button>
                         </Grid>
                     </Border>
                     <!-- Hosted inside this panel: navigate to the Timeline page or embed TimelinePage directly -->
@@ -657,8 +652,8 @@
 
             <!-- GridSplitter: Timeline ↔ Overlays (col 5) — Epic 12 #110 -->
             <GridSplitter Grid.Column="5"
+                          Classes="shell-splitter"
                           IsVisible="{Binding IsOverlaysPanelOpen}"
-                          Background="#3C3C3C"
                           HorizontalAlignment="Stretch"
                           ResizeDirection="Columns"
                           ShowsPreview="True"
@@ -666,30 +661,24 @@
 
             <!-- Overlays / Visual Engine Panel (col 6) — Epic 12 #110 -->
             <Border Grid.Column="6"
+                    Classes="panel"
                     IsVisible="{Binding IsOverlaysPanelOpen}"
                     Width="{Binding OverlaysPanelWidth}"
-                    MinWidth="140"
-                    Background="#1A2A1A"
-                    BorderBrush="#3C3C3C"
-                    BorderThickness="0,0,0,0">
+                    MinWidth="140">
                 <Grid RowDefinitions="Auto,*">
-                    <Border Grid.Row="0" Padding="10,8" Background="#112211"
-                            BorderBrush="#3C3C3C" BorderThickness="0,0,0,1">
+                    <Border Grid.Row="0" Classes="panel-header">
                         <Grid ColumnDefinitions="*,Auto">
-                            <TextBlock Text="✦ OVERLAYS" FontSize="11" FontWeight="Bold"
-                                       Foreground="#7FD47F" LetterSpacing="1"
-                                       VerticalAlignment="Center"/>
-                            <Button Grid.Column="1" Classes="tool"
+                            <TextBlock Classes="section" Text="OVERLAYS" VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Classes="icon small"
                                     Command="{Binding ToggleOverlaysPanelCommand}"
-                                    Content="✕" Foreground="#888"
-                                    MinWidth="24" MinHeight="24"
-                                    ToolTip.Tip="Close Overlays panel"/>
+                                    ToolTip.Tip="Close Overlays panel">
+                                <PathIcon Data="{StaticResource icon_close}" Width="12" Height="12"/>
+                            </Button>
                         </Grid>
                     </Border>
-                    <ScrollViewer Grid.Row="1" Padding="8">
+                    <ScrollViewer Grid.Row="1" Padding="12">
                         <StackPanel Spacing="8">
-                            <TextBlock Text="Visual Engine &amp; Performance Overlays" FontSize="11"
-                                       Foreground="#666" TextWrapping="Wrap"/>
+                            <TextBlock Classes="caption" Text="Visual Engine &amp; Performance Overlays" TextWrapping="Wrap"/>
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>
@@ -704,7 +693,7 @@
         ═════════════════════════════════════════════════════════════════════ -->
         <Grid Grid.Row="2"
               IsVisible="{Binding IsTabletMode}"
-              Background="{DynamicResource RegionBrush}"
+              Background="{StaticResource BrushBg2}"
               MaxHeight="300"
               ZIndex="10">
             <Grid.RowDefinitions>
@@ -712,45 +701,31 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <!-- Sheet drag handle + tab bar -->
-            <Border Grid.Row="0" Background="#252525" Padding="12,6"
-                    BorderBrush="#3E3E3E" BorderThickness="0,1,0,0">
-                <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center">
-                    <Button Background="Transparent" BorderThickness="0" Padding="8,4"
-                            MinHeight="44" MinWidth="44"
-                            Command="{Binding Sidebar.SwitchToPlayerCommand}"
-                            ToolTip.Tip="Now Playing">
-                        <TextBlock Text="Now Playing" FontSize="12" Foreground="#4EC9B0"/>
+            <!-- Sheet drag handle + tab bar (44px touch targets) -->
+            <Border Grid.Row="0" Background="{StaticResource BrushBg2}" Padding="12,4"
+                    BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,1,0,0">
+                <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                    <StackPanel.Styles>
+                        <Style Selector="Button.ghost">
+                            <Setter Property="MinHeight" Value="44"/>
+                            <Setter Property="MinWidth" Value="44"/>
+                        </Style>
+                    </StackPanel.Styles>
+                    <Button Classes="ghost small" Content="Now Playing"
+                            Command="{Binding Sidebar.SwitchToPlayerCommand}" ToolTip.Tip="Now Playing"/>
+                    <Button Classes="ghost small" Content="Inspector"
+                            Command="{Binding Sidebar.SwitchToInspectorCommand}" ToolTip.Tip="Inspector"/>
+                    <Button Classes="ghost small" Content="Similar"
+                            Command="{Binding Sidebar.SwitchToSimilarityCommand}" ToolTip.Tip="Similar Tracks"/>
+                    <Button Classes="ghost small" Content="Timeline"
+                            Command="{Binding ToggleTimelinePanelCommand}" ToolTip.Tip="Timeline"/>
+                    <Button Classes="ghost small"
+                            Command="{Binding Sidebar.OpenNotificationsCommand}" ToolTip.Tip="Notifications">
+                        <PathIcon Data="{StaticResource icon_bell}" Width="14" Height="14"/>
                     </Button>
-                    <Button Background="Transparent" BorderThickness="0" Padding="8,4"
-                            MinHeight="44" MinWidth="44"
-                            Command="{Binding Sidebar.SwitchToInspectorCommand}"
-                            ToolTip.Tip="Inspector">
-                        <TextBlock Text="Inspector" FontSize="12" Foreground="#CCC"/>
-                    </Button>
-                    <Button Background="Transparent" BorderThickness="0" Padding="8,4"
-                            MinHeight="44" MinWidth="44"
-                            Command="{Binding Sidebar.SwitchToSimilarityCommand}"
-                            ToolTip.Tip="Similar Tracks">
-                        <TextBlock Text="Similar" FontSize="12" Foreground="#63B3ED"/>
-                    </Button>
-                    <Button Background="Transparent" BorderThickness="0" Padding="8,4"
-                            MinHeight="44" MinWidth="44"
-                            Command="{Binding ToggleTimelinePanelCommand}"
-                            ToolTip.Tip="Timeline">
-                        <TextBlock Text="Timeline" FontSize="12" Foreground="#9B8DFF"/>
-                    </Button>
-                    <Button Background="Transparent" BorderThickness="0" Padding="8,4"
-                            MinHeight="44" MinWidth="44"
-                            Command="{Binding Sidebar.OpenNotificationsCommand}"
-                            ToolTip.Tip="Notifications">
-                        <TextBlock Text="🔔" FontSize="12" Foreground="#FFB347"/>
-                    </Button>
-                    <Button Background="Transparent" BorderThickness="0" Padding="8,4"
-                            MinHeight="44" MinWidth="44"
-                            Command="{Binding Sidebar.CloseCommand}"
-                            ToolTip.Tip="Close side panel">
-                        <TextBlock Text="Close" FontSize="12" Foreground="#888"/>
+                    <Button Classes="ghost small"
+                            Command="{Binding Sidebar.CloseCommand}" ToolTip.Tip="Close side panel">
+                        <PathIcon Data="{StaticResource icon_close}" Width="12" Height="12"/>
                     </Button>
                 </StackPanel>
             </Border>
@@ -793,14 +768,17 @@
                     </ContentControl.Transitions>
                     <ContentControl.DataTemplates>
                         <DataTemplate DataType="vmCore:PlayerViewModel">
-                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
-                                <TextBlock Text="▶" FontSize="32" HorizontalAlignment="Center" Foreground="#555"/>
-                                <TextBlock Text="Select a track to inspect" Foreground="#888" FontSize="13"
-                                           HorizontalAlignment="Center"/>
+                            <StackPanel Classes="empty-state">
+                                <PathIcon Data="{StaticResource icon_info}"/>
+                                <TextBlock Classes="h3" Text="Nothing to inspect"/>
+                                <TextBlock Classes="caption" Text="Select a track to inspect it here."/>
                             </StackPanel>
                         </DataTemplate>
                         <DataTemplate DataType="vmCore:LibraryDoubleInspectorViewModel">
                             <controls:DoubleInspectorPanel/>
+                        </DataTemplate>
+                        <DataTemplate DataType="vmCore:LibraryMultiSelectionInspectorViewModel">
+                            <controls:MultiSelectionInspectorPanel/>
                         </DataTemplate>
                         <DataTemplate DataType="vmCore:PlaylistIntelligenceViewModel">
                             <controls:PlaylistIntelligencePanel/>
@@ -833,105 +811,71 @@
         </Grid>
 
         <!-- Login Overlay -->
-        <Grid Grid.RowSpan="3" 
-              Background="#DD000000" 
-              IsVisible="{Binding ConnectionViewModel.IsLoginOverlayVisible}" 
+        <Grid Grid.RowSpan="3"
+              Background="{StaticResource BrushScrim}"
+              IsVisible="{Binding ConnectionViewModel.IsLoginOverlayVisible}"
               ZIndex="1000">
-            <Border Background="#252526" 
-                    CornerRadius="8" 
-                    Padding="32"
-                    Width="420"
-                    HorizontalAlignment="Center" 
-                    VerticalAlignment="Center"
-                    BorderBrush="#404040"
-                    BorderThickness="1">
-                <StackPanel Spacing="12">
-                    <Grid Margin="0,0,0,12">
-                        <TextBlock Text="Sign in to Soulseek"
-                                   FontSize="20"
-                                   FontWeight="Bold"
-                                   Foreground="White"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"/>
-                        <Button Content="?"
-                            Command="{Binding ConnectionViewModel.OpenAccountHelpCommand}"
-                                HorizontalAlignment="Right"
-                                VerticalAlignment="Center"
-                                Width="24"
-                                Height="24"
-                                Padding="0"
-                                FontSize="13"
-                                FontWeight="Bold"
-                                Background="#404040"
-                                Foreground="#A0A0A0"
-                                BorderBrush="#606060"
-                                BorderThickness="1"
-                                CornerRadius="12"
-                                HorizontalContentAlignment="Center"
-                                VerticalContentAlignment="Center">
+            <Border Classes="dialog"
+                    Padding="28"
+                    Width="400"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <StackPanel Spacing="8">
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,4">
+                        <StackPanel Spacing="2">
+                            <TextBlock Classes="h2" Text="Sign in to Soulseek"/>
+                            <TextBlock Classes="caption" Text="A new username and password creates your account."/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Classes="icon small"
+                                Command="{Binding ConnectionViewModel.OpenAccountHelpCommand}"
+                                VerticalAlignment="Top">
+                            <PathIcon Data="{StaticResource icon_info}" Width="14" Height="14"/>
                             <ToolTip.Tip>Soulseek has no separate sign-up page. Use a new username and password to create your account on first login. Click for official help.</ToolTip.Tip>
                         </Button>
                     </Grid>
 
-                    <TextBlock Text="Username" Foreground="#A0A0A0" FontSize="12"/>
-                    <TextBox Text="{Binding ConnectionViewModel.Username, Mode=TwoWay}" 
-                             Watermark="Username"
-                             Padding="12,8"
-                             FontSize="14"/>
+                    <TextBlock Classes="caption" Text="Username" Margin="0,8,0,0"/>
+                    <TextBox Text="{Binding ConnectionViewModel.Username, Mode=TwoWay}"
+                             Watermark="Username"/>
 
-                    <TextBlock Text="Password" Foreground="#A0A0A0" FontSize="12"/>
-                    <TextBox x:Name="LoginPasswordBox" 
+                    <TextBlock Classes="caption" Text="Password" Margin="0,4,0,0"/>
+                    <TextBox x:Name="LoginPasswordBox"
                              Watermark="Password"
-                             PasswordChar="●"
-                             Padding="12,8"
-                             FontSize="14"/>
+                             PasswordChar="●"/>
 
-                    <StackPanel Orientation="Horizontal" Spacing="12">
-                        <CheckBox Content="Remember me" 
-                                  IsChecked="{Binding ConnectionViewModel.RememberPassword, Mode=TwoWay}" 
-                                  Foreground="White"/>
-                        <CheckBox Content="Auto-connect" 
-                                  IsChecked="{Binding ConnectionViewModel.AutoConnectEnabled, Mode=TwoWay}" 
-                                  Foreground="White"/>
+                    <StackPanel Orientation="Horizontal" Spacing="16" Margin="0,4,0,0">
+                        <CheckBox Content="Remember me"
+                                  IsChecked="{Binding ConnectionViewModel.RememberPassword, Mode=TwoWay}"/>
+                        <CheckBox Content="Auto-connect"
+                                  IsChecked="{Binding ConnectionViewModel.AutoConnectEnabled, Mode=TwoWay}"/>
                     </StackPanel>
 
                     <Button Classes="primary"
-                            Content="Connect" 
-                            Command="{Binding ConnectionViewModel.LoginCommand}" 
+                            Content="Connect"
+                            Command="{Binding ConnectionViewModel.LoginCommand}"
                             CommandParameter="{Binding #LoginPasswordBox.Text}"
-                            Height="44"
-                            FontSize="14"
-                            FontWeight="SemiBold"
-                            Margin="0,8,0,0"/>
-                    
-                    <Button Content="Maybe Later" 
-                            Command="{Binding ConnectionViewModel.DismissLoginCommand}"
-                            Background="Transparent" 
-                            Foreground="#A0A0A0" 
-                            FontSize="12"
-                            BorderThickness="0" 
-                            Padding="0,12"
-                            HorizontalContentAlignment="Center">
-                        <Button.Styles>
-                            <Style Selector="Button:pointerover">
-                                <Setter Property="Foreground" Value="White"/>
-                            </Style>
-                        </Button.Styles>
-                    </Button>
+                            HorizontalAlignment="Stretch"
+                            Padding="12,9"
+                            Margin="0,12,0,0"/>
 
-                    <TextBlock Text="{Binding ConnectionViewModel.StatusText}" 
-                               Foreground="#FFB347" 
-                               FontSize="12" 
+                    <Button Classes="ghost"
+                            Content="Maybe later"
+                            Command="{Binding ConnectionViewModel.DismissLoginCommand}"
+                            HorizontalAlignment="Stretch"/>
+
+                    <TextBlock Classes="caption warning"
+                               Text="{Binding ConnectionViewModel.StatusText}"
                                TextWrapping="Wrap"
-                               HorizontalAlignment="Center"/>
+                               HorizontalAlignment="Center"
+                               TextAlignment="Center"/>
                 </StackPanel>
             </Border>
         </Grid>
-        
+
         <!-- Bottom Player Drawer -->
-        <Border Grid.Row="2" 
-                Background="#252526" 
-                BorderBrush="#3E3E3E" 
+        <Border Grid.Row="2"
+                Background="{StaticResource BrushBg2}"
+                BorderBrush="{StaticResource BrushBorder0}"
                 BorderThickness="0,1,0,0"
                 Height="100"
                 IsVisible="{Binding ShowBottomPlayerDrawer}">
@@ -949,7 +893,7 @@
         </Border>
 
         <Grid Grid.RowSpan="3"
-              Background="#F20B1018"
+              Background="{StaticResource BrushScrimStrong}"
               IsVisible="{Binding PlayerViewModel.IsExpandedPlayerOpen}"
               ZIndex="950">
             <views:ExpandedPlayerView DataContext="{Binding PlayerViewModel}"/>
@@ -957,29 +901,45 @@
 
         <!-- Zen mode hides the top bar; keep a floating play/pause so playback is always reachable. -->
         <Button Grid.RowSpan="3"
+                Classes="transport-play"
                 IsVisible="{Binding !IsTopCommandBarVisible}"
                 Command="{Binding PlayerViewModel.TogglePlayPauseCommand}"
                 HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="16"
-                Width="44" Height="44" CornerRadius="22" Padding="0"
-                Background="#E64EC9B0" BorderThickness="0"
-                HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                Width="44" Height="44" CornerRadius="22"
                 ZIndex="900" ToolTip.Tip="Play / pause">
             <Panel>
-                <TextBlock Text="▶" FontSize="17" Foreground="#111" Margin="3,0,0,0"
-                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                           IsVisible="{Binding !PlayerViewModel.IsPlaying}"/>
-                <TextBlock Text="⏸" FontSize="17" Foreground="#111"
-                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                           IsVisible="{Binding PlayerViewModel.IsPlaying}"/>
+                <PathIcon Data="{StaticResource icon_play}" Width="16" Height="16" Margin="2,0,0,0"
+                          IsVisible="{Binding !PlayerViewModel.IsPlaying}"/>
+                <PathIcon Data="{StaticResource icon_pause}" Width="16" Height="16"
+                          IsVisible="{Binding PlayerViewModel.IsPlaying}"/>
             </Panel>
         </Button>
+
+        <!-- First-run setup wizard (DOCS/FIRST_RUN_SETUP.md): above the shell and the login dialog,
+             below toasts so its own notifications stay visible. -->
+        <Panel Grid.RowSpan="3" ZIndex="1500" IsVisible="{Binding Setup.IsWizardOpen, FallbackValue=False}">
+            <setupViews:SetupWizardView DataContext="{Binding Setup.Wizard}"/>
+        </Panel>
+
+        <!-- Folder import sheet: over the shell and the setup wizard (its "Scan now" opens it),
+             below the tour and toasts. The scrim plus the disabled shell lock the app while the
+             initial import runs; "Run in background" swaps it for the top-bar chip. -->
+        <Grid Grid.RowSpan="3" ZIndex="1550" Background="{StaticResource BrushScrim}"
+              IsVisible="{Binding Import.IsOpen, FallbackValue=False}">
+            <views:LibraryImportSheet DataContext="{Binding Import}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16"/>
+        </Grid>
+
+        <!-- Quick tour coach marks over the real navigation items -->
+        <Panel Grid.RowSpan="3" ZIndex="1600" IsVisible="{Binding Setup.Tour.IsOpen, FallbackValue=False}">
+            <setupViews:TourOverlay DataContext="{Binding Setup.Tour}"/>
+        </Panel>
 
         <!-- Toast Notifications -->
         <ItemsControl Grid.RowSpan="3"
                       ItemsSource="{Binding Toasts}"
                       HorizontalAlignment="Right"
                       VerticalAlignment="Top"
-                      Margin="0,16,16,0"
+                      Margin="0,56,16,0"
                       IsHitTestVisible="True"
                       ZIndex="2000">
             <ItemsControl.Styles>
@@ -992,31 +952,34 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vmCore:ToastNotificationViewModel">
-                    <Border Background="#1E252E"
+                    <!-- Type colour shows as a 3px left edge only; the card itself stays neutral. -->
+                    <Border Background="{StaticResource BrushBg3}"
                             BorderBrush="{Binding Type, Converter={StaticResource NotificationTypeToColorConverter}}"
-                            BorderThickness="1,1,1,3"
-                            CornerRadius="8"
-                            Padding="14,10"
+                            BorderThickness="3,0,0,0"
+                            CornerRadius="{StaticResource RadiusLg}"
+                            Padding="12,10"
                             Width="340"
-                            BoxShadow="0 4 16 0 #55000000"
+                            BoxShadow="{StaticResource ShadowLg}"
                             Classes.clickable="{Binding IsClickable}"
                             Tapped="OnToastTapped">
                         <Grid ColumnDefinitions="*,Auto">
                             <StackPanel Grid.Column="0" Spacing="2">
-                                <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="Bold" Foreground="White" TextWrapping="Wrap"/>
-                                <TextBlock Text="{Binding Message}" FontSize="12" Foreground="#B7C4D1" TextWrapping="Wrap"/>
-                                <TextBlock Text="{Binding ClickHint}" IsVisible="{Binding IsClickable}" FontSize="11" FontWeight="SemiBold"
-                                           Foreground="#4EC9B0" Margin="0,4,0,0"/>
+                                <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold"
+                                           Foreground="{StaticResource BrushText0}" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding Message}" FontSize="12"
+                                           Foreground="{StaticResource BrushText1}" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding ClickHint}" IsVisible="{Binding IsClickable}" FontSize="11" FontWeight="Medium"
+                                           Foreground="{StaticResource BrushAccent}" Margin="0,4,0,0"/>
                             </StackPanel>
-                            <Button Grid.Column="1"
-                                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).DismissToastCommand}"
+                            <!-- Was "$parent[Window].((vm:MainViewModel)DataContext)..." — cast syntax in a
+                                 binding path silently resolves to nothing (dead button). -->
+                            <Button Grid.Column="1" Classes="icon small"
+                                    Command="{Binding $parent[Window].DataContext.DismissToastCommand}"
                                     CommandParameter="{Binding}"
-                                    Background="Transparent"
-                                    BorderThickness="0"
-                                    Padding="4"
                                     VerticalAlignment="Top"
-                                    Foreground="#8FA5B8">
-                                <TextBlock Text="✕" FontSize="11"/>
+                                    Margin="4,-4,-6,0"
+                                    ToolTip.Tip="Dismiss">
+                                <PathIcon Data="{StaticResource icon_close}" Width="10" Height="10"/>
                             </Button>
                         </Grid>
                     </Border>
@@ -1032,16 +995,17 @@
                 VerticalAlignment="Bottom"
                 Margin="0,0,16,16"
                 Padding="12,10"
-                CornerRadius="6"
-                Background="#CC101418"
-                BorderBrush="#3A4A5A"
+                CornerRadius="{StaticResource RadiusLg}"
+                Background="{StaticResource BrushBg3}"
+                BorderBrush="{StaticResource BrushBorder1}"
                 BorderThickness="1"
+                BoxShadow="{StaticResource ShadowMd}"
                 IsHitTestVisible="False"
                 ZIndex="2000"
                 IsVisible="{Binding IsPerformanceOverlayVisible}"
                 MaxWidth="320">
             <StackPanel Spacing="4">
-                <TextBlock Text="PERF (F12 to hide)" FontSize="10" FontWeight="Bold" Foreground="#6FCF97"/>
+                <TextBlock Classes="section" Text="PERF · F12 TO HIDE"/>
                 <ItemsControl ItemsSource="{Binding PerfTracker.RecentTimings}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
@@ -1051,10 +1015,10 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="svc:PerfTiming">
                             <Grid ColumnDefinitions="*,Auto" Margin="0,1">
-                                <TextBlock Grid.Column="0" Text="{Binding Label}" FontSize="10" Foreground="#B7C4D1"
-                                           TextTrimming="CharacterEllipsis"/>
-                                <TextBlock Grid.Column="1" Text="{Binding Duration.TotalMilliseconds, StringFormat={}{0:0}ms}"
-                                           FontSize="10" FontFamily="Consolas,monospace" Foreground="White" Margin="8,0,0,0"/>
+                                <TextBlock Grid.Column="0" Text="{Binding Label}" FontSize="11"
+                                           Foreground="{StaticResource BrushText1}" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Grid.Column="1" Classes="mono" Text="{Binding Duration.TotalMilliseconds, StringFormat={}{0:0}ms}"
+                                           FontSize="11" Foreground="{StaticResource BrushText0}" Margin="8,0,0,0"/>
                             </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

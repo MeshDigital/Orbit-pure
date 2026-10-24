@@ -1,14 +1,19 @@
 <!--
-  ORBIT Design Tokens — Task 10.1
-  Single source of truth for all visual primitives.
-  Include with: <StyleInclude Source="/Themes/DesignTokens.axaml"/>
+  ORBIT Design Tokens — the ONLY place raw colour values may live.
+  Contract + usage rules: DOCS/UI_DESIGN_SYSTEM.md
 
-  Token naming convention
-    Color:       [Role][Variant]Brush / [Role][Variant]Color
-    Typography:  TextStyleDisplay/H1/H2/H3/Body/BodySmall/Caption/Mono
-    Spacing:     SpaceXs(4) / SpaceSm(8) / SpaceMd(12) / SpaceLg(16) / SpaceXl(24) / Space2xl(32) / Space3xl(48)
-    Radius:      RadiusSm(4) / RadiusMd(8) / RadiusLg(12) / RadiusFull(9999)
-    Shadow:      ShadowSm / ShadowMd / ShadowLg
+  Load order (App.axaml → Themes/AvaloniaTheme.axaml):
+    FluentTheme → DesignTokens (this file) → Icons → Controls → GlassConsoleStyles
+
+  Sections
+    1. Primitive colours        Color*            (never bind these directly in views unless a Color is required)
+    2. Semantic brushes         Brush*            (what views use)
+    3. Legacy aliases           old key names kept because Views reference them — values now map to §1
+    4. Fluent overrides         Fluent control-template resource keys re-pointed at our palette
+    5. Typography / spacing / radius / shadow / motion / icon-size scales
+
+  Rules: never rename/remove a key that is referenced anywhere (grep first); add new keys to §1/§2.
+  Use DynamicResource from Themes/*.axaml (cross-file); either Static or Dynamic from Views.
 -->
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
@@ -17,106 +22,314 @@
     <ResourceDictionary>
 
       <!-- ================================================================
-           COLOUR PALETTE — primitive values
+           1. PRIMITIVE COLOURS
+           Neutral, very slightly cool greys. Surfaces step up ~6-8 L* each.
            ================================================================ -->
 
-      <!-- Background hierarchy (darkest → lightest) -->
-      <Color x:Key="ColorBase0">#0A0A0C</Color>
-      <Color x:Key="ColorBase1">#0F0F14</Color>
-      <Color x:Key="ColorBase2">#1A1A24</Color>
-      <Color x:Key="ColorBase3">#222230</Color>
-      <Color x:Key="ColorBase4">#2C2C3E</Color>
-      <Color x:Key="ColorBase5">#363650</Color>
+      <!-- Surfaces (darkest → lightest) -->
+      <Color x:Key="ColorBase0">#0F1012</Color>   <!-- shell chrome: top bar, nav sidebar, sunken wells -->
+      <Color x:Key="ColorBase1">#151618</Color>   <!-- page background -->
+      <Color x:Key="ColorBase2">#1B1C1F</Color>   <!-- panels, cards, side panes -->
+      <Color x:Key="ColorBase3">#222327</Color>   <!-- controls: buttons, inputs, raised rows -->
+      <Color x:Key="ColorBase4">#2A2C30</Color>   <!-- hover surface, selected row (opaque) -->
+      <Color x:Key="ColorBase5">#34363B</Color>   <!-- strongest surface, pressed, scrollbar thumb -->
 
-      <!-- Accent: mint-teal (#4EC9B0) -->
+      <!-- Interaction overlays (translucent — work on any surface) -->
+      <Color x:Key="ColorHover">#12FFFFFF</Color>
+      <Color x:Key="ColorPressed">#1FFFFFFF</Color>
+      <Color x:Key="ColorSelected">#1F4EC9B0</Color>
+
+      <!-- Borders / dividers (translucent white) -->
+      <Color x:Key="ColorBorder0">#12FFFFFF</Color>  <!-- hairline divider -->
+      <Color x:Key="ColorBorder1">#1FFFFFFF</Color>  <!-- default control / card border -->
+      <Color x:Key="ColorBorder2">#2EFFFFFF</Color>  <!-- hover / emphasised border -->
+
+      <!-- Accent: mint-teal (identity colour — the ONLY accent) -->
       <Color x:Key="ColorAccent">#4EC9B0</Color>
+      <Color x:Key="ColorAccentHover">#63D3BC</Color>
+      <Color x:Key="ColorAccentPressed">#3BB39B</Color>
       <Color x:Key="ColorAccentDim">#2D8A74</Color>
       <Color x:Key="ColorAccentGlow">#304EC9B0</Color>
-      <Color x:Key="ColorAccentSubtle">#0D4EC9B0</Color>
+      <Color x:Key="ColorAccentSubtle">#174EC9B0</Color>   <!-- tinted background -->
+      <Color x:Key="ColorAccentBorder">#664EC9B0</Color>   <!-- tinted border -->
+      <Color x:Key="ColorOnAccent">#0B1513</Color>         <!-- text/icons on solid accent -->
 
-      <!-- Semantic colours -->
-      <Color x:Key="ColorSuccess">#44FF88</Color>
-      <Color x:Key="ColorWarning">#FFB03A</Color>
-      <Color x:Key="ColorError">#FF4466</Color>
-      <Color x:Key="ColorInfo">#4FC3F7</Color>
+      <!-- Semantic (desaturated, used sparingly: status only, never decoration) -->
+      <Color x:Key="ColorSuccess">#4CC38A</Color>
+      <Color x:Key="ColorWarning">#E5A645</Color>
+      <Color x:Key="ColorError">#E5605A</Color>
+      <Color x:Key="ColorInfo">#5AA7E8</Color>
+      <Color x:Key="ColorSuccessSubtle">#1A4CC38A</Color>
+      <Color x:Key="ColorWarningSubtle">#1AE5A645</Color>
+      <Color x:Key="ColorErrorSubtle">#1AE5605A</Color>
+      <Color x:Key="ColorInfoSubtle">#1A5AA7E8</Color>
+      <Color x:Key="ColorSuccessBorder">#594CC38A</Color>
+      <Color x:Key="ColorWarningBorder">#59E5A645</Color>
+      <Color x:Key="ColorErrorBorder">#59E5605A</Color>
+      <Color x:Key="ColorInfoBorder">#595AA7E8</Color>
 
-      <!-- Stem accent colours (reusable token names) -->
+      <!-- Domain colours: stems (data identity, not UI chrome) -->
       <Color x:Key="ColorStemVocals">#00CFFF</Color>
       <Color x:Key="ColorStemDrums">#FF8C00</Color>
       <Color x:Key="ColorStemBass">#44FF88</Color>
       <Color x:Key="ColorStemOther">#BB88FF</Color>
 
+      <!-- Domain colours: CDJ hot-cue pads A–H (data identity, matches the pad slot, not UI chrome) -->
+      <Color x:Key="ColorHotCue1">#E91E63</Color>
+      <Color x:Key="ColorHotCue2">#FF9800</Color>
+      <Color x:Key="ColorHotCue3">#CDDC39</Color>
+      <Color x:Key="ColorHotCue4">#4CAF50</Color>
+      <Color x:Key="ColorHotCue5">#00BCD4</Color>
+      <Color x:Key="ColorHotCue6">#2196F3</Color>
+      <Color x:Key="ColorHotCue7">#9C27B0</Color>
+      <Color x:Key="ColorHotCue8">#9E9E9E</Color>
+
       <!-- Text -->
-      <Color x:Key="ColorText0">#F0FFFFFF</Color>  <!-- primary -->
-      <Color x:Key="ColorText1">#AAAAAA</Color>      <!-- secondary -->
-      <Color x:Key="ColorText2">#666666</Color>      <!-- tertiary / placeholder -->
-      <Color x:Key="ColorTextDisabled">#444444</Color>
+      <Color x:Key="ColorText0">#E8EAED</Color>   <!-- primary -->
+      <Color x:Key="ColorText1">#A8ADB5</Color>   <!-- secondary -->
+      <Color x:Key="ColorText2">#7A808A</Color>   <!-- tertiary / muted / section labels -->
+      <Color x:Key="ColorText3">#5C626B</Color>   <!-- hint / placeholder / empty-state icon -->
+      <Color x:Key="ColorTextDisabled">#4A4E55</Color>
 
       <!-- ================================================================
-           SEMANTIC BRUSHES
+           2. SEMANTIC BRUSHES (use these in views)
            ================================================================ -->
 
-      <!-- Backgrounds -->
-      <SolidColorBrush x:Key="BrushBg0"         Color="{StaticResource ColorBase0}"/>
-      <SolidColorBrush x:Key="BrushBg1"         Color="{StaticResource ColorBase1}"/>
-      <SolidColorBrush x:Key="BrushBg2"         Color="{StaticResource ColorBase2}"/>
-      <SolidColorBrush x:Key="BrushBg3"         Color="{StaticResource ColorBase3}"/>
-      <SolidColorBrush x:Key="BrushBg4"         Color="{StaticResource ColorBase4}"/>
-      <SolidColorBrush x:Key="BrushSurface"     Color="{StaticResource ColorBase3}"/>
+      <!-- Surfaces -->
+      <SolidColorBrush x:Key="BrushBg0"          Color="{StaticResource ColorBase0}"/>
+      <SolidColorBrush x:Key="BrushBg1"          Color="{StaticResource ColorBase1}"/>
+      <SolidColorBrush x:Key="BrushBg2"          Color="{StaticResource ColorBase2}"/>
+      <SolidColorBrush x:Key="BrushBg3"          Color="{StaticResource ColorBase3}"/>
+      <SolidColorBrush x:Key="BrushBg4"          Color="{StaticResource ColorBase4}"/>
+      <SolidColorBrush x:Key="BrushBg5"          Color="{StaticResource ColorBase5}"/>
+      <SolidColorBrush x:Key="BrushSurface"      Color="{StaticResource ColorBase3}"/>
 
-      <!-- Accents -->
-      <SolidColorBrush x:Key="BrushAccent"      Color="{StaticResource ColorAccent}"/>
-      <SolidColorBrush x:Key="BrushAccentDim"   Color="{StaticResource ColorAccentDim}"/>
-      <SolidColorBrush x:Key="BrushAccentGlow"  Color="{StaticResource ColorAccentGlow}"/>
-      <SolidColorBrush x:Key="BrushAccentSubtle" Color="{StaticResource ColorAccentSubtle}"/>
+      <SolidColorBrush x:Key="BrushHover"        Color="{StaticResource ColorHover}"/>
+      <SolidColorBrush x:Key="BrushPressed"      Color="{StaticResource ColorPressed}"/>
+      <SolidColorBrush x:Key="BrushSelected"     Color="{StaticResource ColorSelected}"/>
 
-      <!-- Semantic semantics -->
-      <SolidColorBrush x:Key="BrushSuccess"     Color="{StaticResource ColorSuccess}"/>
-      <SolidColorBrush x:Key="BrushWarning"     Color="{StaticResource ColorWarning}"/>
-      <SolidColorBrush x:Key="BrushError"       Color="{StaticResource ColorError}"/>
-      <SolidColorBrush x:Key="BrushInfo"        Color="{StaticResource ColorInfo}"/>
+      <!-- Accent -->
+      <SolidColorBrush x:Key="BrushAccent"        Color="{StaticResource ColorAccent}"/>
+      <SolidColorBrush x:Key="BrushAccentHover"   Color="{StaticResource ColorAccentHover}"/>
+      <SolidColorBrush x:Key="BrushAccentPressed" Color="{StaticResource ColorAccentPressed}"/>
+      <SolidColorBrush x:Key="BrushAccentDim"     Color="{StaticResource ColorAccentDim}"/>
+      <SolidColorBrush x:Key="BrushAccentGlow"    Color="{StaticResource ColorAccentGlow}"/>
+      <SolidColorBrush x:Key="BrushAccentSubtle"  Color="{StaticResource ColorAccentSubtle}"/>
+      <SolidColorBrush x:Key="BrushAccentBorder"  Color="{StaticResource ColorAccentBorder}"/>
+      <SolidColorBrush x:Key="BrushOnAccent"      Color="{StaticResource ColorOnAccent}"/>
+
+      <!-- Semantic -->
+      <SolidColorBrush x:Key="BrushSuccess"       Color="{StaticResource ColorSuccess}"/>
+      <SolidColorBrush x:Key="BrushWarning"       Color="{StaticResource ColorWarning}"/>
+      <SolidColorBrush x:Key="BrushError"         Color="{StaticResource ColorError}"/>
+      <SolidColorBrush x:Key="BrushInfo"          Color="{StaticResource ColorInfo}"/>
+      <SolidColorBrush x:Key="BrushSuccessSubtle" Color="{StaticResource ColorSuccessSubtle}"/>
+      <SolidColorBrush x:Key="BrushWarningSubtle" Color="{StaticResource ColorWarningSubtle}"/>
+      <SolidColorBrush x:Key="BrushErrorSubtle"   Color="{StaticResource ColorErrorSubtle}"/>
+      <SolidColorBrush x:Key="BrushInfoSubtle"    Color="{StaticResource ColorInfoSubtle}"/>
+      <SolidColorBrush x:Key="BrushSuccessBorder" Color="{StaticResource ColorSuccessBorder}"/>
+      <SolidColorBrush x:Key="BrushWarningBorder" Color="{StaticResource ColorWarningBorder}"/>
+      <SolidColorBrush x:Key="BrushErrorBorder"   Color="{StaticResource ColorErrorBorder}"/>
+      <SolidColorBrush x:Key="BrushInfoBorder"    Color="{StaticResource ColorInfoBorder}"/>
 
       <!-- Text -->
-      <SolidColorBrush x:Key="BrushText0"       Color="{StaticResource ColorText0}"/>
-      <SolidColorBrush x:Key="BrushText1"       Color="{StaticResource ColorText1}"/>
-      <SolidColorBrush x:Key="BrushText2"       Color="{StaticResource ColorText2}"/>
-      <SolidColorBrush x:Key="BrushTextDisabled" Color="{StaticResource ColorTextDisabled}"/>
+      <SolidColorBrush x:Key="BrushText0"         Color="{StaticResource ColorText0}"/>
+      <SolidColorBrush x:Key="BrushText1"         Color="{StaticResource ColorText1}"/>
+      <SolidColorBrush x:Key="BrushText2"         Color="{StaticResource ColorText2}"/>
+      <SolidColorBrush x:Key="BrushText3"         Color="{StaticResource ColorText3}"/>
+      <SolidColorBrush x:Key="BrushTextDisabled"  Color="{StaticResource ColorTextDisabled}"/>
 
       <!-- Borders / dividers -->
-      <SolidColorBrush x:Key="BrushBorder0"     Color="#14FFFFFF"/>
-      <SolidColorBrush x:Key="BrushBorder1"     Color="#22FFFFFF"/>
-      <SolidColorBrush x:Key="BrushBorder2"     Color="#33FFFFFF"/>
+      <SolidColorBrush x:Key="BrushBorder0"       Color="{StaticResource ColorBorder0}"/>
+      <SolidColorBrush x:Key="BrushBorder1"       Color="{StaticResource ColorBorder1}"/>
+      <SolidColorBrush x:Key="BrushBorder2"       Color="{StaticResource ColorBorder2}"/>
 
-      <!-- Glass / frosted layers -->
-      <SolidColorBrush x:Key="BrushGlassThin"   Color="#07FFFFFF"/>
-      <SolidColorBrush x:Key="BrushGlass"       Color="#12FFFFFF"/>
-      <SolidColorBrush x:Key="BrushGlassHeavy"  Color="#20FFFFFF"/>
+      <!-- Glass / translucent layers (over artwork or the expanded player only) -->
+      <SolidColorBrush x:Key="BrushGlassThin"     Color="#08FFFFFF"/>
+      <SolidColorBrush x:Key="BrushGlass"         Color="#12FFFFFF"/>
+      <SolidColorBrush x:Key="BrushGlassHeavy"    Color="#1FFFFFFF"/>
+      <SolidColorBrush x:Key="BrushScrim"         Color="#CC000000"/>   <!-- modal overlay backdrop -->
+      <SolidColorBrush x:Key="BrushScrimStrong"   Color="#F20F1012"/>   <!-- full-screen takeover (expanded player) -->
 
-      <!-- Stem brushes -->
-      <SolidColorBrush x:Key="BrushStemVocals"  Color="{StaticResource ColorStemVocals}"/>
-      <SolidColorBrush x:Key="BrushStemDrums"   Color="{StaticResource ColorStemDrums}"/>
-      <SolidColorBrush x:Key="BrushStemBass"    Color="{StaticResource ColorStemBass}"/>
-      <SolidColorBrush x:Key="BrushStemOther"   Color="{StaticResource ColorStemOther}"/>
+      <!-- Stems -->
+      <SolidColorBrush x:Key="BrushStemVocals"    Color="{StaticResource ColorStemVocals}"/>
+      <SolidColorBrush x:Key="BrushStemDrums"     Color="{StaticResource ColorStemDrums}"/>
+      <SolidColorBrush x:Key="BrushStemBass"      Color="{StaticResource ColorStemBass}"/>
+      <SolidColorBrush x:Key="BrushStemOther"     Color="{StaticResource ColorStemOther}"/>
+
+      <!-- Hot-cue pads (Workstation inspector, CDJ slot colours) -->
+      <SolidColorBrush x:Key="BrushHotCue1"       Color="{StaticResource ColorHotCue1}"/>
+      <SolidColorBrush x:Key="BrushHotCue2"       Color="{StaticResource ColorHotCue2}"/>
+      <SolidColorBrush x:Key="BrushHotCue3"       Color="{StaticResource ColorHotCue3}"/>
+      <SolidColorBrush x:Key="BrushHotCue4"       Color="{StaticResource ColorHotCue4}"/>
+      <SolidColorBrush x:Key="BrushHotCue5"       Color="{StaticResource ColorHotCue5}"/>
+      <SolidColorBrush x:Key="BrushHotCue6"       Color="{StaticResource ColorHotCue6}"/>
+      <SolidColorBrush x:Key="BrushHotCue7"       Color="{StaticResource ColorHotCue7}"/>
+      <SolidColorBrush x:Key="BrushHotCue8"       Color="{StaticResource ColorHotCue8}"/>
+      <SolidColorBrush x:Key="BrushOnHotCue"      Color="#FFFFFF"/>   <!-- pad label on a saturated pad -->
+      <SolidColorBrush x:Key="BrushOnHotCueLight" Color="#111111"/>   <!-- pad label on the light (lime) pad -->
+
+      <!-- Track sections (Cue Forge + transition decks): intro / outro regions bounded by the
+           IntroEnd / OutroStart section markers. Subtle fills so cues and the waveform stay readable. -->
+      <SolidColorBrush x:Key="BrushSectionIntroFill"  Color="#145AA7E8"/>   <!-- intro region tint -->
+      <SolidColorBrush x:Key="BrushSectionIntroEdge"  Color="#805AA7E8"/>   <!-- intro region edge -->
+      <SolidColorBrush x:Key="BrushSectionOutroFill"  Color="#14B48EF0"/>   <!-- outro region tint -->
+      <SolidColorBrush x:Key="BrushSectionOutroEdge"  Color="#80B48EF0"/>   <!-- outro region edge -->
+
+      <!-- Transition overlay (Flow Builder): outgoing A and incoming B drawn on one timeline. -->
+      <SolidColorBrush x:Key="BrushOverlayOutgoing"   Color="#734EC9B0"/>   <!-- A waveform, translucent accent -->
+      <SolidColorBrush x:Key="BrushOverlayIncoming"   Color="#735AA7E8"/>   <!-- B waveform, translucent info -->
+      <SolidColorBrush x:Key="BrushOverlayOverlap"    Color="#0FFFFFFF"/>   <!-- the blend window -->
+
+      <!-- Track colour tags: the Rekordbox palette. TagHex* is the tag DATA written to the track
+           (SetColorTagCommand parameter); BrushTag* is its swatch. Data identity, not UI chrome. -->
+      <x:String x:Key="TagHexPink">#F870AC</x:String>
+      <x:String x:Key="TagHexRed">#FF0000</x:String>
+      <x:String x:Key="TagHexOrange">#FFA500</x:String>
+      <x:String x:Key="TagHexYellow">#FFFF00</x:String>
+      <x:String x:Key="TagHexGreen">#00FF00</x:String>
+      <x:String x:Key="TagHexAqua">#25FDE9</x:String>
+      <x:String x:Key="TagHexBlue">#0000FF</x:String>
+      <x:String x:Key="TagHexPurple">#660099</x:String>
+      <SolidColorBrush x:Key="BrushTagPink" Color="#F870AC"/>
+      <SolidColorBrush x:Key="BrushTagRed" Color="#FF0000"/>
+      <SolidColorBrush x:Key="BrushTagOrange" Color="#FFA500"/>
+      <SolidColorBrush x:Key="BrushTagYellow" Color="#FFFF00"/>
+      <SolidColorBrush x:Key="BrushTagGreen" Color="#00FF00"/>
+      <SolidColorBrush x:Key="BrushTagAqua" Color="#25FDE9"/>
+      <SolidColorBrush x:Key="BrushTagBlue" Color="#0000FF"/>
+      <SolidColorBrush x:Key="BrushTagPurple" Color="#660099"/>
 
       <!-- ================================================================
-           TYPOGRAPHY SCALE
-           Responsive via BaseFontSize (default 14). Hard sizes below are
-           relative multipliers expressed as concrete px for design guidance.
+           3. LEGACY ALIASES — referenced by existing Views. Do not use in new
+              code; prefer the §2 name in the trailing comment.
+           ================================================================ -->
+      <Color x:Key="AccentColor">#4EC9B0</Color>                                                    <!-- ColorAccent -->
+      <Color x:Key="AccentSecondaryColor">#2D8A74</Color>                                           <!-- ColorAccentDim -->
+      <Color x:Key="Surface0Color">#0F1012</Color>                                                  <!-- ColorBase0 -->
+      <Color x:Key="Surface1Color">#151618</Color>                                                  <!-- ColorBase1 -->
+      <Color x:Key="Surface2Color">#1B1C1F</Color>                                                  <!-- ColorBase2 -->
+      <Color x:Key="Surface3Color">#222327</Color>                                                  <!-- ColorBase3 -->
+      <SolidColorBrush x:Key="AccentBrush"              Color="{StaticResource ColorAccent}"/>      <!-- BrushAccent -->
+      <SolidColorBrush x:Key="AccentSecondaryBrush"     Color="{StaticResource ColorAccentDim}"/>   <!-- BrushAccentDim -->
+      <SolidColorBrush x:Key="AccentGlowBrush"          Color="#144EC9B0"/>                         <!-- BrushAccentSubtle -->
+      <SolidColorBrush x:Key="BorderGlowBrush"          Color="#264EC9B0"/>                         <!-- BrushAccentBorder -->
+      <LinearGradientBrush x:Key="AccentGradient" StartPoint="0%,0%" EndPoint="100%,0%">           <!-- BrushAccent -->
+        <GradientStop Color="#4EC9B0" Offset="0"/>
+        <GradientStop Color="#3BB39B" Offset="1"/>
+      </LinearGradientBrush>
+      <SolidColorBrush x:Key="PrimaryBackgroundBrush"   Color="{StaticResource ColorBase1}"/>       <!-- BrushBg1 -->
+      <SolidColorBrush x:Key="SecondaryBackgroundBrush" Color="{StaticResource ColorBase2}"/>       <!-- BrushBg2 -->
+      <SolidColorBrush x:Key="TertiaryBackgroundBrush"  Color="{StaticResource ColorBase3}"/>       <!-- BrushBg3 -->
+      <SolidColorBrush x:Key="DeepBackgroundBrush"      Color="{StaticResource ColorBase0}"/>       <!-- BrushBg0 -->
+      <SolidColorBrush x:Key="BackgroundBrush"          Color="{StaticResource ColorBase2}"/>       <!-- BrushBg2 -->
+      <SolidColorBrush x:Key="SurfaceBrush"             Color="{StaticResource ColorBase3}"/>       <!-- BrushBg3 -->
+      <SolidColorBrush x:Key="HoverBrush"               Color="{StaticResource ColorHover}"/>       <!-- BrushHover -->
+      <SolidColorBrush x:Key="Surface0Brush"            Color="{StaticResource ColorBase0}"/>
+      <SolidColorBrush x:Key="Surface1Brush"            Color="{StaticResource ColorBase1}"/>
+      <SolidColorBrush x:Key="Surface2Brush"            Color="{StaticResource ColorBase2}"/>
+      <SolidColorBrush x:Key="Surface3Brush"            Color="{StaticResource ColorBase3}"/>
+      <SolidColorBrush x:Key="RegionBrush"              Color="{StaticResource ColorBase1}"/>       <!-- BrushBg1 -->
+      <SolidColorBrush x:Key="GlassBrush"               Color="#12FFFFFF"/>                         <!-- BrushGlass -->
+      <SolidColorBrush x:Key="GlassHeavyBrush"          Color="#1FFFFFFF"/>                         <!-- BrushGlassHeavy -->
+      <SolidColorBrush x:Key="GlassThinBrush"           Color="#08FFFFFF"/>                         <!-- BrushGlassThin -->
+      <SolidColorBrush x:Key="TextPrimaryBrush"         Color="{StaticResource ColorText0}"/>       <!-- BrushText0 -->
+      <SolidColorBrush x:Key="TextSecondaryBrush"       Color="{StaticResource ColorText1}"/>       <!-- BrushText1 -->
+      <SolidColorBrush x:Key="TextTertiaryBrush"        Color="{StaticResource ColorText2}"/>       <!-- BrushText2 -->
+      <SolidColorBrush x:Key="TextDisabledBrush"        Color="{StaticResource ColorTextDisabled}"/><!-- BrushTextDisabled -->
+      <SolidColorBrush x:Key="TextBrush"                Color="{StaticResource ColorText0}"/>       <!-- BrushText0 -->
+      <!-- Named *Color but consumed as Foreground brushes by DownloadGroupRow -->
+      <SolidColorBrush x:Key="TextPrimaryColor"         Color="{StaticResource ColorText0}"/>       <!-- BrushText0 -->
+      <SolidColorBrush x:Key="TextSecondaryColor"       Color="{StaticResource ColorText1}"/>       <!-- BrushText1 -->
+      <SolidColorBrush x:Key="BorderBrush"              Color="{StaticResource ColorBorder1}"/>     <!-- BrushBorder1 -->
+      <SolidColorBrush x:Key="BorderStrongBrush"        Color="{StaticResource ColorBorder2}"/>     <!-- BrushBorder2 -->
+      <!-- Workstation readability tiers (A10 contract) — kept as-is, Workstation-only -->
+      <SolidColorBrush x:Key="WsTextPrimaryReadable"    Color="#E4EDF6"/>
+      <SolidColorBrush x:Key="WsTextSecondaryReadable"  Color="#C3D2DE"/>
+      <SolidColorBrush x:Key="WsTextMutedReadable"      Color="#A8BCCF"/>
+      <SolidColorBrush x:Key="WsTextHintReadable"       Color="#92A8BC"/>
+      <CornerRadius x:Key="ControlCornerRadius">6</CornerRadius>                                    <!-- RadiusMd -->
+      <CornerRadius x:Key="PanelCornerRadius">8</CornerRadius>                                      <!-- RadiusLg -->
+      <FontFamily x:Key="InterFont">avares://Avalonia.Fonts.Inter/Assets#Inter</FontFamily>       <!-- FontUI -->
+      <FontFamily x:Key="CodeFont">JetBrains Mono, Cascadia Mono, Consolas, Menlo, monospace</FontFamily> <!-- FontMono -->
+
+      <!-- ================================================================
+           4. FLUENT OVERRIDES — re-point FluentTheme's template resources so
+              every un-classed control (Button, ToggleButton, TextBox, ComboBox,
+              CheckBox) gets our hover/pressed/checked/focus states for free.
+           ================================================================ -->
+      <SolidColorBrush x:Key="ButtonBackgroundPointerOver"     Color="{StaticResource ColorBase4}"/>
+      <SolidColorBrush x:Key="ButtonBackgroundPressed"         Color="{StaticResource ColorBase5}"/>
+      <SolidColorBrush x:Key="ButtonBackgroundDisabled"        Color="#08FFFFFF"/>
+      <SolidColorBrush x:Key="ButtonForegroundPointerOver"     Color="{StaticResource ColorText0}"/>
+      <SolidColorBrush x:Key="ButtonForegroundPressed"         Color="{StaticResource ColorText0}"/>
+      <SolidColorBrush x:Key="ButtonForegroundDisabled"        Color="{StaticResource ColorTextDisabled}"/>
+      <SolidColorBrush x:Key="ButtonBorderBrushPointerOver"    Color="{StaticResource ColorBorder2}"/>
+      <SolidColorBrush x:Key="ButtonBorderBrushPressed"        Color="{StaticResource ColorBorder2}"/>
+      <SolidColorBrush x:Key="ButtonBorderBrushDisabled"       Color="{StaticResource ColorBorder0}"/>
+
+      <SolidColorBrush x:Key="ToggleButtonBackgroundPointerOver"        Color="{StaticResource ColorBase4}"/>
+      <SolidColorBrush x:Key="ToggleButtonBackgroundPressed"            Color="{StaticResource ColorBase5}"/>
+      <SolidColorBrush x:Key="ToggleButtonForegroundPointerOver"        Color="{StaticResource ColorText0}"/>
+      <SolidColorBrush x:Key="ToggleButtonForegroundPressed"            Color="{StaticResource ColorText0}"/>
+      <SolidColorBrush x:Key="ToggleButtonBackgroundChecked"            Color="#264EC9B0"/>
+      <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#334EC9B0"/>
+      <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed"     Color="#404EC9B0"/>
+      <SolidColorBrush x:Key="ToggleButtonForegroundChecked"            Color="{StaticResource ColorAccentHover}"/>
+      <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="{StaticResource ColorAccentHover}"/>
+      <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed"     Color="{StaticResource ColorAccentHover}"/>
+      <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked"           Color="{StaticResource ColorAccentBorder}"/>
+      <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="{StaticResource ColorAccent}"/>
+      <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed"    Color="{StaticResource ColorAccent}"/>
+
+      <SolidColorBrush x:Key="AccentButtonForeground"            Color="{StaticResource ColorOnAccent}"/>
+      <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="{StaticResource ColorOnAccent}"/>
+      <SolidColorBrush x:Key="AccentButtonForegroundPressed"     Color="{StaticResource ColorOnAccent}"/>
+      <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundChecked"            Color="{StaticResource ColorOnAccent}"/>
+      <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundCheckedPointerOver" Color="{StaticResource ColorOnAccent}"/>
+      <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundCheckedPressed"     Color="{StaticResource ColorOnAccent}"/>
+
+      <SolidColorBrush x:Key="TextControlBackground"             Color="{StaticResource ColorBase0}"/>
+      <SolidColorBrush x:Key="TextControlBackgroundPointerOver"  Color="{StaticResource ColorBase0}"/>
+      <SolidColorBrush x:Key="TextControlBackgroundFocused"      Color="{StaticResource ColorBase0}"/>
+      <SolidColorBrush x:Key="TextControlBorderBrush"            Color="{StaticResource ColorBorder1}"/>
+      <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="{StaticResource ColorBorder2}"/>
+      <SolidColorBrush x:Key="TextControlBorderBrushFocused"     Color="{StaticResource ColorAccent}"/>
+      <SolidColorBrush x:Key="TextControlForeground"             Color="{StaticResource ColorText0}"/>
+      <SolidColorBrush x:Key="TextControlForegroundPointerOver"  Color="{StaticResource ColorText0}"/>
+      <SolidColorBrush x:Key="TextControlForegroundFocused"      Color="{StaticResource ColorText0}"/>
+      <SolidColorBrush x:Key="TextControlPlaceholderForeground"            Color="{StaticResource ColorText3}"/>
+      <SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="{StaticResource ColorText3}"/>
+      <SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused"     Color="{StaticResource ColorText3}"/>
+      <SolidColorBrush x:Key="TextControlSelectionHighlightColor"          Color="#664EC9B0"/>
+
+      <SolidColorBrush x:Key="ComboBoxBackground"                Color="{StaticResource ColorBase3}"/>
+      <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver"     Color="{StaticResource ColorBase4}"/>
+      <SolidColorBrush x:Key="ComboBoxBackgroundPressed"         Color="{StaticResource ColorBase5}"/>
+      <SolidColorBrush x:Key="ComboBoxBorderBrush"               Color="{StaticResource ColorBorder1}"/>
+      <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver"    Color="{StaticResource ColorBorder2}"/>
+      <SolidColorBrush x:Key="ComboBoxBorderBrushPressed"        Color="{StaticResource ColorBorder2}"/>
+      <SolidColorBrush x:Key="ComboBoxDropDownBackground"        Color="{StaticResource ColorBase3}"/>
+      <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush"       Color="{StaticResource ColorBorder1}"/>
+
+      <!-- ================================================================
+           5. SCALES
            ================================================================ -->
 
       <!-- Font families -->
       <FontFamily x:Key="FontUI">avares://Avalonia.Fonts.Inter/Assets#Inter</FontFamily>
-      <FontFamily x:Key="FontMono">JetBrains Mono, Consolas, Menlo, monospace</FontFamily>
+      <FontFamily x:Key="FontMono">JetBrains Mono, Cascadia Mono, Consolas, Menlo, monospace</FontFamily>
 
-      <!-- Size scale (px at default font-size = 14) -->
-      <x:Double x:Key="TextSizeDisplay">36</x:Double>   <!-- hero titles          -->
-      <x:Double x:Key="TextSizeH1">28</x:Double>        <!-- page headings        -->
-      <x:Double x:Key="TextSizeH2">22</x:Double>        <!-- section headings     -->
-      <x:Double x:Key="TextSizeH3">17</x:Double>        <!-- sub-section headings -->
-      <x:Double x:Key="TextSizeBody">14</x:Double>      <!-- default body text    -->
-      <x:Double x:Key="TextSizeBodySm">12</x:Double>    <!-- secondary info       -->
-      <x:Double x:Key="TextSizeCaption">10</x:Double>   <!-- labels / metadata    -->
-      <x:Double x:Key="TextSizeMono">12</x:Double>      <!-- code / tech values   -->
+      <!-- Type scale (px). Dense desktop app: body is 13. -->
+      <x:Double x:Key="TextSizeDisplay">28</x:Double>   <!-- hero / empty-state hero only -->
+      <x:Double x:Key="TextSizeH1">20</x:Double>        <!-- page title                   -->
+      <x:Double x:Key="TextSizeH2">16</x:Double>        <!-- section / dialog title       -->
+      <x:Double x:Key="TextSizeH3">14</x:Double>        <!-- card / group title           -->
+      <x:Double x:Key="TextSizeBody">13</x:Double>      <!-- default text                 -->
+      <x:Double x:Key="TextSizeBodySm">12</x:Double>    <!-- secondary text, small btns   -->
+      <x:Double x:Key="TextSizeCaption">11</x:Double>   <!-- metadata, section labels     -->
+      <x:Double x:Key="TextSizeMono">12</x:Double>      <!-- technical values             -->
+      <x:Double x:Key="TextSizeValue">18</x:Double>     <!-- numeric stat                 -->
 
       <!-- Weight aliases -->
       <FontWeight x:Key="FontWeightLight">Light</FontWeight>
@@ -126,9 +339,7 @@
       <FontWeight x:Key="FontWeightBold">Bold</FontWeight>
       <FontWeight x:Key="FontWeightBlack">Black</FontWeight>
 
-      <!-- ================================================================
-           SPACING SCALE  (4px base grid)
-           ================================================================ -->
+      <!-- Spacing (4px grid) -->
       <x:Double x:Key="SpaceXxs">2</x:Double>
       <x:Double x:Key="SpaceXs">4</x:Double>
       <x:Double x:Key="SpaceSm">8</x:Double>
@@ -139,119 +350,47 @@
       <x:Double x:Key="Space3xl">48</x:Double>
       <x:Double x:Key="Space4xl">64</x:Double>
 
-      <!-- Thickness aliases (common combos) -->
+      <!-- Thickness presets -->
       <Thickness x:Key="PaddingSm">8,4</Thickness>
       <Thickness x:Key="PaddingMd">12,8</Thickness>
       <Thickness x:Key="PaddingLg">16,12</Thickness>
-      <Thickness x:Key="PaddingPanel">24</Thickness>
+      <Thickness x:Key="PaddingPanel">16</Thickness>
+      <Thickness x:Key="PaddingPage">24,16</Thickness>
+      <Thickness x:Key="PaddingButton">12,6</Thickness>
+      <Thickness x:Key="PaddingButtonSm">10,4</Thickness>
 
-      <!-- ================================================================
-           CORNER RADII
-           ================================================================ -->
-      <CornerRadius x:Key="RadiusSm">4</CornerRadius>
-      <CornerRadius x:Key="RadiusMd">8</CornerRadius>
-      <CornerRadius x:Key="RadiusLg">12</CornerRadius>
-      <CornerRadius x:Key="RadiusXl">16</CornerRadius>
+      <!-- Control heights -->
+      <x:Double x:Key="ControlHeight">32</x:Double>
+      <x:Double x:Key="ControlHeightSm">28</x:Double>
+      <x:Double x:Key="ToolbarHeight">44</x:Double>
+
+      <!-- Corner radii -->
+      <CornerRadius x:Key="RadiusXs">2</CornerRadius>
+      <CornerRadius x:Key="RadiusSm">4</CornerRadius>    <!-- chips inside segmented, small tags -->
+      <CornerRadius x:Key="RadiusMd">6</CornerRadius>    <!-- buttons, inputs, chips -->
+      <CornerRadius x:Key="RadiusLg">8</CornerRadius>    <!-- cards, panels, toasts -->
+      <CornerRadius x:Key="RadiusXl">12</CornerRadius>   <!-- dialogs only -->
       <CornerRadius x:Key="RadiusFull">9999</CornerRadius>
 
-      <!-- ================================================================
-           SHADOWS (BoxShadow string tokens)
-           ================================================================ -->
-      <BoxShadows x:Key="ShadowSm">0 1 4 0 #30000000</BoxShadows>
-      <BoxShadows x:Key="ShadowMd">0 4 12 0 #40000000</BoxShadows>
-      <BoxShadows x:Key="ShadowLg">0 8 24 0 #50000000</BoxShadows>
-      <BoxShadows x:Key="ShadowAccent">0 0 16 0 #404EC9B0</BoxShadows>
+      <!-- Shadows (floating surfaces only: dialogs, toasts, flyouts) -->
+      <BoxShadows x:Key="ShadowSm">0 1 3 0 #40000000</BoxShadows>
+      <BoxShadows x:Key="ShadowMd">0 4 12 0 #50000000</BoxShadows>
+      <BoxShadows x:Key="ShadowLg">0 12 32 0 #66000000</BoxShadows>
+      <BoxShadows x:Key="ShadowAccent">0 0 12 0 #304EC9B0</BoxShadows>  <!-- legacy; avoid glows -->
 
-      <!-- ================================================================
-           TRANSITION DURATIONS (seconds as Double — use in Transitions)
-           ================================================================ -->
+      <!-- Motion (seconds) -->
       <x:Double x:Key="DurationFast">0.1</x:Double>
       <x:Double x:Key="DurationNormal">0.2</x:Double>
       <x:Double x:Key="DurationSlow">0.35</x:Double>
 
-      <!-- ================================================================
-           ICON SIZE TOKENS  (all icons should use one of these widths)
-           ================================================================ -->
+      <!-- Icon sizes -->
+      <x:Double x:Key="IconSizeXs">12</x:Double>
       <x:Double x:Key="IconSizeSm">14</x:Double>
-      <x:Double x:Key="IconSizeMd">20</x:Double>
-      <x:Double x:Key="IconSizeLg">28</x:Double>
+      <x:Double x:Key="IconSizeMd">16</x:Double>
+      <x:Double x:Key="IconSizeLg">20</x:Double>
+      <x:Double x:Key="IconSizeXl">28</x:Double>
 
     </ResourceDictionary>
   </Styles.Resources>
-
-  <!-- ================================================================
-       Global text styles (apply via TextBlock.display / h1 / h2 etc.)
-       ================================================================ -->
-
-  <Style Selector="TextBlock.display">
-    <Setter Property="FontSize"   Value="{StaticResource TextSizeDisplay}"/>
-    <Setter Property="FontWeight" Value="{StaticResource FontWeightBold}"/>
-    <Setter Property="Foreground" Value="{StaticResource BrushText0}"/>
-    <Setter Property="FontFamily" Value="{StaticResource FontUI}"/>
-  </Style>
-
-  <Style Selector="TextBlock.h1">
-    <Setter Property="FontSize"   Value="{StaticResource TextSizeH1}"/>
-    <Setter Property="FontWeight" Value="{StaticResource FontWeightSemiBold}"/>
-    <Setter Property="Foreground" Value="{StaticResource BrushText0}"/>
-  </Style>
-
-  <Style Selector="TextBlock.h2">
-    <Setter Property="FontSize"   Value="{StaticResource TextSizeH2}"/>
-    <Setter Property="FontWeight" Value="{StaticResource FontWeightSemiBold}"/>
-    <Setter Property="Foreground" Value="{StaticResource BrushText0}"/>
-  </Style>
-
-  <Style Selector="TextBlock.h3">
-    <Setter Property="FontSize"   Value="{StaticResource TextSizeH3}"/>
-    <Setter Property="FontWeight" Value="{StaticResource FontWeightMedium}"/>
-    <Setter Property="Foreground" Value="{StaticResource BrushText0}"/>
-  </Style>
-
-  <Style Selector="TextBlock.body">
-    <Setter Property="FontSize"   Value="{StaticResource TextSizeBody}"/>
-    <Setter Property="FontWeight" Value="{StaticResource FontWeightRegular}"/>
-    <Setter Property="Foreground" Value="{StaticResource BrushText0}"/>
-  </Style>
-
-  <Style Selector="TextBlock.body-sm">
-    <Setter Property="FontSize"   Value="{StaticResource TextSizeBodySm}"/>
-    <Setter Property="Foreground" Value="{StaticResource BrushText1}"/>
-  </Style>
-
-  <Style Selector="TextBlock.caption">
-    <Setter Property="FontSize"   Value="{StaticResource TextSizeCaption}"/>
-    <Setter Property="FontWeight" Value="{StaticResource FontWeightBold}"/>
-    <Setter Property="Foreground" Value="{StaticResource BrushText2}"/>
-    <Setter Property="LetterSpacing" Value="0.8"/>
-  </Style>
-
-  <Style Selector="TextBlock.mono">
-    <Setter Property="FontFamily" Value="{StaticResource FontMono}"/>
-    <Setter Property="FontSize"   Value="{StaticResource TextSizeMono}"/>
-    <Setter Property="Foreground" Value="{StaticResource BrushText1}"/>
-  </Style>
-
-  <!-- Pill / badge surface (use as Border.pill) -->
-  <Style Selector="Border.pill">
-    <Setter Property="CornerRadius"  Value="{StaticResource RadiusFull}"/>
-    <Setter Property="Padding"       Value="8,2"/>
-    <Setter Property="Background"    Value="{StaticResource BrushGlass}"/>
-  </Style>
-
-  <!-- Divider shorthand (Border.divider or Rectangle.divider) -->
-  <Style Selector="Border.divider">
-    <Setter Property="Height"     Value="1"/>
-    <Setter Property="Background" Value="{StaticResource BrushBorder1}"/>
-  </Style>
-
-  <!-- Card surface (Border.card) -->
-  <Style Selector="Border.card">
-    <Setter Property="Background"   Value="{StaticResource BrushBg2}"/>
-    <Setter Property="BorderBrush"  Value="{StaticResource BrushBorder1}"/>
-    <Setter Property="BorderThickness" Value="1"/>
-    <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
-    <Setter Property="Padding"      Value="{StaticResource PaddingMd}"/>
-  </Style>
 
 </Styles>

@@ -50,6 +50,8 @@ public partial class App : Application
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
+        // Invariant numbers in every NumericUpDown; a typed decimal comma is entered as '.'.
+        Views.Avalonia.NumericInputLocale.Install();
     }
 
     public override async void OnFrameworkInitializationCompleted()
@@ -65,6 +67,10 @@ public partial class App : Application
             // Eagerly activate background queue listeners that subscribe to the event bus.
             // Without resolving this singleton, manual Analyse actions appear to do nothing.
             _ = Services.GetRequiredService<Services.AnalysisQueueService>();
+            // Same for the loudness backfill: it listens for the inspector's single-track "Measure".
+            _ = Services.GetRequiredService<Services.AudioAnalysis.LoudnessBackfillService>();
+            // And library metadata enrichment: it listens for imports/downloads and resumes its queue.
+            _ = Services.GetRequiredService<Services.Enrichment.MetadataEnrichmentOrchestrator>();
 
             // Eagerly activate the network activity monitor so it's observing from startup, not
             // only once something (e.g. the Settings page) happens to resolve it first.
@@ -229,6 +235,20 @@ public partial class App : Application
                         await databaseService.InitAsync().WaitAsync(initCts.Token);
                         
                         Serilog.Log.Information("✅ Database initialization completed successfully");
+
+                        // First-run setup: decide before the UI exists. An install that has an
+                        // account, chosen folders or tracks is marked completed here and never
+                        // sees the wizard; only a genuinely fresh one does.
+                        var showSetupWizard = false;
+                        try
+                        {
+                            var firstRun = await Services.GetRequiredService<Services.Setup.FirstRunCoordinator>().EvaluateAsync();
+                            showSetupWizard = firstRun.ShouldShowWizard;
+                        }
+                        catch (Exception setupEx)
+                        {
+                            Serilog.Log.Error(setupEx, "First-run check failed; the setup wizard stays closed (Settings → Advanced → Setup opens it)");
+                        }
                         
                         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => splashScreen.UpdateStatus("Starting UI..."));
                         await Task.Delay(50);
@@ -281,6 +301,20 @@ public partial class App : Application
                             Services.GetRequiredService<WindowsToastService>().Initialize(toastHandle);
 
                             Services.GetRequiredService<UiStallWatchdog>().Start();
+
+                            if (showSetupWizard)
+                                mainVm?.Setup?.OpenWizard();
+
+                            // Tray icon (live tooltip + menu) and the Windows taskbar button
+                            // (thumbnail Previous/Play/Next + download progress).
+                            try
+                            {
+                                Services.GetRequiredService<Services.Shell.TrayIconController>().Start(mainWindow);
+                            }
+                            catch (Exception shellEx)
+                            {
+                                Serilog.Log.Warning(shellEx, "Tray/taskbar integration failed to start (non-critical)");
+                            }
                         });
 
                         // --- THE BARRIER: WE ARE NOW DATA-SAFE ---
@@ -420,7 +454,8 @@ public partial class App : Application
                             Serilog.Log.Information("Background initialization completed");
 
                             // Start maintenance tasks AFTER initialization is confirmed complete
-                            _ = RunMaintenanceTasksAsync();
+                            // Off the UI thread: it walks the download folder and touches the DB.
+                            _ = Task.Run(RunMaintenanceTasksAsync);
                         });
                     }
                     catch (OperationCanceledException)
@@ -449,36 +484,6 @@ public partial class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
-    }
-
-    // Tray Icon Event Handlers
-    private void ShowWindow_Click(object? sender, EventArgs e)
-    {
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop && 
-            desktop.MainWindow != null)
-        {
-            desktop.MainWindow.Show();
-            desktop.MainWindow.WindowState = WindowState.Normal;
-            desktop.MainWindow.Activate();
-        }
-    }
-
-    private void HideWindow_Click(object? sender, EventArgs e)
-    {
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop && 
-            desktop.MainWindow != null)
-        {
-            desktop.MainWindow.Hide();
-        }
-    }
-
-    private void Exit_Click(object? sender, EventArgs e)
-    {
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            IsExitRequested = true;
-            desktop.Shutdown();
-        }
     }
 
     private static IServiceProvider ConfigureServices()
@@ -517,7 +522,11 @@ public partial class App : Application
                 appConfig = new AppConfig();
             }
             if (string.IsNullOrEmpty(appConfig.DownloadDirectory))
-                appConfig.DownloadDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "SLSKDONET");
+                appConfig.DownloadDirectory = AppConfig.FallbackDownloadDirectory;
+            // A --profile / --setup-preview instance usually runs next to the real ORBIT, which
+            // already holds the Soulseek listen port; give the preview its own free port.
+            if (SLSKDONET.Data.OrbitPaths.IsProfileOverridden)
+                appConfig.ListenPort = SLSKDONET.Services.Setup.PortProbe.FindFreePortFrom(appConfig.ListenPort);
             return appConfig;
         });
 
@@ -686,7 +695,6 @@ public partial class App : Application
         services.AddSingleton<PerformanceTracker>(); // live perf overlay (Ctrl+Shift+P) — page-nav and opted-in ViewModel load timings
         services.AddSingleton<UiStallWatchdog>();
         services.AddSingleton<Services.AudioAnalysis.BeatGridRecomputeService>();
-        services.AddSingleton<IUserInputService, UserInputService>();
         services.AddSingleton<IFileInteractionService, FileInteractionService>();
         services.AddSingleton<INotificationService, NotificationServiceAdapter>();
         services.AddSingleton<IClipboardService, ClipboardService>();
@@ -741,18 +749,59 @@ public partial class App : Application
         services.AddSingleton<RoomChatService>();
         services.AddSingleton<PeerVerificationChallengeService>();
         services.AddSingleton<WindowsToastService>();
+        // Tray icon + Windows taskbar button (thumbnail toolbar, download progress). Started from
+        // the startup barrier once the main window is open; all three constructors are no-throw.
+        services.AddSingleton<Services.Shell.ShellStateMonitor>();
+        services.AddSingleton<Services.Shell.WindowsTaskbarIntegration>();
+        services.AddSingleton<Services.Shell.TrayIconController>();
         services.AddTransient<UsersViewModel>();
         services.AddTransient<UserProfileViewModel>();
         services.AddTransient<RoomsViewModel>();
         services.AddSingleton<SearchFilterViewModel>(); // [FIX] Added missing registration
         services.AddSingleton<ConnectionViewModel>();
         services.AddSingleton<SettingsViewModel>();
+
+        // First-run setup wizard + quick tour (DOCS/FIRST_RUN_SETUP.md). The wizard's view models
+        // only see these interfaces; the implementations reuse the services Settings uses.
+        services.AddSingleton<Services.Setup.ISetupStateStore, Services.Setup.ConfigSetupStateStore>();
+        services.AddSingleton<Services.Setup.ISetupFolderService, Services.Setup.SetupFolderService>();
+        services.AddSingleton<Services.Setup.ISetupSettingsGateway, Services.Setup.ConfigSetupSettingsGateway>();
+        services.AddSingleton<Services.Setup.ISoulseekSetupGateway>(sp => new Services.Setup.SoulseekSetupGateway(
+            sp.GetRequiredService<AppConfig>(),
+            sp.GetRequiredService<ConfigManager>(),
+            sp.GetRequiredService<IConnectionLifecycleService>(),
+            sp.GetRequiredService<IEventBus>(),
+            sp.GetRequiredService<ISoulseekCredentialService>(),
+            sp.GetRequiredService<ILogger<Services.Setup.SoulseekSetupGateway>>()));
+        services.AddSingleton<Services.Setup.ILibraryFolderSetupGateway, Services.Setup.LibraryFolderSetupGateway>();
+        services.AddSingleton<Services.Setup.ISpotifySetupGateway, ViewModels.Setup.SettingsSpotifySetupGateway>();
+        services.AddSingleton<Services.Setup.IAudioSetupGateway, ViewModels.Setup.SettingsAudioSetupGateway>();
+        services.AddSingleton<Services.Setup.ISetupEnrichmentGateway, Services.Setup.EnrichmentSetupGateway>();
+        services.AddSingleton<Services.Setup.FirstRunCoordinator>();
+        services.AddTransient<ViewModels.Setup.SetupWizardViewModel>();
+        services.AddSingleton(sp => new ViewModels.Setup.SetupShellViewModel(
+            () => sp.GetRequiredService<ViewModels.Setup.SetupWizardViewModel>(),
+            sp.GetRequiredService<Services.Setup.ISetupStateStore>(),
+            sp.GetRequiredService<ILogger<ViewModels.Setup.SetupShellViewModel>>(),
+            sp.GetRequiredService<IEventBus>(),
+            // The wizard has its own sign-in step; don't stack the login dialog under it.
+            onWizardOpened: () => sp.GetRequiredService<ConnectionViewModel>().IsLoginOverlayVisible = false,
+            onWizardClosed: () =>
+            {
+                sp.GetRequiredService<ConnectionViewModel>().ReloadFromConfig();
+                sp.GetRequiredService<SettingsViewModel>().RefreshFromConfig();
+                sp.GetRequiredService<ViewModels.MetadataSourcesSettingsViewModel>().RefreshFromConfig();
+            },
+            notifications: sp.GetService<INotificationService>()));
         services.AddSingleton<BulkOperationViewModel>();
         services.AddSingleton<HomeViewModel>();
 
         // [NEW] Library Scanning
         services.AddSingleton<LibraryFolderScannerService>();
         services.AddSingleton<LibraryFolderWatchService>();
+        // The import sheet is the launcher every "add / scan folder" entry point goes through.
+        services.AddSingleton<ViewModels.LibraryImportViewModel>();
+        services.AddSingleton<ILibraryImportLauncher>(sp => sp.GetRequiredService<ViewModels.LibraryImportViewModel>());
 
         // Orchestration Services
         services.AddSingleton<SearchOrchestrationService>();
@@ -801,10 +850,10 @@ public partial class App : Application
         services.AddTransient<Views.Avalonia.ImportPreviewPage>();
         services.AddTransient<Views.Avalonia.AnalysisPage>();
         services.AddSingleton<ViewModels.AnalysisPageViewModel>();
-        services.AddTransient<Views.Avalonia.StemsPage>();
+        services.AddTransient<Views.Avalonia.EditLabPage>();
         services.AddTransient<Views.Avalonia.WorkstationPage>();
         services.AddTransient<Views.Avalonia.UsersPage>();
-        services.AddTransient<Views.Avalonia.CueForgePagee>();
+        services.AddTransient<Views.Avalonia.CueForgePage>();
         services.AddTransient<Views.Avalonia.FlowBuilderPage>();
         services.AddSingleton<Services.ICuePointService, Services.CuePointService>();
         services.AddSingleton<Services.Audio.StemPreferenceService>();
@@ -831,6 +880,9 @@ public partial class App : Application
 
         services.AddSingleton<SLSKDONET.ViewModels.Workstation.WorkstationViewModel>();
         services.AddSingleton<SLSKDONET.ViewModels.Workstation.CueEditorViewModel>();
+        // Links every cue editor session (Cue Forge, Flow Builder / Mix decks) and holds the shared
+        // drop cue template. No I/O in its constructor, so it can't poison the container.
+        services.AddSingleton<SLSKDONET.ViewModels.CueSessionRegistry>();
         services.AddSingleton<SLSKDONET.ViewModels.CueForgeViewModel>();
         services.AddSingleton<SLSKDONET.Engine.Analysis.AnalysisPipeline>(sp =>
             new SLSKDONET.Engine.Analysis.AnalysisPipeline(
@@ -850,6 +902,69 @@ public partial class App : Application
             return generator;
         });
         services.AddSingleton<Services.AnalysisQueueService>();
+        services.AddSingleton<Services.AudioAnalysis.LoudnessBackfillService>(sp =>
+            new Services.AudioAnalysis.LoudnessBackfillService(
+                sp.GetRequiredService<IDbContextFactory<AppDbContext>>(),
+                sp.GetRequiredService<Services.AudioAnalysis.AudioIngestionPipeline>(),
+                sp.GetRequiredService<IEventBus>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.AudioAnalysis.LoudnessBackfillService>>(),
+                sp.GetService<Services.AnalysisQueueService>()));
+        services.AddSingleton<ViewModels.LoudnessBackfillViewModel>();
+
+        // ── Library metadata enrichment (Services/Enrichment, DOCS/METADATA_ENRICHMENT.md) ──
+        services.AddHttpClient("enrichment", c => c.Timeout = TimeSpan.FromSeconds(20));
+        services.AddSingleton<Services.Enrichment.EnrichmentStore>();
+        services.AddSingleton<Services.Enrichment.IMetadataLookupCache>(sp => sp.GetRequiredService<Services.Enrichment.EnrichmentStore>());
+        services.AddSingleton(sp => new Services.Enrichment.MetadataCredentialStore(
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.MetadataCredentialStore>>()));
+        static System.Net.Http.HttpClient EnrichmentHttp(IServiceProvider sp) =>
+            sp.GetRequiredService<System.Net.Http.IHttpClientFactory>().CreateClient("enrichment");
+        services.AddSingleton<Services.Enrichment.IMetadataProvider, Services.Enrichment.Providers.LocalTagsProvider>();
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.DeezerProvider(
+            EnrichmentHttp(sp), sp.GetRequiredService<Services.Enrichment.IMetadataLookupCache>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.Providers.DeezerProvider>>()));
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.MusicBrainzProvider(
+            EnrichmentHttp(sp), sp.GetRequiredService<Services.Enrichment.IMetadataLookupCache>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.Providers.MusicBrainzProvider>>()));
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.DiscogsProvider(
+            EnrichmentHttp(sp), sp.GetRequiredService<Services.Enrichment.IMetadataLookupCache>(),
+            sp.GetRequiredService<Services.Enrichment.MetadataCredentialStore>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.Providers.DiscogsProvider>>()));
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.AcoustIdProvider(
+            EnrichmentHttp(sp), sp.GetRequiredService<Services.Enrichment.IMetadataLookupCache>(),
+            sp.GetRequiredService<Services.Enrichment.MetadataCredentialStore>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.Providers.AcoustIdProvider>>()));
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.SpotifyProvider(
+            sp.GetRequiredService<SpotifyEnrichmentService>(), sp.GetRequiredService<SpotifyAuthService>()));
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.BeatportProvider(
+            sp.GetRequiredService<Services.Discovery.BeatportCatalogClient>()));
+        services.AddSingleton(sp =>
+        {
+            var config = sp.GetRequiredService<AppConfig>();
+            return new Services.Enrichment.MetadataEnrichmentOrchestrator(
+                sp.GetRequiredService<IDbContextFactory<AppDbContext>>(),
+                sp.GetRequiredService<Services.Enrichment.EnrichmentStore>(),
+                sp.GetServices<Services.Enrichment.IMetadataProvider>(),
+                sp.GetRequiredService<IEventBus>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.MetadataEnrichmentOrchestrator>>(),
+                () => SLSKDONET.Services.Enrichment.EnrichmentSettings.From(config),
+                sp.GetService<ArtworkCacheService>(),
+                () => sp.GetService<Services.AnalysisQueueService>()?.PendingCount > 0,
+                () => sp.GetService<IAudioPlayerService>()?.IsPlaying == true,
+                SLSKDONET.Services.Enrichment.MetadataEnrichmentOrchestrator.DefaultWorkers,
+                TimeSpan.FromSeconds(3),
+                startupResumeDelay: TimeSpan.FromSeconds(45),
+                isImportRunning: () => sp.GetService<LibraryFolderScannerService>()?.IsAnyImportRunning == true);
+        });
+        services.AddSingleton<ViewModels.EnrichmentViewModel>();
+        services.AddSingleton<ViewModels.MetadataSourcesSettingsViewModel>();
+        // The one background-activity chip/flyout (top bar + setup wizard header).
+        services.AddSingleton(sp => new ViewModels.Activity.BackgroundActivityHubViewModel(
+            sp.GetRequiredService<IEventBus>(),
+            sp.GetService<ViewModels.LibraryImportViewModel>(),
+            new ViewModels.Activity.OrchestratorEnrichmentActivityControl(sp.GetRequiredService<Services.Enrichment.MetadataEnrichmentOrchestrator>()),
+            page => sp.GetRequiredService<INavigationService>().NavigateTo(page),
+            sp.GetService<ILogger<ViewModels.Activity.BackgroundActivityHubViewModel>>()));
 
         // ── Task 1.5: Beatgrid Detection ──────────────────────────────────
         services.AddSingleton<Services.AudioAnalysis.BeatgridDetectionService>();
@@ -909,9 +1024,51 @@ public partial class App : Application
         services.AddSingleton<Services.Audio.ISurgicalProcessingService, Services.Audio.SurgicalProcessingService>();
         services.AddSingleton<Services.Audio.ITransitionPreviewPlayer, Services.Audio.TransitionPreviewPlayer>();
         services.AddSingleton<Services.IWaveformCacheService, Services.WaveformCacheService>();
-        services.AddSingleton<ViewModels.StemMixerViewModel>();
-        services.AddSingleton<ViewModels.StemWaveformViewModel>();
-        services.AddSingleton<ViewModels.NeuralMixEqViewModel>();
+
+        // ── Edit Lab: stems + track editing (replaces the old, unreachable Stems page) ──
+        // None of these do I/O in their constructors, so they can't poison the container.
+        services.AddSingleton<SLSKDONET.Services.EditLab.EditProjectStore>(sp =>
+            new SLSKDONET.Services.EditLab.EditProjectStore(sp.GetService<Microsoft.Extensions.Logging.ILogger<SLSKDONET.Services.EditLab.EditProjectStore>>()));
+        services.AddSingleton<SLSKDONET.Services.EditLab.EditLabSourceService>(sp =>
+            new SLSKDONET.Services.EditLab.EditLabSourceService(
+                sp.GetService<SLSKDONET.Services.ILibraryService>(),
+                sp.GetService<SLSKDONET.Services.DatabaseService>(),
+                sp.GetService<SLSKDONET.Services.Audio.Separation.CachedStemSeparator>(),
+                sp.GetService<Microsoft.Extensions.Logging.ILogger<SLSKDONET.Services.EditLab.EditLabSourceService>>()));
+        services.AddSingleton<SLSKDONET.Services.EditLab.EditPreviewEngine>(sp =>
+        {
+            var cfg = sp.GetService<AppConfig>();
+            return new SLSKDONET.Services.EditLab.EditPreviewEngine(() =>
+            {
+                try
+                {
+                    return SLSKDONET.Services.Audio.AudioOutputProvider.CreatePreviewDevice(cfg?.AudioOutputMode, cfg?.AudioOutputDeviceName);
+                }
+                catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException)
+                {
+                    Serilog.Log.Warning(ex, "Edit Lab preview: couldn't open {Device}; using the Windows default", cfg?.AudioOutputDeviceName ?? "(default)");
+                    return new NAudio.Wave.WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
+                }
+            });
+        });
+        services.AddSingleton<SLSKDONET.Services.EditLab.EditLabRenderService>(sp =>
+            new SLSKDONET.Services.EditLab.EditLabRenderService(
+                sp.GetRequiredService<SLSKDONET.Services.EditLab.EditLabSourceService>(),
+                sp.GetService<AppConfig>(),
+                sp.GetService<SLSKDONET.Services.IEventBus>(),
+                sp.GetService<SLSKDONET.Services.ICuePointService>(),
+                sp.GetService<Microsoft.Extensions.Logging.ILogger<SLSKDONET.Services.EditLab.EditLabRenderService>>()));
+        services.AddSingleton<ViewModels.EditLab.IEditLabPlayerGate>(sp =>
+            new ViewModels.EditLab.PlayerViewModelEditLabGate(sp.GetRequiredService<PlayerViewModel>()));
+        services.AddSingleton<ViewModels.EditLab.EditLabViewModel>(sp =>
+            new ViewModels.EditLab.EditLabViewModel(
+                sp.GetRequiredService<SLSKDONET.Services.EditLab.EditProjectStore>(),
+                sp.GetRequiredService<SLSKDONET.Services.EditLab.EditLabSourceService>(),
+                sp.GetRequiredService<SLSKDONET.Services.EditLab.EditPreviewEngine>(),
+                sp.GetService<ViewModels.EditLab.IEditLabPlayerGate>(),
+                sp.GetService<Views.INotificationService>(),
+                sp.GetService<Microsoft.Extensions.Logging.ILogger<ViewModels.EditLab.EditLabViewModel>>(),
+                renderService: sp.GetRequiredService<SLSKDONET.Services.EditLab.EditLabRenderService>()));
 
         // ── Task 7.4-7.6: Timeline Editor ViewModel ───────────────────────
         services.AddSingleton<ViewModels.TimelineViewModel>();
@@ -948,13 +1105,20 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Phase 8: Maintenance Task - Runs daily cleanup operations.
+    /// Phase 8: Maintenance Task - runs once per launch, on a pool thread.
     /// - Deletes backup files older than 7 days
-    /// - Vacuums database for performance
+    /// - Daily library snapshot, weekly VACUUM (see LibraryDatabaseMaintenance)
     /// </summary>
     private async Task RunMaintenanceTasksAsync()
     {
-        await PerformMaintenanceAsync();
+        try
+        {
+            await PerformMaintenanceAsync();
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "[Maintenance] Startup maintenance failed");
+        }
     }
 
     private async Task PerformMaintenanceAsync()
@@ -1001,19 +1165,14 @@ public partial class App : Application
             }
         }
         
-        // Task 2: Vacuum database for performance
-        try
-        {
-            var dbService = Services?.GetService<DatabaseService>();
-            if (dbService != null)
-            {
-                await dbService.VacuumDatabaseAsync();
-            }
-        }
-        catch (Exception ex)
-        {
-            Serilog.Log.Warning(ex, "[Maintenance] Database vacuum failed");
-        }
+        // Task 2: weekly VACUUM (backlog E1).
+        // This used to VACUUM on every launch from a UI-thread continuation; SQLite's "async"
+        // calls are synchronous, so it froze the UI (~10 s) and locked the DB at startup. Now it
+        // is gated by a marker file and always runs on a pool thread.
+        var vacuumed = await Task.Run(() => SLSKDONET.Services.LibraryDatabaseMaintenance.RunScheduledVacuum(
+            onError: ex => Serilog.Log.Warning(ex, "[Maintenance] Weekly VACUUM failed")));
+        if (vacuumed)
+            Serilog.Log.Information("[Maintenance] Weekly VACUUM completed");
 
         // Task 3: Schedule batch sync of embeddings
         try

@@ -14,6 +14,10 @@ using Xunit;
 
 namespace SLSKDONET.Tests.ViewModels;
 
+/// <summary>
+/// The Flow Builder / Mix deck host: cue editing goes through its <see cref="CueEditorSession"/>
+/// (the same engine as Cue Forge); the deck adds "where you're listening", mix points and generation.
+/// </summary>
 public class TrackCueEditorViewModelTests
 {
     // 120 BPM: beat 0.5 s, bar 2 s, 8-bar phrase 16 s. Downbeat at 1 s.
@@ -34,21 +38,22 @@ public class TrackCueEditorViewModelTests
     };
 
     [Fact]
-    public void Snap_UsesTheTracksGrid_FromTheDownbeat()
+    public void Snap_UsesTheTracksGrid_FromTheDownbeat_BarByDefault()
     {
         var (editor, _) = Build();
+        var s = editor.Session;
 
-        editor.SnapMode = CueSnapMode.Bar;
-        Assert.Equal(5.0, editor.Snap(5.6), 6);   // bars at 1, 3, 5, 7...
+        Assert.Equal("Bar", s.SnapResolution);
+        Assert.Equal(5.0, s.SnapTime(5.6), 6);   // bars at 1, 3, 5, 7...
 
-        editor.SnapMode = CueSnapMode.Beat;
-        Assert.Equal(5.5, editor.Snap(5.6), 6);
+        s.SnapResolution = "Beat";
+        Assert.Equal(5.5, s.SnapTime(5.6), 6);
 
-        editor.SnapMode = CueSnapMode.Phrase;
-        Assert.Equal(17.0, editor.Snap(20.0), 6); // phrases at 1, 17, 33...
+        s.SnapResolution = "8 bars";
+        Assert.Equal(17.0, s.SnapTime(20.0), 6); // phrases at 1, 17, 33...
 
-        editor.SnapMode = CueSnapMode.Off;
-        Assert.Equal(5.6, editor.Snap(5.6), 6);
+        s.SnapToGrid = false;
+        Assert.Equal(5.6, s.SnapTime(5.6), 6);
     }
 
     [Fact]
@@ -56,110 +61,140 @@ public class TrackCueEditorViewModelTests
     {
         var (editor, _) = Build(Stored(10, "Drop", slot: 0));
 
-        editor.AddCueAtCommand.Execute(20.4).Subscribe();
+        editor.Session.AddCueAtCommand.Execute(20.4).Subscribe();
 
-        var added = Assert.Single(editor.Cues, c => c.Name == "Cue 2");
+        var added = Assert.Single(editor.Session.Cues, c => c.Name == "Cue B");
         Assert.Equal(21.0, added.Timestamp, 6);
         Assert.Equal(1, added.SlotIndex); // pad A is taken
         Assert.Equal(CueSource.User, added.Source);
-        Assert.Same(added, editor.SelectedCue);
-        Assert.True(editor.IsDirty);
+        Assert.Same(added, editor.Session.SelectedCue);
+        Assert.True(editor.Session.IsDirty);
     }
 
     [Fact]
     public void AssigningATakenPad_TurnsItsPreviousOwnerIntoAMemoryCue()
     {
         var (editor, _) = Build(Stored(10, "A", slot: 0), Stored(20, "B", slot: 1));
-        editor.SelectedCue = editor.Cues.Single(c => c.Name == "B");
+        var s = editor.Session;
+        s.SelectedCue = s.Cues.Single(c => c.Name == "B");
 
-        editor.SelectedSlot = TrackCueEditorViewModel.SlotOptions.Single(o => o.Index == 0);
+        s.SelectedCueSlot = CueEditorSession.CueSlotOptions.Single(o => o.Value == 0);
 
-        Assert.Equal(0, editor.Cues.Single(c => c.Name == "B").SlotIndex);
-        Assert.Equal(-1, editor.Cues.Single(c => c.Name == "A").SlotIndex);
+        Assert.Equal(0, s.Cues.Single(c => c.Name == "B").SlotIndex);
+        Assert.Equal(-1, s.Cues.Single(c => c.Name == "A").SlotIndex);
+        Assert.Equal("B", s.HotCuePads[0].CueName);
     }
 
     [Fact]
-    public void ChangingRole_AppliesItsColour_AndMakesItAUserCue()
+    public void ChangingRole_MakesItAUserCue_AndKeepsItsColour()
     {
-        var (editor, _) = Build(Stored(10, "X"));
-        editor.SelectedCue = editor.Cues[0];
+        // Same as Cue Forge: a role is structure, the colour stays what you (or the analysis) chose.
+        var (editor, _) = Build(Stored(10, "X", type: CuePointType.PhraseBoundary));
+        var s = editor.Session;
+        s.SelectedCue = s.Cues[0];
 
-        editor.SelectedRole = CueRole.Intro;
+        s.SelectedCueRole = CueRole.Intro;
 
-        Assert.Equal(CueRole.Intro, editor.Cues[0].Role);
-        Assert.Equal(CueForgeViewModel.RekordboxColorForRole(CueRole.Intro), editor.Cues[0].Color);
-        Assert.Equal(CueSource.User, editor.Cues[0].Source);
+        Assert.Equal(CueRole.Intro, s.Cues[0].Role);
+        Assert.Equal("#FF0000", s.Cues[0].Color);
+        Assert.Equal(CueSource.User, s.Cues[0].Source);
     }
 
     [Fact]
     public void Undo_And_Redo_RestoreEarlierStates()
     {
         var (editor, _) = Build(Stored(10, "Drop"));
-        editor.SelectedCue = editor.Cues[0];
-        editor.DeleteSelectedCommand.Execute().Subscribe();
-        Assert.Empty(editor.Cues);
+        var s = editor.Session;
+        s.SelectedCue = s.Cues[0];
+        s.DeleteSelectedCueCommand.Execute().Subscribe();
+        Assert.Empty(s.Cues);
 
-        editor.UndoCommand.Execute().Subscribe();
-        Assert.Single(editor.Cues);
-        Assert.Equal("Drop", editor.Cues[0].Name);
+        s.UndoCommand.Execute().Subscribe();
+        Assert.Single(s.Cues);
+        Assert.Equal("Drop", s.Cues[0].Name);
 
-        editor.RedoCommand.Execute().Subscribe();
-        Assert.Empty(editor.Cues);
+        s.RedoCommand.Execute().Subscribe();
+        Assert.Empty(s.Cues);
     }
 
     [Fact]
     public void DraggingACue_SnapsIt_AndReportsTheMove()
     {
         var (editor, _) = Build(Stored(11, "Drop"));
+        var s = editor.Session;
         (double From, double To)? moved = null;
         editor.CueMoved += (_, m) => moved = m;
 
-        var cue = editor.Cues[0];
-        cue.Timestamp = 14.3; // what the waveform does while dragging
-        editor.CueUpdatedCommand.Execute(cue).Subscribe();
+        var cue = s.Cues[0];
+        cue.Timestamp = 14.3;          // what the transition waveform does while dragging...
+        cue.Source = CueSource.User;   // ...and on release, before it fires CueUpdatedCommand
+        s.CueUpdatedCommand.Execute(cue).Subscribe();
 
         Assert.Equal(15.0, cue.Timestamp, 6);
         Assert.Equal((11.0, 15.0), moved);
-        Assert.True(editor.IsDirty);
+        Assert.True(s.IsDirty);
 
-        editor.UndoCommand.Execute().Subscribe();
-        Assert.Equal(11.0, editor.Cues[0].Timestamp, 6);
+        s.UndoCommand.Execute().Subscribe();
+        var restored = Assert.Single(s.Cues);
+        Assert.Equal(11.0, restored.Timestamp, 6);
+        Assert.Equal(CueSource.Auto, restored.Source);
+    }
+
+    [Fact]
+    public void ClickingAMarkerWithoutMoving_IsNotAnEdit()
+    {
+        var (editor, _) = Build(Stored(11, "Drop"));
+        var s = editor.Session;
+        var cue = s.Cues[0];
+        cue.Source = CueSource.User; // the waveform marks it on release even without a move
+
+        s.CueUpdatedCommand.Execute(cue).Subscribe();
+
+        Assert.False(s.IsDirty);
+        Assert.False(s.CanUndo);
+        Assert.Equal(CueSource.Auto, cue.Source);
     }
 
     [Fact]
     public void NudgingALoop_MovesItsEndToo()
     {
         var (editor, _) = Build(Stored(11, "Drop"));
-        editor.SelectedCue = editor.Cues[0];
-        editor.SetSelectedLoopBarsCommand.Execute(4).Subscribe();
-        Assert.True(editor.Cues[0].IsLoop);
-        Assert.Equal(19.0, editor.Cues[0].LoopEndSeconds, 6); // 4 bars = 8 s
+        var s = editor.Session;
+        s.SelectedCue = s.Cues[0];
+        s.SetQuickLoopCommand.Execute(4).Subscribe();
+        var loop = Assert.Single(s.Cues, c => c.IsLoop);
+        Assert.Same(loop, s.SelectedCue);
+        Assert.Equal(11.0, loop.Timestamp, 6);
+        Assert.Equal(19.0, loop.LoopEndSeconds, 6); // 4 bars = 8 s
+        Assert.Equal(-1, loop.SlotIndex);           // memory loop
 
-        editor.NudgeSelectedCommand.Execute("+bar").Subscribe();
+        s.NudgeCueCommand.Execute("+bar").Subscribe();
 
-        Assert.Equal(13.0, editor.Cues[0].Timestamp, 6);
-        Assert.Equal(21.0, editor.Cues[0].LoopEndSeconds, 6);
+        Assert.Equal(13.0, loop.Timestamp, 6);
+        Assert.Equal(21.0, loop.LoopEndSeconds, 6);
     }
 
     [Fact]
     public async Task Save_ReplacesTheTracksCues_WithTheWorkingSet()
     {
         var (editor, service) = Build(Stored(10, "Drop", slot: 0));
+        var s = editor.Session;
         List<CuePointEntity>? written = null;
-        service.Setup(s => s.CreateManyAsync(It.IsAny<IEnumerable<CuePointEntity>>(), It.IsAny<CancellationToken>()))
+        service.Setup(x => x.CreateManyAsync(It.IsAny<IEnumerable<CuePointEntity>>(), It.IsAny<CancellationToken>()))
                .Callback<IEnumerable<CuePointEntity>, CancellationToken>((e, _) => written = e.ToList())
                .Returns(Task.CompletedTask);
-        editor.SelectedCue = editor.Cues[0];
-        editor.SelectedName = "Big drop";
+        s.SelectedCue = s.Cues[0];
+        s.EditingCueName = "Big drop";
+        s.CommitCueName();
 
         Assert.True(await editor.SaveIfDirtyAsync());
 
-        service.Verify(s => s.DeleteAllByTrackIdAsync("hash", It.IsAny<CancellationToken>()), Times.Once);
+        service.Verify(x => x.DeleteAllByTrackIdAsync("hash", It.IsAny<CancellationToken>()), Times.Once);
         var cue = Assert.Single(written!);
         Assert.Equal("Big drop", cue.Label);
         Assert.False(cue.IsAutoGenerated); // edited, so auto-analysis won't overwrite it
         Assert.Equal(0, cue.SlotIndex);
-        Assert.False(editor.IsDirty);
+        Assert.False(s.IsDirty);
         Assert.False(await editor.SaveIfDirtyAsync()); // nothing left to save
     }
 
@@ -167,43 +202,46 @@ public class TrackCueEditorViewModelTests
     public void SettingADrop_PlacesCountdowns_MovingItMovesThem_DeletingItRemovesThem()
     {
         var (editor, _) = Build(Stored(81, "Hit", type: CuePointType.PhraseBoundary)); // 120 BPM: bar = 2 s
-        editor.InitDropCountdownMode("16,8");
-        editor.SelectedCue = editor.Cues.Single();
+        var s = editor.Session;
+        s.DropCountdownMode = "16,8";
+        s.SelectedCue = s.Cues.Single();
 
-        editor.SelectedRole = CueRole.Drop;
+        s.SelectedCueRole = CueRole.Drop;
         // [IN -16] [IN -8] [DROP 1], and [OUT] 32 bars after the drop.
-        Assert.Equal(new[] { 49.0, 65.0, 81.0, 145.0 }, editor.Cues.Select(c => c.Timestamp));
-        Assert.Equal(new[] { "[IN -16]", "[IN -8]", "[DROP 1]", "[OUT]" }, editor.Cues.Select(c => c.Name));
+        Assert.Equal(new[] { 49.0, 65.0, 81.0, 145.0 }, s.Cues.Select(c => c.Timestamp));
+        Assert.Equal(new[] { "[IN -16]", "[IN -8]", "[DROP 1]", "[OUT]" }, s.Cues.Select(c => c.Name));
 
-        editor.NudgeSelectedCommand.Execute("+bar").Subscribe();
-        Assert.Equal(new[] { 51.0, 67.0, 83.0, 147.0 }, editor.Cues.Select(c => c.Timestamp));
+        s.NudgeCueCommand.Execute("+bar").Subscribe();
+        Assert.Equal(new[] { 51.0, 67.0, 83.0, 147.0 }, s.Cues.Select(c => c.Timestamp));
 
-        editor.DeleteSelectedCommand.Execute().Subscribe();
-        Assert.Empty(editor.Cues);
+        s.DeleteSelectedCueCommand.Execute().Subscribe();
+        Assert.Empty(s.Cues);
     }
 
     [Fact]
     public void TemplateOff_PlacesNoBuildIns()
     {
         var (editor, _) = Build(Stored(81, "Hit", type: CuePointType.PhraseBoundary));
-        editor.InitDropCountdownMode("Off");
-        editor.SelectedCue = editor.Cues.Single();
+        var s = editor.Session;
+        s.DropCountdownMode = "Off";
+        s.SelectedCue = s.Cues.Single();
 
-        editor.SelectedRole = CueRole.Drop;
+        s.SelectedCueRole = CueRole.Drop;
 
-        Assert.DoesNotContain(editor.Cues, c => c.Role == CueRole.Build);
-        Assert.Equal(new[] { "[DROP 1]", "[OUT]" }, editor.Cues.Select(c => c.Name));
+        Assert.DoesNotContain(s.Cues, c => c.Role == CueRole.Build);
+        Assert.Equal(new[] { "[DROP 1]", "[OUT]" }, s.Cues.Select(c => c.Name));
     }
 
     [Fact]
     public void FineNudge_Moves10Ms_WithoutSnapping()
     {
         var (editor, _) = Build(Stored(11, "Drop"));
-        editor.SelectedCue = editor.Cues[0];
+        var s = editor.Session;
+        s.SelectedCue = s.Cues[0];
 
-        editor.NudgeSelectedCommand.Execute("+fine").Subscribe();
+        s.NudgeCueCommand.Execute("+fine").Subscribe();
 
-        Assert.Equal(11.010, editor.Cues.Single(c => c.Name == "Drop").Timestamp, 6);
+        Assert.Equal(11.010, s.Cues.Single(c => c.Name == "Drop").Timestamp, 6);
     }
 
     [Fact]
@@ -212,7 +250,7 @@ public class TrackCueEditorViewModelTests
         var (editor, _) = Build(Stored(42, "Outro", type: CuePointType.Outro));
         double? trigger = null;
         editor.TriggerRequested += (_, t) => trigger = t;
-        editor.SelectedCue = editor.Cues[0];
+        editor.Session.SelectedCue = editor.Session.Cues[0];
 
         editor.UseSelectedAsTriggerCommand.Execute().Subscribe();
 
@@ -223,37 +261,39 @@ public class TrackCueEditorViewModelTests
     public void DropHere_AddsADropOnTheBeat_WithCountdownCuesBeforeIt()
     {
         var (editor, _) = Build();
+        var s = editor.Session;
         editor.LastAuditionSeconds = 65.3;
 
-        editor.SetDropHereCommand.Execute().Subscribe();
+        s.SetDropAtPlayheadCommand.Execute().Subscribe();
 
-        var drop = Assert.Single(editor.Cues, c => c.Role == CueRole.Drop);
+        var drop = Assert.Single(s.Cues, c => c.Role == CueRole.Drop);
         Assert.Equal(("[DROP 1]", 2), (drop.Name, drop.SlotIndex)); // pad C
         Assert.Equal(65.0, drop.Timestamp, 6);                   // snapped to the bar grid
-        var countdowns = editor.Cues.Where(c => c.Role == CueRole.Build).ToList();
+        var countdowns = s.Cues.Where(c => c.Role == CueRole.Build).ToList();
         Assert.NotEmpty(countdowns);
         Assert.All(countdowns, c => Assert.True(c.Timestamp < drop.Timestamp));
-        Assert.True(editor.IsDirty);
+        Assert.True(s.IsDirty);
     }
 
     [Fact]
     public void DropHere_TurnsTheCueAlreadyOnThatBeatIntoTheDrop()
     {
         var (editor, _) = Build(Stored(65, "Cue 1", slot: 2, type: CuePointType.PhraseBoundary));
+        var s = editor.Session;
         editor.LastAuditionSeconds = 65.1;
 
-        editor.SetDropHereCommand.Execute().Subscribe();
+        s.SetDropAtPlayheadCommand.Execute().Subscribe();
 
-        var drop = Assert.Single(editor.Cues, c => c.Role == CueRole.Drop);
+        var drop = Assert.Single(s.Cues, c => c.Role == CueRole.Drop);
         Assert.Equal((65.0, 2, "[DROP 1]"), (drop.Timestamp, drop.SlotIndex, drop.Name));
-        Assert.DoesNotContain(editor.Cues, c => c.Name == "Cue 1");
+        Assert.DoesNotContain(s.Cues, c => c.Name == "Cue 1");
     }
 
     [Fact]
     public async Task GenerateCues_RunsTheGenerator_ReloadsStoredCues_AndTellsTheHost()
     {
         var (editor, service) = Build(Stored(10, "Old"));
-        service.Setup(s => s.GetByTrackIdAsync("hash", It.IsAny<CancellationToken>()))
+        service.Setup(x => x.GetByTrackIdAsync("hash", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<CuePointEntity> { Stored(30, "Drop 1 ✓AI"), Stored(50, "AI 0.95", type: CuePointType.PhraseBoundary) });
         SLSKDONET.Engine.Analysis.CueDetr.CueSourceMode? asked = null;
         editor.CueGenerator = (hash, path, mode) => { asked = mode; return Task.FromResult((true, "done")); };
@@ -263,8 +303,21 @@ public class TrackCueEditorViewModelTests
         await editor.GenerateCuesCommand.Execute("compare");
 
         Assert.Equal(SLSKDONET.Engine.Analysis.CueDetr.CueSourceMode.Compare, asked);
-        Assert.Equal(new[] { "Drop 1 ✓AI", "AI 0.95" }, editor.Cues.Select(c => c.Name));
-        Assert.Equal((1, "done", false), (changed, editor.StatusText, editor.IsDirty));
+        Assert.Equal(new[] { "Drop 1 ✓AI", "AI 0.95" }, editor.Session.Cues.Select(c => c.Name));
+        Assert.Equal((1, "done", false), (changed, editor.Session.StatusText, editor.Session.IsDirty));
+        Assert.True(editor.Session.CanUndo); // the previous set is one Ctrl+Z away
+    }
+
+    [Fact]
+    public async Task GenerateCues_Failure_IsShownAsAnError()
+    {
+        var (editor, _) = Build(Stored(10, "Old"));
+        editor.CueGenerator = (_, _, _) => Task.FromResult((false, "✗ no audio"));
+
+        await editor.GenerateCuesCommand.Execute("orbit");
+
+        Assert.Equal(("✗ no audio", true), (editor.Session.StatusText, editor.Session.IsStatusError));
+        Assert.Equal("Old", Assert.Single(editor.Session.Cues).Name);
     }
 
     [Fact]
@@ -273,55 +326,73 @@ public class TrackCueEditorViewModelTests
         var mine = Stored(41, "My cue", type: CuePointType.PhraseBoundary);
         mine.IsAutoGenerated = false;
         var (editor, _) = Build(Stored(21, "Intro", type: CuePointType.Intro), Stored(101, "Drop 2"), mine);
+        var s = editor.Session;
         editor.LastAuditionSeconds = 65;
 
-        editor.SetDropHereCommand.Execute().Subscribe();
+        s.SetDropAtPlayheadCommand.Execute().Subscribe();
 
-        Assert.DoesNotContain(editor.Cues, c => c.Name is "Intro" or "Drop 2");
-        Assert.Contains(editor.Cues, c => c.Name == "My cue");
-        Assert.Contains(editor.Cues, c => c.Name == "[DROP 1]" && c.Role == CueRole.Drop);
-        Assert.Contains(editor.Cues, c => c.Name.StartsWith("[IN -"));
-        Assert.Contains(editor.Cues, c => c.Name == "[OUT]");
+        Assert.DoesNotContain(s.Cues, c => c.Name is "Intro" or "Drop 2");
+        Assert.Contains(s.Cues, c => c.Name == "My cue");
+        Assert.Contains(s.Cues, c => c.Name == "[DROP 1]" && c.Role == CueRole.Drop);
+        Assert.Contains(s.Cues, c => c.Name.StartsWith("[IN -"));
+        Assert.Contains(s.Cues, c => c.Name == "[OUT]");
 
-        editor.UndoCommand.Execute().Subscribe();
-        Assert.Contains(editor.Cues, c => c.Name == "Intro");
+        s.UndoCommand.Execute().Subscribe();
+        Assert.Contains(s.Cues, c => c.Name == "Intro");
     }
 
     [Fact]
     public void CorrectingAnAutoDrop_ClearsTheOtherAutoCues()
     {
         var (editor, _) = Build(Stored(21, "Intro", type: CuePointType.Intro), Stored(65, "Drop 1"));
-        editor.SelectedCue = editor.Cues.Single(c => c.Name == "Drop 1");
+        var s = editor.Session;
+        s.SelectedCue = s.Cues.Single(c => c.Name == "Drop 1");
 
-        editor.NudgeSelectedCommand.Execute("+bar").Subscribe();
+        s.NudgeCueCommand.Execute("+bar").Subscribe();
 
-        Assert.DoesNotContain(editor.Cues, c => c.Name == "Intro");
-        Assert.Equal(67.0, editor.Cues.Single(c => c.Name == "Drop 1").Timestamp, 6);
+        Assert.DoesNotContain(s.Cues, c => c.Name == "Intro");
+        Assert.Equal(67.0, s.Cues.Single(c => c.Name == "Drop 1").Timestamp, 6);
     }
 
     [Fact]
     public void Keys1And2_PlaceDrop1AndDrop2_OnTheirPads()
     {
         var (editor, _) = Build();
-        editor.InitDropCountdownMode(SLSKDONET.Engine.Cueing.DropCountdownCues.DnB);
+        var s = editor.Session;
+        s.DropCountdownMode = SLSKDONET.Engine.Cueing.DropCountdownCues.DnB;
 
         editor.LastAuditionSeconds = 161;
-        editor.SetNumberedDropHereCommand.Execute(2).Subscribe();
+        s.SetNumberedDropAtPlayheadCommand.Execute(2).Subscribe();
         editor.LastAuditionSeconds = 65;
-        editor.SetNumberedDropHereCommand.Execute(1).Subscribe();
+        s.SetNumberedDropAtPlayheadCommand.Execute(1).Subscribe();
 
         Assert.Equal(new[] { ("[IN -16]", 0), ("[IN -8]", 1), ("[DROP 1]", 2), ("[IN -16]", 3), ("[IN -8]", 4), ("[DROP 2]", 5), ("[OUT]", 6) },
-            editor.Cues.Select(c => (c.Name, c.SlotIndex)));
+            s.Cues.Select(c => (c.Name, c.SlotIndex)));
     }
 
     [Fact]
     public void AddingYourOwnCue_RemovesTheAutoCues()
     {
         var (editor, _) = Build(Stored(21, "Intro", type: CuePointType.Intro), Stored(65, "Drop 1"));
+        var s = editor.Session;
 
-        editor.AddCueAtCommand.Execute(101.0).Subscribe();
+        s.AddCueAtCommand.Execute(101.0).Subscribe();
 
-        Assert.Equal(new[] { "Cue 3" }, editor.Cues.Select(c => c.Name));
-        Assert.Contains("auto cues removed", editor.StatusText);
+        Assert.Equal(new[] { "Cue A" }, s.Cues.Select(c => c.Name));
+        Assert.Contains("auto cues removed", s.StatusText);
+    }
+
+    [Fact]
+    public void EmptyPad_SetsACueWhereYouAreListening()
+    {
+        var (editor, _) = Build();
+        var s = editor.Session;
+        editor.LastAuditionSeconds = 30.4;
+
+        s.TriggerPadCommand.Execute(s.HotCuePads[4]).Subscribe();
+
+        var cue = Assert.Single(s.Cues);
+        Assert.Equal((31.0, 4, "Cue E"), (cue.Timestamp, cue.SlotIndex, cue.Name));
+        Assert.Same(cue, s.HotCuePads[4].Cue);
     }
 }

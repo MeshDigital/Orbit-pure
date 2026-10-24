@@ -490,14 +490,6 @@ public partial class WorkstationPage : UserControl
         SetTrackListOverlayVisible(false);
     }
 
-    private void OnFocusTrackListTabClick(object? sender, RoutedEventArgs e)
-    {
-        if (this.FindControl<TabControl>("DrawerTabs") is { } tabs)
-        {
-            tabs.SelectedIndex = 0;
-        }
-    }
-
     private void OnTrackListOverlayBackdropPressed(object? sender, PointerPressedEventArgs e)
     {
         if (e.Source is Border)

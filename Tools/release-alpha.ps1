@@ -3,7 +3,8 @@ param(
     [string]$Configuration = "Release",
     [string]$Version = "",
     [switch]$Lite,
-    [switch]$SkipInstaller
+    [switch]$SkipInstaller,
+    [switch]$SkipSmokeTest
 )
 
 $ErrorActionPreference = "Stop"
@@ -66,6 +67,27 @@ try {
             # Remove large optional .pb model files to produce a smaller tester package.
             Get-ChildItem $essentiaModelsPath -Filter *.pb -File -Recurse | Remove-Item -Force
         }
+    }
+
+    if (-not $SkipSmokeTest) {
+        # Launch the published build in a throwaway profile and fail the release if it dies on
+        # startup. 0.10.0-alpha was packaged with a crash in App.Initialize that no unit test hit.
+        $smokeExe = Join-Path $publishRoot "ORBIT.exe"
+        $smoke = Start-Process -FilePath $smokeExe -ArgumentList "--setup-preview" -WorkingDirectory $publishRoot -PassThru
+        $sawWindow = $false
+        for ($i = 0; $i -lt 24 -and -not $smoke.HasExited; $i++) {
+            Start-Sleep -Seconds 5
+            $smoke.Refresh()
+            if ($smoke.MainWindowHandle -ne 0) { $sawWindow = $true; Start-Sleep -Seconds 10; $smoke.Refresh(); break }
+        }
+        if ($smoke.HasExited) {
+            throw "Smoke test failed: the published ORBIT.exe exited on startup (code $($smoke.ExitCode)). Check the Windows Application event log."
+        }
+        $smoke.CloseMainWindow() | Out-Null
+        Start-Sleep -Seconds 4
+        if (-not $smoke.HasExited) { Stop-Process -Id $smoke.Id -Force }
+        if (-not $sawWindow) { throw "Smoke test failed: no ORBIT window appeared within 2 minutes." }
+        Write-Host "Smoke test passed: the published build starts and stays up." -ForegroundColor Green
     }
 
     @(

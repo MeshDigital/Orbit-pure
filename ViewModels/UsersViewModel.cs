@@ -91,8 +91,30 @@ public class UsersViewModel : ReactiveObject, IDisposable
     public bool IsLoading
     {
         get => _isLoading;
-        private set => this.RaiseAndSetIfChanged(ref _isLoading, value);
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _isLoading, value);
+            this.RaisePropertyChanged(nameof(ShowNoContacts));
+        }
     }
+
+    private string? _loadErrorMessage;
+    /// <summary>Set when the contact list couldn't be read; the view shows it with a Retry action.</summary>
+    public string? LoadErrorMessage
+    {
+        get => _loadErrorMessage;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _loadErrorMessage, value);
+            this.RaisePropertyChanged(nameof(HasLoadError));
+            this.RaisePropertyChanged(nameof(ShowNoContacts));
+        }
+    }
+
+    public bool HasLoadError => !string.IsNullOrEmpty(LoadErrorMessage);
+
+    /// <summary>True once loading finished cleanly and no contact matches (or none exist).</summary>
+    public bool ShowNoContacts => !IsLoading && !HasLoadError && Rows.Count == 0;
 
     private UserProfileViewModel? _selectedProfile;
     public UserProfileViewModel? SelectedProfile
@@ -339,6 +361,7 @@ public class UsersViewModel : ReactiveObject, IDisposable
     public async Task LoadAsync()
     {
         IsLoading = true;
+        LoadErrorMessage = null;
         using var _ = _perfTracker.Measure("Users.LoadAsync");
         try
         {
@@ -408,6 +431,13 @@ public class UsersViewModel : ReactiveObject, IDisposable
             // applies the result, no additional wait.
             ApplyConversations(conversationsTask.Result);
         }
+        catch (Exception ex)
+        {
+            // Previously an unhandled throw here was either unobserved (fire-and-forget load) or
+            // surfaced as a ReactiveCommand exception; either way the list just stayed empty.
+            _logger.LogWarning(ex, "Failed to load Users page contacts");
+            LoadErrorMessage = $"Couldn't load your contacts: {ex.Message}";
+        }
         finally
         {
             IsLoading = false;
@@ -423,6 +453,7 @@ public class UsersViewModel : ReactiveObject, IDisposable
 
         foreach (var row in query)
             Rows.Add(row);
+        this.RaisePropertyChanged(nameof(ShowNoContacts));
 
         _ = RefreshPresenceWatchesAsync();
     }
@@ -473,7 +504,21 @@ public class ConversationRowViewModel : ReactiveObject
     public DateTime LastMessageUtc
     {
         get => _lastMessageUtc;
-        set => this.RaiseAndSetIfChanged(ref _lastMessageUtc, value);
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _lastMessageUtc, value);
+            this.RaisePropertyChanged(nameof(LastMessageDisplay));
+        }
+    }
+
+    /// <summary>Local time today ("14:05"), otherwise the local date ("Oct 3"). The stored value is UTC.</summary>
+    public string LastMessageDisplay
+    {
+        get
+        {
+            var local = DateTime.SpecifyKind(_lastMessageUtc, DateTimeKind.Utc).ToLocalTime();
+            return local.Date == DateTime.Now.Date ? local.ToString("HH:mm") : local.ToString("MMM d");
+        }
     }
 
     private bool _isUnread;

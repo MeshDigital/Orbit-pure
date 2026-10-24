@@ -49,9 +49,9 @@ public class LibraryHealthViewModelTests : IDisposable
     }
 
     [Theory]
-    [InlineData(0, "0.0 B")]
-    [InlineData(512, "512.0 B")]
-    [InlineData(1024, "1.0 KB")]
+    [InlineData(0, "0 B")]
+    [InlineData(512, "512 B")]
+    [InlineData(1024, "1 KB")]
     [InlineData(1024 * 1024, "1.0 MB")]
     [InlineData(1024L * 1024 * 1024, "1.0 GB")]
     public void FormatBytes_RendersHumanReadableSize(long bytes, string expected)

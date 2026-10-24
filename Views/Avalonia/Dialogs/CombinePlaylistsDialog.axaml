@@ -2,58 +2,55 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:SLSKDONET.ViewModels.Library"
         x:Class="SLSKDONET.Views.Avalonia.Dialogs.CombinePlaylistsDialog"
-        Title="Combine Playlists" Width="440" Height="560"
+        x:DataType="vm:CombinePlaylistsViewModel"
+        x:CompileBindings="True"
+        Title="Combine playlists" Width="460" Height="580"
         WindowStartupLocation="CenterOwner"
-        Background="#151520" TransparencyLevelHint="AcrylicBlur"
+        Background="{StaticResource BrushBg2}" TransparencyLevelHint="AcrylicBlur"
         ExtendClientAreaToDecorationsHint="True">
 
-    <Grid RowDefinitions="Auto,*,Auto,Auto,Auto" Margin="20">
-        <!-- Header -->
-        <StackPanel Grid.Row="0" Spacing="8" Margin="0,10,0,16">
-            <TextBlock Text="Combine Playlists" FontSize="18" FontWeight="SemiBold" Foreground="White"/>
-            <TextBlock Text="Pick 2 or more playlists — their tracks will be combined and ordered for smooth BPM/key transitions in a new playlist."
-                       FontSize="12" Foreground="#AAA" TextWrapping="Wrap"/>
+    <Grid RowDefinitions="Auto,*,Auto,Auto,Auto" Margin="24">
+        <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,16">
+            <TextBlock Classes="h2" Text="Combine playlists"/>
+            <TextBlock Classes="body-sm muted" TextWrapping="Wrap"
+                       Text="Pick two or more playlists. Their tracks are merged into a new playlist, ordered for smooth BPM and key transitions."/>
         </StackPanel>
 
-        <!-- Playlist checkbox list -->
-        <ListBox Grid.Row="1" ItemsSource="{Binding Playlists}"
-                 Background="#1E1E2E" BorderBrush="#3E3E42" BorderThickness="1"
-                 CornerRadius="8" Margin="0,0,0,16">
-            <ListBox.ItemTemplate>
-                <DataTemplate x:DataType="vm:SelectablePlaylistItem">
-                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="2">
-                        <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" VerticalAlignment="Center"/>
-                        <TextBlock Text="🎵" FontSize="16" VerticalAlignment="Center"/>
-                        <StackPanel VerticalAlignment="Center">
-                            <TextBlock Text="{Binding Playlist.SourceTitle}" Foreground="White" FontWeight="Medium" FontSize="13"/>
-                            <TextBlock Text="{Binding Playlist.TotalTracks, StringFormat='{}{0} tracks'}" Foreground="#777" FontSize="11"/>
-                        </StackPanel>
-                    </StackPanel>
-                </DataTemplate>
-            </ListBox.ItemTemplate>
-        </ListBox>
+        <!-- Playlist checklist -->
+        <Border Grid.Row="1" Classes="inset" Padding="0" Margin="0,0,0,16">
+            <Panel>
+                <ListBox ItemsSource="{Binding Playlists}" Background="Transparent" BorderThickness="0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SelectablePlaylistItem">
+                            <Grid ColumnDefinitions="Auto,*,Auto" MinHeight="32">
+                                <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Classes="body" Text="{Binding Playlist.SourceTitle}"
+                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Grid.Column="2" Classes="mono muted" Margin="8,0,0,0" VerticalAlignment="Center"
+                                           Text="{Binding Playlist.TotalTracks, StringFormat='{}{0} tracks'}"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <StackPanel Classes="empty-state" IsVisible="{Binding !Playlists.Count}">
+                    <PathIcon Data="{StaticResource icon_library}"/>
+                    <TextBlock Classes="h3" Text="No playlists to combine"/>
+                    <TextBlock Classes="caption" Text="Import or create at least two playlists first."/>
+                </StackPanel>
+            </Panel>
+        </Border>
 
-        <!-- New playlist name -->
-        <StackPanel Grid.Row="2" Spacing="8" Margin="0,0,0,12">
-            <TextBlock Text="New Playlist Name" FontSize="12" FontWeight="SemiBold" Foreground="#4EC9B0"/>
-            <TextBox Text="{Binding NewPlaylistName, Mode=TwoWay}"
-                     Watermark="Enter a name for the combined playlist..."
-                     Background="#1E1E2E" Foreground="White"
-                     BorderThickness="1" BorderBrush="#3E3E42"
-                     CornerRadius="6" Padding="10,8"/>
+        <StackPanel Grid.Row="2" Spacing="4" Margin="0,0,0,12">
+            <TextBlock Classes="caption" Text="New playlist name"/>
+            <TextBox Text="{Binding NewPlaylistName, Mode=TwoWay}" Watermark="Name for the combined playlist"/>
         </StackPanel>
 
-        <!-- Dedup option -->
         <CheckBox Grid.Row="3" Content="Skip duplicate tracks (recommended)"
-                  IsChecked="{Binding SkipDuplicateTracks, Mode=TwoWay}"
-                  Foreground="#CCC" FontSize="12" Margin="0,0,0,16"/>
+                  IsChecked="{Binding SkipDuplicateTracks, Mode=TwoWay}" Margin="0,0,0,16"/>
 
-        <!-- Action buttons -->
-        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12">
-            <Button Content="Cancel" Click="Cancel_Click" Background="Transparent" Foreground="#AAA" Padding="16,8"/>
-            <Button Content="Combine &amp; Arrange" Click="Combine_Click"
-                    IsEnabled="{Binding CanConfirm}"
-                    Background="#4EC9B0" Foreground="#151520" Padding="16,8" CornerRadius="6" FontWeight="Bold"/>
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Classes="ghost" Content="Cancel" Click="Cancel_Click"/>
+            <Button Classes="primary" Content="Combine and arrange" Click="Combine_Click" IsEnabled="{Binding CanConfirm}"/>
         </StackPanel>
     </Grid>
 </Window>

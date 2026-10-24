@@ -203,6 +203,17 @@ public interface ILibraryService
     Task<List<PlaylistTrack>> LoadPlaylistTracksAsync(Guid playlistId);
 
     /// <summary>
+    /// Lean whole-library rows (or only liked tracks) for the Playlist Intelligence overview of
+    /// "All Tracks" / "Liked Songs", which have no PlaylistTracks rows of their own.
+    /// </summary>
+    Task<List<PlaylistTrack>> LoadLibraryOverviewTracksAsync(bool likedOnly = false) =>
+        Task.FromResult(new List<PlaylistTrack>());
+
+    /// <summary>Field → source ("artwork" → "deezer") recorded by library enrichment for a track.</summary>
+    Task<Dictionary<string, string>> GetMetadataProvenanceAsync(string trackHash) =>
+        Task.FromResult(new Dictionary<string, string>());
+
+    /// <summary>
     /// Loads ALL tracks from all active playlists.
     /// Used for "All Tracks" view.
     /// </summary>
@@ -217,6 +228,14 @@ public interface ILibraryService
     /// Loads a page of tracks for a specific playlist.
     /// </summary>
     Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null);
+
+    /// <summary>
+    /// The error of the most recent <see cref="GetTrackCountAsync"/> /
+    /// <see cref="GetPagedPlaylistTracksAsync"/> call, or null when it succeeded. Those two return
+    /// 0 / an empty page on failure (many callers rely on that), so the track grid reads this to
+    /// tell "the query failed" apart from "nothing here" instead of showing endless loading rows.
+    /// </summary>
+    string? LastTrackQueryError { get; }
 
     /// <summary>
     /// Loads a specific track from a playlist by its unique hash.

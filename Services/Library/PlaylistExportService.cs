@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using Microsoft.EntityFrameworkCore;
@@ -12,10 +13,19 @@ using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
+using SLSKDONET.Services.Export;
 using SLSKDONET.Services.Library.Rekordbox;
 using SLSKDONET.Services.Models.Export;
 
 namespace SLSKDONET.Services.Library;
+
+public sealed record M3uExportResult(
+    int Exported,
+    int SkippedDuplicates,
+    IReadOnlyList<string> SkippedTrackProblems)
+{
+    public int Skipped => SkippedDuplicates + SkippedTrackProblems.Count;
+}
 
 public class PlaylistExportService
 {
@@ -425,20 +435,7 @@ public class PlaylistExportService
     /// here despite some third-party tools assuming otherwise. Unrecognized extensions get a
     /// best-effort "{EXT} File" label rather than a silently wrong guess.
     /// </summary>
-    private static string ResolveKind(string filePath)
-    {
-        var ext = Path.GetExtension(filePath).TrimStart('.').ToUpperInvariant();
-        return ext switch
-        {
-            "MP3" => "MP3 File",
-            "WAV" => "WAV File",
-            "AIFF" or "AIF" => "AIFF File",
-            "FLAC" => "FLAC File",
-            "M4A" or "AAC" => "M4A File",
-            "" => "Unknown File Type",
-            _ => $"{ext} File",
-        };
-    }
+    internal static string ResolveKind(string filePath) => SLSKDONET.Services.Audio.AudioFormats.RekordboxKind(filePath);
 
     /// <summary>
     /// Resolves a deterministic Rekordbox TrackID for <paramref name="track"/> so the same track
@@ -550,6 +547,23 @@ public class PlaylistExportService
             return nextFreePad < 8 ? nextFreePad++ : -1;
         }
 
+        // Section markers (Intro end / Outro) are memory cues with a fixed name, so they show on the
+        // CDJ's memory strip the same way everywhere. One that was also put on a pad keeps that pad.
+        foreach (var marker in pointCues.Where(c => c.IsSectionMarker))
+        {
+            var (r, g, b) = HexToRgb(marker.Color, t.Name);
+            trackElem.Add(new XElement("POSITION_MARK",
+                new XAttribute("Name", Engine.Cueing.SectionMarkers.ExportName(marker.Role)!),
+                new XAttribute("Type", "0"),
+                new XAttribute("Start", marker.Timestamp.ToString("F3", CultureInfo.InvariantCulture)),
+                new XAttribute("Num", "-1"),
+                new XAttribute("Red", r),
+                new XAttribute("Green", g),
+                new XAttribute("Blue", b)
+            ));
+        }
+        pointCues = pointCues.Where(c => !c.IsSectionMarker || c.SlotIndex is >= 0 and <= 7).ToList();
+
         foreach (var cue in pointCues.Take(32))
         {
             var (r, g, b) = HexToRgb(cue.Color, t.Name);
@@ -568,7 +582,7 @@ public class PlaylistExportService
             // A cue occupying a hot-cue pad also gets a memory-cue duplicate at the same
             // position, so it stays visible on Rekordbox's memory-cue strip even if the pad
             // is later overwritten on the hardware.
-            if (num >= 0)
+            if (num >= 0 && !cue.IsSectionMarker) // a section marker already has its memory cue
             {
                 trackElem.Add(new XElement("POSITION_MARK",
                     new XAttribute("Name", cue.Name),
@@ -676,7 +690,10 @@ public class PlaylistExportService
                 Source         = CueSource.Auto,
                 IsLoop         = c.IsLoop,
                 LoopEndSeconds = c.LoopEndSeconds,
-                SlotIndex      = c.SlotIndex
+                SlotIndex      = c.SlotIndex,
+                // Only the section markers carry their role into the export (see BuildTrackElement);
+                // other types keep the previous behaviour.
+                Role           = c.Type is CuePointType.IntroEnd or CuePointType.OutroStart ? OrbitCue.RoleFromType(c.Type) : CueRole.Custom,
             });
         }
 
@@ -755,25 +772,49 @@ public class PlaylistExportService
     }
 
 
-    public async Task ExportToM3uAsync(
+    /// <summary>
+    /// Scans all tracks, exports those with readable/decodable local files, and reports unavailable
+    /// tracks rather than allowing them to cancel export of the usable tracks. Returns actual
+    /// exported and skipped counts so the caller can report what happened.
+    /// </summary>
+    public async Task<M3uExportResult> ExportToM3uAsync(
         string playlistName,
         IEnumerable<PlaylistTrack> tracks,
-        string targetPath)
+        string targetPath,
+        CancellationToken cancellationToken = default)
     {
         try
         {
             _logger.LogInformation("Exporting playlist '{PlaylistName}' to M3U: {Path}", playlistName, targetPath);
 
-            var trackList = tracks
-                .Where(t => !string.IsNullOrEmpty(t.ResolvedFilePath) && File.Exists(t.ResolvedFilePath))
-                .GroupBy(t => t.ResolvedFilePath!, StringComparer.OrdinalIgnoreCase)
+            var allTracks = tracks.ToList();
+            var scan = await TrackExportPreflight.ScanAsync(allTracks, cancellationToken);
+            if (scan.ValidTracks.Count == 0)
+            {
+                if (scan.Problems.Count > 0)
+                    throw new TrackExportValidationException(scan.Problems);
+                throw new InvalidOperationException("The selected playlist contains no tracks to export.");
+            }
+
+            var trackList = scan.ValidTracks
+                .GroupBy(t => t.ResolvedFilePath ?? "", StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.First())
                 .ToList();
+            int skippedDuplicates = scan.ValidTracks.Count - trackList.Count;
+            if (scan.Problems.Count > 0)
+            {
+                _logger.LogWarning(
+                    "M3U export will omit {SkippedCount} tracks with missing, unreadable, or invalid audio files",
+                    scan.Problems.Count);
+            }
 
             var lines = new List<string> { "#EXTM3U", $"#PLAYLIST:{playlistName}" };
 
             foreach (var track in trackList)
             {
+                if (string.IsNullOrWhiteSpace(track.ResolvedFilePath) || !File.Exists(track.ResolvedFilePath))
+                    throw new IOException($"Track file disappeared during export: '{track.Title}' ({track.ResolvedFilePath ?? "no file location"}).");
+
                 int durationSec = Math.Max(0, track.CanonicalDuration.GetValueOrDefault() / 1000);
                 string artist = track.Artist ?? "Unknown Artist";
                 string title = track.Title ?? "Unknown Title";
@@ -781,8 +822,37 @@ public class PlaylistExportService
                 lines.Add(track.ResolvedFilePath!);
             }
 
-            await File.WriteAllLinesAsync(targetPath, lines, System.Text.Encoding.UTF8);
-            _logger.LogInformation("M3U export completed: {Count} tracks.", trackList.Count);
+            // Rekordbox's M3U8 importer requires "#EXTM3U" to be the literal first bytes of the
+            // file — System.Text.Encoding.UTF8 (the static instance) writes a UTF-8 byte-order-mark
+            // ahead of it by default, which Rekordbox doesn't strip, so the playlist silently failed
+            // to import (or imported as a single bad entry) despite being well-formed otherwise.
+            // new UTF8Encoding(false) omits the BOM. Atomic write (temp file, verified, then renamed
+            // into place) for the same reason the Rekordbox XML export above uses it — this is
+            // routinely written straight to a USB drive, and a direct write truncates the target
+            // before the new content lands, so an unplugged drive or killed process leaves a
+            // corrupted file instead of just a failed export.
+            var utf8NoBom = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+            bool writeOk = await _fileWriteService.WriteAtomicAsync(
+                targetPath,
+                writeAction: tempPath => File.WriteAllLinesAsync(tempPath, lines, utf8NoBom, cancellationToken),
+                verifyAction: async tempPath =>
+                {
+                    var firstLine = (await File.ReadAllLinesAsync(tempPath)).FirstOrDefault();
+                    return firstLine == "#EXTM3U";
+                },
+                cancellationToken);
+
+            if (!writeOk)
+            {
+                throw new IOException($"Failed to write M3U playlist to '{targetPath}' (atomic write/verify failed).");
+            }
+
+            _logger.LogInformation(
+                "M3U export completed: {Exported} tracks exported, {SkippedDuplicates} duplicate paths and {SkippedInvalid} invalid tracks skipped.",
+                trackList.Count,
+                skippedDuplicates,
+                scan.Problems.Count);
+            return new M3uExportResult(trackList.Count, skippedDuplicates, scan.Problems);
         }
         catch (Exception ex)
         {
