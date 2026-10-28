@@ -135,9 +135,13 @@ public static class TransitionPlanner
         bool tempoLocked = TempoLocked(outgoing, incoming);
         bool bothEnergetic = outgoing.Energy >= 0.55 && incoming.Energy >= 0.55;
 
-        // Drop Sync (double drop) is never picked automatically: it leaves the outgoing track at its
-        // second drop, cutting the rest of it — a deliberate trick, available as a preset.
+        // Hand over on the OUTGOING track's SECOND drop: the new track's own drop lands there, with
+        // 8/16 bars of build on each side. This is the default for a tempo-matched, energetic pair
+        // (Drop Sync used to be preset-only) because mixing out at the outro instead left the
+        // incoming drop landing nowhere near a drop. A marked outro is the DJ's own call and wins.
         var candidates = new List<TransitionPlan>();
+        if (tempoLocked && outgoing.OutroStartMarker is null && (bothEnergetic || compatibility >= 60))
+            candidates.AddIfNotNull(DropSync(outgoing, incoming, o, i));
         if (tempoLocked && (bothEnergetic || compatibility >= 60))
             candidates.AddIfNotNull(Rolling(outgoing, incoming, o, i));
         candidates.Add(Relaxed(outgoing, incoming, o, i, shortOnly: !tempoLocked));
@@ -149,7 +153,11 @@ public static class TransitionPlanner
             minSource = Math.Min(minSource, Math.Max(0, Math.Min(marked, o.OutroStart) - 16 * o.BarSeconds));
         if (outgoing.MixOutMarker is { } mixOut)
             minSource = Math.Min(minSource, Math.Max(0, mixOut));
-        var played = candidates.Where(c => c.SourceTriggerSeconds >= minSource - 0.01).ToList();
+        // A second-drop hand-over is anchored on the track's own drop 2, which can sit just under
+        // the half-way mark — give it a lower floor rather than forcing it past the very drop.
+        var played = candidates
+            .Where(c => c.SourceTriggerSeconds >= FloorFor(c.Kind, outgoing.DurationSeconds, minSource) - 0.01)
+            .ToList();
         if (played.Count == 0)
             played.Add(LateRelaxed(outgoing, incoming, o, i, minSource, shortOnly: !tempoLocked));
 
@@ -192,6 +200,15 @@ public static class TransitionPlanner
 
     /// <summary>Automatic plans never mix out before this share of the outgoing track has played.</summary>
     public const double MinPlayFraction = 0.5;
+
+    /// <summary>A second-drop hand-over may mix out earlier, but never inside the first quarter.</summary>
+    public const double MinDropPlayFraction = 0.25;
+
+    /// <summary>The earliest mix-out a plan of <paramref name="kind"/> may use.</summary>
+    private static double FloorFor(PlannedTransitionKind kind, double durationSeconds, double generalFloor) =>
+        kind == PlannedTransitionKind.DropSync
+            ? Math.Min(generalFloor, MinDropPlayFraction * durationSeconds)
+            : generalFloor;
 
     /// <summary>Relaxed, moved later so the outgoing track plays at least <paramref name="notBefore"/>.</summary>
     private static TransitionPlan LateRelaxed(TrackStructure out_, TrackStructure in_, TrackSections o, TrackSections i, double notBefore, bool shortOnly)

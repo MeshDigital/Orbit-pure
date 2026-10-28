@@ -50,12 +50,19 @@ public class TransitionPlannerTests
         Assert.True(s.OutroStart >= t.Drop2!.Value - 1e-6 || s.OutroBars >= 16 - 1e-6);
     }
 
+    /// <summary>
+    /// The automatic plan hands over on the outgoing track's SECOND drop (both drops land
+    /// together) instead of mixing out at the outro, where the incoming drop landed nowhere.
+    /// </summary>
     [Fact]
-    public void Plan_NeverPicksDropSyncByItself_ItCutsTheOutgoingTrackShort()
+    public void Plan_HandsOverOnTheOutgoingSecondDrop()
     {
         var plan = TransitionPlanner.Plan(Dnb(), Dnb(), compatibility: 95);
-        Assert.Equal(PlannedTransitionKind.Rolling, plan.Kind);
-        Assert.True(plan.SourceTriggerSeconds >= 0.5 * 300);
+
+        Assert.Equal(PlannedTransitionKind.DropSync, plan.Kind);
+        Assert.Equal(AtBar(80), plan.SourceTriggerSeconds, 3);   // outgoing Drop 2 − 16 bars
+        Assert.Equal(AtBar(16), plan.TargetTriggerSeconds, 3);   // incoming Drop 1 − 16 bars
+        Assert.Equal(32, plan.DurationBars);
     }
 
     [Fact]
@@ -71,17 +78,17 @@ public class TransitionPlannerTests
         Assert.False(plan.VocalClash);
     }
 
+    /// <summary>A tempo-matched energetic pair hands over on drop 2 regardless of the pair score;
+    /// Rolling stays the fallback when Drop Sync can't fit or would clash (see the vocal test).</summary>
     [Fact]
-    public void Plan_EnergeticButLessCompatiblePair_Rolls()
+    public void Plan_EnergeticLessCompatiblePair_StillHandsOverOnTheSecondDrop()
     {
         var plan = TransitionPlanner.Plan(Dnb(), Dnb(), compatibility: 65);
 
-        Assert.Equal(PlannedTransitionKind.Rolling, plan.Kind);
+        Assert.Equal(PlannedTransitionKind.DropSync, plan.Kind);
         Assert.Equal(32, plan.DurationBars);
-        // The incoming drop lands exactly as the outgoing main part ends (bar 128).
-        Assert.Equal(AtBar(112), plan.SourceTriggerSeconds, 3);
+        Assert.Equal(AtBar(80), plan.SourceTriggerSeconds, 3);
         Assert.Equal(AtBar(16), plan.TargetTriggerSeconds, 3);
-        Assert.Equal(AtBar(128), plan.SourceTriggerSeconds + plan.DurationSeconds / 2, 3);
     }
 
     [Fact]
