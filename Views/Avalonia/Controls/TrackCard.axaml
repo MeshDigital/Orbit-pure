@@ -95,9 +95,15 @@
 
             <!-- Album Art Zone -->
             <Panel Grid.Row="0" Grid.Column="1" Height="200">
-                <Image Source="{Binding Artwork.Image}" 
+                <!-- No real art: a color+letter tile — previously this Image just rendered blank
+                     with nothing behind it when Artwork.Image was null. -->
+                <Border Background="{Binding FallbackArtBrush}" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNull}}">
+                    <TextBlock Text="{Binding FallbackArtLetter}" FontSize="48" FontWeight="Bold" Foreground="{StaticResource BrushText0}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <Image Source="{Binding Artwork.Image}"
                        Stretch="UniformToFill"/>
-                
+
                 <!-- Circular Progress Arc (Downloading/Processing) -->
                 <Panel IsVisible="{Binding IsActive}" Background="{StaticResource GlassHeavyBrush}">
                     <Arc Width="80" Height="80"
@@ -113,17 +119,17 @@
                 <!-- Status Badges Overlay (Corners) -->
                 <StackPanel Orientation="Vertical" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8" Spacing="4">
                     <!-- Integrity Badge -->
-                    <Border Classes="Badge" Background="#2000FF00" BorderBrush="#00FF00">
+                    <Border Classes="Badge" Background="{StaticResource BrushSuccessSubtle}" BorderBrush="{StaticResource BrushSuccess}">
                         <Border.IsVisible>
                             <MultiBinding Converter="{x:Static BoolConverters.And}">
                                 <Binding Path="IsSecure"/>
                                 <Binding Path="$parent[views:LibraryPage].DataContext.ViewSettings.ShowBadges"/>
                             </MultiBinding>
                         </Border.IsVisible>
-                        <TextBlock Text="✓ VERIFIED" FontSize="8" FontWeight="Bold" Foreground="#00FF00"/>
+                        <TextBlock Text="Verified" FontSize="{StaticResource TextSizeCaption}" FontWeight="SemiBold" Foreground="{StaticResource BrushSuccess}"/>
                     </Border>
                     <!-- Curation Badge -->
-                    <Border Classes="Badge" Background="#20FFD700" BorderBrush="#FFD700" 
+                    <Border Classes="Badge" Background="{StaticResource BrushWarningSubtle}" BorderBrush="{StaticResource BrushWarning}" 
                             ToolTip.Tip="{Binding ProvenanceTooltip}">
                         <Border.IsVisible>
                             <MultiBinding Converter="{x:Static BoolConverters.And}">
@@ -140,17 +146,17 @@
                      <Border Classes="Badge" Background="{Binding PreparationColor}" Opacity="0.9">
                          <TextBlock Text="{Binding PreparationStatus}" FontSize="8" FontWeight="Bold" Foreground="White"/>
                      </Border>
-                     <Border Classes="Badge" Background="#CC000000" IsVisible="{Binding IsCompleted}">
+                     <Border Classes="Badge" Background="{StaticResource BrushScrim}" IsVisible="{Binding IsCompleted}">
                          <TextBlock Text="{Binding TierBadge}" FontSize="14" VerticalAlignment="Center"/>
                      </Border>
                 </StackPanel>
 
                 <!-- Floating Hover Action Overlay -->
-                <Panel x:Name="HoverOverlay" Background="#99000000">
+                <Panel x:Name="HoverOverlay" Background="{StaticResource BrushScrim}">
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
                         <!-- Play -->
                         <Button Classes="ActionBtn" Command="{Binding PlayCommand}" IsVisible="{Binding IsCompleted}" ToolTip.Tip="Play Now">
-                            <PathIcon Data="{StaticResource play_circle_regular}" Foreground="#1DB954"/>
+                            <PathIcon Data="{StaticResource play_circle_regular}" Foreground="{StaticResource BrushSuccess}"/>
                         </Button>
                         <!-- Reveal -->
                         <Button Classes="ActionBtn" Command="{Binding RevealFileCommand}" IsVisible="{Binding IsCompleted}" ToolTip.Tip="Show in Explorer">
@@ -171,7 +177,7 @@
                             <PathIcon Data="{StaticResource pause_regular}"/>
                         </Button>
                          <Button Classes="ActionBtn" Command="{Binding $parent[UserControl].DataContext.InitiateMp3SearchCommand}" CommandParameter="{Binding}" IsVisible="{Binding IsOnHold}" ToolTip.Tip="Manual MP3 Search (On Hold)">
-                            <PathIcon Data="{StaticResource music_regular}" Foreground="#818CF8"/>
+                            <PathIcon Data="{StaticResource music_regular}" Foreground="{StaticResource BrushInfo}"/>
                         </Button>
                         <Button Classes="ActionBtn" Command="{Binding RetryCommand}" IsVisible="{Binding IsFailed}" ToolTip.Tip="Retry">
                             <PathIcon Data="{StaticResource arrow_counterclockwise_regular}"/>
@@ -184,15 +190,15 @@
                     <Border.Background>
                         <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
                             <GradientStop Color="Transparent" Offset="0"/>
-                            <GradientStop Color="#CC000000" Offset="1"/>
+                            <GradientStop Color="{StaticResource ColorBase0}" Offset="1"/>
                         </LinearGradientBrush>
                     </Border.Background>
                     <Grid ColumnDefinitions="*, Auto" Margin="10,0">
                          <TextBlock Grid.Column="0" Text="{Binding TechnicalSummary}" FontSize="10" Foreground="White" Opacity="0.9" VerticalAlignment="Center" FontFamily="Consolas"/>
                          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                             <TextBlock Text="{Binding DropDisplay}" FontSize="11" Foreground="#FFD700" FontWeight="Bold" 
+                             <TextBlock Text="{Binding DropDisplay}" FontSize="11" Foreground="{StaticResource BrushWarning}" FontWeight="Bold" 
                                         IsVisible="{Binding DropTimestamp, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-                             <TextBlock Text="{Binding KeyDisplay}" FontSize="12" FontWeight="Bold" Foreground="#4EC9B0" VerticalAlignment="Center"/>
+                             <TextBlock Text="{Binding KeyDisplay}" FontSize="12" FontWeight="Bold" Foreground="{StaticResource BrushAccent}" VerticalAlignment="Center"/>
                          </StackPanel>
                     </Grid>
                 </Border>
@@ -206,7 +212,7 @@
                                           WaveformData="{Binding WaveformData}"
                                           IsVisible="{Binding IsSelected}"
                                           Opacity="0.25"
-                                          Foreground="#4EC9B0"
+                                          Foreground="{StaticResource BrushAccent}"
                                           Background="Transparent"/>
 
                 <Border Padding="12">
@@ -216,9 +222,9 @@
                             <TextBlock Grid.Column="0" Text="{Binding ArtistName}" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
                                 <Button Command="{Binding ToggleLikeCommand}" Background="Transparent" Padding="0" BorderThickness="0" Cursor="Hand">
-                                    <TextBlock Text="{Binding IsLiked, Converter={StaticResource BoolToHeartConverter}}" FontSize="14" Foreground="#E91E63"/>
+                                    <TextBlock Text="{Binding IsLiked, Converter={StaticResource BoolToHeartConverter}}" FontSize="14" Foreground="{StaticResource BrushError}"/>
                                 </Button>
-                                <TextBlock Text="{Binding PlayCount}" FontSize="10" Foreground="{DynamicResource TextTertiaryBrush}" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                <TextBlock Text="{Binding PlayCount}" FontSize="10" Foreground="{DynamicResource BrushText2}" VerticalAlignment="Center" Margin="4,0,0,0"/>
                             </StackPanel>
                         </Grid>
 
@@ -251,11 +257,11 @@
                         <!-- Footer Technical Details -->
                         <Grid ColumnDefinitions="*,*" IsVisible="{Binding IsCompleted}">
                             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
-                                 <TextBlock Text="⏱" FontSize="10" Foreground="{DynamicResource TextTertiaryBrush}"/>
+                                 <PathIcon Data="{StaticResource icon_history}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}" Foreground="{DynamicResource BrushText2}"/>
                                  <TextBlock Text="{Binding Duration}" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
-                                 <TextBlock Text="💾" FontSize="10" Foreground="{DynamicResource TextTertiaryBrush}"/>
+                                 <PathIcon Data="{StaticResource icon_file}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}" Foreground="{DynamicResource BrushText2}"/>
                                  <TextBlock Text="{Binding FileSizeDisplay}" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}"/>
                             </StackPanel>
                         </Grid>

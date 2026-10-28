@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
+using System.Reactive;
 using System.Reactive.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
@@ -18,6 +20,7 @@ using SLSKDONET.Data.Essentia;
 using SLSKDONET.Services.Audio;
 
 using System.Collections.Specialized;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels.Library;
 
@@ -37,13 +40,34 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     private readonly IEventBus _eventBus;
     private readonly AppConfig _config;
     private readonly IBulkOperationCoordinator _bulkCoordinator;
+    private readonly INotificationService? _notificationService;
     private readonly ILibraryPreviewPlayer _previewPlayer;
+    private readonly SLSKDONET.Services.Repositories.ITransitionRepository _transitionRepository;
+    private readonly SLSKDONET.Services.Similarity.SimilarityIndex _similarityIndex;
+    private readonly SLSKDONET.Services.Playlist.PlaylistOptimizer _playlistOptimizer;
 
     public TrackOperationsViewModel? Operations { get; set; }
 
     public HierarchicalLibraryViewModel Hierarchical { get; }
     
     private readonly System.Reactive.Subjects.Subject<System.Reactive.Unit> _refreshRequestSubject = new();
+    private readonly System.Reactive.Subjects.Subject<System.Reactive.Unit> _liveRowsRequest = new();
+
+    /// <summary>All Tracks is on screen: show rows an import committed since the last look.</summary>
+    internal async Task ShowNewlyImportedRowsAsync()
+    {
+        try
+        {
+            var currentProjectId = _mainViewModel?.LibraryViewModel?.SelectedProject?.Id;
+            if (currentProjectId != null && currentProjectId != Guid.Empty) return;
+            if (FilteredTracks is VirtualizedTrackCollection vtc && await vtc.RefreshForNewRowsAsync())
+                _updateLimitedTracksRequest.OnNext(System.Reactive.Unit.Default);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Showing newly imported rows failed");
+        }
+    }
 
     private ObservableCollection<PlaylistTrackViewModel> _currentProjectTracks = new();
     public ObservableCollection<PlaylistTrackViewModel> CurrentProjectTracks
@@ -137,6 +161,10 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             {
                 oldCol.CollectionChanged -= OnFilteredTracksChanged;
             }
+            if (_filteredTracks is VirtualizedTrackCollection oldVtc)
+            {
+                oldVtc.PropertyChanged -= OnFilteredTracksPropertyChanged;
+            }
 
             this.RaiseAndSetIfChanged(ref _filteredTracks, value);
             this.RaisePropertyChanged(nameof(IsLibraryEmpty));
@@ -145,15 +173,66 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             {
                 newCol.CollectionChanged += OnFilteredTracksChanged;
             }
+            if (_filteredTracks is VirtualizedTrackCollection newVtc)
+            {
+                newVtc.PropertyChanged += OnFilteredTracksPropertyChanged;
+            }
+            RaiseTrackLoadErrorChanged();
 
             UpdateLimitedTracks();
+            // FilteredTracks — not CurrentProjectTracks — is what TrackListView.axaml's ItemsControl
+            // actually renders (see its ItemsSource binding). For a real DB-backed project/playlist,
+            // RefreshFilteredTracks swaps in a brand-new VirtualizedTrackCollection loaded straight
+            // from the database — entirely separate PlaylistTrackViewModel instances from whatever
+            // CurrentProjectTracks held. UpdateMixTransitionBadgesAsync used to only ever mutate
+            // CurrentProjectTracks' instances, so toggling "+ Mix" on a real playlist (the common
+            // case — confirmed live: zero badges rendered) silently did nothing, while the in-memory
+            // smart-playlist path (which happens to reuse CurrentProjectTracks' own instances) looked
+            // fine. Scheduling here, whenever the bound collection itself changes, covers both paths
+            // uniformly. Harmonic highlights had the exact same bug (iterated CurrentProjectTracks
+            // instead of the actually-bound collection) — same fix, same reasoning.
+            ScheduleUpdateMixTransitionBadges();
+            ScheduleUpdateHarmonicHighlights();
         }
+    }
+
+    /// <summary>
+    /// Why the current list's tracks couldn't be loaded from the database, or null. Shown as the
+    /// list's error state (with Retry) instead of "0 tracks" or rows stuck on "Loading…".
+    /// </summary>
+    public string? TrackLoadErrorMessage =>
+        (FilteredTracks as VirtualizedTrackCollection)?.LoadErrorMessage is { } error
+            ? $"Couldn't load these tracks: {error}"
+            : null;
+
+    public bool HasTrackLoadError => TrackLoadErrorMessage != null;
+
+    public System.Windows.Input.ICommand RetryLoadTracksCommand { get; private set; } = null!;
+
+    private void OnFilteredTracksPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(VirtualizedTrackCollection.LoadErrorMessage))
+            RaiseTrackLoadErrorChanged();
+        else if (e.PropertyName == nameof(VirtualizedTrackCollection.Count))
+            this.RaisePropertyChanged(nameof(IsLibraryEmpty));
+    }
+
+    private void RaiseTrackLoadErrorChanged()
+    {
+        this.RaisePropertyChanged(nameof(TrackLoadErrorMessage));
+        this.RaisePropertyChanged(nameof(HasTrackLoadError));
     }
 
     private void OnFilteredTracksChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         // Throttled notification for LimitedTracks to avoid UI flooding
         _updateLimitedTracksRequest.OnNext(System.Reactive.Unit.Default);
+        // A VirtualizedTrackCollection raises this as pages load in asynchronously (Replace/Add),
+        // swapping placeholder rows for real ones — badges/highlights need recomputing as that
+        // happens, not just once when the collection is first assigned (see FilteredTracks setter
+        // above).
+        ScheduleUpdateMixTransitionBadges();
+        ScheduleUpdateHarmonicHighlights();
     }
     
     private readonly System.Reactive.Subjects.Subject<System.Reactive.Unit> _updateLimitedTracksRequest = new();
@@ -349,6 +428,15 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         private set => this.RaiseAndSetIfChanged(ref _hasMultiSelection, value);
     }
     
+    // These 11 filter setters used to call RefreshFilteredTracks() synchronously and
+    // unconditionally — unlike SearchText/IsFilterAll/IsFilterDownloaded/IsFilterPending/
+    // IsFilterNeedsReview/FilterArtist/FilterTitle, which are already coalesced through the
+    // 250ms-throttled WhenAnyValue chain below. Each rebuild constructs a brand-new
+    // VirtualizedTrackCollection (a fresh DB count query + re-subscribing 7 event-bus handlers,
+    // disposing the old one) — toggling several of these checkboxes in quick succession (e.g.
+    // clicking through format/quality chips) rebuilt the whole collection once per click instead
+    // of once for the burst. Routed through _refreshRequestSubject instead — the same
+    // already-throttled (500ms) pipeline OnFilteredTracksChanged and the Mix reorder command use.
     private string? _camelotKeyFilter;
     public string? CamelotKeyFilter
     {
@@ -357,8 +445,47 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         {
             if (_camelotKeyFilter == value) return;
             this.RaiseAndSetIfChanged(ref _camelotKeyFilter, value);
-            RefreshFilteredTracks();
+            this.RaisePropertyChanged(nameof(HasCamelotKeyFilter));
+            _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
         }
+    }
+
+    /// <summary>A key filter set by clicking the Camelot wheel; shown as a removable chip in the toolbar.</summary>
+    public bool HasCamelotKeyFilter => !string.IsNullOrEmpty(_camelotKeyFilter);
+
+    private string? _qualityTierFilter;
+    /// <summary>
+    /// "Gold"/"Silver"/"Bronze"/null — set by the Dashboard's quality badges before navigating
+    /// here (see HomeViewModel.NavigateLibraryCommand). Uses the exact same thresholds as
+    /// DashboardService's Gold/Silver/Bronze counts (see TrackRepository.ApplyQualityTierFilter)
+    /// so the count a user clicks and the tracks they land on always match.
+    /// </summary>
+    public string? QualityTierFilter
+    {
+        get => _qualityTierFilter;
+        set
+        {
+            if (_qualityTierFilter == value) return;
+            this.RaiseAndSetIfChanged(ref _qualityTierFilter, value);
+            this.RaisePropertyChanged(nameof(IsTierLosslessFilter));
+            this.RaisePropertyChanged(nameof(IsTierHighFilter));
+            this.RaisePropertyChanged(nameof(IsTierLowFilter));
+            _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
+        }
+    }
+
+    // Toolbar quality chips. They drive QualityTierFilter, which (unlike the old per-format and
+    // integrity chips) is applied on both the DB-backed and the in-memory path, and is the same
+    // filter the Dashboard's Gold/Silver/Bronze counts set before navigating here, so a
+    // click-through from Home now shows up as a checked chip instead of an invisible filter.
+    public bool IsTierLosslessFilter { get => _qualityTierFilter == "Gold"; set => SetQualityTierChip("Gold", value); }
+    public bool IsTierHighFilter { get => _qualityTierFilter == "Silver"; set => SetQualityTierChip("Silver", value); }
+    public bool IsTierLowFilter { get => _qualityTierFilter == "Bronze"; set => SetQualityTierChip("Bronze", value); }
+
+    private void SetQualityTierChip(string tier, bool on)
+    {
+        if (on) QualityTierFilter = tier;
+        else if (_qualityTierFilter == tier) QualityTierFilter = null;
     }
 
     // Phase 22: Search 2.0 - The Bouncer
@@ -369,7 +496,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         set
         {
             this.RaiseAndSetIfChanged(ref _isBouncerActive, value);
-            RefreshFilteredTracks();
+            _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
         }
     }
 
@@ -381,7 +508,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         set
         {
             this.RaiseAndSetIfChanged(ref _vibeFilter, value);
-            RefreshFilteredTracks();
+            _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
         }
     }
 
@@ -393,7 +520,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         set
         {
             this.RaiseAndSetIfChanged(ref _isFilterFlac, value);
-            RefreshFilteredTracks();
+            _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
         }
     }
 
@@ -404,7 +531,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         set
         {
             this.RaiseAndSetIfChanged(ref _isFilterMp3, value);
-            RefreshFilteredTracks();
+            _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
         }
     }
 
@@ -415,7 +542,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         set
         {
             this.RaiseAndSetIfChanged(ref _isFilterWav, value);
-            RefreshFilteredTracks();
+            _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
         }
     }
 
@@ -426,7 +553,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         set
         {
             this.RaiseAndSetIfChanged(ref _isFilterLossless, value);
-            RefreshFilteredTracks();
+            _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
         }
     }
 
@@ -438,7 +565,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         set
         {
             this.RaiseAndSetIfChanged(ref _isFilterQualityGold, value);
-            RefreshFilteredTracks();
+            _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
         }
     }
 
@@ -449,7 +576,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         set
         {
             this.RaiseAndSetIfChanged(ref _isFilterQualityVerified, value);
-            RefreshFilteredTracks();
+            _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
         }
     }
 
@@ -460,7 +587,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         set
         {
             this.RaiseAndSetIfChanged(ref _isFilterQualityReview, value);
-            RefreshFilteredTracks();
+            _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
         }
     }
 
@@ -472,6 +599,21 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         get => _hasSelectedTracks;
         private set => this.RaiseAndSetIfChanged(ref _hasSelectedTracks, value);
     }
+
+    private int _selectedTrackCount;
+    /// <summary>Real (loaded, non-placeholder) selected rows; what the selection bar shows.</summary>
+    public int SelectedTrackCount
+    {
+        get => _selectedTrackCount;
+        private set => this.RaiseAndSetIfChanged(ref _selectedTrackCount, value);
+    }
+
+    /// <summary>
+    /// The rows that count as a user selection: never the shared "Loading…" placeholder, never
+    /// a null slot. The selection bar is visible only when this is non-empty.
+    /// </summary>
+    internal static List<PlaylistTrackViewModel> RealSelection(IEnumerable<PlaylistTrackViewModel?> candidates) =>
+        candidates.Where(t => t is { IsPlaceholder: false }).Select(t => t!).Distinct().ToList();
 
     private string _selectedCountText = string.Empty;
     public string SelectedCountText
@@ -499,7 +641,74 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     public HashSet<string>? DuplicateHashesFilter
     {
         get => _duplicateHashesFilter;
-        set => this.RaiseAndSetIfChanged(ref _duplicateHashesFilter, value);
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _duplicateHashesFilter, value);
+            this.RaisePropertyChanged(nameof(HasDuplicateFilter));
+        }
+    }
+
+    /// <summary>"Find duplicates" narrowed the list; shown as a removable chip in the toolbar.</summary>
+    public bool HasDuplicateFilter => _duplicateHashesFilter != null;
+
+    private static readonly HashSet<string> FilterPropertyNames = new(StringComparer.Ordinal)
+    {
+        nameof(SearchText), nameof(IsFilterAll), nameof(IsFilterDownloaded), nameof(IsFilterPending),
+        nameof(IsFilterNeedsReview), nameof(IsFilterLiked), nameof(CamelotKeyFilter), nameof(QualityTierFilter),
+        nameof(IsBouncerActive), nameof(VibeFilter), nameof(IsFilterFlac), nameof(IsFilterMp3), nameof(IsFilterWav),
+        nameof(IsFilterLossless), nameof(IsFilterQualityGold), nameof(IsFilterQualityVerified),
+        nameof(IsFilterQualityReview), nameof(DuplicateHashesFilter), nameof(FilterArtist), nameof(FilterTitle),
+    };
+
+    /// <summary>True when anything narrows the list. Drives the toolbar's "Clear" button and the
+    /// "no matches" empty state (vs. the "this playlist is empty" one).</summary>
+    public bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(_searchText) || !_isFilterAll || _isFilterLiked || _isFilterNeedsReview
+        || !string.IsNullOrEmpty(_camelotKeyFilter) || !string.IsNullOrEmpty(_qualityTierFilter)
+        || _isBouncerActive || !string.IsNullOrEmpty(_vibeFilter)
+        || _isFilterFlac || _isFilterMp3 || _isFilterWav || _isFilterLossless
+        || _isFilterQualityGold || _isFilterQualityVerified || _isFilterQualityReview
+        || _duplicateHashesFilter != null
+        || !string.IsNullOrWhiteSpace(_filterArtist) || !string.IsNullOrWhiteSpace(_filterTitle)
+        || StyleFilters.Any(f => f.IsSelected);
+
+    public System.Windows.Input.ICommand ClearFiltersCommand { get; private set; } = null!;
+
+    public System.Windows.Input.ICommand ClearCamelotKeyFilterCommand { get; private set; } = null!;
+    public System.Windows.Input.ICommand ClearDuplicateFilterCommand { get; private set; } = null!;
+
+    /// <summary>Resets every filter (search, status, quality, key, duplicates, style) in one go.</summary>
+    public void ClearFilters()
+    {
+        _searchText = string.Empty; this.RaisePropertyChanged(nameof(SearchText));
+        _filterArtist = string.Empty; this.RaisePropertyChanged(nameof(FilterArtist));
+        _filterTitle = string.Empty; this.RaisePropertyChanged(nameof(FilterTitle));
+        _isFilterNeedsReview = false; this.RaisePropertyChanged(nameof(IsFilterNeedsReview));
+        _isFilterDownloaded = false; this.RaisePropertyChanged(nameof(IsFilterDownloaded));
+        _isFilterPending = false; this.RaisePropertyChanged(nameof(IsFilterPending));
+        _isFilterLiked = false; this.RaisePropertyChanged(nameof(IsFilterLiked));
+        _isFilterAll = true; this.RaisePropertyChanged(nameof(IsFilterAll));
+        _isFilterFlac = _isFilterMp3 = _isFilterWav = _isFilterLossless = false;
+        _isFilterQualityGold = _isFilterQualityVerified = _isFilterQualityReview = false;
+        foreach (var name in new[] { nameof(IsFilterFlac), nameof(IsFilterMp3), nameof(IsFilterWav), nameof(IsFilterLossless),
+                                     nameof(IsFilterQualityGold), nameof(IsFilterQualityVerified), nameof(IsFilterQualityReview) })
+            this.RaisePropertyChanged(name);
+        _isBouncerActive = false; this.RaisePropertyChanged(nameof(IsBouncerActive));
+        _vibeFilter = null; this.RaisePropertyChanged(nameof(VibeFilter));
+        _camelotKeyFilter = null; this.RaisePropertyChanged(nameof(CamelotKeyFilter)); this.RaisePropertyChanged(nameof(HasCamelotKeyFilter));
+        _qualityTierFilter = null; this.RaisePropertyChanged(nameof(QualityTierFilter));
+        this.RaisePropertyChanged(nameof(IsTierLosslessFilter));
+        this.RaisePropertyChanged(nameof(IsTierHighFilter));
+        this.RaisePropertyChanged(nameof(IsTierLowFilter));
+        DuplicateHashesFilter = null;
+        foreach (var style in StyleFilters.Where(f => f.IsSelected).ToList())
+        {
+            style.PropertyChanged -= OnStyleFilterChanged;
+            style.IsSelected = false;
+            style.PropertyChanged += OnStyleFilterChanged;
+        }
+        this.RaisePropertyChanged(nameof(HasActiveFilters));
+        RefreshFilteredTracks();
     }
 
     // Task 10.4: Per-column inline filters
@@ -529,21 +738,98 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     public bool IsFormatColumnVisible
     {
         get => _isFormatColumnVisible;
-        set => this.RaiseAndSetIfChanged(ref _isFormatColumnVisible, value);
+        set { this.RaiseAndSetIfChanged(ref _isFormatColumnVisible, value); RefitColumns(); }
     }
 
     private bool _isForensicsColumnVisible = true;
     public bool IsForensicsColumnVisible
     {
         get => _isForensicsColumnVisible;
-        set => this.RaiseAndSetIfChanged(ref _isForensicsColumnVisible, value);
+        set { this.RaiseAndSetIfChanged(ref _isForensicsColumnVisible, value); RefitColumns(); }
     }
 
     private bool _isDurationColumnVisible = true;
     public bool IsDurationColumnVisible
     {
         get => _isDurationColumnVisible;
-        set => this.RaiseAndSetIfChanged(ref _isDurationColumnVisible, value);
+        set { this.RaiseAndSetIfChanged(ref _isDurationColumnVisible, value); RefitColumns(); }
+    }
+
+    // What is actually shown: your column choices, minus the least important columns when the
+    // list is too narrow for them (e.g. with the context panel open) — see TrackListColumnLayout.
+    private double _listWidth;
+    private TrackListColumns _columns = new(true, true, true, true, true);
+
+    /// <summary>Set by the view whenever the track list is resized.</summary>
+    public double ListWidth
+    {
+        get => _listWidth;
+        set { if (Math.Abs(_listWidth - value) < 1) return; _listWidth = value; RefitColumns(); RefitToolbar(); }
+    }
+
+    // Toolbar responsiveness (TrackListColumnLayout.FitToolbar): what doesn't fit moves into the
+    // Filters menu instead of being clipped (the search box and chips used to be cut off mid-word).
+    private (bool TierChips, bool StatusSegment) _toolbar = (true, true);
+    public bool ShowTierChips => _toolbar.TierChips;
+    public bool ShowStatusSegment => _toolbar.StatusSegment;
+    public bool ShowFilterMenu => !_toolbar.TierChips;
+    public bool IsToolbarNarrow => !_toolbar.StatusSegment;
+
+    private void RefitToolbar()
+    {
+        var fitted = TrackListColumnLayout.FitToolbar(_listWidth);
+        if (fitted == _toolbar) return;
+        _toolbar = fitted;
+        this.RaisePropertyChanged(nameof(ShowTierChips));
+        this.RaisePropertyChanged(nameof(ShowStatusSegment));
+        this.RaisePropertyChanged(nameof(ShowFilterMenu));
+        this.RaisePropertyChanged(nameof(IsToolbarNarrow));
+    }
+
+    private bool _isScrolledDown;
+    /// <summary>True once the track list is scrolled down past the first rows — the playlist header
+    /// above it then collapses to a slim bar so more tracks fit on screen. Set by the view.</summary>
+    public bool IsScrolledDown
+    {
+        get => _isScrolledDown;
+        private set { this.RaiseAndSetIfChanged(ref _isScrolledDown, value); this.RaisePropertyChanged(nameof(IsHeaderExpanded)); }
+    }
+
+    public bool IsHeaderExpanded => !_isScrolledDown;
+
+    /// <summary>Scroll position of the track list. Collapses past 60 px and only expands again near
+    /// the top (8 px), so the header doesn't flicker around one threshold.</summary>
+    public void OnListScrolled(double offsetY)
+    {
+        if (!IsScrolledDown && offsetY > 60) IsScrolledDown = true;
+        else if (IsScrolledDown && offsetY < 8) IsScrolledDown = false;
+    }
+
+    public bool ShowEnergyColumn => _columns.Energy;
+    public bool ShowFormatColumn => _columns.Format;
+    public bool ShowForensicsColumn => _columns.Forensics;
+    public bool ShowDurationColumn => _columns.Duration;
+    public bool ShowRatingColumn => _columns.Rating;
+    public bool ShowQueueAction => _columns.QueueAction;
+    public bool ShowInsertAction => _columns.InsertAction;
+    public bool ShowArtistColumn => _columns.ArtistColumn;
+    /// <summary>Narrow list: the artist is shown as a second line under the title instead.</summary>
+    public bool ShowArtistUnderTitle => !_columns.ArtistColumn;
+
+    private void RefitColumns()
+    {
+        var fitted = TrackListColumnLayout.Fit(_listWidth, _isFormatColumnVisible, _isForensicsColumnVisible, _isDurationColumnVisible);
+        if (fitted == _columns) return;
+        _columns = fitted;
+        this.RaisePropertyChanged(nameof(ShowEnergyColumn));
+        this.RaisePropertyChanged(nameof(ShowFormatColumn));
+        this.RaisePropertyChanged(nameof(ShowForensicsColumn));
+        this.RaisePropertyChanged(nameof(ShowDurationColumn));
+        this.RaisePropertyChanged(nameof(ShowRatingColumn));
+        this.RaisePropertyChanged(nameof(ShowQueueAction));
+        this.RaisePropertyChanged(nameof(ShowInsertAction));
+        this.RaisePropertyChanged(nameof(ShowArtistColumn));
+        this.RaisePropertyChanged(nameof(ShowArtistUnderTitle));
     }
     
     // ListBox Selection Binding
@@ -573,7 +859,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     {
         // Don't trigger recursive updates if we're already changing selection
         _selectedTracks.Clear();
-        foreach (var t in selected) _selectedTracks.Add(t);
+        foreach (var t in RealSelection(selected)) _selectedTracks.Add(t);
         UpdateSelectionState();
     }
 
@@ -599,6 +885,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     {
         if (e.PropertyName == nameof(StyleFilterItem.IsSelected))
         {
+            this.RaisePropertyChanged(nameof(HasActiveFilters));
             RefreshFilteredTracks();
         }
     }
@@ -674,7 +961,11 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         IEventBus eventBus,
         AppConfig config,
         IBulkOperationCoordinator bulkCoordinator,
-        ILibraryPreviewPlayer previewPlayer)
+        ILibraryPreviewPlayer previewPlayer,
+        SLSKDONET.Services.Repositories.ITransitionRepository transitionRepository,
+        SLSKDONET.Services.Similarity.SimilarityIndex similarityIndex,
+        SLSKDONET.Services.Playlist.PlaylistOptimizer playlistOptimizer,
+        INotificationService? notificationService = null)
     {
         _logger = logger;
         _libraryService = libraryService;
@@ -684,6 +975,15 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         _config = config;
         _bulkCoordinator = bulkCoordinator;
         _previewPlayer = previewPlayer;
+        _transitionRepository = transitionRepository;
+        _similarityIndex = similarityIndex;
+        _playlistOptimizer = playlistOptimizer;
+        _notificationService = notificationService;
+
+        ToggleMixModeCommand = ReactiveCommand.Create(() => IsMixModeEnabled = !IsMixModeEnabled);
+        OpenMixTransitionCommand = ReactiveCommand.Create<PlaylistTrackViewModel?>(OpenMixTransition);
+        SuggestReorderForBetterFlowCommand = ReactiveCommand.CreateFromTask(SuggestReorderForBetterFlowAsync);
+        DismissFlowWarningCommand = ReactiveCommand.Create(() => { FlowWarningDismissed = true; });
 
         Hierarchical = new HierarchicalLibraryViewModel(config, downloadManager, artworkCache, eventBus);
         
@@ -754,6 +1054,17 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         // Phase 22: Search 2.1 - Split Results
         AddToCurrentPlaylistCommand = ReactiveCommand.CreateFromTask<PlaylistTrackViewModel>(ExecuteAddToCurrentPlaylistAsync);
 
+        ClearFiltersCommand = ReactiveCommand.Create(ClearFilters);
+        RetryLoadTracksCommand = ReactiveCommand.Create(RefreshFilteredTracks);
+        ClearCamelotKeyFilterCommand = ReactiveCommand.Create(() => { CamelotKeyFilter = null; });
+        ClearDuplicateFilterCommand = ReactiveCommand.Create(() => { DuplicateHashesFilter = null; RefreshFilteredTracks(); });
+
+        // Any filter change re-evaluates HasActiveFilters (Clear button + empty-state wording).
+        this.Changed
+            .Where(e => e.PropertyName != null && FilterPropertyNames.Contains(e.PropertyName))
+            .Subscribe(_ => this.RaisePropertyChanged(nameof(HasActiveFilters)))
+            .DisposeWith(_disposables);
+
         // Selection Change Tracking
         _selectedTracks.CollectionChanged += OnSelectionChanged;
 
@@ -802,6 +1113,31 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             if (currentProjectId == evt.ProjectId)
                 _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
         }));
+
+        // A folder import adds LibraryEntries in batches and publishes ONE completion event; All
+        // Tracks refreshes once on it (no per-file refresh storm, no "0 tracks" mid-import).
+        _disposables.Add(eventBus.GetEvent<LibraryImportCompletedEvent>().Subscribe(evt =>
+        {
+            if (!evt.Result.ChangedLibrary) return;
+            var currentProjectId = _mainViewModel?.LibraryViewModel?.SelectedProject?.Id;
+            if (currentProjectId != null && currentProjectId != Guid.Empty) return;
+            // Rows were already shown live as batches landed; only an upgrade (a better copy
+            // replacing an existing row's file) needs the full reload.
+            if (evt.Result.Upgraded == 0 && FilteredTracks is VirtualizedTrackCollection)
+                _liveRowsRequest.OnNext(System.Reactive.Unit.Default);
+            else
+                _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
+        }));
+
+        // While a folder import runs, its committed batches appear in All Tracks every ~2 s with
+        // their tag (or file-name) titles, in place: no full reload, visible rows keep their view
+        // models, newest-first lists keep selection and scroll offset.
+        _disposables.Add(eventBus.GetEvent<LibraryEntriesAddedEvent>()
+            .Select(_ => System.Reactive.Unit.Default)
+            .Merge(_liveRowsRequest)
+            .Sample(TimeSpan.FromSeconds(2))
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(unit => { _ = ShowNewlyImportedRowsAsync(); }));
 
         // Camelot key filter from wheel click (toggle: click same key again to clear)
         _disposables.Add(eventBus.GetEvent<SetCamelotKeyFilterEvent>().Subscribe(evt =>
@@ -922,6 +1258,11 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         try
         {
             _logger.LogInformation("Loading tracks for project: {Name} (Virtualized)", job.SourceTitle);
+
+            // A different playlist: the old selection's rows are about to be disposed and the grid
+            // drops its own selection when ItemsSource changes, so keeping them here left a "1
+            // selected" bar over a list where nothing is highlighted.
+            if (_selectedTracks.Count > 0) ClearSelection();
             
             // Cleanup existing
             foreach (var track in CurrentProjectTracks)
@@ -939,7 +1280,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
                 job.Id,
                 SearchText,
                 IsFilterDownloaded ? true : (IsFilterPending ? false : null),
-                camelotKeyFilter: CamelotKeyFilter);
+                camelotKeyFilter: CamelotKeyFilter,
+                qualityTier: QualityTierFilter);
 
             // Subscribe to update LimitedTracks when data arrives
             virtualized.CollectionChanged += (s, e) => {
@@ -951,8 +1293,15 @@ public class TrackListViewModel : ReactiveObject, IDisposable
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
+                // Dispose the outgoing collection (after assignment, same as RefreshFilteredTracks):
+                // each one holds 7 app-wide event-bus subscriptions plus up to 40 pages of row
+                // ViewModels, so skipping this leaked a live collection on every playlist switch —
+                // every one kept processing every download-progress/analysis event for the rest of
+                // the session, which is why the Library got steadily slower until a restart.
+                var oldVtc = FilteredTracks as VirtualizedTrackCollection;
                 FilteredTracks = virtualized;
                 this.RaisePropertyChanged(nameof(LimitedTracks));
+                oldVtc?.Dispose();
                 _logger.LogInformation("Virtualized collection initialized for project {Title}", job.SourceTitle);
             });
         }
@@ -1070,12 +1419,16 @@ public class TrackListViewModel : ReactiveObject, IDisposable
              FilteredTracks = new ObservableCollection<PlaylistTrackViewModel>(filtered);
              this.RaisePropertyChanged(nameof(LimitedTracks));
              oldVtcMemory?.Dispose();
+             ScheduleUpdateMixTransitionBadges();
              return;
         }
 
         // Standard Path: Virtualization for DB Projects or "All Tracks"
-        // Combine global SearchText with per-column filters into a single query token
-        var effectiveFilter = BuildEffectiveFilter();
+        // Combine global SearchText with per-column filters into a single query token.
+        // In Mix mode, every other filter is bypassed and only downloaded tracks show — same
+        // "dedicated view" rule as FilterTracks's early return above, applied to the DB-backed
+        // path (real playlists, not just in-memory Smart Playlists).
+        var effectiveFilter = IsMixModeEnabled ? string.Empty : BuildEffectiveFilter();
         var virtualized = new VirtualizedTrackCollection(
             _logger,
             _libraryService,
@@ -1083,9 +1436,10 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             _artworkCache,
             selectedProjectId,
             effectiveFilter,
-            IsFilterDownloaded ? true : (IsFilterPending ? false : null),
-            DuplicateHashesFilter,
-            camelotKeyFilter: CamelotKeyFilter,
+            IsMixModeEnabled ? true : (IsFilterDownloaded ? true : (IsFilterPending ? false : null)),
+            IsMixModeEnabled ? null : DuplicateHashesFilter,
+            camelotKeyFilter: IsMixModeEnabled ? null : CamelotKeyFilter,
+            qualityTier: IsMixModeEnabled ? null : QualityTierFilter,
             sortColumn: SortColumn,
             sortDescending: SortDescending);
 
@@ -1142,6 +1496,13 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     private bool FilterTracks(object obj, System.Collections.Generic.List<StyleFilterItem> selectedStyles)
     {
         if (obj is not PlaylistTrackViewModel track) return false;
+
+        // "+ Mix" is a dedicated build-transitions view — every other active filter (search,
+        // style, quality tier, etc.) is bypassed while it's on, and only downloaded tracks show,
+        // since a track that isn't on disk can't be previewed/mixed. Filters resume normally the
+        // moment Mix mode turns back off (see IsMixModeEnabled's setter, which re-runs
+        // RefreshFilteredTracks on both transitions).
+        if (IsMixModeEnabled) return track.State == PlaylistTrackState.Completed;
 
         // Apply state filter first
         if (!IsFilterAll)
@@ -1207,6 +1568,21 @@ public class TrackListViewModel : ReactiveObject, IDisposable
                 return false;
         }
 
+        // Quality tier filter (Gold/Silver/Bronze) — same thresholds as
+        // TrackRepository.ApplyQualityTierFilter, kept in sync deliberately.
+        if (!string.IsNullOrEmpty(QualityTierFilter))
+        {
+            bool isLossless = SLSKDONET.Services.Audio.AudioFormats.IsLossless(track.Model.Format);
+            bool tierMatch = QualityTierFilter switch
+            {
+                "Gold" => isLossless,
+                "Silver" => !isLossless && track.Model.Bitrate >= 320,
+                "Bronze" => track.Model.Bitrate < 320 && track.Model.Bitrate > 0,
+                _ => true
+            };
+            if (!tierMatch) return false;
+        }
+
         // Format Filters
         bool anyFormatFilterActive = IsFilterFlac || IsFilterMp3 || IsFilterWav || IsFilterLossless;
         if (anyFormatFilterActive)
@@ -1216,7 +1592,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             if (IsFilterFlac && fmt == "FLAC") formatMatch = true;
             if (IsFilterMp3 && fmt == "MP3") formatMatch = true;
             if (IsFilterWav && fmt == "WAV") formatMatch = true;
-            if (IsFilterLossless && (fmt == "FLAC" || fmt == "WAV" || fmt == "AIFF" || fmt == "ALAC")) formatMatch = true;
+            if (IsFilterLossless && SLSKDONET.Services.Audio.AudioFormats.IsLossless(fmt)) formatMatch = true;
             if (!formatMatch) return false;
         }
 
@@ -1252,12 +1628,333 @@ public class TrackListViewModel : ReactiveObject, IDisposable
 
     private void UpdateSelectionState()
     {
-        var count = SelectedTracks.Count;
+        var count = RealSelection(SelectedTracks).Count;
+        SelectedTrackCount = count;
         HasSelectedTracks = count > 0;
         HasMultiSelection = count > 1;
         SelectedCountText = $"{count} tracks selected";
         this.RaisePropertyChanged(nameof(LeadSelectedTrack));
         ScheduleUpdateHarmonicHighlights();
+        ScheduleUpdateMixTransitionBadges();
+    }
+
+    public ReactiveCommand<Unit, bool> ToggleMixModeCommand { get; private set; } = null!;
+
+    /// <summary>Badge-click: opens the "Mix" tab in the CONTEXT sidepanel for this row's
+    /// transition into the next track.</summary>
+    public ReactiveCommand<PlaylistTrackViewModel?, Unit> OpenMixTransitionCommand { get; private set; } = null!;
+
+    /// <summary>Reorders the currently open playlist in place for smoother BPM/harmonic/genre
+    /// flow — offered via the flow-warning banner when Mix mode notices several rough
+    /// transitions. See <see cref="SuggestReorderForBetterFlowAsync"/>.</summary>
+    public ReactiveCommand<Unit, Unit> SuggestReorderForBetterFlowCommand { get; private set; } = null!;
+
+    public ReactiveCommand<Unit, Unit> DismissFlowWarningCommand { get; private set; } = null!;
+
+    private void OpenMixTransition(PlaylistTrackViewModel? outgoing)
+    {
+        if (outgoing?.NextPlaylistTrackId is not Guid incomingId) return;
+
+        var playlistId = outgoing.Model?.PlaylistId ?? Guid.Empty;
+        ReactiveUI.MessageBus.Current.SendMessage(
+            new SLSKDONET.Events.OpenMixTransitionEvent(playlistId, outgoing.Id, incomingId));
+    }
+
+    private bool _isMixModeEnabled;
+    /// <summary>"+ Mix" toggle (Spotify-Mix parity) — when on, each row shows a transition badge
+    /// to the next track, and clicking one opens the Mix tab in the CONTEXT sidepanel.</summary>
+    public bool IsMixModeEnabled
+    {
+        get => _isMixModeEnabled;
+        set
+        {
+            var changed = _isMixModeEnabled != value;
+            this.RaiseAndSetIfChanged(ref _isMixModeEnabled, value);
+            if (changed)
+            {
+                // Must run on BOTH transitions, not just turning on. UpdateMixTransitionBadgesAsync
+                // sets ShowMixTransitionBadge = IsMixModeEnabled for every row — only calling it
+                // when value is true meant toggling Mix back OFF never re-ran it, so every badge
+                // stayed stuck visible (verified live: turning "+ Mix" off left every row's "Auto"
+                // badge showing).
+                if (value) FlowWarningDismissed = false;
+                this.RaisePropertyChanged(nameof(ShowFlowWarningBanner));
+                // Only downloaded tracks show, and every other active filter is bypassed, while
+                // Mix mode is on (FilterTracks/RefreshFilteredTracks's IsMixModeEnabled checks) —
+                // must re-run on both transitions so turning Mix off restores the user's actual
+                // filters exactly as they left them, not just hides the badges.
+                RefreshFilteredTracks();
+                _ = UpdateMixTransitionBadgesAsync();
+            }
+        }
+    }
+
+    private bool _isFlowSuboptimal;
+    /// <summary>True when several adjacent transitions in the materialized window scored poorly
+    /// (see <see cref="UpdateMixTransitionBadgesAsync"/>) — drives the "reorder for better flow"
+    /// banner. Only meaningful while <see cref="IsMixModeEnabled"/> is on.</summary>
+    public bool IsFlowSuboptimal
+    {
+        get => _isFlowSuboptimal;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _isFlowSuboptimal, value);
+            this.RaisePropertyChanged(nameof(ShowFlowWarningBanner));
+        }
+    }
+
+    private bool _flowWarningDismissed;
+    public bool FlowWarningDismissed
+    {
+        get => _flowWarningDismissed;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _flowWarningDismissed, value);
+            this.RaisePropertyChanged(nameof(ShowFlowWarningBanner));
+        }
+    }
+
+    private string _flowWarningSummary = string.Empty;
+    public string FlowWarningSummary
+    {
+        get => _flowWarningSummary;
+        private set => this.RaiseAndSetIfChanged(ref _flowWarningSummary, value);
+    }
+
+    public bool ShowFlowWarningBanner => IsMixModeEnabled && IsFlowSuboptimal && !FlowWarningDismissed;
+
+    private bool _mixBadgesScheduled;
+
+    /// <summary>Coalesces bursts of list changes into a single badge recompute, mirroring
+    /// ScheduleUpdateHarmonicHighlights below.</summary>
+    private void ScheduleUpdateMixTransitionBadges()
+    {
+        if (!IsMixModeEnabled || _mixBadgesScheduled) return;
+        _mixBadgesScheduled = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _mixBadgesScheduled = false;
+            _ = UpdateMixTransitionBadgesAsync();
+        }, DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// Walks the current track list pairwise, resolving each row's transition badge: a saved
+    /// PlaylistTrackTransition if one exists for that (outgoing, incoming) pair, else a live
+    /// "Auto" suggestion from TrackPairCompatibilityScorer — the same harmonic/energy formulas
+    /// the Workstation Flow timeline uses (see TrackPairCompatibilityScorer's doc comment).
+    /// </summary>
+    /// <summary>
+    /// Matches LimitedTracks' materialization cap — computing badges must not force a virtualized,
+    /// DB-backed playlist to fully load just to toggle "+ Mix" on.
+    /// </summary>
+    private const int MixBadgeWindowSize = 50;
+
+    private async Task UpdateMixTransitionBadgesAsync()
+    {
+        // FilteredTracks — not CurrentProjectTracks — is what TrackListView.axaml's ItemsControl
+        // actually renders. See the FilteredTracks setter's comment for why this matters: a real
+        // DB-backed playlist's FilteredTracks is a VirtualizedTrackCollection with entirely
+        // different PlaylistTrackViewModel instances from CurrentProjectTracks, so this used to
+        // silently do nothing for that (the common) case.
+        // Every row that is already loaded — not just the first 50, which left rows further down
+        // the list without badges. Pages that aren't loaded yet are skipped (never force-loaded);
+        // each page load raises CollectionChanged, which reschedules this pass.
+        var source = FilteredTracks;
+        int totalCount = source.Count;
+        var virtualized = source as VirtualizedTrackCollection;
+        var ordered = new List<PlaylistTrackViewModel?>(totalCount);
+        for (int r = 0; r < totalCount; r++)
+        {
+            if (virtualized != null)
+                ordered.Add(virtualized.TryGetLoaded(r, out var loadedRow) ? loadedRow : null);
+            else
+                ordered.Add(source[r]);
+        }
+        var firstLoaded = ordered.FirstOrDefault(r => r != null);
+        if (firstLoaded == null) return;
+
+        var playlistId = firstLoaded.Model?.PlaylistId ?? Guid.Empty;
+        var saved = playlistId != Guid.Empty
+            ? (await _transitionRepository.GetTransitionsForPlaylistAsync(playlistId))
+                .ToDictionary(t => (t.OutgoingPlaylistTrackId, t.IncomingPlaylistTrackId))
+            : new Dictionary<(Guid, Guid), Models.Timeline.PlaylistTrackTransition>();
+
+        // Fetched once per pass rather than once per pair — GetEmbeddingLookupAsync reuses
+        // SimilarityIndex's own TTL-cached index, so this is cheap, but still O(1) calls beats
+        // O(window size).
+        IReadOnlyDictionary<string, float[]>? embeddings = null;
+        if (IsMixModeEnabled && _similarityIndex != null)
+        {
+            try { embeddings = await _similarityIndex.GetEmbeddingLookupAsync(); }
+            catch (Exception ex) { _logger?.LogDebug(ex, "[Mix] Embedding lookup unavailable for badge scoring"); }
+        }
+
+        int poorCount = 0, scoredCount = 0;
+
+        for (int i = 0; i < ordered.Count; i++)
+        {
+            var current = ordered[i];
+            if (current == null) continue; // page not loaded yet
+            bool isLastOverall = i == totalCount - 1;
+            if (isLastOverall)
+            {
+                current.ShowMixTransitionBadge = false;
+                current.NextPlaylistTrackId = null;
+                continue;
+            }
+            if (i >= ordered.Count - 1 || ordered[i + 1] is not { } next)
+            {
+                // Its "next" row hasn't loaded yet. Leave it as-is; OnFilteredTracksChanged
+                // reschedules this once the next page arrives.
+                continue;
+            }
+
+            current.ShowMixTransitionBadge = IsMixModeEnabled;
+            current.NextPlaylistTrackId = next.Id;
+
+            // A Pending/Review/OnHold track has no file on disk yet — there's nothing to
+            // beatmatch, preview, or trust the BPM/key of (it may be stale source metadata rather
+            // than analysis of a file we actually have). Scoring it anyway produced misleading
+            // badges keyed off 0/default values. Model.Status is this codebase's established
+            // "is the file really here" signal — see PlaylistTrackViewModel.IsGhost's doc comment.
+            bool bothDownloaded = current.Model?.Status == TrackStatus.Downloaded
+                && next.Model?.Status == TrackStatus.Downloaded;
+
+            if (!bothDownloaded)
+            {
+                current.TransitionPresetLabel = "Pending";
+                current.TransitionBadgeColor = "#66888888";
+                current.TransitionWarningText = "Not downloaded yet";
+                continue;
+            }
+
+            double? genreSimilarity = null;
+            if (embeddings != null
+                && embeddings.TryGetValue(current.GlobalId, out var vecA)
+                && embeddings.TryGetValue(next.GlobalId, out var vecB))
+            {
+                genreSimilarity = Services.Similarity.SimilarityIndex.CosineSimilarity(vecA, vecB);
+            }
+
+            var score = Services.Playlist.TrackPairCompatibilityScorer.Score(
+                current.CamelotDisplay, next.CamelotDisplay, current.Energy, next.Energy,
+                outgoingBpm: current.Model?.BPM, incomingBpm: next.Model?.BPM,
+                genreSimilarity: genreSimilarity);
+
+            current.TransitionPresetLabel = saved.TryGetValue((current.Id, next.Id), out var savedTransition)
+                ? savedTransition.PresetName
+                : "Auto";
+            current.TransitionBadgeColor = Services.Playlist.TrackPairCompatibilityScorer.CompatibilityColor(score.CombinedScore);
+
+            var warnings = Services.Playlist.TrackPairCompatibilityScorer.BuildWarnings(score, current.Model?.BPM, next.Model?.BPM);
+            current.TransitionWarningText = warnings.Count > 0 ? string.Join(" · ", warnings) : string.Empty;
+
+            if (IsMixModeEnabled)
+            {
+                scoredCount++;
+                if (score.CombinedScore < 45) poorCount++;
+            }
+        }
+
+        if (IsMixModeEnabled)
+        {
+            // A proportional threshold (e.g. 25% of transitions) sounded reasonable on paper but
+            // live-tested near-useless: a real 47-track curated set had just 2 genuinely rough
+            // transitions (both <45) out of 46 — nowhere near 25%, yet exactly the kind of thing
+            // worth flagging. 2+ rough transitions is a real, noticeable problem regardless of
+            // playlist length, so that alone is the bar.
+            IsFlowSuboptimal = scoredCount > 0 && poorCount >= 2;
+            FlowWarningSummary = IsFlowSuboptimal
+                ? $"{poorCount} of {scoredCount} transitions could be smoother"
+                : string.Empty;
+        }
+        else
+        {
+            IsFlowSuboptimal = false;
+        }
+    }
+
+    /// <summary>
+    /// Reorders the currently open playlist in place using <see cref="PlaylistOptimizer"/> (the
+    /// same BPM/harmonic/energy/genre-aware engine the Library's "Automix" feature already uses),
+    /// then persists via the existing <see cref="ILibraryService.SaveTrackOrderAsync"/> — mirrors
+    /// PlaylistIntelligenceViewModel's CreateAutomixPlaylistAsync + ApplyAutomixAsync, collapsed
+    /// into a single in-place action since there's no separate staging step here.
+    /// </summary>
+    private async Task SuggestReorderForBetterFlowAsync()
+    {
+        var source = FilteredTracks;
+        var playlistId = source.FirstOrDefault()?.Model?.PlaylistId ?? Guid.Empty;
+        if (playlistId == Guid.Empty) return;
+
+        // Capped at PlaylistOptimizer's own O(n²) safety limit — a playlist larger than that gets
+        // its first MaxOptimizeTracks analyzed tracks reordered rather than failing outright.
+        var tracks = (source as VirtualizedTrackCollection)?.GetSubset(Services.Playlist.PlaylistOptimizer.MaxOptimizeTracks).ToList()
+            ?? source.Take(Services.Playlist.PlaylistOptimizer.MaxOptimizeTracks).ToList();
+
+        // Only tracks whose audio is actually on disk can be meaningfully mixed/reordered — a
+        // Pending/Review/OnHold row has no file to beatmatch or preview, and its stored BPM/key
+        // (if any) may be stale metadata rather than analysis of a file we actually have. Model.
+        // Status is this codebase's established "is the file really here" signal (see
+        // PlaylistTrackViewModel.IsGhost's doc comment) — stronger than AvailabilityState.
+        var eligible = tracks
+            .Where(t => !t.IsPlaceholder && t.Model?.Status == TrackStatus.Downloaded && (t.HasBpm || t.HasAnalysisData))
+            .ToList();
+        if (eligible.Count < 2) return;
+
+        // Not-yet-downloaded (but real, already-loaded) tracks are excluded from optimization but
+        // must keep a valid, non-colliding SortOrder — appended after the reordered set, in their
+        // original relative order, mirroring PlaylistOptimizer's own "unanalyzed tracks appended
+        // at the end" convention for tracks it can't score.
+        //
+        // Placeholders are excluded here too, deliberately never touched: GetSubset's cache-miss
+        // path (VirtualizedTrackCollection, still-loading pages) returns the SAME shared
+        // PlaylistTrackViewModel.Placeholder singleton for every unloaded slot, not a distinct
+        // instance per row. Including it here would mutate that shared instance's SortOrder
+        // repeatedly and — far worse — add the same fake "Loading…" Model reference into
+        // orderedModels once per unloaded slot, corrupting the SaveTrackOrderAsync write. A
+        // playlist with unloaded rows at reorder time simply leaves those specific rows' SortOrder
+        // untouched rather than risking that.
+        var notEligible = tracks.Where(t => !t.IsPlaceholder && !eligible.Contains(t)).ToList();
+
+        var hashes = eligible.Select(t => t.GlobalId).Where(h => !string.IsNullOrEmpty(h)).ToList();
+
+        try
+        {
+            var result = await _playlistOptimizer.OptimizeAsync(hashes);
+            if (result.OrderedHashes.Count < 2) return;
+
+            var lookup = eligible.ToDictionary(t => t.GlobalId);
+            var orderedModels = new List<PlaylistTrack>();
+            int i = 1;
+            foreach (var hash in result.OrderedHashes)
+            {
+                if (!lookup.TryGetValue(hash, out var track) || track.Model is null) continue;
+                track.Model.SortOrder = i;
+                track.Model.TrackNumber = i;
+                orderedModels.Add(track.Model);
+                i++;
+            }
+
+            foreach (var track in notEligible)
+            {
+                if (track.Model is null) continue;
+                track.Model.SortOrder = i;
+                track.Model.TrackNumber = i;
+                orderedModels.Add(track.Model);
+                i++;
+            }
+
+            await _libraryService.SaveTrackOrderAsync(playlistId, orderedModels);
+
+            FlowWarningDismissed = true;
+            _refreshRequestSubject.OnNext(Unit.Default);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Mix] Reorder-for-better-flow failed for playlist {PlaylistId}", playlistId);
+        }
     }
 
     private bool _harmonicHighlightsScheduled;
@@ -1289,7 +1986,14 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         var referenceKey = lead?.CamelotDisplay;
         var hasReference = !string.IsNullOrEmpty(referenceKey) && referenceKey != "—";
 
-        foreach (var track in CurrentProjectTracks)
+        // LimitedTracks (not CurrentProjectTracks) is the bounded, already-maintained view of
+        // whatever FilteredTracks actually is — for a real DB-backed playlist (the common case),
+        // FilteredTracks is a VirtualizedTrackCollection with entirely different
+        // PlaylistTrackViewModel instances than CurrentProjectTracks (which only Smart Crates/
+        // Smart Playlists populate), so this used to silently highlight nothing during normal
+        // library/playlist browsing. Same root cause already fixed for the Mix badges — see
+        // UpdateMixTransitionBadgesAsync's identical comment.
+        foreach (var track in LimitedTracks)
         {
             if (!hasReference || track == lead)
             {
@@ -1309,7 +2013,11 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         var selectedTracks = SelectedTracks.ToList();
         if (!selectedTracks.Any()) return;
 
-        if (_bulkCoordinator.IsRunning) return;
+        if (_bulkCoordinator.IsRunning)
+        {
+            _notificationService?.Show("Bulk Operation In Progress", "Another bulk operation is already running — wait for it to finish first.", NotificationType.Warning);
+            return;
+        }
 
         await _bulkCoordinator.RunOperationAsync(
             selectedTracks,
@@ -1422,7 +2130,11 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         
         if (!selectedTracks.Any()) return;
 
-        if (_bulkCoordinator.IsRunning) return;
+        if (_bulkCoordinator.IsRunning)
+        {
+            _notificationService?.Show("Bulk Operation In Progress", "Another bulk operation is already running — wait for it to finish first.", NotificationType.Warning);
+            return;
+        }
 
         await _bulkCoordinator.RunOperationAsync(
             selectedTracks,
@@ -1447,7 +2159,11 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         
         if (!selectedTracks.Any()) return;
 
-        if (_bulkCoordinator.IsRunning) return;
+        if (_bulkCoordinator.IsRunning)
+        {
+            _notificationService?.Show("Bulk Operation In Progress", "Another bulk operation is already running — wait for it to finish first.", NotificationType.Warning);
+            return;
+        }
 
         await _bulkCoordinator.RunOperationAsync(
             selectedTracks,
@@ -1522,7 +2238,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
                     EscapeCsvField(track.SampleRateDisplay),
                     EscapeCsvField(track.DurationDisplay),
                     EscapeCsvField(track.FileSizeDisplay),
-                    EscapeCsvField(track.BPM.ToString("F2")),
+                    EscapeCsvField(track.BPM.ToString("F2", NumFormat.Culture)),
                     EscapeCsvField(track.MusicalKey),
                     EscapeCsvField(track.QualityScoreDisplay),
                     EscapeCsvField(track.IntegrityTooltip),

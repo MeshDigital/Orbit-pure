@@ -104,21 +104,9 @@ public class ActiveThreadInfo : INotifyPropertyChanged
 
         foreach (var item in ActiveStages)
         {
-            if (item.Stage < CurrentStage)
-            {
-                item.Color = Avalonia.Media.Brushes.LimeGreen;
-                item.Opacity = 1.0;
-            }
-            else if (item.Stage == CurrentStage)
-            {
-                item.Color = Avalonia.Media.Brushes.Cyan;
-                item.Opacity = 1.0;
-            }
-            else
-            {
-                item.Color = Avalonia.Media.Brushes.Gray;
-                item.Opacity = 0.3;
-            }
+            item.IsDone = item.Stage < CurrentStage;
+            item.IsCurrent = item.Stage == CurrentStage;
+            item.Opacity = item.Stage <= CurrentStage ? 1.0 : 0.3;
         }
     }
 
@@ -152,13 +140,16 @@ public class ActiveThreadInfo : INotifyPropertyChanged
         public string Label { get; set; } = string.Empty;
         public SLSKDONET.Data.AnalysisStage Stage { get; set; }
         
-        private Avalonia.Media.IBrush _color = Avalonia.Media.Brushes.Gray;
-        public Avalonia.Media.IBrush Color { get => _color; set { _color = value; OnPropertyChanged(); OnPropertyChanged(nameof(GlowColor)); } }
-        
+        // State flags; the view maps them to status-dot classes (success = done, accent = current),
+        // so the model carries no colours.
+        private bool _isDone;
+        public bool IsDone { get => _isDone; set { if (_isDone == value) return; _isDone = value; OnPropertyChanged(); } }
+
+        private bool _isCurrent;
+        public bool IsCurrent { get => _isCurrent; set { if (_isCurrent == value) return; _isCurrent = value; OnPropertyChanged(); } }
+
         private double _opacity = 0.3;
         public double Opacity { get => _opacity; set { _opacity = value; OnPropertyChanged(); } }
-
-        public Avalonia.Media.Color GlowColor => (Color as Avalonia.Media.ISolidColorBrush)?.Color ?? Avalonia.Media.Colors.Transparent;
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

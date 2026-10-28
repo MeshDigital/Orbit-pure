@@ -2,8 +2,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
+using SLSKDONET.Models;
+using SLSKDONET.Services.Audio;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -13,44 +16,7 @@ using System.Threading.Tasks;
 
 namespace SLSKDONET.Services;
 
-public class FolderScanSummary
-{
-    public string FolderPath { get; init; } = string.Empty;
-    public int Index { get; init; }
-    public int Total { get; init; }
-    public int Found { get; init; }
-    public int Imported { get; init; }
-    public int DupPath { get; init; }
-    public int DupHash { get; init; }
-    public int Upgraded { get; init; }
-
-    public string Display()
-    {
-        var name = System.IO.Path.GetFileName(FolderPath.TrimEnd(
-            System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar));
-        if (string.IsNullOrEmpty(name)) name = FolderPath;
-        var tag = Imported > 0 ? $"+{Imported} new" : (DupPath + DupHash > 0 ? "all known" : "empty");
-        return $"[{Index}/{Total}] {name}  {Found} files  {tag}";
-    }
-}
-
-public class ScanProgress
-{
-    public int FilesDiscovered { get; set; }
-    public int FilesImported { get; set; }
-    public int FilesSkipped { get; set; }
-    public int FilesDuplicateByPath { get; set; }
-    public int FilesDuplicateByHash { get; set; }
-    public int FilesMetadataFailed { get; set; }
-    public int FilesAutoUpgraded { get; set; }
-    public int FilesMarkedForRemoval { get; set; }
-    public string CurrentFile { get; set; } = string.Empty;
-    public string CurrentFolder { get; set; } = string.Empty;
-
-    // Populated after each folder completes so the UI can render a per-folder log.
-    public List<FolderScanSummary> CompletedFolders { get; set; } = new();
-}
-
+/// <summary>Per-folder outcome of the legacy single-folder scan API (Library Health "Scan now").</summary>
 public class ScanResult
 {
     public Guid FolderId { get; set; }
@@ -75,15 +41,27 @@ internal sealed class ExistingEntryInfo
     public int QualityScore { get; set; }
 }
 
+/// <summary>
+/// Brings the music in Library Sources (the LibraryFolders table) into the library.
+/// <para>
+/// <see cref="ImportFoldersAsync"/> is the one import pipeline: scan the folders, read tags and
+/// check each new file, then add them in batched transactions with path and track-identity
+/// de-duplication. It runs off the UI thread, reports throttled progress, and publishes a single
+/// <see cref="LibraryImportCompletedEvent"/> at the end, so views refresh once instead of once
+/// per file. While a folder is being imported, <see cref="IsFolderImporting"/> is true for it and
+/// the folder watcher holds back its own events for that folder.
+/// </para>
+/// </summary>
 public class LibraryFolderScannerService
 {
     private readonly ILogger<LibraryFolderScannerService> _logger;
     private readonly DatabaseService _databaseService;
     private readonly LibraryService _libraryService;
-    private readonly IEventBus _eventBus;
+    private readonly IEventBus? _eventBus;
     private const int EnsureDefaultFolderMaxAttempts = 3;
 
-    private static readonly string[] SupportedExtensions = new[] { ".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg" };
+    private readonly object _activeLock = new();
+    private readonly Dictionary<Guid, int> _activeFolders = new();
 
     public LibraryFolderScannerService(
         ILogger<LibraryFolderScannerService> logger,
@@ -97,347 +75,528 @@ public class LibraryFolderScannerService
         _eventBus = eventBus;
     }
 
-    /// <summary>
-    /// Scans a specific library folder and imports new audio files
-    /// </summary>
-    public async Task<ScanResult> ScanFolderAsync(Guid folderId, IProgress<ScanProgress>? progress = null, CancellationToken ct = default)
+    /// <summary>True while an import is reading or writing this folder.</summary>
+    public bool IsFolderImporting(Guid folderId)
     {
-        using var metaContext = new AppDbContext();
-        var folder = await metaContext.LibraryFolders.FindAsync(new object[] { folderId }, ct);
-        
-        if (folder == null || !folder.IsEnabled) return new ScanResult();
-        if (!Directory.Exists(folder.FolderPath)) return new ScanResult();
+        lock (_activeLock) return _activeFolders.ContainsKey(folderId);
+    }
 
-        _logger.LogInformation("📁 Scanning folder: {Path}", folder.FolderPath);
-        
-        var result = new ScanResult();
-        var scanProgress = new ScanProgress();
-        
-        try
+    /// <summary>True while any folder import is running.</summary>
+    public bool IsAnyImportRunning
+    {
+        get { lock (_activeLock) return _activeFolders.Count > 0; }
+    }
+
+    private void MarkActive(IEnumerable<Guid> folderIds)
+    {
+        lock (_activeLock)
         {
-            // 1. Discover all audio files (CPU bound)
-            var audioFiles = await DiscoverAudioFilesAsync(folder.FolderPath, ct);
-            result.FolderId = folder.Id;
-            result.FolderPath = folder.FolderPath;
-            result.TotalFilesFound = audioFiles.Count;
-            scanProgress.FilesDiscovered = audioFiles.Count;
-            scanProgress.CurrentFolder = folder.FolderPath;
-            progress?.Report(scanProgress);
-
-            if (audioFiles.Count == 0) return result;
-
-            // 2. Load existing file paths into memory for O(1) duplicate checking
-            // This prevents N+1 DB queries and write starvation checking
-            _logger.LogInformation("Loading existing library paths...");
-            HashSet<string> existingPaths;
-            Dictionary<string, ExistingEntryInfo> existingByHash;
-            var pathComparer = GetPathComparer();
-            
-            // Use a separate short-lived context for reading
-            using (var readContext = new AppDbContext())
-            {
-                // Read only what we need for duplicate detection and alignment.
-                var existingEntries = await readContext.LibraryEntries
-                    .AsNoTracking()
-                    .Select(e => new { e.FilePath, e.UniqueHash, e.Format, e.Bitrate })
-                    .ToListAsync(ct);
-
-                existingPaths = existingEntries
-                    .Select(e => NormalizePath(e.FilePath))
-                    .Where(p => !string.IsNullOrWhiteSpace(p))
-                    .ToHashSet(pathComparer);
-
-                existingByHash = existingEntries
-                    .Where(e => !string.IsNullOrWhiteSpace(e.UniqueHash))
-                    .GroupBy(e => e.UniqueHash, StringComparer.OrdinalIgnoreCase)
-                    .Select(g => g.First())
-                    .ToDictionary(
-                        e => e.UniqueHash,
-                        e => new ExistingEntryInfo
-                        {
-                            UniqueHash = e.UniqueHash,
-                            FilePath = e.FilePath,
-                            Format = e.Format ?? string.Empty,
-                            Bitrate = e.Bitrate,
-                            QualityScore = ComputeQualityScore(e.Format, e.Bitrate, 0, 0)
-                        },
-                        StringComparer.OrdinalIgnoreCase);
-            }
-            
-            _logger.LogInformation("Loaded {PathCount} existing paths and {HashCount} existing hashes. Starting import...", existingPaths.Count, existingByHash.Count);
-
-            // 3. Process files in batches
-            var batch = new List<LibraryEntryEntity>();
-            const int BatchSize = 50;
-
-            foreach (var filePath in audioFiles)
-            {
-                if (ct.IsCancellationRequested) break;
-                
-                scanProgress.CurrentFile = Path.GetFileName(filePath);
-                var normalizedFilePath = NormalizePath(filePath);
-                
-                // Fast in-memory checks. Path handles exact file dedupe; hash aligns with global library identity.
-                if (existingPaths.Contains(normalizedFilePath))
-                {
-                    result.FilesSkipped++;
-                    result.FilesDuplicateByPath++;
-                    scanProgress.FilesSkipped++;
-                    scanProgress.FilesDuplicateByPath++;
-                    progress?.Report(scanProgress);
-                    continue;
-                }
-
-                // Extract metadata (CPU bound)
-                var entry = CreateLibraryEntry(filePath);
-                if (entry != null)
-                {
-                    if (existingByHash.TryGetValue(entry.UniqueHash, out var existing))
-                    {
-                        result.FilesDuplicateByHash++;
-                        scanProgress.FilesDuplicateByHash++;
-
-                        var candidateScore = TryExtractScore(entry.QualityDetails) ?? ComputeQualityScore(entry.Format, entry.Bitrate, 0, 0);
-                        if (candidateScore > existing.QualityScore && await TryUpgradeExistingEntryAsync(existing, entry, candidateScore, ct))
-                        {
-                            result.FilesAutoUpgraded++;
-                            result.FilesMarkedForRemoval++;
-                            scanProgress.FilesAutoUpgraded++;
-                            scanProgress.FilesMarkedForRemoval++;
-
-                            existing.FilePath = entry.FilePath;
-                            existing.Format = entry.Format;
-                            existing.Bitrate = entry.Bitrate;
-                            existing.QualityScore = candidateScore;
-                            existingPaths.Add(normalizedFilePath);
-
-                            progress?.Report(scanProgress);
-                            continue;
-                        }
-
-                        result.FilesSkipped++;
-                        scanProgress.FilesSkipped++;
-                        progress?.Report(scanProgress);
-                        continue;
-                    }
-
-                    batch.Add(entry);
-                    result.ImportedLibraryEntryIds.Add(entry.Id);
-                    existingPaths.Add(normalizedFilePath);
-                    existingByHash[entry.UniqueHash] = new ExistingEntryInfo
-                    {
-                        UniqueHash = entry.UniqueHash,
-                        FilePath = entry.FilePath,
-                        Format = entry.Format,
-                        Bitrate = entry.Bitrate,
-                        QualityScore = TryExtractScore(entry.QualityDetails) ?? ComputeQualityScore(entry.Format, entry.Bitrate, 0, 0)
-                    };
-                }
-                else
-                {
-                    result.FilesSkipped++;
-                    result.FilesMetadataFailed++;
-                    scanProgress.FilesSkipped++;
-                    scanProgress.FilesMetadataFailed++;
-                }
-
-                // Flush batch if full
-                if (batch.Count >= BatchSize)
-                {
-                    await SaveBatchAsync(batch, ct);
-                    
-                    result.FilesImported += batch.Count;
-                    scanProgress.FilesImported += batch.Count;
-                    progress?.Report(scanProgress);
-                    
-                    batch.Clear();
-                    
-                    // CRITICAL: Yield control to UI and other services (prevent Write Starvation)
-                    await Task.Yield();
-                }
-            }
-
-            // Flush remaining
-            if (batch.Count > 0)
-            {
-                await SaveBatchAsync(batch, ct);
-                result.FilesImported += batch.Count;
-                scanProgress.FilesImported += batch.Count;
-                progress?.Report(scanProgress);
-            }
-
-            // Update folder metadata
-            folder.LastScannedAt = DateTime.UtcNow;
-            folder.TracksFound = result.TotalFilesFound;
-            await metaContext.SaveChangesAsync(ct);
-
-            _logger.LogInformation(
-                "✅ Scan complete: {Imported} imported, {Skipped} skipped (dup-path: {DupPath}, dup-hash: {DupHash}, upgraded: {Upgraded}, removal-candidates: {RemovalCandidates}, metadata-failed: {MetaFailed})",
-                result.FilesImported,
-                result.FilesSkipped,
-                result.FilesDuplicateByPath,
-                result.FilesDuplicateByHash,
-                result.FilesAutoUpgraded,
-                result.FilesMarkedForRemoval,
-                result.FilesMetadataFailed);
+            foreach (var id in folderIds)
+                _activeFolders[id] = _activeFolders.TryGetValue(id, out var n) ? n + 1 : 1;
         }
-        catch (Exception ex)
+    }
+
+    private void ReleaseActive(IEnumerable<Guid> folderIds)
+    {
+        lock (_activeLock)
         {
-            _logger.LogError(ex, "Error scanning folder {Path}", folder.FolderPath);
+            foreach (var id in folderIds)
+            {
+                if (!_activeFolders.TryGetValue(id, out var n)) continue;
+                if (n <= 1) _activeFolders.Remove(id);
+                else _activeFolders[id] = n - 1;
+            }
         }
-
-        return result;
     }
 
     /// <summary>
-    /// Phase 12: Delta Scan Optimization - Fast sync using file system timestamps
-    /// Only scans folders that have changed since the last scan
+    /// Registers <paramref name="path"/> as a Library Source (or re-enables the existing row) and
+    /// returns its id. <paramref name="watch"/> null leaves an existing row's watch flag alone.
     /// </summary>
-    public async Task<ScanResult> FastSyncLibraryAsync(IProgress<ScanProgress>? progress = null, CancellationToken ct = default)
+    public async Task<(Guid Id, bool IsNew)> RegisterFolderAsync(string path, bool? watch = null)
     {
-        _logger.LogInformation("🔄 Starting fast library sync (delta scan)...");
-
-        var result = new ScanResult();
-        var scanProgress = new ScanProgress();
-
+        var normalized = NormalizePath(path);
+        var comparer = GetPathComparer();
         using var context = new AppDbContext();
-
-        // Get all enabled library folders
-        var folders = await context.LibraryFolders
-            .Where(f => f.IsEnabled)
-            .ToListAsync(ct);
-
-        var foldersToScan = new List<LibraryFolderEntity>();
-
-        foreach (var folder in folders)
+        var rows = await context.LibraryFolders.ToListAsync();
+        var match = rows.FirstOrDefault(r => comparer.Equals(NormalizePath(r.FolderPath), normalized));
+        if (match != null)
         {
-            if (!Directory.Exists(folder.FolderPath))
-            {
-                _logger.LogWarning("Folder no longer exists: {Path}", folder.FolderPath);
-                continue;
-            }
-
-            // Check if folder has changed since last scan
-            var folderInfo = new DirectoryInfo(folder.FolderPath);
-            var lastWriteTime = folderInfo.LastWriteTimeUtc;
-
-            // If never scanned or folder has been modified, add to scan list
-            if (!folder.LastScannedAt.HasValue || lastWriteTime > folder.LastScannedAt.Value)
-            {
-                foldersToScan.Add(folder);
-                _logger.LogInformation("📁 Folder changed, will scan: {Path} (last modified: {LastWrite})",
-                    folder.FolderPath, lastWriteTime);
-            }
-            else
-            {
-                _logger.LogDebug("📁 Folder unchanged, skipping: {Path}", folder.FolderPath);
-            }
+            var changed = false;
+            if (!match.IsEnabled) { match.IsEnabled = true; changed = true; }
+            if (watch.HasValue && match.IsWatched != watch.Value) { match.IsWatched = watch.Value; changed = true; }
+            if (changed) await context.SaveChangesAsync();
+            return (match.Id, false);
         }
 
-        if (!foldersToScan.Any())
+        var entity = new LibraryFolderEntity
         {
-            _logger.LogInformation("✅ Fast sync complete: No folders changed since last scan");
-            return result;
+            Id = Guid.NewGuid(),
+            FolderPath = normalized,
+            IsEnabled = true,
+            IsWatched = watch ?? false,
+            AddedAt = DateTime.UtcNow,
+        };
+        context.LibraryFolders.Add(entity);
+        await context.SaveChangesAsync();
+        _logger.LogInformation("Registered library folder: {Path}", normalized);
+        return (entity.Id, true);
+    }
+
+    /// <summary>
+    /// The import pipeline. Never throws for file or database problems: they are counted in the
+    /// result (and an unexpected failure sets <see cref="LibraryImportResult.Error"/>). Cancelling
+    /// while tags are being read still adds the files already checked; cancelling while adding
+    /// stops after the current batch. Everything already written stays in the library.
+    /// </summary>
+    public async Task<LibraryImportResult> ImportFoldersAsync(
+        LibraryImportRequest request,
+        IProgress<LibraryImportProgress>? progress = null,
+        CancellationToken ct = default)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var result = new LibraryImportResult { Trigger = request.Trigger };
+        var state = new ImportCounters();
+        var reporter = new ThrottledProgressReporter(progress, request.ProgressInterval);
+        List<LibraryFolderEntity> folders = new();
+
+        try
+        {
+            folders = await LoadFoldersAsync(request.FolderIds, result, ct).ConfigureAwait(false);
+            MarkActive(folders.Select(f => f.Id));
+            await Task.Run(() => RunPipelineAsync(request, folders, result, state, reporter, ct), CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            result.WasCancelled = true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Library import failed");
+            result.Error = ex.Message;
+            result.Issues.Add(new LibraryImportIssue(LibraryImportIssueKind.Failed, string.Join("; ", result.FolderPaths), ex.Message));
+        }
+        finally
+        {
+            ReleaseActive(folders.Select(f => f.Id));
         }
 
-        _logger.LogInformation("🔍 Fast sync will scan {Count} of {Total} folders", foldersToScan.Count, folders.Count);
+        result.WasCancelled |= ct.IsCancellationRequested;
+        result.Elapsed = stopwatch.Elapsed;
+        state.CopyTo(result);
+        reporter.Report(() => state.Snapshot(LibraryImportPhase.Done, string.Empty), force: true);
 
-        // Scan the changed folders
-        foreach (var folder in foldersToScan)
+        if (request.QueueAnalysis && _eventBus != null)
         {
-            if (ct.IsCancellationRequested) break;
-
-            var folderResult = await ScanFolderAsync(folder.Id, progress, ct);
-            result.TotalFilesFound += folderResult.TotalFilesFound;
-            result.FilesImported += folderResult.FilesImported;
-            result.FilesSkipped += folderResult.FilesSkipped;
-            result.FilesDuplicateByPath += folderResult.FilesDuplicateByPath;
-            result.FilesDuplicateByHash += folderResult.FilesDuplicateByHash;
-            result.FilesAutoUpgraded += folderResult.FilesAutoUpgraded;
-            result.FilesMarkedForRemoval += folderResult.FilesMarkedForRemoval;
-            result.FilesMetadataFailed += folderResult.FilesMetadataFailed;
-            result.ImportedLibraryEntryIds.AddRange(folderResult.ImportedLibraryEntryIds);
+            foreach (var hash in result.AddedTrackHashes)
+                _eventBus.Publish(new TrackAnalysisRequestedEvent(hash));
         }
 
         _logger.LogInformation(
-            "✅ Fast sync complete: {Imported} imported, {Skipped} skipped from {Folders} folders (dup-path: {DupPath}, dup-hash: {DupHash}, upgraded: {Upgraded}, removal-candidates: {RemovalCandidates}, metadata-failed: {MetaFailed})",
-            result.FilesImported,
-            result.FilesSkipped,
-            foldersToScan.Count,
-            result.FilesDuplicateByPath,
-            result.FilesDuplicateByHash,
-            result.FilesAutoUpgraded,
-            result.FilesMarkedForRemoval,
-            result.FilesMetadataFailed);
+            "Library import ({Trigger}) {Outcome} in {Ms} ms: {Found} found, {Added} added, {Known} already in library, {Dup} duplicates ({Upgraded} upgraded), {Unsupported} unsupported, {Unreadable} unreadable, {Failed} not saved",
+            request.Trigger, result.WasCancelled ? "cancelled" : result.Error != null ? "failed" : "finished",
+            (long)result.Elapsed.TotalMilliseconds, result.FilesFound, result.Added, result.AlreadyInLibrary,
+            result.Duplicates, result.Upgraded, result.Unsupported, result.Unreadable, result.Failed);
 
+        _eventBus?.Publish(new LibraryImportCompletedEvent(result));
         return result;
     }
 
-    /// <summary>
-    /// Saves a batch of entries to the database in a single transaction
-    /// </summary>
-    private async Task SaveBatchAsync(List<LibraryEntryEntity> batch, CancellationToken ct)
+    private async Task<List<LibraryFolderEntity>> LoadFoldersAsync(IReadOnlyList<Guid>? folderIds, LibraryImportResult result, CancellationToken ct)
     {
-        try
+        using var context = new AppDbContext();
+        var query = context.LibraryFolders.AsNoTracking().Where(f => f.IsEnabled);
+        var rows = await query.ToListAsync(ct).ConfigureAwait(false);
+        if (folderIds != null)
         {
-            using var context = new AppDbContext();
-            context.LibraryEntries.AddRange(batch);
-            await context.SaveChangesAsync(ct);
+            var wanted = folderIds.ToHashSet();
+            rows = rows.Where(f => wanted.Contains(f.Id)).ToList();
+        }
 
-            // Locally-scanned files never pass through DownloadManager's completion handler
-            // (that only fires for Soulseek downloads), so without this they'd sit
-            // un-analyzed forever — no BPM/key/energy, and invisible to Similar Tracks /
-            // Smart Insert, which both depend on this analysis having run.
-            foreach (var entry in batch)
+        var usable = new List<LibraryFolderEntity>();
+        foreach (var folder in rows)
+        {
+            result.FolderIds.Add(folder.Id);
+            result.FolderPaths.Add(folder.FolderPath);
+            if (Directory.Exists(folder.FolderPath))
             {
-                if (!string.IsNullOrWhiteSpace(entry.UniqueHash))
+                usable.Add(folder);
+            }
+            else
+            {
+                _logger.LogWarning("Library folder is missing, skipped: {Path}", folder.FolderPath);
+                result.Issues.Add(new LibraryImportIssue(LibraryImportIssueKind.FolderMissing, folder.FolderPath,
+                    "The folder can't be found. Reconnect the drive or remove it from Library folders."));
+            }
+        }
+        return usable;
+    }
+
+    private async Task RunPipelineAsync(
+        LibraryImportRequest request,
+        List<LibraryFolderEntity> folders,
+        LibraryImportResult result,
+        ImportCounters state,
+        ThrottledProgressReporter reporter,
+        CancellationToken ct)
+    {
+        // ── Phase 1: scanning folders ──────────────────────────────────────────
+        reporter.Report(() => state.Snapshot(LibraryImportPhase.Scanning, string.Empty), force: true);
+        var discovered = new List<(string Path, int Folder)>();
+        var perFolderFound = new int[folders.Count];
+
+        if (request.Files != null)
+        {
+            foreach (var file in request.Files.Distinct(GetPathComparer()))
+            {
+                if (ct.IsCancellationRequested) break;
+                if (!File.Exists(file)) continue;
+                var folderIndex = folders.FindIndex(f => IsUnder(file, f.FolderPath));
+                if (folderIndex < 0) continue;
+                ClassifyDiscovered(file, folderIndex, discovered, perFolderFound, result, state);
+            }
+        }
+        else
+        {
+            var options = new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                IgnoreInaccessible = true,
+                MatchCasing = MatchCasing.CaseInsensitive,
+                ReturnSpecialDirectories = false,
+                AttributesToSkip = FileAttributes.System | FileAttributes.Hidden,
+            };
+
+            for (var i = 0; i < folders.Count && !ct.IsCancellationRequested; i++)
+            {
+                try
                 {
-                    _eventBus.Publish(new SLSKDONET.Models.TrackAnalysisRequestedEvent(entry.UniqueHash));
+                    foreach (var file in Directory.EnumerateFiles(folders[i].FolderPath, "*", options))
+                    {
+                        if (ct.IsCancellationRequested) break;
+                        ClassifyDiscovered(file, i, discovered, perFolderFound, result, state);
+                        reporter.Report(() => state.Snapshot(LibraryImportPhase.Scanning, Path.GetFileName(file)));
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+                {
+                    _logger.LogWarning(ex, "Error scanning folder {Path}", folders[i].FolderPath);
+                    result.Issues.Add(new LibraryImportIssue(LibraryImportIssueKind.Failed, folders[i].FolderPath,
+                        $"Part of the folder couldn't be read: {ex.Message}"));
                 }
             }
         }
-        catch (Exception ex)
+
+        reporter.Report(() => state.Snapshot(LibraryImportPhase.Scanning, string.Empty), force: true);
+        if (ct.IsCancellationRequested) return; // nothing has been checked yet, so nothing to keep
+
+        // ── Phase 2: reading tags & checking files ─────────────────────────────
+        var pathComparer = GetPathComparer();
+        HashSet<string> existingPaths;
+        Dictionary<string, ExistingEntryInfo> existingByHash;
+        using (var readContext = new AppDbContext())
         {
-            _logger.LogError(ex, "Failed to save batch of {Count} entries", batch.Count);
+            var existingEntries = await readContext.LibraryEntries
+                .AsNoTracking()
+                .Select(e => new { e.FilePath, e.UniqueHash, e.Format, e.Bitrate })
+                .ToListAsync(ct).ConfigureAwait(false);
+
+            existingPaths = existingEntries
+                .Select(e => NormalizePath(e.FilePath))
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .ToHashSet(pathComparer);
+
+            existingByHash = existingEntries
+                .Where(e => !string.IsNullOrWhiteSpace(e.UniqueHash))
+                .GroupBy(e => e.UniqueHash, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .ToDictionary(
+                    e => e.UniqueHash,
+                    e => new ExistingEntryInfo
+                    {
+                        UniqueHash = e.UniqueHash,
+                        FilePath = e.FilePath,
+                        Format = e.Format ?? string.Empty,
+                        Bitrate = e.Bitrate,
+                        QualityScore = ComputeQualityScore(e.Format, e.Bitrate, 0, 0)
+                    },
+                    StringComparer.OrdinalIgnoreCase);
+        }
+
+        // The same file is never read twice: path matches are settled before any tag is opened.
+        var candidates = new List<string>(discovered.Count);
+        foreach (var (path, _) in discovered)
+        {
+            if (existingPaths.Contains(NormalizePath(path))) state.AlreadyInLibrary++;
+            else candidates.Add(path);
+        }
+
+        state.Total = candidates.Count;
+        state.Processed = 0;
+        reporter.Report(() => state.Snapshot(LibraryImportPhase.Reading, string.Empty), force: true);
+
+        var read = new ReadOutcome?[candidates.Count];
+        var parallel = new ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount / 2, 1, 4) };
+        Parallel.For(0, candidates.Count, parallel, (i, loop) =>
+        {
+            if (ct.IsCancellationRequested) { loop.Stop(); return; }
+            var path = candidates[i];
+            var entry = TryReadEntry(path, out var error);
+            read[i] = new ReadOutcome(path, entry, error);
+            state.CountRead(entry == null);
+            reporter.Report(() => state.Snapshot(LibraryImportPhase.Reading, Path.GetFileName(path)));
+        });
+
+        foreach (var outcome in read)
+        {
+            if (outcome is { Entry: null } bad)
+                result.Issues.Add(new LibraryImportIssue(LibraryImportIssueKind.Unreadable, bad.Path, bad.Error ?? "The file couldn't be read."));
+        }
+        reporter.Report(() => state.Snapshot(LibraryImportPhase.Reading, string.Empty), force: true);
+
+        // ── Phase 3: adding to the library ─────────────────────────────────────
+        // A cancel during reading still adds what was checked; a cancel from here on stops after
+        // the batch in flight.
+        var keepCheckedAfterCancel = ct.IsCancellationRequested;
+        var toAdd = read.Where(o => o is { Entry: not null }).Select(o => o!.Entry!).ToList();
+        state.Total = toAdd.Count;
+        state.Processed = 0;
+        reporter.Report(() => state.Snapshot(LibraryImportPhase.Adding, string.Empty), force: true);
+
+        var batch = new List<LibraryEntryEntity>(request.BatchSize);
+        foreach (var entry in toAdd)
+        {
+            if (!keepCheckedAfterCancel && ct.IsCancellationRequested) break;
+
+            if (existingByHash.TryGetValue(entry.UniqueHash, out var existing))
+            {
+                var candidateScore = TryExtractScore(entry.QualityDetails) ?? ComputeQualityScore(entry.Format, entry.Bitrate, 0, 0);
+                if (candidateScore > existing.QualityScore && await TryUpgradeExistingEntryAsync(existing, entry, candidateScore, CancellationToken.None).ConfigureAwait(false))
+                {
+                    state.Upgraded++;
+                    existing.FilePath = entry.FilePath;
+                    existing.Format = entry.Format;
+                    existing.Bitrate = entry.Bitrate;
+                    existing.QualityScore = candidateScore;
+                }
+                state.Duplicates++;
+                state.Processed++;
+                reporter.Report(() => state.Snapshot(LibraryImportPhase.Adding, Path.GetFileName(entry.FilePath)));
+                continue;
+            }
+
+            existingByHash[entry.UniqueHash] = new ExistingEntryInfo
+            {
+                UniqueHash = entry.UniqueHash,
+                FilePath = entry.FilePath,
+                Format = entry.Format,
+                Bitrate = entry.Bitrate,
+                QualityScore = TryExtractScore(entry.QualityDetails) ?? ComputeQualityScore(entry.Format, entry.Bitrate, 0, 0)
+            };
+            batch.Add(entry);
+
+            if (batch.Count >= request.BatchSize)
+            {
+                await FlushBatchAsync(batch, result, state).ConfigureAwait(false);
+                reporter.Report(() => state.Snapshot(LibraryImportPhase.Adding, Path.GetFileName(entry.FilePath)));
+            }
+        }
+
+        if (batch.Count > 0)
+            await FlushBatchAsync(batch, result, state).ConfigureAwait(false);
+
+        // Folder bookkeeping: what a full walk found, and when it last completed.
+        if (request.Files == null)
+            await UpdateFolderMetadataAsync(folders, perFolderFound, completed: !ct.IsCancellationRequested).ConfigureAwait(false);
+    }
+
+    private static void ClassifyDiscovered(
+        string file, int folderIndex, List<(string Path, int Folder)> discovered, int[] perFolderFound,
+        LibraryImportResult result, ImportCounters state)
+    {
+        switch (LibraryAudioFormats.Classify(file))
+        {
+            case LibraryAudioFormats.Kind.Supported:
+                discovered.Add((file, folderIndex));
+                perFolderFound[folderIndex]++;
+                state.FilesFound++;
+                break;
+            case LibraryAudioFormats.Kind.Unsupported:
+                state.Unsupported++;
+                result.Issues.Add(new LibraryImportIssue(LibraryImportIssueKind.Unsupported, file,
+                    $"{Path.GetExtension(file).TrimStart('.').ToUpperInvariant()} files can't be imported yet."));
+                break;
         }
     }
 
-    /// <summary>
-    /// Creates a LibraryEntryEntity from a file path using TagLib
-    /// </summary>
-    private LibraryEntryEntity? CreateLibraryEntry(string filePath)
+    private async Task FlushBatchAsync(List<LibraryEntryEntity> batch, LibraryImportResult result, ImportCounters state)
     {
         try
         {
+            // One short transaction per batch; a transient lock (enrichment / analysis writing at
+            // the same moment) is retried on a fresh context instead of losing the whole batch.
+            await SqliteBusyRetry.RunAsync(async () =>
+            {
+                using var context = new AppDbContext();
+                context.LibraryEntries.AddRange(batch);
+                await context.SaveChangesAsync().ConfigureAwait(false);
+            }, _logger, "library import batch").ConfigureAwait(false);
+
+            var hashes = new List<string>(batch.Count);
+            foreach (var entry in batch)
+            {
+                result.AddedEntryIds.Add(entry.Id);
+                if (!string.IsNullOrWhiteSpace(entry.UniqueHash))
+                {
+                    result.AddedTrackHashes.Add(entry.UniqueHash);
+                    hashes.Add(entry.UniqueHash);
+                }
+            }
+            state.Added += batch.Count;
+            PublishBatchAdded(hashes, result.Trigger);
+        }
+        catch (Exception ex)
+        {
+            // Reported as "not saved", never as added.
+            _logger.LogError(ex, "Failed to save a batch of {Count} library entries", batch.Count);
+            state.Failed += batch.Count;
+            foreach (var entry in batch)
+                result.Issues.Add(new LibraryImportIssue(LibraryImportIssueKind.SaveFailed, entry.FilePath, ex.GetBaseException().Message));
+        }
+        state.Processed += batch.Count;
+        batch.Clear();
+    }
+
+    /// <summary>Tells the Library and a running enrichment that these rows exist now (mid-import).</summary>
+    private void PublishBatchAdded(List<string> hashes, LibraryImportTrigger trigger)
+    {
+        if (_eventBus == null || hashes.Count == 0) return;
+        try
+        {
+            _eventBus.Publish(new LibraryEntriesAddedEvent(hashes, trigger));
+        }
+        catch (Exception ex)
+        {
+            // A subscriber failing must never fail the import; the completion event still refreshes.
+            _logger.LogWarning(ex, "A LibraryEntriesAddedEvent subscriber threw");
+        }
+    }
+
+    private async Task UpdateFolderMetadataAsync(List<LibraryFolderEntity> folders, int[] perFolderFound, bool completed)
+    {
+        if (folders.Count == 0) return;
+        try
+        {
+            using var context = new AppDbContext();
+            var ids = folders.Select(f => f.Id).ToList();
+            var rows = await context.LibraryFolders.Where(f => ids.Contains(f.Id)).ToListAsync().ConfigureAwait(false);
+            foreach (var row in rows)
+            {
+                var index = folders.FindIndex(f => f.Id == row.Id);
+                if (index < 0) continue;
+                row.TracksFound = perFolderFound[index];
+                if (completed) row.LastScannedAt = DateTime.UtcNow;
+            }
+            await context.SaveChangesAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to update library folder scan metadata");
+        }
+    }
+
+    private static bool IsUnder(string file, string folder)
+    {
+        var f = NormalizePath(folder) + Path.DirectorySeparatorChar;
+        return NormalizePath(file).StartsWith(f, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Imports one Library Source the way Library Health's "Scan now" always has (analysis is
+    /// queued for what's added). Prefer the import sheet (<c>ILibraryImportLauncher</c>) for
+    /// anything the user starts.
+    /// </summary>
+    public async Task<ScanResult> ScanFolderAsync(Guid folderId, CancellationToken ct = default)
+    {
+        var import = await ImportFoldersAsync(new LibraryImportRequest
+        {
+            FolderIds = new[] { folderId },
+            QueueAnalysis = true,
+            Trigger = LibraryImportTrigger.Maintenance,
+        }, null, ct).ConfigureAwait(false);
+
+        return new ScanResult
+        {
+            FolderId = folderId,
+            FolderPath = import.FolderPaths.FirstOrDefault() ?? string.Empty,
+            TotalFilesFound = import.FilesFound,
+            FilesImported = import.Added,
+            FilesSkipped = import.AlreadyInLibrary + import.Duplicates + import.Unreadable,
+            FilesDuplicateByPath = import.AlreadyInLibrary,
+            FilesDuplicateByHash = import.Duplicates,
+            FilesMetadataFailed = import.Unreadable,
+            FilesAutoUpgraded = import.Upgraded,
+            FilesMarkedForRemoval = import.Upgraded,
+            ImportedLibraryEntryIds = import.AddedEntryIds.ToList(),
+        };
+    }
+
+    /// <summary>
+    /// Reads one file into a library entry. Returns null (with <paramref name="error"/>) when the
+    /// file is empty or its audio/tags can't be parsed, i.e. it is corrupt or not really audio.
+    /// </summary>
+    internal LibraryEntryEntity? TryReadEntry(string filePath, out string? error)
+    {
+        error = null;
+        try
+        {
             var fileInfo = new FileInfo(filePath);
-            string artist = "Unknown Artist";
-            string title = Path.GetFileNameWithoutExtension(filePath);
-            string album = string.Empty;
-            int duration = 0;
-            int bitrate = 0;
-            int sampleRate = 0;
-            int bitsPerSample = 0;
+            if (!fileInfo.Exists)
+            {
+                error = "The file disappeared before it could be read.";
+                return null;
+            }
+            if (fileInfo.Length == 0)
+            {
+                error = "Empty file (0 bytes).";
+                return null;
+            }
+
+            string artist;
+            string title;
+            string album;
+            int duration, bitrate, sampleRate, bitsPerSample;
+            double? tagBpm = null;
+            string? tagKey;
 
             try
             {
-                var file = TagLib.File.Create(filePath);
-                artist = string.IsNullOrWhiteSpace(file.Tag.FirstPerformer) ? artist : file.Tag.FirstPerformer;
-                title = string.IsNullOrWhiteSpace(file.Tag.Title) ? title : file.Tag.Title;
-                album = file.Tag.Album ?? string.Empty;
-                duration = (int)file.Properties.Duration.TotalSeconds;
-                bitrate = file.Properties.AudioBitrate;
-                sampleRate = file.Properties.AudioSampleRate;
-                bitsPerSample = file.Properties.BitsPerSample;
+                // TagLib#, or the AIFF header reader for AIFF-C files TagLib# rejects.
+                var facts = AudioTagReader.Read(filePath);
+                artist = string.IsNullOrWhiteSpace(facts.Artist) ? "Unknown Artist" : facts.Artist;
+                title = string.IsNullOrWhiteSpace(facts.Title) ? Path.GetFileNameWithoutExtension(filePath) : facts.Title;
+                album = facts.Album ?? string.Empty;
+                duration = (int)facts.Duration.TotalSeconds;
+                bitrate = facts.BitrateKbps;
+                sampleRate = facts.SampleRate;
+                bitsPerSample = facts.BitsPerSample;
+                // Rekordbox / Mixed In Key write the key tag (ID3 TKEY, also inside AIFF); shown until analysis runs.
+                tagKey = string.IsNullOrWhiteSpace(facts.Key) || facts.Key.Trim().Length > 8 ? null : facts.Key.Trim();
+
+                // Trust a file-embedded BPM tag (written by Rekordbox/Serato/etc.) over ORBIT's own
+                // Essentia analysis, which has a quantization bias on breakbeat/DNB content.
+                // Sanity-bounded to BpmDetectionService's [60,220] range so a placeholder tag isn't trusted.
+                if (facts.Bpm is >= 60 and <= 220)
+                    tagBpm = facts.Bpm;
             }
-            catch
+            catch (Exception ex) when (ex is TagLib.CorruptFileException or TagLib.UnsupportedFormatException or IOException or ArgumentException or IndexOutOfRangeException or NullReferenceException or OverflowException or InvalidOperationException)
             {
-                // Tags failed - use smart filename parsing
-                var parsed = ParseFilename(title);
-                artist = parsed.Artist ?? artist;
-                title = parsed.Title ?? title;
-                
-                _logger.LogDebug("Parsed filename '{File}' as Artist='{A}', Title='{T}'", 
-                    Path.GetFileName(filePath), artist, title);
+                _logger.LogDebug(ex, "Unreadable audio file skipped: {Path}", filePath);
+                error = ex is TagLib.UnsupportedFormatException
+                    ? "Not a recognised audio file."
+                    : $"Corrupt or unreadable audio ({ex.Message}).";
+                return null;
             }
 
             var format = Path.GetExtension(filePath).TrimStart('.').ToLowerInvariant();
@@ -455,183 +614,76 @@ public class LibraryFolderScannerService
                 AddedAt = DateTime.UtcNow,
                 Bitrate = bitrate,
                 Format = format,
-                QualityDetails = $"scanner:v2;score={qualityScore};format={format};bitrate={bitrate};samplerate={sampleRate};bitdepth={bitsPerSample}"
+                AvailabilityState = TrackAvailabilityState.LocalUnanalyzed,
+                QualityDetails = $"scanner:v2;score={qualityScore};format={format};bitrate={bitrate};samplerate={sampleRate};bitdepth={bitsPerSample}",
+                TagBPM = tagBpm,
+                // Seed the primary BPM from the tag; analysis won't overwrite it once TagBPM is set.
+                BPM = tagBpm,
+                MusicalKey = tagKey
             };
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to create entry for {Path}", filePath);
+            error = ex.Message;
             return null;
         }
     }
 
-    /// <summary>
-    /// Parses a filename to extract artist and title, handling common patterns:
-    /// - "01. Artist - Title"
-    /// - "Artist - Title"
-    /// - "01 Artist - Title"
-    /// - "Title" (no artist)
-    /// </summary>
-    private (string? Artist, string? Title) ParseFilename(string filename)
+    /// <summary>Creates a library entry for one file, or null when it can't be read.</summary>
+    private LibraryEntryEntity? CreateLibraryEntry(string filePath) => TryReadEntry(filePath, out _);
+
+    private sealed record ReadOutcome(string Path, LibraryEntryEntity? Entry, string? Error);
+
+    /// <summary>Running counters, written by the pipeline and snapshotted for progress reports.</summary>
+    private sealed class ImportCounters
     {
-        if (string.IsNullOrWhiteSpace(filename))
-            return (null, null);
+        private int _processed;
+        private int _unreadable;
+        public int FilesFound;
+        public int Total;
+        public int AlreadyInLibrary;
+        public int Duplicates;
+        public int Upgraded;
+        public int Unsupported;
+        public int Added;
+        public int Failed;
 
-        // Remove common track number prefixes: "01. ", "01 ", "1. ", "1 "
-        var cleaned = System.Text.RegularExpressions.Regex.Replace(
-            filename, 
-            @"^\d{1,3}[\.\s]+", 
-            ""
-        ).Trim();
-
-        // Try to split on " - " for "Artist - Title" format
-        if (cleaned.Contains(" - "))
+        public int Processed
         {
-            var parts = cleaned.Split(new[] { " - " }, 2, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 2)
-            {
-                return (parts[0].Trim(), parts[1].Trim());
-            }
+            get => Volatile.Read(ref _processed);
+            set => Volatile.Write(ref _processed, value);
         }
 
-        // No artist found, return just the title
-        return (null, cleaned);
-    }
+        public int Unreadable => Volatile.Read(ref _unreadable);
 
-    /// <summary>
-    /// Recursively discovers all audio files in a folder
-    /// </summary>
-    private async Task<List<string>> DiscoverAudioFilesAsync(string folderPath, CancellationToken ct)
-    {
-        var audioFiles = new List<string>();
-        
-        await Task.Run(() =>
+        public void CountRead(bool unreadable)
         {
-            try
-            {
-                var options = new EnumerationOptions
-                {
-                    RecurseSubdirectories = true,
-                    IgnoreInaccessible = true,
-                    MatchCasing = MatchCasing.CaseInsensitive,
-                    ReturnSpecialDirectories = false,
-                    AttributesToSkip = FileAttributes.System
-                };
-
-                var allFiles = Directory.EnumerateFiles(folderPath, "*.*", options);
-                audioFiles.AddRange(allFiles.Where(f => 
-                    SupportedExtensions.Contains(Path.GetExtension(f).ToLowerInvariant())));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning("Error discovering files in {Path}: {Message}", folderPath, ex.Message);
-            }
-        }, ct);
-
-        return audioFiles;
-    }
-
-    /// <summary>
-    /// Scans all enabled library folders
-    /// </summary>
-    public async Task<Dictionary<Guid, ScanResult>> ScanAllFoldersAsync(IProgress<ScanProgress>? progress = null, CancellationToken ct = default)
-    {
-        using var context = new AppDbContext();
-        var folders = await context.LibraryFolders
-            .Where(f => f.IsEnabled)
-            .ToListAsync(ct);
-
-        _logger.LogInformation("Scanning {Count} enabled library folders", folders.Count);
-
-        var results = new Dictionary<Guid, ScanResult>();
-
-        // Baseline accumulates completed-folder totals so the live counter is cumulative
-        // across all folders rather than resetting to zero for each one.
-        int baseDiscovered = 0, baseImported = 0, baseSkipped = 0;
-        int baseDupPath = 0, baseDupHash = 0, baseUpgraded = 0, baseRemoval = 0, baseMeta = 0;
-        int folderIndex = 0;
-        var completedFolders = new List<FolderScanSummary>();
-
-        foreach (var folder in folders)
-        {
-            if (ct.IsCancellationRequested) break;
-
-            folderIndex++;
-            int capturedIndex = folderIndex;
-            int capturedTotal = folders.Count;
-            int capDisc = baseDiscovered, capImp = baseImported, capSkip = baseSkipped;
-            int capDupP = baseDupPath, capDupH = baseDupHash, capUpg = baseUpgraded;
-            int capRem = baseRemoval, capMeta = baseMeta;
-            var capturedCompleted = completedFolders.ToList(); // snapshot for closure
-
-            IProgress<ScanProgress>? wrappedProgress = progress == null ? null : new Progress<ScanProgress>(p =>
-            {
-                var folderName = string.IsNullOrEmpty(p.CurrentFolder) ? string.Empty
-                    : Path.GetFileName(p.CurrentFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-
-                progress.Report(new ScanProgress
-                {
-                    FilesDiscovered      = capDisc + p.FilesDiscovered,
-                    FilesImported        = capImp  + p.FilesImported,
-                    FilesSkipped         = capSkip + p.FilesSkipped,
-                    FilesDuplicateByPath = capDupP + p.FilesDuplicateByPath,
-                    FilesDuplicateByHash = capDupH + p.FilesDuplicateByHash,
-                    FilesAutoUpgraded    = capUpg  + p.FilesAutoUpgraded,
-                    FilesMarkedForRemoval = capRem + p.FilesMarkedForRemoval,
-                    FilesMetadataFailed  = capMeta + p.FilesMetadataFailed,
-                    CurrentFolder        = p.CurrentFolder,
-                    CurrentFile          = $"[{capturedIndex}/{capturedTotal}] {folderName} — {p.CurrentFile}",
-                    CompletedFolders     = capturedCompleted
-                });
-            });
-
-            var result = await ScanFolderAsync(folder.Id, wrappedProgress, ct);
-            results[folder.Id] = result;
-
-            // Record this folder's outcome so the UI can show a per-folder log.
-            completedFolders.Add(new FolderScanSummary
-            {
-                FolderPath = folder.FolderPath,
-                Index      = capturedIndex,
-                Total      = capturedTotal,
-                Found      = result.TotalFilesFound,
-                Imported   = result.FilesImported,
-                DupPath    = result.FilesDuplicateByPath,
-                DupHash    = result.FilesDuplicateByHash,
-                Upgraded   = result.FilesAutoUpgraded
-            });
-
-            // Emit a completion snapshot so the UI reflects the just-finished folder immediately.
-            progress?.Report(new ScanProgress
-            {
-                FilesDiscovered      = baseDiscovered + result.TotalFilesFound,
-                FilesImported        = baseImported   + result.FilesImported,
-                FilesSkipped         = baseSkipped    + result.FilesSkipped,
-                FilesDuplicateByPath = baseDupPath    + result.FilesDuplicateByPath,
-                FilesDuplicateByHash = baseDupHash    + result.FilesDuplicateByHash,
-                FilesAutoUpgraded    = baseUpgraded   + result.FilesAutoUpgraded,
-                FilesMarkedForRemoval = baseRemoval   + result.FilesMarkedForRemoval,
-                FilesMetadataFailed  = baseMeta       + result.FilesMetadataFailed,
-                CurrentFolder        = folder.FolderPath,
-                CurrentFile          = completedFolders.Count < capturedTotal
-                    ? $"[{capturedIndex}/{capturedTotal}] done — starting next folder..."
-                    : string.Empty,
-                CompletedFolders     = completedFolders.ToList()
-            });
-
-            // Advance baseline
-            baseDiscovered += result.TotalFilesFound;
-            baseImported   += result.FilesImported;
-            baseSkipped    += result.FilesSkipped;
-            baseDupPath    += result.FilesDuplicateByPath;
-            baseDupHash    += result.FilesDuplicateByHash;
-            baseUpgraded   += result.FilesAutoUpgraded;
-            baseRemoval    += result.FilesMarkedForRemoval;
-            baseMeta       += result.FilesMetadataFailed;
+            Interlocked.Increment(ref _processed);
+            if (unreadable) Interlocked.Increment(ref _unreadable);
         }
 
-        return results;
+        public LibraryImportProgress Snapshot(LibraryImportPhase phase, string currentFile) => new(
+            phase,
+            FilesFound,
+            phase == LibraryImportPhase.Scanning ? FilesFound : Processed,
+            phase == LibraryImportPhase.Scanning ? 0 : Total,
+            currentFile,
+            Added, AlreadyInLibrary, Duplicates, Upgraded, Unsupported, Unreadable, Failed);
+
+        public void CopyTo(LibraryImportResult result)
+        {
+            result.FilesFound = FilesFound;
+            result.Added = Added;
+            result.AlreadyInLibrary = AlreadyInLibrary;
+            result.Duplicates = Duplicates;
+            result.Upgraded = Upgraded;
+            result.Unsupported = Unsupported;
+            result.Unreadable = Unreadable;
+            result.Failed = Failed;
+        }
     }
+
     /// <summary>
     /// Ensures that the specified path is registered as a library folder.
     /// Uses the existing folder if found, or creates a new one.
@@ -787,13 +839,13 @@ public class LibraryFolderScannerService
         int score = fmt switch
         {
             "flac" => 500,
-            "wav" => 470,
-            "aiff" => 460,
-            "aif" => 460,
+            "wav" or "wave" => 470,
+            "aiff" or "aif" or "aifc" => 460,
             "m4a" => 260,
             "aac" => 250,
-            "ogg" => 240,
+            "ogg" or "oga" or "opus" => 240,
             "mp3" => 200,
+            _ when AudioFormats.IsLossless(fmt) => 450,
             _ => 150
         };
 

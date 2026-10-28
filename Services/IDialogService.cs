@@ -58,9 +58,39 @@ public interface IDialogService
     Task<ViewModels.Library.PlaylistPickerResult?> ShowPlaylistPickerDialogAsync(System.Collections.Generic.IEnumerable<PlaylistJob> playlists);
 
     /// <summary>
+    /// Shows the "Combine Playlists" dialog — lets the user pick 2+ playlists, a name for the
+    /// combined playlist, and whether to dedupe overlapping tracks. <paramref name="preSelected"/>
+    /// pre-checks playlists handed off from another entry point (e.g. the Library sidebar).
+    /// </summary>
+    Task<ViewModels.Library.CombinePlaylistsResult?> ShowCombinePlaylistsDialogAsync(
+        System.Collections.Generic.IEnumerable<PlaylistJob> playlists,
+        System.Collections.Generic.IReadOnlyList<PlaylistJob>? preSelected = null);
+
+    /// <summary>
     /// Shows a batch tag editor dialog.
     /// </summary>
-    Task<ViewModels.Library.BatchTagEditResult?> ShowBatchTagEditDialogAsync(string? initialFileName = null);
+    Task<ViewModels.Library.BatchTagEditResult?> ShowBatchTagEditDialogAsync(string? initialFileName = null, ViewModels.Library.BatchTagEditSeed? seed = null);
+
+    /// <summary>
+    /// Shows the bulk-rename-by-pattern dialog for <paramref name="trackCount"/> selected tracks,
+    /// previewing the pattern against up to a few sample tracks.
+    /// </summary>
+    Task<ViewModels.Library.BulkRenameResult?> ShowBulkRenameDialogAsync(
+        int trackCount, System.Collections.Generic.IReadOnlyList<ViewModels.Library.BulkRenamePreviewTrack> previewTracks);
+
+    /// <summary>
+    /// Shows the Move/Copy mode-choice dialog for <paramref name="trackCount"/> selected tracks.
+    /// The destination folder is picked separately afterward via <see cref="OpenFolderDialogAsync"/>.
+    /// </summary>
+    Task<ViewModels.Library.BulkMoveOrCopyResult?> ShowBulkMoveOrCopyDialogAsync(int trackCount);
+
+    /// <summary>
+    /// Shows the Export Playlist choice dialog — Copy Files + XML / XML Only / Cancel. Unlike
+    /// <see cref="ConfirmAsync"/>, dismissing the window (X / Alt+F4 / Escape) returns null,
+    /// which callers must treat identically to an explicit Cancel — it must NOT fall through to
+    /// either export path.
+    /// </summary>
+    Task<Views.Avalonia.Dialogs.ExportPlaylistChoice?> ShowExportPlaylistChoiceAsync(string playlistTitle);
 
     /// <summary>
     /// Shows a folder selection dialog.

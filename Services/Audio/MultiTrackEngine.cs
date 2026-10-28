@@ -332,7 +332,7 @@ public class TrackLaneSampler : IDisposable
         
         if (!System.IO.File.Exists(filePath)) return;
         
-        _reader = new AudioFileReader(filePath);
+        _reader = PlayableAudio.Open(filePath, out _); // files Windows can't decode play via ffmpeg
         _source = _reader;
         
         // Default end to file length

@@ -15,8 +15,10 @@ using SLSKDONET.Services.Audio;
 using SLSKDONET.Services.Audio.Separation;
 using SLSKDONET.Models.Stem;
 using SLSKDONET.ViewModels;
+using SLSKDONET.Views;
 using System.Collections.Generic;
 using System.Globalization;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels.Workstation;
 
@@ -41,6 +43,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     private readonly CompositeDisposable _disposables = new();
     private readonly StemPreferenceService _stemPrefService;
     private readonly IDbContextFactory<AppDbContext>? _dbFactory;
+    private readonly INotificationService? _notificationService;
 
     /// <summary>
     /// Callback invoked whenever a track finishes loading into this deck.
@@ -106,9 +109,6 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     // ── Stem mixer ────────────────────────────────────────────────────────────
     public StemMixerViewModel Stems { get; }
 
-    /// <summary>Waveform rows for the four separated stems, shown in Stems mode.</summary>
-    public StemWaveformViewModel StemWaveforms { get; }
-
     private bool _stemsVisible;
     /// <summary>True after stem separation completes — shows the fader panel.</summary>
     public bool StemsVisible
@@ -149,20 +149,10 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         }
     }
 
-    /// <summary>Placeholder meter signal until full metering is integrated.</summary>
-    public double VuLevel
-    {
-        get
-        {
-            if (!Deck.IsPlaying)
-            {
-                return 0;
-            }
-
-            var movement = 0.15 + (PlaybackProgress * 0.75);
-            return Math.Clamp(movement, 0, 1);
-        }
-    }
+    /// <summary>Real peak level (0..1) read straight from DeckEngine's own audio callback —
+    /// replaces the old "0.15 + progress*0.75" placeholder ramp, which just tracked playback
+    /// position rather than anything about the actual audio.</summary>
+    public double VuLevel => Deck.IsPlaying ? Deck.Engine.CurrentLevel : 0;
 
     private bool _isLocked;
     public bool IsLocked
@@ -170,6 +160,12 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         get => _isLocked;
         set => this.RaiseAndSetIfChanged(ref _isLocked, value);
     }
+
+    /// <summary>Called by WorkstationDeckRow's drop handler when a track is dropped onto this
+    /// deck while it's locked — dropping used to just silently no-op with no indication the drop
+    /// was even seen, let alone why it did nothing.</summary>
+    public void NotifyLockedDropRejected() =>
+        _notificationService?.Show("Deck Locked", $"Deck {DeckLabel} is locked — unlock it before loading a new track.", NotificationType.Warning);
 
     private bool _isFocusedDeck;
     public bool IsFocusedDeck
@@ -238,7 +234,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     public string SectionJumpSummary => BuildSectionJumpSummary(CueEditor.Cues);
     public string StemControlSummary => BuildStemControlSummary(StemsVisible, Stems.IsSeparating, Stems.SeparationProgress, Stems.Vocals.IsMuted, Stems.Drums.IsSoloed);
     public string WaveformDetailSummary => BuildWaveformDetailSummary(IsSemanticDetailMode, WaveformZoomLevel, WaveformViewOffset);
-    public string CurrentKeyShiftText => Deck.SemitoneShift == 0 ? "0 st" : $"{Deck.SemitoneShift:+#;-#;0} st";
+    public string CurrentKeyShiftText => Deck.SemitoneShift == 0 ? "0 st" : NumFormat.Ui($"{Deck.SemitoneShift:+#;-#;0} st");
 
     private string _harmonicSuggestionText = "Native key • load another deck for harmonic advice";
     public string HarmonicSuggestionText
@@ -291,6 +287,9 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
 
     public bool HasMoodTag => IsLoaded && !string.IsNullOrWhiteSpace(_moodTag);
     public string MoodTagText => _moodTag ?? string.Empty;
+
+    /// <summary>Real analyzed energy (0-1), when available — prefer this over a BPM-derived estimate.</summary>
+    public double? Energy => _energy;
 
     public bool HasEnergyBadge => IsLoaded && _energy.HasValue;
     private int ComputedEnergyScore => (int)Math.Round((_energy ?? 0) * 10);
@@ -414,7 +413,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
             if (!LoopIsReady || DisplayBpm <= 0) return string.Empty;
             double barLength = 240.0 / DisplayBpm; // 4/4 bar in seconds
             double loopBars = (_loopOutSeconds!.Value - _loopInSeconds!.Value) / barLength;
-            return loopBars >= 0.5 ? $"{loopBars:0.##} bar{(Math.Abs(loopBars - 1.0) < 0.01 ? "" : "s")}" : string.Empty;
+            return loopBars >= 0.5 ? NumFormat.Ui($"{loopBars:0.##} bar{(Math.Abs(loopBars - 1.0) < 0.01 ? "" : "s")}") : string.Empty;
         }
     }
 
@@ -430,14 +429,24 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     /// <summary>Clear the staged loop in/out and remove any saved loop cue from DB.</summary>
     public ReactiveCommand<Unit, Unit> ClearStagedLoopCommand { get; }
 
-    /// <summary>Set a loop of N bars from the current position (auto-loop). 0.5 = half bar.</summary>
-    public ReactiveCommand<double, Unit> AutoLoopBarsCommand { get; }
+    /// <summary>Set a loop of N bars from the current position (auto-loop). 0.5 = half bar.
+    /// <string, Unit>, not <double, Unit>: WorkstationPage.axaml's ½/1/2/4/8-bar preset buttons
+    /// set CommandParameter="0.5"/"1"/etc as plain XAML string literals, which Avalonia never
+    /// auto-converts to double — a typed <double> command's own ICommand.Execute type-check
+    /// throws an unhandled, AppDomain-fatal InvalidOperationException on click (same bug class
+    /// found and fixed in CueForgeViewModel.NudgeCueCommand).</summary>
+    public ReactiveCommand<string, Unit> AutoLoopBarsCommand { get; }
 
     /// <summary>Drop a memory cue (Num=-1) at the current playhead, persisted to DB.</summary>
     public ReactiveCommand<Unit, Unit> AddMemoryCueCommand { get; }
 
-    /// <summary>Remove the cue assigned to hot-cue pad slot 0–7. Clears pad + removes from DB.</summary>
-    public ReactiveCommand<int, Unit> DeleteHotCueAtSlotCommand { get; }
+    /// <summary>Remove the cue assigned to hot-cue pad slot 0–7. Clears pad + removes from DB.
+    /// <string, Unit>, not <int, Unit>: WorkstationPage.axaml's "Clear pad" context-menu items
+    /// set CommandParameter="0".."7" as plain XAML string literals, which Avalonia never
+    /// auto-converts to int — a typed <int> command's own ICommand.Execute type-check throws an
+    /// unhandled, AppDomain-fatal InvalidOperationException on click (same bug class found and
+    /// fixed in CueForgeViewModel.NudgeCueCommand).</summary>
+    public ReactiveCommand<string, Unit> DeleteHotCueAtSlotCommand { get; }
 
     public ReactiveCommand<Unit, Unit> ViewWaveformCommand { get; }
     public ReactiveCommand<Unit, Unit> JumpToIntroCommand { get; }
@@ -455,15 +464,17 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     public WorkstationDeckViewModel(string deckLabel, DeckSlotViewModel deck,
         CachedStemSeparator stemSeparator, ICuePointService cueService,
         StemPreferenceService stemPrefService,
-        IDbContextFactory<AppDbContext>? dbFactory = null)
+        IDbContextFactory<AppDbContext>? dbFactory = null,
+        IDialogService? dialogService = null,
+        INotificationService? notificationService = null)
     {
         DeckLabel  = deckLabel;
         Deck          = deck;
         Stems         = new StemMixerViewModel(stemSeparator);
-        StemWaveforms = new StemWaveformViewModel();
-        CueEditor     = new CueEditorViewModel(cueService);
+        CueEditor     = new CueEditorViewModel(cueService, dialogService);
         _stemPrefService = stemPrefService;
         _dbFactory = dbFactory;
+        _notificationService = notificationService;
 
         LoadTrackCommand         = ReactiveCommand.CreateFromTask<string>(LoadTrackAsync);
         LoadPlaylistTrackCommand = ReactiveCommand.CreateFromTask<PlaylistTrack>(LoadPlaylistTrackAsync);
@@ -574,9 +585,10 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
             await CueEditor.ClearLoopCommand.Execute().FirstAsync();
         }, hasTrack);
 
-        AutoLoopBarsCommand = ReactiveCommand.CreateFromTask<double>(async bars =>
+        AutoLoopBarsCommand = ReactiveCommand.CreateFromTask<string>(async barsText =>
         {
             if (!IsLoaded || DisplayBpm <= 0) return;
+            double bars = double.Parse(barsText, System.Globalization.CultureInfo.InvariantCulture);
             double barLength = 240.0 / DisplayBpm;
             double loopLength = bars * barLength;
             double inPt  = Deck.PositionSeconds;
@@ -592,9 +604,9 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
             await CueEditor.AddCueAtPositionCommand.Execute(Deck.PositionSeconds).FirstAsync();
         }, hasTrack);
 
-        DeleteHotCueAtSlotCommand = ReactiveCommand.CreateFromTask<int>(async slot =>
+        DeleteHotCueAtSlotCommand = ReactiveCommand.CreateFromTask<string>(async slot =>
         {
-            await CueEditor.DeleteHotCueAtSlotCommand.Execute(slot).FirstAsync();
+            await CueEditor.DeleteHotCueAtSlotCommand.Execute(int.Parse(slot)).FirstAsync();
             ApplySuggestedHotCues(CueEditor.Cues);
         }, hasTrack);
 
@@ -687,6 +699,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         }
         catch (Exception ex)
         {
+            Serilog.Log.Warning(ex, "Workstation deck {Deck}: failed to load {Path}", DeckLabel, filePath);
             TrackLoadError = ex.InnerException?.Message ?? ex.Message;
             return;
         }
@@ -712,7 +725,10 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     {
         TrackLoadError = null;
 
-        if (track != null && track.AvailabilityState == TrackAvailabilityState.Ghost)
+        // Status=Downloaded overrides a stale/drifted Ghost — see PlaylistTrackViewModel.IsGhost.
+        // Without this, a track whose file genuinely exists and plays fine got refused here and
+        // silently re-queued for a pointless re-download instead of just loading it.
+        if (track != null && track.AvailabilityState == TrackAvailabilityState.Ghost && track.Status != TrackStatus.Downloaded)
         {
             if (App.Current is App app && app.Services != null)
             {
@@ -774,6 +790,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         }
         catch (Exception ex)
         {
+            Serilog.Log.Warning(ex, "Workstation deck {Deck}: failed to load {Path}", DeckLabel, track.ResolvedFilePath);
             TrackLoadError = ex.InnerException?.Message ?? ex.Message;
             return;
         }
@@ -1194,7 +1211,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
 
     public static string BuildHarmonicSuggestionText(string? currentKey, string? referenceKey, int semitoneShift)
     {
-        var shiftText = semitoneShift == 0 ? "0 st" : $"{semitoneShift:+#;-#;0} st";
+        var shiftText = semitoneShift == 0 ? "0 st" : NumFormat.Ui($"{semitoneShift:+#;-#;0} st");
 
         if (string.IsNullOrWhiteSpace(currentKey))
             return $"Key pending • shift {shiftText}";
@@ -1439,16 +1456,6 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         if (Deck.LoadedFilePath is not { } path) return;
 
         await Stems.LoadAndSeparateCommand.Execute(path).FirstAsync();
-
-        // After separation, also extract per-stem waveforms for the visual strip
-        if (Stems.VocalsWavPath != null)
-        {
-            await StemWaveforms.LoadStemWaveformsAsync(
-                Stems.VocalsWavPath,
-                Stems.DrumsWavPath,
-                Stems.BassWavPath,
-                Stems.OtherWavPath);
-        }
     }
 
     private IEnumerable<PhraseSegment> BuildPhraseSegments()

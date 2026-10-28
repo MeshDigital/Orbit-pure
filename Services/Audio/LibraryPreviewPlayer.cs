@@ -13,11 +13,21 @@ public interface ILibraryPreviewPlayer : IDisposable
     bool IsPreviewPlaying { get; }
     string? CurrentPreviewPath { get; }
 
+    /// <summary>Playback position of the current preview (seconds), or null when nothing plays.
+    /// Runs slightly ahead of what is heard by the output buffer; callers snap it to the grid.</summary>
+    double? PositionSeconds => null;
+
     // Raw PCM magnitudes from FFT — subscribe to drive a spectrum visualizer.
     event EventHandler<float[]>? SpectrumChanged;
 
-    // Hover over a library row — debounced 250ms, then starts playback.
-    void RequestPreview(string filePath, double? bpm = null);
+    /// <summary>Raised when a preview stops, whether by user request, a new preview replacing
+    /// it, or natural end-of-file — lets callers with a play/stop toggle reset their UI state.</summary>
+    event EventHandler? PreviewStopped;
+
+    // Hover over a library row — debounced 250ms, then starts playback. startSeconds > 0 is a
+    // deliberate seek (e.g. clicking the Mix Transition Editor's waveform) — see the
+    // implementation's doc comment for how that differs from the plain hover-preview default.
+    void RequestPreview(string filePath, double? bpm = null, double startSeconds = 0);
 
     // Mouse left the library surface or a Stop button was pressed.
     void StopPreview();
@@ -35,6 +45,11 @@ public interface ILibraryPreviewPlayer : IDisposable
 /// </summary>
 public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
 {
+    public double? PositionSeconds
+    {
+        get { try { return IsPreviewPlaying ? _reader?.CurrentTime.TotalSeconds : null; } catch (ObjectDisposedException) { return null; } }
+    }
+
     private const int FftSize = 1024;
     private const int FadeOutMs = 120;
     private const int HoverDebounceMs = 250;
@@ -51,13 +66,23 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
     public string? CurrentPreviewPath { get; private set; }
 
     public event EventHandler<float[]>? SpectrumChanged;
+    public event EventHandler? PreviewStopped;
 
-    public LibraryPreviewPlayer(ILogger<LibraryPreviewPlayer> logger)
+    private readonly SLSKDONET.Configuration.AppConfig? _config;
+
+    public LibraryPreviewPlayer(ILogger<LibraryPreviewPlayer> logger, SLSKDONET.Configuration.AppConfig? config = null)
     {
         _logger = logger;
+        _config = config;
     }
 
-    public void RequestPreview(string filePath, double? bpm = null)
+    /// <param name="startSeconds">0 = hover-preview default (plays from the top, debounced so it
+    /// doesn't fire on every transient mouse-over). A positive value is a deliberate seek — e.g.
+    /// clicking a spot on the Mix Transition Editor's waveform to audition that part of the
+    /// track — and skips the debounce for immediate feedback, and always repositions even if
+    /// this exact file is already playing (the hover-preview "already playing, do nothing"
+    /// short-circuit below only applies to startSeconds == 0).</param>
+    public void RequestPreview(string filePath, double? bpm = null, double startSeconds = 0)
     {
         // Cancel any pending debounce for the previous hover target
         _debounceCts?.Cancel();
@@ -69,8 +94,8 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
         {
             try
             {
-                await Task.Delay(HoverDebounceMs, token);
-                await StartPreviewAsync(filePath, token);
+                if (startSeconds <= 0) await Task.Delay(HoverDebounceMs, token);
+                await StartPreviewAsync(filePath, token, startSeconds);
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
@@ -86,7 +111,7 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
         _ = Task.Run(async () => await FadeOutAndDisposeAsync());
     }
 
-    private async Task StartPreviewAsync(string filePath, CancellationToken ct)
+    private async Task StartPreviewAsync(string filePath, CancellationToken ct, double startSeconds = 0)
     {
         if (!File.Exists(filePath))
         {
@@ -94,8 +119,9 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
             return;
         }
 
-        // If we are already previewing this exact file, do nothing
-        if (string.Equals(CurrentPreviewPath, filePath, StringComparison.OrdinalIgnoreCase) && IsPreviewPlaying)
+        // If we are already previewing this exact file, do nothing — except for a deliberate
+        // seek request (startSeconds > 0), which must always reposition even mid-playback.
+        if (startSeconds <= 0 && string.Equals(CurrentPreviewPath, filePath, StringComparison.OrdinalIgnoreCase) && IsPreviewPlaying)
             return;
 
         await _gate.WaitAsync(ct);
@@ -108,14 +134,21 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
 
             ct.ThrowIfCancellationRequested();
 
-            _reader = new AudioFileReader(filePath);
+            _reader = PlayableAudio.Open(filePath, out var playablePath);
+            if (startSeconds > 0)
+            {
+                var safeStart = Math.Clamp(startSeconds, 0, Math.Max(0, _reader.TotalTime.TotalSeconds - 0.25));
+                // Not CurrentTime: on FLAC/M4A (Media Foundation) a seek before the first read is
+                // dropped and playback started at 0:00 — see ExactSeek. Runs on this background task.
+                ExactSeek.Seek(_reader, playablePath, safeStart);
+                ct.ThrowIfCancellationRequested();
+            }
             _volumeProvider = new VolumeSampleProvider(_reader) { Volume = 1f };
 
             var fftProvider = new PreviewFftSampleProvider(_volumeProvider, FftSize, magnitudes =>
                 SpectrumChanged?.Invoke(this, magnitudes));
 
-            _output = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
-            _output.Init(fftProvider);
+            _output = OpenOutput(fftProvider);
             _output.PlaybackStopped += OnPlaybackStopped;
             _output.Play();
 
@@ -125,6 +158,26 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>The Settings output device (shared mode); the Windows default if that can't be opened.</summary>
+    private IWavePlayer OpenOutput(ISampleProvider source)
+    {
+        IWavePlayer? output = null;
+        try
+        {
+            output = AudioOutputProvider.CreatePreviewDevice(_config?.AudioOutputMode, _config?.AudioOutputDeviceName);
+            output.Init(source);
+            return output;
+        }
+        catch (Exception ex)
+        {
+            output?.Dispose();
+            _logger.LogWarning(ex, "[LibraryPreview] Could not open output device {Device}; using the Windows default", _config?.AudioOutputDeviceName ?? "(default)");
+            var fallback = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
+            fallback.Init(source);
+            return fallback;
         }
     }
 
@@ -173,6 +226,7 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
         if (e.Exception != null)
             _logger.LogWarning(e.Exception, "[LibraryPreview] Playback stopped with error");
         DisposePlaybackResources();
+        PreviewStopped?.Invoke(this, EventArgs.Empty);
     }
 
     public void Dispose()
@@ -194,6 +248,9 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
         private readonly System.Numerics.Complex[] _complexBuffer;
         private int _pos;
         private int _busy;
+        private readonly int _channels;
+        private float _frameSum;
+        private int _frameChannel;
 
         public WaveFormat WaveFormat => _source.WaveFormat;
 
@@ -204,6 +261,7 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
             _onFftReady = onFftReady;
             _accumulator = new float[fftSize];
             _complexBuffer = new System.Numerics.Complex[fftSize];
+            _channels = Math.Max(1, source.WaveFormat.Channels);
         }
 
         public int Read(float[] buffer, int offset, int count)
@@ -212,7 +270,12 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
 
             for (int i = 0; i < read; i++)
             {
-                _accumulator[_pos++] = buffer[offset + i];
+                // Mono downmix: FFT'ing the interleaved stereo stream scrambles the frequency axis.
+                _frameSum += buffer[offset + i];
+                if (++_frameChannel < _channels) continue;
+                _accumulator[_pos++] = _frameSum / _channels;
+                _frameSum = 0;
+                _frameChannel = 0;
                 if (_pos < _fftSize) continue;
 
                 _pos = 0;

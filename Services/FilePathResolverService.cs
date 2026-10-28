@@ -125,9 +125,6 @@ public class FilePathResolverService : IFilePathResolverService
         string? bestMatchPath = null;
         double bestMatchScore = _appConfig.FuzzyMatchThreshold;
 
-        // Common music file extensions
-        string[] musicExtensions = { ".mp3", ".flac", ".m4a", ".ogg", ".wav", ".wma", ".aac" };
-
         foreach (string rootPath in rootPaths)
         {
             if (!Directory.Exists(rootPath))
@@ -137,9 +134,9 @@ public class FilePathResolverService : IFilePathResolverService
 
             try
             {
-                // Enumerate all potential music files
+                // Every format ORBIT imports (AIFF included), from the one format table
                 var allFiles = Directory.EnumerateFiles(rootPath, "*.*", SearchOption.AllDirectories)
-                    .Where(f => musicExtensions.Any(ext => f.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
+                    .Where(SLSKDONET.Services.Audio.AudioFormats.IsImportable);
 
                 foreach (string filePath in allFiles)
                 {

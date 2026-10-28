@@ -24,11 +24,8 @@ public class MetadataTaggerService : ITaggerService
     private readonly HttpClient _httpClient;
     private readonly IFileWriteService _fileWriteService; // Phase 1A
 
-    // Supported audio formats
-    private static readonly HashSet<string> SupportedFormats = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".wav", ".ape", ".opus"
-    };
+    /// <summary>Containers TagLib# writes tags into (AIFF/WAV via their ID3 chunk). AIFF-C is not one of them.</summary>
+    private static bool CanTag(string extension) => Services.Audio.AudioFormats.Find(extension)?.CanWriteTags == true;
 
     public MetadataTaggerService(
         ILogger<MetadataTaggerService> logger,
@@ -57,7 +54,7 @@ public class MetadataTaggerService : ITaggerService
 
             // Check if format is supported
             var extension = Path.GetExtension(filePath);
-            if (!SupportedFormats.Contains(extension))
+            if (!CanTag(extension))
             {
                 _logger.LogWarning("Unsupported audio format for tagging: {Format}", extension);
                 return false;
@@ -215,8 +212,12 @@ public class MetadataTaggerService : ITaggerService
                 },
                 async (tempPath) =>
                 {
-                    // STEP 3: Verify tagged file is still valid
-                    var isValid = await SLSKDONET.Services.IO.FileVerificationHelper.VerifyAudioFormatAsync(tempPath);
+                    // STEP 3: Verify tagged file is still valid. tempPath's extension is a
+                    // generated "*.tmp" suffix, not the real audio format, so TagLib's own
+                    // extension-based detection would always reject it — pass the original
+                    // file's MIME type explicitly instead (same one used to write the tags above).
+                    var mimeType = GetMimeTypeFromExtension(Path.GetExtension(filePath));
+                    var isValid = await SLSKDONET.Services.IO.FileVerificationHelper.VerifyAudioFormatAsync(tempPath, mimeType);
                     if (!isValid)
                     {
                         _logger.LogWarning("Tagging verification failed: {TempPath}", tempPath);
@@ -440,21 +441,6 @@ public class MetadataTaggerService : ITaggerService
         };
     }
 
-    private string GetMimeTypeFromExtension(string extension)
-    {
-        return extension.ToLowerInvariant() switch
-        {
-            ".mp3" => "audio/mpeg",
-            ".flac" => "audio/x-flac",
-            ".ogg" => "audio/ogg",
-            ".m4a" => "audio/mp4",
-            ".wav" => "audio/wav",
-            ".ape" => "audio/x-ape",
-            ".opus" => "audio/opus",
-            ".wma" => "audio/x-ms-wma",
-            ".aac" => "audio/aac",
-            ".aiff" => "audio/x-aiff",
-            _ => "application/octet-stream"
-        };
-    }
+    // TagLib# registers every format under "taglib/<extension>"; the temp file's own extension is ".tmp".
+    private static string GetMimeTypeFromExtension(string extension) => Services.Audio.AudioFormats.TagLibMimeType(extension);
 }

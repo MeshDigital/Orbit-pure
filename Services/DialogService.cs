@@ -194,16 +194,78 @@ public class DialogService : IDialogService
         });
     }
 
-    public async Task<BatchTagEditResult?> ShowBatchTagEditDialogAsync(string? initialFileName = null)
+    public async Task<CombinePlaylistsResult?> ShowCombinePlaylistsDialogAsync(
+        IEnumerable<PlaylistJob> playlists,
+        IReadOnlyList<PlaylistJob>? preSelected = null)
     {
         return await Dispatcher.UIThread.InvokeAsync(async () =>
         {
-            var vm = new BatchTagEditViewModel(initialFileName);
+            var vm = new CombinePlaylistsViewModel(playlists, preSelected);
+            var dialog = new Views.Avalonia.Dialogs.CombinePlaylistsDialog(vm);
+            var owner = GetOwnerWindow();
+            if (owner != null)
+            {
+                return await dialog.ShowDialog<CombinePlaylistsResult?>(owner);
+            }
+            return null;
+        });
+    }
+
+    public async Task<BatchTagEditResult?> ShowBatchTagEditDialogAsync(string? initialFileName = null, BatchTagEditSeed? seed = null)
+    {
+        return await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var vm = new BatchTagEditViewModel(initialFileName, seed);
             var dialog = new Views.Avalonia.Dialogs.BatchTagEditDialog(vm);
             var owner = GetOwnerWindow();
             if (owner != null)
             {
                 return await dialog.ShowDialog<BatchTagEditResult?>(owner);
+            }
+            return null;
+        });
+    }
+
+    public async Task<BulkRenameResult?> ShowBulkRenameDialogAsync(
+        int trackCount, System.Collections.Generic.IReadOnlyList<BulkRenamePreviewTrack> previewTracks)
+    {
+        return await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var vm = new BulkRenameViewModel(trackCount, previewTracks);
+            var dialog = new Views.Avalonia.Dialogs.BulkRenameDialog(vm);
+            var owner = GetOwnerWindow();
+            if (owner != null)
+            {
+                return await dialog.ShowDialog<BulkRenameResult?>(owner);
+            }
+            return null;
+        });
+    }
+
+    public async Task<BulkMoveOrCopyResult?> ShowBulkMoveOrCopyDialogAsync(int trackCount)
+    {
+        return await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var vm = new BulkMoveOrCopyViewModel(trackCount);
+            var dialog = new Views.Avalonia.Dialogs.BulkMoveOrCopyDialog(vm);
+            var owner = GetOwnerWindow();
+            if (owner != null)
+            {
+                return await dialog.ShowDialog<BulkMoveOrCopyResult?>(owner);
+            }
+            return null;
+        });
+    }
+
+    public async Task<Views.Avalonia.Dialogs.ExportPlaylistChoice?> ShowExportPlaylistChoiceAsync(string playlistTitle)
+    {
+        return await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var dialog = new Views.Avalonia.Dialogs.ExportPlaylistChoiceDialog(playlistTitle);
+            var owner = GetOwnerWindow();
+            if (owner != null)
+            {
+                return await dialog.ShowDialog<Views.Avalonia.Dialogs.ExportPlaylistChoice?>(owner);
             }
             return null;
         });

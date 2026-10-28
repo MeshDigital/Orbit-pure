@@ -1,4 +1,5 @@
 using System;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Models;
 
@@ -32,6 +33,6 @@ public class StressTestMetrics
     /// Human-readable verdict.
     /// </summary>
     public string Verdict => Passed 
-        ? $"✅ PASS: {AverageFps:F1} FPS avg, {MaxCpuPercent:F1}% CPU peak" 
-        : $"❌ FAIL: {AverageFps:F1} FPS avg (min {MinFps:F1}), {MaxCpuPercent:F1}% CPU peak";
+        ? NumFormat.Ui($"✅ PASS: {AverageFps:F1} FPS avg, {MaxCpuPercent:F1}% CPU peak") 
+        : NumFormat.Ui($"❌ FAIL: {AverageFps:F1} FPS avg (min {MinFps:F1}), {MaxCpuPercent:F1}% CPU peak");
 }

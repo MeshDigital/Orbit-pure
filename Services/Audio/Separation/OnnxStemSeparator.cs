@@ -51,7 +51,7 @@ public class OnnxStemSeparator : IStemSeparator
         int channels;
         int totalFrames;
 
-        using (var reader = new NAudio.Wave.AudioFileReader(inputPath))
+        using (var reader = SLSKDONET.Services.Audio.PlayableAudio.Open(inputPath, out _)) // AIFF-C/Opus/odd FLAC: ffmpeg-decoded copy
         {
             sampleRate = reader.WaveFormat.SampleRate;
             channels = reader.WaveFormat.Channels;

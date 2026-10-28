@@ -109,12 +109,21 @@ namespace SLSKDONET.Views.Avalonia.Controls
         {
             base.OnAttachedToVisualTree(e);
             _renderTimer.Start();
+            ResolvePlayerService()?.NotifyVisualizerAttached();
         }
 
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
         {
             base.OnDetachedFromVisualTree(e);
             _renderTimer.Stop();
+            ResolvePlayerService()?.NotifyVisualizerDetached();
+        }
+
+        private static SLSKDONET.Services.IAudioPlayerService? ResolvePlayerService()
+        {
+            if (Design.IsDesignMode) return null;
+            if (Application.Current is not SLSKDONET.App app || app.Services == null) return null;
+            return app.Services.GetService(typeof(SLSKDONET.Services.IAudioPlayerService)) as SLSKDONET.Services.IAudioPlayerService;
         }
 
         public void Reset()
@@ -368,19 +377,6 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 }
             };
             context.DrawRectangle(vignetteBrush, null, new Rect(0, 0, w, h));
-
-#if DEBUG
-            // Diagnostic Overlay (Only in Debug)
-            var specLen = SpectrumData?.Length ?? 0;
-            var maxSpec = specLen > 0 ? SpectrumData!.Max() : 0;
-            var dataAge = DateTime.Now - _lastDataTime;
-            var vuAge = DateTime.Now - _lastVuTime;
-            var debugInfo = $"F:{_frameCount} | S-AGE:{dataAge.TotalSeconds:F1}s | V-AGE:{vuAge.TotalSeconds:F1}s | PLAY:{IsPlaying} | VU:{VuLeft:F2}/{VuRight:F2} | SPEC:{specLen} (MAX:{maxSpec:F4}) | STYLE:{VisualStyle} | INT:{VisualIntensity:F1}";
-            var typeface = new Typeface(FontFamily.Default);
-            var formattedText = new FormattedText(debugInfo, System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 12, Brushes.Lime);
-            context.DrawRectangle(new SolidColorBrush(Colors.Black, 0.5f), null, new Rect(10, 10, formattedText.Width + 10, formattedText.Height + 10));
-            context.DrawText(formattedText, new Point(15, 15));
-#endif
         }
 
         private void UpdateHeartbeat(float intensity)

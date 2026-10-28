@@ -1,133 +1,111 @@
 using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
-using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
-using SLSKDONET.Services.Similarity;
+using SLSKDONET.Models;
+using SLSKDONET.Services;
 
 namespace SLSKDONET.ViewModels;
 
+/// <summary>
+/// Loads the heavy, per-selection data behind the library Track Inspector once selection settles
+/// (LibraryViewModel debounces selection by 200 ms before calling
+/// <see cref="TryAttachEnhancementsAsync"/>): technical/waveform data and the track's real cues
+/// from the CuePoints table — the same rows Cue Forge edits and the Rekordbox export writes. The
+/// inspector previously listed the legacy CuePointsJson blob, which the modern cue pipeline never
+/// writes, so most analysed tracks showed "No cue points".
+///
+/// Stale loads are dropped with a generation counter: every selection change bumps it, and a load
+/// only applies its result if it is still the newest one.
+///
+/// (Replaces a similar-tracks preview and an explainability summary that were computed on every
+/// selection but bound by no view — the sidepanel's Similar tab already covers that.)
+/// </summary>
 public sealed class LibraryTrackInspectorViewModel
 {
-    private readonly LibraryViewModel _library;
     private readonly ILogger _logger;
-    private readonly SimilarityIndex? _similarityIndex;
+    private readonly ICuePointService? _cueService;
+    private PlaylistTrackViewModel? _attached;
+    private int _generation;
 
-    public LibraryTrackInspectorViewModel(
-        LibraryViewModel library,
-        ILogger logger,
-        SimilarityIndex? similarityIndex = null)
+    public LibraryTrackInspectorViewModel(ILogger logger, ICuePointService? cueService = null)
     {
-        _library = library;
         _logger = logger;
-        _similarityIndex = similarityIndex;
+        _cueService = cueService;
     }
 
-    public string? TrackExplainabilitySummary { get; private set; }
+    /// <summary>The track whose inspector data is currently being kept fresh.</summary>
+    public PlaylistTrackViewModel? AttachedTrack => _attached;
 
-    public IReadOnlyList<string> TrackExplainabilityReasons { get; private set; } = Array.Empty<string>();
-
-    public bool IsTrackExplainabilityVisible =>
-        !string.IsNullOrWhiteSpace(TrackExplainabilitySummary) &&
-        TrackExplainabilityReasons.Count > 0;
-
-    public ObservableCollection<PlaylistTrackViewModel> SimilarTracksPreview { get; } = new();
-
-    public bool HasSimilarTracksPreview => SimilarTracksPreview.Count > 0;
-
+    /// <summary>Selection moved away from a single track: stop refreshing the old one and make any
+    /// in-flight load for it a no-op.</summary>
     public void ClearEnhancements()
     {
-        TrackExplainabilitySummary = null;
-        TrackExplainabilityReasons = Array.Empty<string>();
-        SimilarTracksPreview.Clear();
+        _generation++;
+        Detach();
     }
 
     public async Task TryAttachEnhancementsAsync(PlaylistTrackViewModel selected)
     {
+        var generation = ++_generation;
+        Detach();
+        _attached = selected;
+        selected.AnalysisDataRefreshed += OnAttachedTrackRefreshed;
+
         try
         {
-            await Dispatcher.UIThread.InvokeAsync(ClearEnhancements);
-
-            // Ensure the analysis/technical data is fully loaded from database
             await selected.LoadAnalysisDataAsync();
-
-            if (!selected.HasAnalysisData || string.IsNullOrWhiteSpace(selected.GlobalId))
-                return;
-
-            var index = _similarityIndex;
-
-            var explainabilitySummary = BuildTrackExplainabilitySummary(selected);
-            var explainabilityReasons = ParseReasonTags(selected.InspectorA10ReasonTags);
-
-            var previewTracks = new List<PlaylistTrackViewModel>();
-            if (index is not null)
-            {
-                var similar = await index.GetSimilarTracksAsync(selected.GlobalId, topN: 5).ConfigureAwait(false);
-
-                var trackPool = _library.Tracks.FilteredTracks
-                    .Concat(_library.Tracks.CurrentProjectTracks)
-                    .GroupBy(track => track.GlobalId)
-                    .ToDictionary(group => group.Key, group => group.First());
-
-                foreach (var hit in similar)
-                {
-                    if (string.Equals(hit.TrackHash, selected.GlobalId, StringComparison.Ordinal))
-                        continue;
-
-                    if (trackPool.TryGetValue(hit.TrackHash, out var vm))
-                        previewTracks.Add(vm);
-
-                    if (previewTracks.Count >= 5)
-                        break;
-                }
-            }
-
-            if (_library.Tracks.SelectedTracks.Count != 1 || !ReferenceEquals(_library.Tracks.SelectedTracks.FirstOrDefault(), selected))
-                return;
-
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                TrackExplainabilitySummary = explainabilitySummary;
-                TrackExplainabilityReasons = explainabilityReasons;
-
-                SimilarTracksPreview.Clear();
-                foreach (var vm in previewTracks)
-                    SimilarTracksPreview.Add(vm);
-            });
+            if (generation != _generation) return;
+            await LoadCuesAsync(selected, generation);
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to populate track inspector explainability and similar preview for {TrackHash}", selected.GlobalId);
-            await Dispatcher.UIThread.InvokeAsync(ClearEnhancements);
+            _logger.LogWarning(ex, "Failed to load inspector data for {TrackHash}", selected.GlobalId);
         }
     }
 
-    private static string? BuildTrackExplainabilitySummary(PlaylistTrackViewModel selected)
+    private void Detach()
     {
-        if (selected.HasInspectorA10PairwiseContext && !string.IsNullOrWhiteSpace(selected.InspectorA10PairContextLabel))
-        {
-            return $"{selected.InspectorA10PairContextLabel} shows blend-safe context around this track.";
-        }
-
-        if (selected.HasBpm && !string.IsNullOrWhiteSpace(selected.CamelotDisplay) && !string.IsNullOrWhiteSpace(selected.EnergyRating))
-        {
-            return $"Tempo {selected.BpmDisplay}, key {selected.CamelotDisplay}, and energy {selected.EnergyRating} make this track transition-ready.";
-        }
-
-        return null;
+        if (_attached != null)
+            _attached.AnalysisDataRefreshed -= OnAttachedTrackRefreshed;
+        _attached = null;
     }
 
-    private static IReadOnlyList<string> ParseReasonTags(string? reasonTags)
+    private void OnAttachedTrackRefreshed(object? sender, EventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(reasonTags))
-            return Array.Empty<string>();
-
-        return reasonTags
-            .Split('•', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(tag => !string.IsNullOrWhiteSpace(tag))
-            .Take(5)
-            .ToArray();
+        // Re-analysis regenerates auto cues — re-pull them for the track still on screen.
+        if (sender is PlaylistTrackViewModel track && ReferenceEquals(track, _attached))
+            _ = LoadCuesAsync(track, _generation);
     }
+
+    internal async Task LoadCuesAsync(PlaylistTrackViewModel track, int generation)
+    {
+        if (_cueService is null || string.IsNullOrWhiteSpace(track.GlobalId))
+            return;
+
+        track.IsLoadingCues = true;
+        track.CueLoadError = null;
+        try
+        {
+            var stored = await _cueService.GetByTrackIdAsync(track.GlobalId);
+            if (generation != _generation) return;
+
+            // No table rows: keep whatever the legacy blob supplied rather than blanking it.
+            if (stored.Count > 0)
+                track.ApplyStoredCues(stored.Select(OrbitCue.FromEntity).ToList());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load cue points for {TrackHash}", track.GlobalId);
+            if (generation == _generation)
+                track.CueLoadError = "Couldn't load cues for this track.";
+        }
+        finally
+        {
+            track.IsLoadingCues = false;
+        }
+    }
+
+    /// <summary>Test hook: the current selection generation.</summary>
+    internal int Generation => _generation;
 }

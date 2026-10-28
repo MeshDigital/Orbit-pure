@@ -64,7 +64,7 @@ public sealed class DnBTransientDetectionService
         result.SubBassDropouts = DetectSubBassDropouts(energyCurve);
 
         // 3. Detect double-drop pre-drop positions
-        result.PreDropPositions = DetectPreDropPositions(energyCurve, phraseBoundaries, bpm);
+        result.PreDropPositions = DetectPreDropPositions(energyCurve, phraseBoundaries, bpm, energyWindowSeconds);
 
         _logger.LogDebug(
             "[DnB Analysis] BPM={Bpm}, Transients={Trans}, SubBassDrops={Bass}, PreDrops={Drops}",
@@ -157,7 +157,8 @@ public sealed class DnBTransientDetectionService
     private List<PreDropMarker> DetectPreDropPositions(
         float[] energyCurve,
         IReadOnlyList<double> phraseBoundaries,
-        float bpm)
+        float bpm,
+        double energyWindowSeconds)
     {
         var preDrops = new List<PreDropMarker>();
 
@@ -178,9 +179,14 @@ public sealed class DnBTransientDetectionService
             if (lookbackStart < 0)
                 continue;
 
-            // Find minimum energy in the lookback window (potential pre-drop valley)
-            int startIdx = Math.Max(0, (int)(lookbackStart / (energyCurve.Length > 0 ? energyCurve.Length : 1)));
-            int endIdx = Math.Min(energyCurve.Length - 1, (int)(currentBoundary / (energyCurve.Length > 0 ? energyCurve.Length : 1)));
+            // Find minimum energy in the lookback window (potential pre-drop valley).
+            // energyCurve is sampled every `energyWindowSeconds` (not per-item, and not
+            // milliseconds) — indices must be derived by dividing the time value by the
+            // window duration, not by the array's item count (that was a real dimensional
+            // bug: dividing a time-in-seconds by a sample count instead of a sample rate).
+            double windowSeconds = energyWindowSeconds > 0 ? energyWindowSeconds : 1.0;
+            int startIdx = Math.Max(0, (int)(lookbackStart / windowSeconds));
+            int endIdx = Math.Min(energyCurve.Length - 1, (int)(currentBoundary / windowSeconds));
 
             if (startIdx >= endIdx)
                 continue;
@@ -199,7 +205,7 @@ public sealed class DnBTransientDetectionService
 
             preDrops.Add(new PreDropMarker
             {
-                TimestampSeconds = minIdx,
+                TimestampSeconds = (int)Math.Round(minIdx * windowSeconds),
                 NextDropTimestampSeconds = currentBoundary,
                 BeatsUntilDrop = preDropWindowBeats,
                 EnergyAtPosition = minEnergy

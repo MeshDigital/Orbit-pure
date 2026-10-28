@@ -30,4 +30,8 @@ public class RoomMessageEntity
     public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
 
     public bool IsOutgoing { get; set; }
+
+    /// <summary>Defaults to true (read) at the schema level — see PrivateMessageEntity.IsRead for
+    /// the full rationale; same contract applies here.</summary>
+    public bool IsRead { get; set; } = true;
 }

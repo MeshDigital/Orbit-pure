@@ -3,299 +3,399 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
-             mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="700"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="760"
              x:Class="SLSKDONET.Views.Avalonia.ImportPreviewPage"
-             Background="#1E1E1E" Foreground="White">
+             x:DataType="vm:ImportPreviewViewModel"
+             x:CompileBindings="True"
+             Background="{DynamicResource BrushBg1}"
+             Foreground="{DynamicResource BrushText0}">
 
     <UserControl.Styles>
-        <Style Selector="TextBox.clean-grid-edit">
+        <!-- In-place editable cells: look like text until hovered or focused -->
+        <Style Selector="TextBox.inline-edit">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="Padding" Value="4,2"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="MinHeight" Value="0"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
-            <Setter Property="CaretBrush" Value="White"/>
             <Setter Property="Margin" Value="0"/>
+            <Setter Property="FontSize" Value="{StaticResource TextSizeBodySm}"/>
         </Style>
-        <Style Selector="TextBox.clean-grid-edit:pointerover">
-            <Setter Property="Background" Value="#15FFFFFF"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="#44FFFFFF"/>
+        <Style Selector="TextBox.inline-edit:pointerover /template/ Border#PART_BorderElement">
+            <Setter Property="Background" Value="{StaticResource BrushHover}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder1}"/>
         </Style>
-        <Style Selector="TextBox.clean-grid-edit:focus">
-            <Setter Property="Background" Value="#2A2A2E"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="#0078D4"/>
+        <Style Selector="TextBox.inline-edit:focus /template/ Border#PART_BorderElement">
+            <Setter Property="Background" Value="{StaticResource BrushBg0}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+        </Style>
+        <Style Selector="Grid.cols > TextBlock.section">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="4,0"/>
+        </Style>
+        <Style Selector="PathIcon">
+            <Setter Property="Width" Value="{StaticResource IconSizeSm}"/>
+            <Setter Property="Height" Value="{StaticResource IconSizeSm}"/>
+        </Style>
+        <!-- Summary chips: dot + label + mono count -->
+        <Style Selector="RadioButton.chip > StackPanel">
+            <Setter Property="Orientation" Value="Horizontal"/>
+            <Setter Property="Spacing" Value="6"/>
+        </Style>
+        <Style Selector="ListBox.targets ListBoxItem">
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="MinHeight" Value="32"/>
         </Style>
     </UserControl.Styles>
 
-    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
-        
-        <!-- Header -->
-        <Border Grid.Row="0" Background="#252526" Padding="24,20" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">
-            <StackPanel Spacing="8">
-                <TextBox Classes="clean-grid-edit" Text="{Binding SourceTitle, Mode=TwoWay}"
-                         FontSize="24" FontWeight="Bold" Foreground="White"
-                         HorizontalAlignment="Left" MinWidth="200"
-                         ToolTip.Tip="Click to rename this playlist before importing"/>
-                <StackPanel Orientation="Horizontal" Spacing="12">
-                    <TextBlock Text="{Binding SourceType}" FontSize="13" Foreground="#A0A0A0"/>
-                    <TextBlock Text="•" FontSize="13" Foreground="#666"/>
-                    <TextBlock Text="{Binding TrackCount, StringFormat='{}{0} tracks'}" FontSize="13" Foreground="#A0A0A0"/>
-                </StackPanel>
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+
+        <!-- ── Header: where the tracks come from ─────────────────── -->
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,*" Margin="24,16,24,12">
+            <Border Classes="inset" Width="40" Height="40" Padding="0" Margin="0,0,12,0" VerticalAlignment="Center">
+                <Panel>
+                    <PathIcon Data="{StaticResource icons_spotify}" Foreground="{StaticResource BrushSuccess}"
+                              Width="{StaticResource IconSizeLg}" Height="{StaticResource IconSizeLg}"
+                              IsVisible="{Binding IsSpotifySource}"/>
+                    <PathIcon Data="{StaticResource icon_file}" Foreground="{StaticResource BrushText2}"
+                              Width="{StaticResource IconSizeLg}" Height="{StaticResource IconSizeLg}"
+                              IsVisible="{Binding IsCsvSource}"/>
+                    <PathIcon Data="{StaticResource icon_queue}" Foreground="{StaticResource BrushText2}"
+                              Width="{StaticResource IconSizeLg}" Height="{StaticResource IconSizeLg}"
+                              IsVisible="{Binding IsTextSource}"/>
+                </Panel>
+            </Border>
+            <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                <TextBlock Classes="h1" Text="{Binding SourceTitle}" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Classes="subtitle" Text="{Binding SourceSubtitle}" TextTrimming="CharacterEllipsis"/>
             </StackPanel>
-        </Border>
-
-
-
-        <!-- Deduplication Alert Banner -->
-        <Border Grid.Row="1" Background="#663300" BorderBrush="#FF8C00" BorderThickness="0,0,0,1" Padding="16,12" IsVisible="{Binding IsDuplicate}">
-            <Grid ColumnDefinitions="*,Auto">
-                <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                    <TextBlock Text="⚠️" FontSize="20" VerticalAlignment="Center"/>
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="Existing Playlist Found" FontWeight="Bold" Foreground="#FFD580"/>
-                        <TextBlock Foreground="#FFD580" FontSize="12"
-                                   Text="{Binding ExistingTrackCount, StringFormat='We found an existing playlist with {0} tracks. Do you want to merge new tracks into it?'}"/>
-                    </StackPanel>
-                </StackPanel>
-                
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                    <Button Command="{Binding SelectMergeCandidatesCommand}" Background="#1AFFFFFF" Foreground="White" Padding="12,6" CornerRadius="4">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="✨" FontSize="14"/>
-                            <TextBlock Text="Select Merge Candidates" FontSize="12"/>
-                        </StackPanel>
-                    </Button>
-                    <Border Width="1" Height="16" Background="#444" Margin="4,0"/>
-                    <Button Command="{Binding CreateNewCommand}" Background="#424242" Foreground="White" Padding="12,6" CornerRadius="4">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="📄" FontSize="14"/> <!-- Clone Icon -->
-                            <TextBlock Text="Create New Clone" FontSize="12"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Command="{Binding MergeCommand}" Background="#FF8C00" Foreground="Black" Padding="12,6" CornerRadius="4">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="🔗" FontSize="14"/> <!-- Link/Merge Icon -->
-                            <TextBlock Text="Merge to Existing" FontSize="12" FontWeight="SemiBold"/>
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
-            </Grid>
-        </Border>
-
-        <!-- Toolbar -->
-        <Border Grid.Row="2" Background="#1F2A33" BorderBrush="#355066" BorderThickness="0,0,0,1" Padding="16,10" IsVisible="{Binding HasMergeTargets}">
-            <Grid ColumnDefinitions="Auto,*,Auto">
-                <TextBlock Text="Target Playlist" Foreground="#9FC8E6" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"/>
-
-                <ComboBox Grid.Column="1"
-                          ItemsSource="{Binding MergeTargets}"
-                          SelectedItem="{Binding SelectedMergeTarget, Mode=TwoWay}"
-                          MinWidth="360"
-                          Background="#172028"
-                          BorderBrush="#355066"
-                          BorderThickness="1"
-                          Foreground="White"
-                          Padding="8,4">
-                    <ComboBox.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel>
-                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold"/>
-                                <TextBlock Text="{Binding Subtitle}" Foreground="#90A4B5" FontSize="11"/>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
-
-                <Button Grid.Column="2"
-                        Command="{Binding UseSelectedMergeTargetCommand}"
-                        Background="#2C6E49"
-                        Foreground="White"
-                        Padding="12,6"
-                        CornerRadius="4"
-                        IsEnabled="{Binding !IsMergeTargetLoading}">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock Text="🔗" FontSize="12"/>
-                        <TextBlock Text="Use As Merge Target" FontSize="12"/>
-                    </StackPanel>
-                </Button>
-            </Grid>
-        </Border>
-
-        <Border Grid.Row="3" Background="#1E1E1E" Padding="24,16" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">
-            <Grid ColumnDefinitions="*,Auto">
-                <!-- Left: Selection Actions -->
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
-                    <Button Command="{Binding SelectAllCommand}"
-                            Background="#0078D4"
-                            Foreground="White"
-                            Padding="12,8"
-                            CornerRadius="6">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="☑" FontSize="14"/>
-                            <TextBlock Text="Select All" FontSize="13"/>
-                        </StackPanel>
-                    </Button>
-                    
-                    <Button Command="{Binding DeselectAllCommand}"
-                            Background="#424242"
-                            Foreground="White"
-                            Padding="12,8"
-                            CornerRadius="6">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="☐" FontSize="14"/>
-                            <TextBlock Text="Deselect All" FontSize="13"/>
-                        </StackPanel>
-                    </Button>
-
-                    <Button Command="{Binding SelectMissingCommand}"
-                            Background="#2D2D2D"
-                            Foreground="White"
-                            Padding="12,8"
-                            CornerRadius="6">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="✨" FontSize="14"/>
-                            <TextBlock Text="Select Missing" FontSize="13"/>
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
-                
-                <!-- Right: Status -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
-                    <Border Background="#1A4CAF50" 
-                            CornerRadius="12" 
-                            Padding="10,6"
-                            IsVisible="{Binding !!SelectedCount}">
-                        <TextBlock Text="{Binding SelectedCount, StringFormat='{}{0} selected'}" 
-                                   FontSize="12" 
-                                   Foreground="White"
-                                   FontWeight="SemiBold"/>
-                    </Border>
-                </StackPanel>
-            </Grid>
-        </Border>
-
-        <!-- Track List -->
-        <Grid Grid.Row="4" RowDefinitions="Auto,*">
-            <!-- Column Header -->
-            <controls:VirtualGridHeader Grid.Row="0" Margin="16,0,16,4">
-                <controls:VirtualGridHeader.HeaderContent>
-                    <Grid ColumnDefinitions="50,3*,2*,3*,2*,80,100">
-                        <TextBlock Grid.Column="0" Text="✓" FontSize="10" FontWeight="Bold" Foreground="#888" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="1" Text="RAW INPUT" FontSize="10" FontWeight="Bold" Foreground="#888" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="4,0"/>
-                        <TextBlock Grid.Column="2" Text="ARTIST" FontSize="10" FontWeight="Bold" Foreground="#888" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="4,0"/>
-                        <TextBlock Grid.Column="3" Text="TITLE" FontSize="10" FontWeight="Bold" Foreground="#888" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="4,0"/>
-                        <TextBlock Grid.Column="4" Text="ALBUM" FontSize="10" FontWeight="Bold" Foreground="#888" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="4,0"/>
-                        <TextBlock Grid.Column="5" Text="LENGTH" FontSize="10" FontWeight="Bold" Foreground="#888" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="4,0"/>
-                        <TextBlock Grid.Column="6" Text="STATUS" FontSize="10" FontWeight="Bold" Foreground="#888" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Grid>
-                </controls:VirtualGridHeader.HeaderContent>
-            </controls:VirtualGridHeader>
-
-            <!-- Results Grid -->
-            <controls:VirtualGrid Grid.Row="1" ItemsSource="{Binding ImportedTracks}" SelectionMode="Multiple">
-                <controls:VirtualGrid.ItemTemplate>
-                    <DataTemplate>
-                        <Border Classes="track-row" Height="40" Background="Transparent" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1" Padding="16,0">
-                            <Grid ColumnDefinitions="50,3*,2*,3*,2*,80,100">
-                                <!-- Column 0: Selection Checkbox -->
-                                <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                
-                                <!-- Column 1: Raw Input -->
-                                <TextBlock Grid.Column="1" Text="{Binding RawInputDisplay}" Foreground="#888" FontSize="11" Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                
-                                <!-- Column 2: Artist -->
-                                <Grid Grid.Column="2" ColumnDefinitions="*,Auto" Margin="4,0" VerticalAlignment="Center">
-                                    <TextBox Grid.Column="0" Text="{Binding Artist, Mode=TwoWay}" Classes="clean-grid-edit" FontSize="11"/>
-                                    <!-- Cleaned badge -->
-                                    <Border Grid.Column="1" Background="#33FF8C00" CornerRadius="4" Padding="4,2" Margin="6,0,0,0" VerticalAlignment="Center" IsVisible="{Binding IsCleaned}" ToolTip.Tip="{Binding CleanTooltip}">
-                                        <TextBlock Text="⚠" FontSize="9" Foreground="#FF8C00" FontWeight="SemiBold"/>
-                                    </Border>
-                                </Grid>
-                                
-                                <!-- Column 3: Title -->
-                                <Grid Grid.Column="3" ColumnDefinitions="*,Auto" Margin="4,0" VerticalAlignment="Center">
-                                    <TextBox Grid.Column="0" Text="{Binding Title, Mode=TwoWay}" Classes="clean-grid-edit" FontSize="11"/>
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" Margin="6,0,2,0" VerticalAlignment="Center" IsVisible="{Binding HasAnyChange}">
-                                        <Button Command="{Binding RestoreOriginalCommand}" ToolTip.Tip="Restore original artist &amp; title" Background="Transparent" Foreground="#FF8C00" BorderThickness="0" Padding="4,2" FontSize="12" VerticalAlignment="Center" Cursor="Hand">↩</Button>
-                                    </StackPanel>
-                                </Grid>
-                                
-                                <!-- Column 4: Album -->
-                                <TextBlock Grid.Column="4" Text="{Binding Model.Album}" FontSize="11" Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" IsVisible="{Binding $parent[Window].Bounds.Width, Converter={StaticResource WidthToVisibilityConverter}, ConverterParameter=800}"/>
-                                
-                                <!-- Column 5: Length -->
-                                <TextBlock Grid.Column="5" Text="{Binding Model.Length, StringFormat='{}{0:mm\\:ss}'}" FontSize="11" Margin="4,0" VerticalAlignment="Center" IsVisible="{Binding $parent[Window].Bounds.Width, Converter={StaticResource WidthToVisibilityConverter}, ConverterParameter=600}"/>
-                                
-                                <!-- Column 6: Status (IN LIB / DUPE? / MISSING) -->
-                                <Panel Grid.Column="6" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                       IsVisible="{Binding $parent[Window].Bounds.Width, Converter={StaticResource WidthToVisibilityConverter}, ConverterParameter=500}">
-                                    <!-- Already in library (exact or high-confidence fuzzy match) -->
-                                    <Border CornerRadius="4" Padding="6,3" Background="#1A6B2A" IsVisible="{Binding IsInLibrary}">
-                                        <TextBlock Text="IN LIB" FontSize="10" Foreground="#5ED67F" FontWeight="SemiBold"/>
-                                    </Border>
-                                    <!-- Fuzzy near-match warning (75–88% similarity) -->
-                                    <Border CornerRadius="4" Padding="6,3" Background="#5C4A00"
-                                            IsVisible="{Binding IsPossibleDuplicate}"
-                                            ToolTip.Tip="{Binding PossibleDuplicateTooltip}">
-                                        <TextBlock Text="DUPE?" FontSize="10" Foreground="#F5C842" FontWeight="SemiBold"/>
-                                    </Border>
-                                    <!-- Not found in library -->
-                                    <Border CornerRadius="4" Padding="6,3" Background="#2A2A2A" IsVisible="{Binding IsMissingFromLibrary}">
-                                        <TextBlock Text="MISSING" FontSize="10" Foreground="#888" FontWeight="SemiBold"/>
-                                    </Border>
-                                </Panel>
-                            </Grid>
-                        </Border>
-                    </DataTemplate>
-                </controls:VirtualGrid.ItemTemplate>
-            </controls:VirtualGrid>
         </Grid>
 
-        <!-- Footer Actions -->
-        <Border Grid.Row="5" 
-                Background="#252526" 
-                BorderBrush="#3E3E3E" 
-                BorderThickness="0,1,0,0" 
-                Padding="24,16">
-            <Grid ColumnDefinitions="*,Auto">
-                <!-- Left: Status Message -->
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                    <ProgressBar IsIndeterminate="True" 
-                                 Width="24" 
-                                 Height="24"
-                                 Foreground="#4CAF50"
-                                 IsVisible="{Binding IsLoading}"/>
-                    <TextBlock Text="{Binding StatusMessage}" 
-                               Foreground="#A0A0A0" 
-                               FontSize="13"
-                               VerticalAlignment="Center"/>
+        <!-- ── Notices + destination step ───────────────────────────── -->
+        <StackPanel Grid.Row="1" Spacing="12" Margin="24,0,24,12" IsVisible="{Binding ShowTrackList}">
+
+            <!-- Likely duplicate: offer to update the earlier playlist -->
+            <Border Classes="callout" IsVisible="{Binding ShowSuggestion}">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <PathIcon Data="{StaticResource icon_history}" Foreground="{StaticResource BrushAccent}"
+                              Width="{StaticResource IconSizeMd}" Height="{StaticResource IconSizeMd}"
+                              VerticalAlignment="Top" Margin="0,2,12,0"/>
+                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Classes="h3" Text="{Binding SuggestionTitle}" TextWrapping="Wrap"/>
+                        <TextBlock Classes="caption" Text="{Binding SuggestionBody}" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="16,0,0,0">
+                        <Button Classes="ghost small" Content="Import as new" Command="{Binding ImportAsNewCommand}"
+                                ToolTip.Tip="Create a separate playlist with all of these tracks"/>
+                        <Button Classes="secondary small" Command="{Binding AcceptSuggestionCommand}"
+                                ToolTip.Tip="Recommended: add only the tracks that playlist doesn't have yet">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <PathIcon Data="{StaticResource icon_check}" Foreground="{StaticResource BrushAccent}"
+                                          Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                <TextBlock Text="{Binding AcceptSuggestionLabel}"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Partial load: some rows arrived, then the source failed -->
+            <Border Classes="callout warning" IsVisible="{Binding ShowErrorBanner}">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <PathIcon Data="{StaticResource icon_alert}" Foreground="{StaticResource BrushWarning}"
+                              VerticalAlignment="Center" Margin="0,0,12,0"/>
+                    <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding ErrorMessage}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" Margin="16,0,0,0">
+                        <Button Classes="ghost small" Content="Reconnect Spotify" Command="{Binding ReconnectCommand}"
+                                IsVisible="{Binding ErrorRequiresSignIn}"/>
+                        <Button Classes="secondary small" Content="Retry" Command="{Binding RetryCommand}"
+                                ToolTip.Tip="Load the source again from the start"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Everything is already owned -->
+            <Border Classes="callout info" IsVisible="{Binding ShowAllOwnedNotice}">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <PathIcon Data="{StaticResource icon_check}" Foreground="{StaticResource BrushInfo}" VerticalAlignment="Center"/>
+                    <TextBlock Classes="body-sm" Text="{Binding AllOwnedText}" TextWrapping="Wrap" VerticalAlignment="Center"/>
                 </StackPanel>
-                
-                <!-- Right: Action Buttons -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
-                    <Button Command="{Binding CancelCommand}"
-                            Background="#424242"
-                            Foreground="White"
-                            Padding="16,10"
-                            CornerRadius="6">
+            </Border>
+
+            <!-- Destination: new playlist | add to existing -->
+            <Border Classes="card" Padding="16,12">
+                <StackPanel Spacing="12">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Classes="section" Text="DESTINATION" VerticalAlignment="Center"/>
+                        <Border Grid.Column="1" Classes="segmented">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <RadioButton Classes="chip" GroupName="importDestination" Content="New playlist"
+                                             IsChecked="{Binding IsNewPlaylistDestination}"
+                                             ToolTip.Tip="Create a new playlist with these tracks"/>
+                                <RadioButton Classes="chip" GroupName="importDestination" Content="Add to existing"
+                                             IsChecked="{Binding IsMergeMode}"
+                                             ToolTip.Tip="Add these tracks to a playlist you already have"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <!-- New playlist -->
+                    <StackPanel Spacing="4" IsVisible="{Binding IsNewPlaylistDestination}">
+                        <TextBlock Classes="caption" Text="Playlist name"/>
+                        <TextBox Text="{Binding PlaylistName}" Watermark="Playlist name"
+                                 MaxWidth="480" HorizontalAlignment="Stretch"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0" IsVisible="{Binding ShowNameCollision}">
+                            <PathIcon Data="{StaticResource icon_alert}" Foreground="{StaticResource BrushWarning}"
+                                      Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}" VerticalAlignment="Center"/>
+                            <TextBlock Classes="caption warning" Text="{Binding NameCollisionText}" VerticalAlignment="Center"/>
+                            <Button Classes="ghost small" Content="Add to that playlist instead"
+                                    Command="{Binding UseCollidingPlaylistCommand}"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- Existing playlist picker -->
+                    <Grid RowDefinitions="Auto,Auto,Auto" IsVisible="{Binding IsMergeMode}">
+                        <TextBox Grid.Row="0" Classes="search" Text="{Binding TargetSearchText}"
+                                 Watermark="Search your playlists" MaxWidth="480" HorizontalAlignment="Stretch"
+                                 IsVisible="{Binding HasMergeTargets}"/>
+                        <ListBox Grid.Row="1" Classes="targets" Margin="0,8,0,0" MaxHeight="176" MaxWidth="480"
+                                 HorizontalAlignment="Stretch"
+                                 ItemsSource="{Binding FilteredMergeTargets}"
+                                 SelectedItem="{Binding SelectedMergeTarget}"
+                                 IsVisible="{Binding HasMergeTargets}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:MergeTargetOptionViewModel">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <StackPanel Spacing="0" VerticalAlignment="Center">
+                                            <TextBlock Classes="body-sm" Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Classes="caption" Text="{Binding Subtitle}"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Classes="caption mono" Text="{Binding TrackCountText}"
+                                                   VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <TextBlock Grid.Row="1" Classes="caption" Text="You don't have any playlists yet. Choose New playlist."
+                                   IsVisible="{Binding !HasMergeTargets}"/>
+                        <TextBlock Grid.Row="2" Classes="caption" Margin="0,8,0,0" TextWrapping="Wrap"
+                                   Text="New tracks are added and ones that failed before are retried. Tracks already in the playlist are skipped."/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <!-- ── Summary strip (filter chips) + selection ─────────────── -->
+        <Border Grid.Row="2" Classes="toolbar" Padding="24,0" IsVisible="{Binding ShowTrackList}">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                    <RadioButton Classes="chip" GroupName="importStatusFilter" IsChecked="{Binding IsFilterAll}"
+                                 ToolTip.Tip="Show every track">
+                        <StackPanel>
+                            <TextBlock Text="All"/>
+                            <TextBlock Classes="mono" Text="{Binding TotalCount}"/>
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton Classes="chip" GroupName="importStatusFilter" IsChecked="{Binding IsFilterNew}"
+                                 ToolTip.Tip="Not in your library: will be searched and downloaded">
+                        <StackPanel>
+                            <Ellipse Classes="status-dot accent"/>
+                            <TextBlock Text="New"/>
+                            <TextBlock Classes="mono" Text="{Binding NewCount}"/>
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton Classes="chip" GroupName="importStatusFilter" IsChecked="{Binding IsFilterOwned}"
+                                 ToolTip.Tip="Already in your library: linked, nothing to download">
+                        <StackPanel>
+                            <Ellipse Classes="status-dot success"/>
+                            <TextBlock Text="Owned"/>
+                            <TextBlock Classes="mono" Text="{Binding OwnedCount}"/>
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton Classes="chip" GroupName="importStatusFilter" IsChecked="{Binding IsFilterInPlaylist}"
+                                 IsVisible="{Binding HasInPlaylist}"
+                                 ToolTip.Tip="Already in the destination playlist: skipped">
+                        <StackPanel>
+                            <Ellipse Classes="status-dot"/>
+                            <TextBlock Text="In playlist"/>
+                            <TextBlock Classes="mono" Text="{Binding InPlaylistCount}"/>
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton Classes="chip" GroupName="importStatusFilter" IsChecked="{Binding IsFilterQueued}"
+                                 IsVisible="{Binding HasQueued}"
+                                 ToolTip.Tip="Already downloading: linked when it finishes">
+                        <StackPanel>
+                            <Ellipse Classes="status-dot info"/>
+                            <TextBlock Text="Queued"/>
+                            <TextBlock Classes="mono" Text="{Binding QueuedCount}"/>
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton Classes="chip" GroupName="importStatusFilter" IsChecked="{Binding IsFilterNoMatch}"
+                                 IsVisible="{Binding HasNoMatch}"
+                                 ToolTip.Tip="Can't be imported: no title, or repeated earlier in the list">
+                        <StackPanel>
+                            <Ellipse Classes="status-dot error"/>
+                            <TextBlock Text="No match"/>
+                            <TextBlock Classes="mono" Text="{Binding NoMatchCount}"/>
+                        </StackPanel>
+                    </RadioButton>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock Classes="caption mono" VerticalAlignment="Center"
+                               Text="{Binding SelectedCount, StringFormat='{}{0} selected'}"/>
+                    <Button Classes="icon small" ToolTip.Tip="Selection">
+                        <PathIcon Data="{StaticResource icon_more}"/>
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                <MenuItem Header="Select all shown" Command="{Binding SelectAllCommand}"/>
+                                <MenuItem Header="Select none shown" Command="{Binding DeselectAllCommand}"/>
+                                <Separator/>
+                                <MenuItem Header="Select only tracks to download" Command="{Binding SelectMissingCommand}"/>
+                                <MenuItem Header="Reset to suggested selection" Command="{Binding ResetSelectionCommand}"/>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ── Body: list, or loading / error / empty states ────────── -->
+        <Panel Grid.Row="3">
+
+            <!-- Loading (nothing arrived yet) -->
+            <StackPanel Classes="empty-state" IsVisible="{Binding ShowLoadingState}">
+                <ProgressBar Classes="meter" Width="240" IsIndeterminate="True" IsVisible="{Binding !HasLoadProgress}"/>
+                <ProgressBar Classes="meter" Width="240" Minimum="0" Maximum="{Binding ExpectedTrackCount}"
+                             Value="{Binding LoadProgressValue}" IsVisible="{Binding HasLoadProgress}"/>
+                <TextBlock Classes="h3" Text="Loading tracks"/>
+                <TextBlock Classes="caption mono" Text="{Binding LoadProgressText}"/>
+            </StackPanel>
+
+            <!-- Error (nothing could be loaded) -->
+            <StackPanel Classes="empty-state" IsVisible="{Binding ShowErrorState}">
+                <PathIcon Data="{StaticResource icon_alert}" Foreground="{StaticResource BrushWarning}"/>
+                <TextBlock Classes="h3" Text="Couldn't load this import"/>
+                <TextBlock Classes="caption" Text="{Binding ErrorMessage}" TextWrapping="Wrap" MaxWidth="440" TextAlignment="Center"/>
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                    <Button Classes="primary" Command="{Binding ReconnectCommand}" IsVisible="{Binding ErrorRequiresSignIn}">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="✕" FontSize="14"/>
-                            <TextBlock Text="Cancel" FontSize="13"/>
+                            <PathIcon Data="{StaticResource icons_spotify}"/>
+                            <TextBlock Text="Connect Spotify"/>
                         </StackPanel>
                     </Button>
-                    
-                    <Button Command="{Binding AddToLibraryCommand}"
-                            Classes="primary"
-                            IsEnabled="{Binding CanAddToLibrary}"
-                            Padding="20,10"
-                            CornerRadius="6">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="📚" FontSize="14"/>
-                            <TextBlock Text="Add to Library" FontSize="13" FontWeight="SemiBold"/>
-                        </StackPanel>
-                    </Button>
+                    <Button Classes="secondary" Content="Retry" Command="{Binding RetryCommand}"
+                            ToolTip.Tip="Load the source again"/>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- Empty source -->
+            <StackPanel Classes="empty-state" IsVisible="{Binding ShowEmptyState}">
+                <PathIcon Data="{StaticResource icon_music}"/>
+                <TextBlock Classes="h3" Text="{Binding EmptyStateTitle}"/>
+                <TextBlock Classes="caption" Text="{Binding EmptyStateBody}"/>
+                <Button Classes="secondary" Content="Back to Import" Command="{Binding CancelCommand}"/>
+            </StackPanel>
+
+            <!-- Track list -->
+            <Grid RowDefinitions="Auto,*" IsVisible="{Binding ShowTrackList}">
+                <controls:VirtualGridHeader Grid.Row="0" Margin="24,0,24,0">
+                    <controls:VirtualGridHeader.HeaderContent>
+                        <Grid Classes="cols" ColumnDefinitions="40,3*,2*,2*,56,112" Height="32">
+                            <TextBlock Grid.Column="1" Classes="section" Text="TITLE"/>
+                            <TextBlock Grid.Column="2" Classes="section" Text="ARTIST"/>
+                            <TextBlock Grid.Column="3" Classes="section" Text="ALBUM"/>
+                            <TextBlock Grid.Column="4" Classes="section" Text="TIME" HorizontalAlignment="Right"/>
+                            <TextBlock Grid.Column="5" Classes="section" Text="STATUS" Margin="12,0,0,0"/>
+                        </Grid>
+                    </controls:VirtualGridHeader.HeaderContent>
+                </controls:VirtualGridHeader>
+
+                <controls:VirtualGrid Grid.Row="1" ItemsSource="{Binding VisibleTracks}" SelectionMode="Multiple">
+                    <controls:VirtualGrid.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SelectableTrack">
+                            <Border Classes="track-row" Height="40" Background="Transparent"
+                                    BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1" Padding="24,0">
+                                <Grid ColumnDefinitions="40,3*,2*,2*,56,112">
+                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center"
+                                              ToolTip.Tip="Include this track"/>
+
+                                    <Grid Grid.Column="1" ColumnDefinitions="*,Auto,Auto" Margin="0,0,4,0" VerticalAlignment="Center">
+                                        <TextBox Classes="inline-edit" Text="{Binding Title}"
+                                                 ToolTip.Tip="Click to correct the title"/>
+                                        <PathIcon Grid.Column="1" Data="{StaticResource icon_alert}"
+                                                  Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"
+                                                  Foreground="{StaticResource BrushWarning}" Margin="4,0,0,0"
+                                                  Background="Transparent"
+                                                  IsVisible="{Binding IsCleaned}" ToolTip.Tip="{Binding CleanTooltip}"/>
+                                        <Button Grid.Column="2" Classes="icon small" Command="{Binding RestoreOriginalCommand}"
+                                                IsVisible="{Binding HasAnyChange}" Margin="4,0,0,0"
+                                                ToolTip.Tip="Restore the original artist and title">
+                                            <PathIcon Data="{StaticResource icon_undo}"/>
+                                        </Button>
+                                    </Grid>
+
+                                    <TextBox Grid.Column="2" Classes="inline-edit" Text="{Binding Artist}" Margin="0,0,4,0"
+                                             ToolTip.Tip="Click to correct the artist"/>
+
+                                    <TextBlock Grid.Column="3" Classes="body-sm muted" Text="{Binding Album}" Margin="4,0"
+                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                               IsVisible="{Binding $parent[Window].Bounds.Width, Converter={StaticResource WidthToVisibilityConverter}, ConverterParameter=900}"/>
+
+                                    <TextBlock Grid.Column="4" Classes="caption mono" Text="{Binding DurationDisplay}" Margin="4,0"
+                                               VerticalAlignment="Center" HorizontalAlignment="Right"/>
+
+                                    <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="6" Margin="12,0,0,0"
+                                                VerticalAlignment="Center" Background="Transparent"
+                                                ToolTip.Tip="{Binding StatusTooltip}">
+                                        <Ellipse Classes="status-dot"
+                                                 Classes.accent="{Binding IsToneAccent}"
+                                                 Classes.success="{Binding IsToneSuccess}"
+                                                 Classes.info="{Binding IsToneInfo}"
+                                                 Classes.warning="{Binding IsToneWarning}"
+                                                 Classes.error="{Binding IsToneError}"/>
+                                        <TextBlock Classes="caption" Text="{Binding StatusLabel}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </controls:VirtualGrid.ItemTemplate>
+                </controls:VirtualGrid>
+
+                <!-- Filter matched nothing -->
+                <StackPanel Grid.Row="1" Classes="empty-state" IsVisible="{Binding ShowFilterEmptyState}">
+                    <PathIcon Data="{StaticResource icon_filter}"/>
+                    <TextBlock Classes="h3" Text="No tracks in this filter"/>
+                    <Button Classes="secondary" Content="Show all tracks" Command="{Binding ShowAllTracksCommand}"/>
+                </StackPanel>
+            </Grid>
+        </Panel>
+
+        <!-- ── Footer: what will happen + one primary action ────────── -->
+        <Border Grid.Row="4" Background="{StaticResource BrushBg2}"
+                BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,1,0,0"
+                Padding="24,12">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                    <TextBlock Classes="body" Text="{Binding CommitSummary}" TextTrimming="CharacterEllipsis"
+                               IsVisible="{Binding CanAddToLibrary}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasCommitBlockedReason}">
+                        <ProgressBar Classes="meter" Width="64" IsIndeterminate="True" VerticalAlignment="Center"
+                                     IsVisible="{Binding IsLoading}"/>
+                        <ProgressBar Classes="meter" Width="64" IsIndeterminate="True" VerticalAlignment="Center"
+                                     IsVisible="{Binding IsCommitting}"/>
+                        <TextBlock Classes="caption" Text="{Binding CommitBlockedReason}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock Classes="caption error" Text="{Binding CommitError}" TextWrapping="Wrap"
+                               IsVisible="{Binding HasCommitError}"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Classes="secondary" Content="Cancel" Command="{Binding CancelCommand}"/>
+                    <Button Classes="primary" Content="{Binding CommitButtonLabel}"
+                            Command="{Binding AddToLibraryCommand}"
+                            IsVisible="{Binding ShowTrackList}"/>
                 </StackPanel>
             </Grid>
         </Border>

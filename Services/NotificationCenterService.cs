@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reactive;
@@ -29,6 +30,8 @@ public sealed class NotificationCenterService : ReactiveObject, IDisposable
     private readonly WindowsToastService _windowsToast;
     private readonly ILogger<NotificationCenterService> _logger;
     private readonly CompositeDisposable _disposables = new();
+    private string? _activeConversationUsername;
+    private string? _activeRoomName;
 
     public ObservableCollection<NotificationItem> Notifications { get; } = new();
 
@@ -74,6 +77,20 @@ public sealed class NotificationCenterService : ReactiveObject, IDisposable
             .Subscribe(OnRoomMessageReceived)
             .DisposeWith(_disposables);
 
+        // Mirrors the "isActive" check UsersViewModel/RoomsViewModel already do locally to skip
+        // marking a thread unread when it's the one currently open — without this, a message on
+        // the thread the user is actively looking at still fired a toast + OS notification + a
+        // persistent bell entry, none of which made sense for something already on screen.
+        eventBus.GetEvent<ActiveConversationChangedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e => _activeConversationUsername = e.Username)
+            .DisposeWith(_disposables);
+
+        eventBus.GetEvent<ActiveRoomChangedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e => _activeRoomName = e.RoomName)
+            .DisposeWith(_disposables);
+
         MarkAllReadCommand = ReactiveCommand.Create(MarkAllRead);
         ClearCommand = ReactiveCommand.Create(Clear);
         OpenCommand = ReactiveCommand.Create<NotificationItem>(Open);
@@ -93,8 +110,47 @@ public sealed class NotificationCenterService : ReactiveObject, IDisposable
         }
     }
 
+    // A track that belongs to multiple playlists gets one DownloadContext (and one
+    // TrackStateChangedEvent(Completed)) per playlist when the same physical file finishes —
+    // correct for each playlist's own row to update, but it means a single download can fire this
+    // handler many times in a tight burst for the same hash, often interleaved with bursts for
+    // OTHER tracks completing around the same moment (a single last-hash slot gets clobbered by
+    // the interleaving and stops deduplicating either one). Track a per-hash last-notified
+    // timestamp instead so the bell gets exactly one entry per actual download regardless of how
+    // many playlists it belongs to or what else completes alongside it, while a genuine later
+    // re-download of the same track still gets its own entry. Pruned opportunistically so this
+    // doesn't grow unbounded over a long-running session.
+    private readonly Dictionary<string, DateTime> _recentlyCompletedHashes = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly TimeSpan DuplicateCompletionWindow = TimeSpan.FromSeconds(10);
+
     private void OnTrackDownloadCompleted(TrackStateChangedEvent e)
     {
+        // A "Completed" transition can mean a file was actually just transferred, or it can mean
+        // DownloadManager.ProcessTrackAsync found the file already sitting on disk / in the
+        // library and silently relinked it (common when re-syncing a playlist: a track marked
+        // Failed/OnHold gets requeued, but the song was already downloaded under a sibling
+        // PlaylistTrack row). Both used to look identical here and fired the same "download
+        // complete" toast — surfacing a success notification for something that was never
+        // actually downloaded this session.
+        if (e.WasAlreadyPresent)
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+
+        if (_recentlyCompletedHashes.TryGetValue(e.TrackGlobalId, out var lastAt) && now - lastAt < DuplicateCompletionWindow)
+        {
+            return;
+        }
+        _recentlyCompletedHashes[e.TrackGlobalId] = now;
+
+        if (_recentlyCompletedHashes.Count > 256)
+        {
+            var stale = _recentlyCompletedHashes.Where(kv => now - kv.Value >= DuplicateCompletionWindow).Select(kv => kv.Key).ToList();
+            foreach (var key in stale) _recentlyCompletedHashes.Remove(key);
+        }
+
         // Resolve Artist/Title from the in-memory download list rather than the database —
         // avoids a race against DownloadHistoryEntity's own (independently-timed) write.
         var match = _downloadManager.GetAllDownloads()
@@ -119,6 +175,9 @@ public sealed class NotificationCenterService : ReactiveObject, IDisposable
 
     private void OnPrivateMessageReceived(PrivateMessageReceivedEvent e)
     {
+        if (string.Equals(_activeConversationUsername, e.PeerUsername, StringComparison.OrdinalIgnoreCase))
+            return;
+
         Add(new NotificationItem
         {
             Kind = global::SLSKDONET.Models.NotificationKind.PrivateMessage,
@@ -128,11 +187,14 @@ public sealed class NotificationCenterService : ReactiveObject, IDisposable
         });
 
         _notificationService.Show($"Message from {e.PeerUsername}", e.Message, NotificationType.Information);
-        _windowsToast.ShowIfUnfocused($"Message from {e.PeerUsername}", e.Message);
+        _windowsToast.ShowIfUnfocused($"Message from {e.PeerUsername}", e.Message, navigateUsername: e.PeerUsername);
     }
 
     private void OnRoomMessageReceived(RoomMessageReceivedEvent e)
     {
+        if (string.Equals(_activeRoomName, e.RoomName, StringComparison.OrdinalIgnoreCase))
+            return;
+
         Add(new NotificationItem
         {
             Kind = global::SLSKDONET.Models.NotificationKind.RoomMessage,
@@ -142,7 +204,7 @@ public sealed class NotificationCenterService : ReactiveObject, IDisposable
         });
 
         _notificationService.Show($"{e.Username} in #{e.RoomName}", e.Message, NotificationType.Information);
-        _windowsToast.ShowIfUnfocused($"{e.Username} in #{e.RoomName}", e.Message);
+        _windowsToast.ShowIfUnfocused($"{e.Username} in #{e.RoomName}", e.Message, navigateRoomName: e.RoomName);
     }
 
     private void Add(NotificationItem item)

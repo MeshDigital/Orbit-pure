@@ -1,13 +1,141 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SLSKDONET.ViewModels.Downloads"
         x:Class="SLSKDONET.Views.Avalonia.Dialogs.SpectralForensicsDialog"
-        Title="Spectral Forensics Report"
-        Width="560"
-        Height="480"
-        MinWidth="480"
-        MinHeight="380"
+        x:DataType="vm:UnifiedTrackViewModel"
+        x:CompileBindings="True"
+        Title="Spectral forensics"
+        Width="560" Height="460"
+        MinWidth="480" MinHeight="380"
         WindowStartupLocation="CenterOwner"
         CanResize="True"
-        SystemDecorations="Full">
-  <Grid Name="RootGrid" />
+        SystemDecorations="Full"
+        Background="{StaticResource BrushBg2}">
+
+    <!-- Layout: header (section label + track) · verdict strip (semantic tint) ·
+         SPECTRAL | DYNAMICS fact cards · actions. Was built in code-behind with ~25 raw hex colours. -->
+    <Window.Styles>
+        <Style Selector="Border.verdict">
+            <Setter Property="Background" Value="{StaticResource BrushBg3}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder1}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusLg}"/>
+            <Setter Property="Padding" Value="16,12"/>
+        </Style>
+        <Style Selector="Border.verdict.success">
+            <Setter Property="Background" Value="{StaticResource BrushSuccessSubtle}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushSuccessBorder}"/>
+        </Style>
+        <Style Selector="Border.verdict.warning">
+            <Setter Property="Background" Value="{StaticResource BrushWarningSubtle}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushWarningBorder}"/>
+        </Style>
+        <Style Selector="Border.verdict.error">
+            <Setter Property="Background" Value="{StaticResource BrushErrorSubtle}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushErrorBorder}"/>
+        </Style>
+        <Style Selector="Grid.metric">
+            <Setter Property="MinHeight" Value="24"/>
+        </Style>
+        <Style Selector="Grid.metric > TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="24">
+
+        <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,16">
+            <TextBlock Classes="section" Text="SPECTRAL FORENSICS"/>
+            <TextBlock Classes="h2" TextTrimming="CharacterEllipsis">
+                <Run Text="{Binding ArtistName}"/>
+                <Run Text=" – "/>
+                <Run Text="{Binding TrackTitle}"/>
+            </TextBlock>
+        </StackPanel>
+
+        <!-- Verdict -->
+        <Border Grid.Row="1" Classes="verdict" Margin="0,0,0,16"
+                Classes.success="{Binding IsSpectralGenuine}"
+                Classes.warning="{Binding IsSpectralHqTranscode}"
+                Classes.error="{Binding IsSpectralFake}">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource icon_check}" Width="16" Height="16"
+                              Foreground="{StaticResource BrushSuccess}" IsVisible="{Binding IsSpectralGenuine}"/>
+                    <PathIcon Data="{StaticResource icon_alert}" Width="16" Height="16"
+                              Foreground="{StaticResource BrushWarning}" IsVisible="{Binding IsSpectralHqTranscode}"/>
+                    <PathIcon Data="{StaticResource icon_alert}" Width="16" Height="16"
+                              Foreground="{StaticResource BrushError}" IsVisible="{Binding IsSpectralFake}"/>
+                    <TextBlock Classes="h3" VerticalAlignment="Center"
+                               Classes.success="{Binding IsSpectralGenuine}"
+                               Classes.warning="{Binding IsSpectralHqTranscode}"
+                               Classes.error="{Binding IsSpectralFake}"
+                               Text="{Binding SpectralVerdictLabel, FallbackValue='No verdict yet', TargetNullValue='No verdict yet'}"/>
+                </StackPanel>
+                <TextBlock Grid.Column="1" Classes="mono muted" VerticalAlignment="Center"
+                           Text="{Binding SpectralConfidenceDisplay}"/>
+            </Grid>
+        </Border>
+
+        <!-- Metrics -->
+        <Grid Grid.Row="2" ColumnDefinitions="*,8,*" VerticalAlignment="Top">
+            <Border Grid.Column="0" Classes="card" Padding="16,12">
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="section" Text="SPECTRAL"/>
+                    <Grid Classes="metric" ColumnDefinitions="96,*">
+                        <TextBlock Classes="caption" Text="Cutoff"/>
+                        <TextBlock Grid.Column="1" Classes="mono" Text="{Binding SpectralCutoffKhzDisplay}"/>
+                    </Grid>
+                    <Grid Classes="metric" ColumnDefinitions="96,*">
+                        <TextBlock Classes="caption" Text="Rolloff"/>
+                        <TextBlock Grid.Column="1" Classes="mono" TextWrapping="Wrap">
+                            <Run Text="{Binding SpectralRolloffDisplay}"/>
+                            <Run Text=" · "/>
+                            <Run Text="{Binding SpectralRolloffLabel}"/>
+                        </TextBlock>
+                    </Grid>
+                    <Grid Classes="metric" ColumnDefinitions="96,*">
+                        <TextBlock Classes="caption" Text="Mid band"/>
+                        <TextBlock Grid.Column="1" Classes="mono" Text="{Binding SpectralMidBandDisplay}"/>
+                    </Grid>
+                    <Grid Classes="metric" ColumnDefinitions="96,*">
+                        <TextBlock Classes="caption" Text="High band"/>
+                        <TextBlock Grid.Column="1" Classes="mono" Text="{Binding SpectralHighBandDisplay}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="2" Classes="card" Padding="16,12">
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="section" Text="DYNAMICS"/>
+                    <Grid Classes="metric" ColumnDefinitions="96,*">
+                        <TextBlock Classes="caption" Text="Sample rate"/>
+                        <TextBlock Grid.Column="1" Classes="mono" Text="{Binding SpectralSampleRateDisplay}"/>
+                    </Grid>
+                    <Grid Classes="metric" ColumnDefinitions="96,*">
+                        <TextBlock Classes="caption" Text="Bit depth"/>
+                        <TextBlock Grid.Column="1" Classes="mono" Text="{Binding SpectralBitDepthDisplay}"/>
+                    </Grid>
+                    <Grid Classes="metric" ColumnDefinitions="96,*">
+                        <TextBlock Classes="caption" Text="RMS level"/>
+                        <TextBlock Grid.Column="1" Classes="mono" Text="{Binding SpectralRmsDisplay}"/>
+                    </Grid>
+                    <Grid Classes="metric" ColumnDefinitions="96,*">
+                        <TextBlock Classes="caption" Text="Crest factor"/>
+                        <TextBlock Grid.Column="1" Classes="mono" Text="{Binding SpectralCrestFactorDisplay}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,16,0,0">
+            <Button Classes="secondary" Click="Requeue_Click" IsVisible="{Binding CanRequeueFromForensics}"
+                    ToolTip.Tip="Search for this track again and download a better source">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource icon_sync}" Width="14" Height="14"/>
+                    <TextBlock Text="Re-queue"/>
+                </StackPanel>
+            </Button>
+            <Button Classes="primary" Content="Close" Click="Close_Click"/>
+        </StackPanel>
+    </Grid>
 </Window>

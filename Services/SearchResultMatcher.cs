@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using System.IO;
 using SLSKDONET.Configuration;
 using SLSKDONET.Models;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services;
 
@@ -166,10 +167,18 @@ public class SearchResultMatcher
             breakdown.Add("Profile: Lossy fallback enabled (+0)");
         }
 
-        // 1. Duration Match (Max 40 pts) — STRICT: reject if outside tolerance
-        if (model.CanonicalDuration.HasValue && candidate.Length.HasValue)
+        // 1. Duration Match (Max 40 pts) — STRICT: reject if outside tolerance.
+        // A CanonicalDuration of exactly 0 is not a real duration — it means the value was never
+        // populated (a null-vs-zero DB default, same shape as the CanonicalDuration backfill gap
+        // fixed elsewhere this session), not "this track is 0 seconds long". Treating it as a real
+        // duration made "expected 0s" hard-reject every candidate for the ~950 not-yet-downloaded
+        // tracks that have no CanonicalDuration anywhere yet — confirmed live: real, correctly-named,
+        // high-bitrate FLAC candidates for "Enei - Sinking Vip" all scored Match=0 and got excluded
+        // solely because 345s (actual) vs 0s (bogus "expected") is always "outside tolerance".
+        var hasKnownDuration = model.CanonicalDuration.HasValue && model.CanonicalDuration.Value > 0;
+        if (hasKnownDuration && candidate.Length.HasValue)
         {
-            var expectedSec = model.CanonicalDuration.Value / 1000;
+            var expectedSec = model.CanonicalDuration!.Value / 1000;
             var actualSec = candidate.Length.Value;
             var diff = Math.Abs(expectedSec - actualSec);
 
@@ -187,11 +196,25 @@ public class SearchResultMatcher
             score += 40;
             breakdown.Add($"Duration: Acceptable ({diff}s diff, +40)");
         }
-        else if (model.CanonicalDuration.HasValue)
+        else if (hasKnownDuration)
         {
             // Duration missing on candidate — deduct points but don't hard-reject
             score += 0;
             breakdown.Add("Duration: Missing on candidate (+0)");
+        }
+        else if (candidate.Length.HasValue)
+        {
+            // Our own expected duration is unknown (never downloaded, no CanonicalDuration yet) —
+            // there's no way to test the candidate's length against anything, so this isn't
+            // negative evidence the way a real mismatch is. Zero points here (same as the
+            // model-has-duration-but-candidate-doesn't branch above) would keep even a perfect
+            // artist/title/format match under IsAcceptableTextualMatch's 70-point bar in most
+            // real cases, since duration is 40 of the ~113 available points — silently
+            // reproducing the same "can never download" outcome the hard-reject bug caused, just
+            // one level down. Half credit is a neutral prior for an untestable dimension, not a
+            // reward for a good duration match.
+            score += 20;
+            breakdown.Add("Duration: Unknown for this track — neutral (+20)");
         }
 
         // 2. Artist Match (Max 30 pts)
@@ -246,7 +269,8 @@ public class SearchResultMatcher
         // 4. Purist Format Priority (AIFF=100, FLAC=90, WAV=80 baseline profile)
         // We apply this as a bounded bonus so metadata fit still matters, but format preference is explicit.
         double formatBonus = 0;
-        if (ext is ".aif" or ".aiff" || format is "aif" or "aiff")
+        if (SLSKDONET.Services.Audio.AudioFormats.Find(ext)?.Family == SLSKDONET.Services.Audio.AudioContainerFamily.Aiff ||
+            SLSKDONET.Services.Audio.AudioFormats.Find(format)?.Family == SLSKDONET.Services.Audio.AudioContainerFamily.Aiff)
         {
             formatBonus = 10;
             breakdown.Add("Format: AIFF priority (+10)");
@@ -298,7 +322,7 @@ public class SearchResultMatcher
 
         string breakdownStr = string.Join(", ", breakdown);
         string? rejection = null;
-        if (score < 40) rejection = $"Low match score ({score:F1}). Breakdown: {breakdownStr}";
+        if (score < 40) rejection = NumFormat.Ui($"Low match score ({score:F1}). Breakdown: {breakdownStr}");
 
         return new MatchResult(score, breakdownStr, rejection, score < 40 ? "Low Score" : null);
     }
@@ -307,8 +331,7 @@ public class SearchResultMatcher
         => Math.Max(0, _config.SearchLengthToleranceSeconds);
 
     private static bool IsLossyCandidate(string ext, string format)
-        => ext is ".mp3" or ".m4a" or ".mp4" or ".ogg" or ".wma" ||
-           format is "mp3" or "m4a" or "mp4" or "ogg" or "wma";
+        => SLSKDONET.Services.Audio.AudioFormats.IsLossy(ext) || SLSKDONET.Services.Audio.AudioFormats.IsLossy(format);
 
     private static double CalculateContextScore(Track candidate, List<string> breakdown)
     {
@@ -636,9 +659,26 @@ public class SearchResultMatcher
         // Only allow "The" stripping as a single fallback
         // Example: "The Beatles" -> "Beatles" can match "beatles" in filename
         string strippedArtist = NormalizeArtist(expectedArtist);
-        if (!string.IsNullOrEmpty(strippedArtist) && strippedArtist.Length > 2 
+        if (!string.IsNullOrEmpty(strippedArtist) && strippedArtist.Length > 2
             && ContainsWithBoundary(normalizedFilename, strippedArtist, ignoreCase: true))
             return true;
+
+        // Multi-artist collabs get re-ordered and re-punctuated by whoever shared the file —
+        // Soulseek has no canonical convention ("Flowidus & Loboski" vs "Loboski & Flowidus" vs
+        // "Flowidus, Loboski" are all the same real collab). Confirmed in the wild via the search
+        // audit log: correct candidates for exactly this track were scoring Artist: Mismatch (0)
+        // and getting silently excluded over word order alone. This still requires EVERY individual
+        // artist name to be present (word-boundary each), just not in the stored order/punctuation —
+        // strictly more restrictive than "any one artist matches" (which would wrongly accept a
+        // solo track by just one collaborator), so it doesn't reopen the false-positive risk the
+        // "NO multi-artist splitting" note above was originally guarding against.
+        var artistParts = SplitMultiArtist(expectedArtist);
+        if (artistParts.Count > 1)
+        {
+            var normalizedParts = artistParts.Select(NormalizeFuzzy).Where(p => p.Length > 1).ToList();
+            if (normalizedParts.Count > 1 && normalizedParts.All(p => ContainsWithBoundary(normalizedFilename, p, ignoreCase: true)))
+                return true;
+        }
 
         // NO fuzzy Levenshtein, NO reverse matching, NO feature/collaboration fallback
         // or Query="Deadmau5" but file says "deadmaus" — caught by fuzzy below.
@@ -666,6 +706,26 @@ public class SearchResultMatcher
         }
 
         return false;
+    }
+
+    private static readonly Regex MultiArtistDelimiterRegex = new(
+        @"\s*(?:&|,|\bfeat\.?\b|\bft\.?\b|\bfeaturing\b|\bx\b|\bvs\.?\b|\band\b)\s*",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Splits a raw (pre-normalization) artist string on genuine multi-artist delimiters only —
+    /// operates on the original string, not the NormalizeFuzzy'd one, because NormalizeFuzzy
+    /// already collapses "&"/","/etc. into plain spaces, which would make a real delimiter
+    /// indistinguishable from a space inside a single compound artist name (e.g. "Sub Focus").
+    /// A single-artist name with no delimiter returns a one-element list, so callers should only
+    /// treat the result as "this is a real collab" when Count > 1.
+    /// </summary>
+    private static List<string> SplitMultiArtist(string rawArtist)
+    {
+        return MultiArtistDelimiterRegex.Split(rawArtist)
+            .Select(a => a.Trim())
+            .Where(a => a.Length > 1)
+            .ToList();
     }
 
     /// <summary>

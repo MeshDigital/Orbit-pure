@@ -28,6 +28,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- CUE-DETR parity fixtures, produced by Tools/cue-detr/reference.py fixtures -->
+    <None Include="TestData\CueDetr\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Legacy tests for components removed during cleanup/refactor. -->
     <Compile Remove="Services\PersonalClassifierTests.cs" />
     <Compile Remove="Services\PhraseAlignmentTests.cs" />

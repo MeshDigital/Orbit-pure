@@ -31,13 +31,50 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
     private readonly int _pageSize;
     private readonly IEnumerable<string>? _hashFilter;
     private readonly string? _camelotKeyFilter;
+    private readonly string? _qualityTier;
     private readonly TrackSortColumn _sortColumn;
     private readonly bool _sortDescending;
     
+    // PageInfo.LastAccess existed from the start (touched on every page load) but nothing ever
+    // read it — pages accumulated in _pages/_loadedItems/_viewModelCache for the life of the
+    // collection instance with no upper bound. For "All Tracks" on a large library, scrolling
+    // through the whole thing once in a session left every row's PlaylistTrackViewModel (each
+    // holding its own decoded artwork Bitmap — see ArtworkCacheService) permanently resident.
+    // 40 pages headroom (4000 items at the default page size) is several times a normal viewport,
+    // so ordinary browsing of small-to-medium libraries never triggers eviction at all; this only
+    // bites during genuinely long scroll sessions over a large library.
+    private const int MaxLoadedPages = 40;
+
     private int _count = -1;
     private readonly List<PlaylistTrackViewModel> _loadedItems = new();
     private readonly Dictionary<int, PageInfo> _pages = new();
-    private readonly Dictionary<string, PlaylistTrackViewModel> _viewModelCache = new();
+    // Populated in LoadPageAsync/LoadMoreItemsAsync, read by DispatchToViewModel. Regressed to
+    // permanently empty in commit 5b116eb (virtualization rewrite) — every live-update event
+    // (analysis complete, metadata changed, state/progress changed) silently no-op'd for every
+    // track in the grid ever since, even though the publish/subscribe wiring around it was correct.
+    // Concurrent: event-bus publishers (enrichment, analysis, downloads) look rows up from their
+    // own threads while page loads write it on the UI thread. A plain Dictionary read during a
+    // concurrent write can throw or return garbage; with import + analysis + enrichment all
+    // running that stopped being a theoretical race.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, PlaylistTrackViewModel> _viewModelCache = new(StringComparer.Ordinal);
+
+    // Rows whose data changed (enrichment, analysis, loudness), coalesced into one off-UI query
+    // and one UI post per RowRefreshInterval. Value = also reload waveform/cue data.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _dirtyRows = new(StringComparer.Ordinal);
+    private int _rowRefreshScheduled;
+    private int _rowRefreshQueries;
+    private volatile bool _disposed;
+
+    // Selected rows that a live re-index (rows added by an import) moved off screen: kept so
+    // their page reuses the same instance (selection stays) instead of a fresh view model.
+    private readonly Dictionary<Guid, PlaylistTrackViewModel> _retained = new();
+    private int _growthInFlight;
+
+    /// <summary>At most this often a batch of changed rows is re-read (≈ 4 UI updates per second).</summary>
+    internal static TimeSpan RowRefreshInterval { get; set; } = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>Batched row re-reads so far (tests: bounded refresh events).</summary>
+    internal int RowRefreshQueries => Volatile.Read(ref _rowRefreshQueries);
     private readonly HashSet<int> _pendingPages = new();
     private readonly CompositeDisposable _disposables = new();
     
@@ -56,7 +93,8 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         int pageSize = 100,
         string? camelotKeyFilter = null,
         TrackSortColumn sortColumn = TrackSortColumn.Default,
-        bool sortDescending = false)
+        bool sortDescending = false,
+        string? qualityTier = null)
     {
         _logger = logger;
         _libraryService = libraryService;
@@ -70,6 +108,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         _camelotKeyFilter = camelotKeyFilter;
         _sortColumn = sortColumn;
         _sortDescending = sortDescending;
+        _qualityTier = qualityTier;
         
         // Centralized event dispatch
         SubscribeToEvents();
@@ -82,7 +121,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
     {
         _disposables.Add(_eventBus.GetEvent<TrackStateChangedEvent>().Subscribe(evt => DispatchToViewModel(evt.TrackGlobalId, vm => vm.OnStateChanged(evt))));
         _disposables.Add(_eventBus.GetEvent<TrackProgressChangedEvent>().Subscribe(evt => DispatchToViewModel(evt.TrackGlobalId, vm => vm.OnProgressChanged(evt))));
-        _disposables.Add(_eventBus.GetEvent<Models.TrackMetadataUpdatedEvent>().Subscribe(evt => DispatchToViewModel(evt.TrackGlobalId, vm => vm.OnMetadataUpdated(evt))));
+        _disposables.Add(_eventBus.GetEvent<Models.TrackMetadataUpdatedEvent>().Subscribe(evt => QueueRowRefresh(evt.TrackGlobalId, reloadTechnical: true)));
         _disposables.Add(_eventBus.GetEvent<Models.TrackAnalysisStartedEvent>().Subscribe(evt => DispatchToViewModel(evt.TrackGlobalId, vm => vm.OnAnalysisStarted(evt))));
         _disposables.Add(_eventBus.GetEvent<Models.TrackAnalysisFailedEvent>().Subscribe(evt => DispatchToViewModel(evt.TrackGlobalId, vm => vm.OnAnalysisFailed(evt))));
         // TrackAnalysisUpdatedEvent was published on every successful analysis (AnalysisQueueService)
@@ -90,7 +129,14 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         // refresh — the Inspector kept showing pre-analysis data until the track was reselected after
         // a full reload. Reuses OnMetadataUpdated's existing full-refetch-from-DB logic rather than
         // adding a second near-identical refresh path.
-        _disposables.Add(_eventBus.GetEvent<Models.TrackAnalysisUpdatedEvent>().Subscribe(evt => DispatchToViewModel(evt.TrackGlobalId, vm => vm.OnMetadataUpdated(new Models.TrackMetadataUpdatedEvent(evt.TrackGlobalId)))));
+        _disposables.Add(_eventBus.GetEvent<Models.TrackAnalysisUpdatedEvent>().Subscribe(evt => QueueRowRefresh(evt.TrackGlobalId, reloadTechnical: true)));
+        // Library enrichment publishes one event per batch of tracks; refresh only rows that are
+        // materialized (cover art, album, label appear in place without a full reload).
+        _disposables.Add(_eventBus.GetEvent<Services.Enrichment.TracksEnrichedEvent>().Subscribe(evt =>
+        {
+            foreach (var hash in evt.TrackHashes)
+                QueueRowRefresh(hash, reloadTechnical: false);
+        }));
         _disposables.Add(_eventBus.GetEvent<Events.TrackDetailedStatusEvent>().Subscribe(evt => DispatchToViewModel(evt.TrackHash, vm => vm.OnDetailedStatus(evt))));
     }
 
@@ -103,16 +149,191 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         }
     }
 
+    /// <summary>
+    /// Marks a materialised row as changed. Rows that aren't loaded are ignored (they read fresh
+    /// data when their page loads). Coalesced: one batched query per <see cref="RowRefreshInterval"/>.
+    /// </summary>
+    private void QueueRowRefresh(string globalId, bool reloadTechnical)
+    {
+        if (_disposed || string.IsNullOrEmpty(globalId)) return;
+        if (!_viewModelCache.TryGetValue(globalId, out var vm) || vm.IsPlaceholder) return;
+        _dirtyRows.AddOrUpdate(globalId, reloadTechnical, (_, existing) => existing || reloadTechnical);
+        if (Interlocked.Exchange(ref _rowRefreshScheduled, 1) == 0)
+            _ = FlushRowRefreshAsync();
+    }
+
+    private async Task FlushRowRefreshAsync()
+    {
+        try
+        {
+            await Task.Delay(RowRefreshInterval).ConfigureAwait(false);
+            // Reset before taking the snapshot: a mark arriving from here on schedules the next flush.
+            Volatile.Write(ref _rowRefreshScheduled, 0);
+            if (_disposed) return;
+
+            var batch = new Dictionary<string, bool>(StringComparer.Ordinal);
+            foreach (var key in _dirtyRows.Keys.ToList())
+                if (_dirtyRows.TryRemove(key, out var technical)) batch[key] = technical;
+            if (batch.Count == 0) return;
+
+            Interlocked.Increment(ref _rowRefreshQueries);
+            var hashes = batch.Keys.ToList();
+            // One query for the whole batch, off the UI thread (the per-row refresh used to run a
+            // blocking Sqlite query on the UI thread for every enriched or analysed visible row).
+            var rows = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, 0, hashes.Count * 2, hashFilter: hashes).ConfigureAwait(false);
+            if (_disposed) return;
+            var byHash = rows.GroupBy(r => r.TrackUniqueHash, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_disposed) return;
+                foreach (var (hash, technical) in batch)
+                {
+                    if (!_viewModelCache.TryGetValue(hash, out var vm) || vm.IsPlaceholder) continue;
+                    byHash.TryGetValue(hash, out var fresh);
+                    vm.ApplyRefreshed(fresh, technical);
+                }
+            }, DispatcherPriority.Background);
+        }
+        catch (Exception ex)
+        {
+            Volatile.Write(ref _rowRefreshScheduled, 0);
+            _logger.LogWarning(ex, "[VirtualizedTrackCollection] Batched row refresh failed");
+        }
+    }
+
+    /// <summary>
+    /// Rows were added under this list while it is on screen (a folder import committing
+    /// batches). Re-counts and, when the list grew, re-reads the pages in view at their new
+    /// offsets before swapping them in, so visible rows never flash "Loading…". Rows that stay
+    /// keep their view model (same instance: artwork, selection and bindings survive).
+    /// <para>
+    /// With the default "newest first" order every new row lands at the top, so this raises an
+    /// Add at index 0 (the list keeps selection and scroll offset); any other order raises one
+    /// Reset. Call on the UI thread; it is throttled by the caller (≈ every 2 s).
+    /// </para>
+    /// Returns true when rows were added.
+    /// </summary>
+    public async Task<bool> RefreshForNewRowsAsync()
+    {
+        if (_disposed || _count < 0) return false;
+        if (Interlocked.Exchange(ref _growthInFlight, 1) == 1) return false;
+        try
+        {
+            var fresh = await Task.Run(() => _libraryService.GetTrackCountAsync(_playlistId, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _qualityTier));
+            var oldCount = _count;
+            if (_disposed || fresh <= oldCount) return false;
+            var delta = fresh - oldCount;
+
+            // Pages in view: touched in the last few seconds (at most 3), else the first page.
+            var now = DateTime.Now;
+            var hotPages = _pages.Where(p => now - p.Value.LastAccess < TimeSpan.FromSeconds(4))
+                .Select(p => p.Key).OrderBy(k => k).Take(3).ToList();
+            if (hotPages.Count == 0) hotPages.Add(0);
+
+            var fetched = new Dictionary<int, List<PlaylistTrack>>();
+            foreach (var page in hotPages)
+            {
+                var start = page * _pageSize;
+                var take = Math.Min(_pageSize, fresh - start);
+                if (take <= 0) continue;
+                fetched[page] = await Task.Run(() => _libraryService.GetPagedPlaylistTracksAsync(_playlistId, start, take, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending, _qualityTier));
+            }
+            if (_disposed) return false;
+
+            // Old instances by row id: reused where the same row is still in view.
+            var old = new Dictionary<Guid, PlaylistTrackViewModel>();
+            foreach (var vm in _loadedItems)
+                if (vm != null && !vm.IsPlaceholder) old[vm.Id] = vm;
+            foreach (var (id, vm) in _retained) old.TryAdd(id, vm);
+            _retained.Clear();
+
+            var newLoaded = new List<PlaylistTrackViewModel>();
+            var newPages = new Dictionary<int, PageInfo>();
+            var used = new HashSet<PlaylistTrackViewModel>();
+            foreach (var (page, tracks) in fetched.OrderBy(p => p.Key))
+            {
+                var start = page * _pageSize;
+                var vms = tracks.Select(t => old.TryGetValue(t.Id, out var keep)
+                    ? keep
+                    : new PlaylistTrackViewModel(t, _eventBus, _libraryService, _artworkCache)).ToList();
+                while (newLoaded.Count < start + vms.Count) newLoaded.Add(null!);
+                for (var i = 0; i < vms.Count; i++)
+                {
+                    newLoaded[start + i] = vms[i];
+                    used.Add(vms[i]);
+                }
+                newPages[page] = new PageInfo { Items = vms, LastAccess = DateTime.Now };
+            }
+
+            var toDispose = new List<PlaylistTrackViewModel>();
+            foreach (var vm in old.Values)
+            {
+                if (used.Contains(vm)) continue;
+                if (vm.IsSelected) _retained[vm.Id] = vm; // comes back when its page loads
+                else toDispose.Add(vm);
+            }
+            // After the list has re-laid out: a container may still be bound to one until then.
+            if (toDispose.Count > 0)
+                Dispatcher.UIThread.Post(() => { foreach (var vm in toDispose) vm.Dispose(); }, DispatcherPriority.Background);
+
+            _loadedItems.Clear();
+            _loadedItems.AddRange(newLoaded);
+            _pages.Clear();
+            foreach (var (k, v) in newPages) _pages[k] = v;
+            _viewModelCache.Clear();
+            foreach (var vm in used) _viewModelCache[vm.GlobalId] = vm;
+            foreach (var vm in _retained.Values) _viewModelCache[vm.GlobalId] = vm;
+            _count = fresh;
+
+            var insertsAtTop = _playlistId == Guid.Empty && _sortColumn == TrackSortColumn.Default;
+            OnPropertyChanged(nameof(Count));
+            if (insertsAtTop)
+            {
+                var added = new List<PlaylistTrackViewModel>(delta);
+                for (var i = 0; i < delta; i++)
+                    added.Add(i < _loadedItems.Count && _loadedItems[i] != null ? _loadedItems[i] : PlaylistTrackViewModel.Placeholder);
+                CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Add, added, 0));
+            }
+            else
+            {
+                CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+            }
+            _logger.LogDebug("[VirtualizedTrackCollection] {Delta} new rows shown live ({Old} -> {New})", delta, oldCount, fresh);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[VirtualizedTrackCollection] Showing newly imported rows failed; they appear on the next refresh");
+            return false;
+        }
+        finally
+        {
+            Volatile.Write(ref _growthInFlight, 0);
+        }
+    }
+
+    /// <summary>A loaded view model for <paramref name="track"/>: a retained selected row, or a new one.</summary>
+    private PlaylistTrackViewModel CreateOrReuse(PlaylistTrack track)
+    {
+        if (_retained.Count > 0 && _retained.Remove(track.Id, out var kept)) return kept;
+        return new PlaylistTrackViewModel(track, _eventBus, _libraryService, _artworkCache);
+    }
+
     private async Task LoadCountAsync()
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try 
         {
             _logger.LogInformation("[VirtualizedTrackCollection] Starting count query...");
-            var count = await _libraryService.GetTrackCountAsync(_playlistId, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter);
+            // Deliberately NOT moved off the calling thread like LoadPageAsync's fetch: this runs
+            // from the constructor and (Sqlite being synchronous) completes before it returns, so
+            // bindings attach to the real Count — the "no Reset" notification below relies on that.
+            var count = await _libraryService.GetTrackCountAsync(_playlistId, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _qualityTier);
             sw.Stop();
             _logger.LogInformation("[VirtualizedTrackCollection] Count query took {Ms}ms, returned {Count}", sw.ElapsedMilliseconds, count);
             _count = count;
+            ReportQueryOutcome(_libraryService.LastTrackQueryError);
             
             // PERFORMANCE FIX: Only notify Count change, NO Reset event here.
             // The Reset causes all 3 views (List/Cards/Pro) to recalculate, triggering massive page loads.
@@ -125,8 +346,109 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         }
         catch (Exception ex)
         {
+            // A count of -1 used to stick here: the grid then had no rows and no empty or error
+            // state either. Fall back to an empty list with a visible, retryable error.
             _logger.LogError(ex, "[VirtualizedTrackCollection] LoadCountAsync Failed");
+            _count = 0;
+            ReportQueryOutcome(ex.Message);
+            Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(Count)));
         }
+    }
+
+    /// <summary>
+    /// Why the tracks couldn't be loaded, or null. The library service turns a failing query
+    /// into a 0 count / empty page, which on its own rendered as "0 tracks" or as rows stuck on
+    /// "Loading…" forever (2026-10-19, fresh-install schema drift); the track list binds this to
+    /// a real error state instead.
+    /// </summary>
+    public string? LoadErrorMessage { get; private set; }
+
+    public bool HasLoadError => LoadErrorMessage != null;
+
+    private void ReportQueryOutcome(string? error)
+    {
+        // A later successful page doesn't clear an earlier failure: the list is still incomplete.
+        if (error == null || LoadErrorMessage != null) return;
+
+        LoadErrorMessage = error;
+        void Notify()
+        {
+            OnPropertyChanged(nameof(LoadErrorMessage));
+            OnPropertyChanged(nameof(HasLoadError));
+        }
+
+        if (Dispatcher.UIThread.CheckAccess()) Notify();
+        else Dispatcher.UIThread.Post(Notify);
+    }
+
+    private bool _reconcileInFlight;
+
+    /// <summary>
+    /// A page came back shorter than the count said it would. Re-count: if the rows are really
+    /// gone (deleted, or a write landed between the two queries) shrink to the new count; if the
+    /// count still claims rows the page query can't return, the page query is failing, so shrink
+    /// to what loaded and flag the error. Either way no placeholder row is left that can never load.
+    /// </summary>
+    private async Task ReconcileShortPageAsync(int startIndex, int fetched)
+    {
+        if (_reconcileInFlight) return;
+        _reconcileInFlight = true;
+        try
+        {
+            var reachable = startIndex + fetched;
+            int fresh;
+            try
+            {
+                fresh = await Task.Run(() => _libraryService.GetTrackCountAsync(_playlistId, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _qualityTier));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[VirtualizedTrackCollection] Re-count after a short page failed");
+                fresh = _count;
+            }
+
+            if (fresh <= reachable)
+            {
+                _logger.LogInformation("[VirtualizedTrackCollection] Rows changed under the list: count {Old} -> {New}", _count, Math.Max(fresh, reachable));
+                ShrinkTo(Math.Max(fresh, reachable));
+            }
+            else
+            {
+                _logger.LogWarning("[VirtualizedTrackCollection] Count says {Count} rows but a page at {Start} returned {Fetched}; showing what loaded and an error state", fresh, startIndex, fetched);
+                ShrinkTo(reachable);
+                ReportQueryOutcome(_libraryService.LastTrackQueryError ?? "Some tracks couldn't be loaded from the library database.");
+            }
+        }
+        finally
+        {
+            _reconcileInFlight = false;
+        }
+    }
+
+    private void ShrinkTo(int newCount)
+    {
+        if (newCount < 0 || newCount >= _count) return;
+        _count = newCount;
+
+        if (_loadedItems.Count > newCount)
+        {
+            for (var i = newCount; i < _loadedItems.Count; i++)
+            {
+                var vm = _loadedItems[i];
+                if (vm == null) continue;
+                _viewModelCache.TryRemove(vm.GlobalId, out _);
+                vm.Dispose();
+            }
+            _loadedItems.RemoveRange(newCount, _loadedItems.Count - newCount);
+        }
+        foreach (var pageIndex in _pages.Keys.Where(k => k * _pageSize >= newCount).ToList())
+            _pages.Remove(pageIndex);
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            OnPropertyChanged(nameof(Count));
+            CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        });
     }
 
     public PlaylistTrackViewModel this[int index]
@@ -142,6 +464,14 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             // to leak straight out of the indexer as a real null.
             if (index < _loadedItems.Count && _loadedItems[index] is { } loaded)
             {
+                // Touch LastAccess so eviction (see EvictLeastRecentlyUsedPagesIfNeeded) treats a
+                // page that's still actively being scrolled through as recently used, not just
+                // "recently loaded" — otherwise a page loaded once early and revisited constantly
+                // would look just as evictable as one loaded once and never touched again.
+                if (_pages.TryGetValue(index / _pageSize, out var pageInfo))
+                {
+                    pageInfo.LastAccess = DateTime.Now;
+                }
                 return loaded;
             }
 
@@ -174,6 +504,13 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
 
     public int Count => _count;
     public bool IsReadOnly => true;
+
+    /// <summary>The row at <paramref name="index"/> if its page is already loaded — never triggers a load.</summary>
+    public bool TryGetLoaded(int index, out PlaylistTrackViewModel? item)
+    {
+        item = index >= 0 && index < _loadedItems.Count ? _loadedItems[index] : null;
+        return item != null && !ReferenceEquals(item, PlaylistTrackViewModel.Placeholder);
+    }
 
     public IEnumerable<PlaylistTrackViewModel> GetSubset(int count)
     {
@@ -237,7 +574,39 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
 
     public bool HasMoreItems => _count == -1 || _loadedItems.Count < _count;
 
-    internal async Task LoadPageAsync(int pageIndex)
+    /// <summary>
+    /// Loads a page, or — if that page is already loading — returns the in-flight load so callers
+    /// that await it actually get the data. Previously a second caller got an immediately-completed
+    /// task while the first load was still running, which only ever worked because Sqlite made
+    /// every load finish synchronously before anyone could observe it.
+    /// </summary>
+    internal Task LoadPageAsync(int pageIndex)
+    {
+        lock (_pageLoadLock)
+        {
+            if (_pageLoadTasks.TryGetValue(pageIndex, out var inFlight)) return inFlight;
+            var task = LoadPageCoreAsync(pageIndex);
+            if (!task.IsCompleted) _pageLoadTasks[pageIndex] = task;
+            return task;
+        }
+    }
+
+    private readonly object _pageLoadLock = new();
+    private readonly Dictionary<int, Task> _pageLoadTasks = new();
+
+    private async Task LoadPageCoreAsync(int pageIndex)
+    {
+        try
+        {
+            await LoadPageBodyAsync(pageIndex);
+        }
+        finally
+        {
+            lock (_pageLoadLock) _pageLoadTasks.Remove(pageIndex);
+        }
+    }
+
+    private async Task LoadPageBodyAsync(int pageIndex)
     {
         if (_pendingPages.Contains(pageIndex) || _pages.ContainsKey(pageIndex)) return;
         
@@ -250,9 +619,45 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             
             if (itemsToLoad <= 0) return;
             
-            var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending);
-            var viewModels = tracks.Select(t => new PlaylistTrackViewModel(t, _eventBus, _libraryService, _artworkCache)).ToList();
-            
+            var pageSw = System.Diagnostics.Stopwatch.StartNew();
+            var callerIsUi = Dispatcher.UIThread.CheckAccess();
+            // Task.Run: Sqlite's "async" queries run synchronously on the calling thread, and this is
+            // usually called from the indexer during Avalonia's layout pass (UI thread) — so without
+            // it every page load froze the UI for the whole query, and for up to the 10s busy
+            // timeout whenever a download/analysis/maintenance write held the DB lock. The await
+            // resumes on the caller's context, so the non-thread-safe bookkeeping below stays put.
+            List<PlaylistTrack> tracks;
+            try
+            {
+                tracks = await Task.Run(() => _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending, _qualityTier));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[VirtualizedTrackCollection] Page fetch at {Start} failed", startIndex);
+                ReportQueryOutcome(ex.Message);
+                tracks = new List<PlaylistTrack>();
+            }
+            if (tracks.Count == 0) ReportQueryOutcome(_libraryService.LastTrackQueryError);
+            var fetchMs = pageSw.ElapsedMilliseconds;
+            var viewModels = tracks.Select(CreateOrReuse).ToList();
+            _logger.LogDebug("[PERF] VTC page load at {Start}: fetch {FetchMs}ms, build {Count} VMs {BuildMs}ms (caller ui={CallerUi}, after fetch ui={AfterUi})",
+                startIndex, fetchMs, viewModels.Count, pageSw.ElapsedMilliseconds - fetchMs, callerIsUi, Dispatcher.UIThread.CheckAccess());
+            foreach (var vm in viewModels) _viewModelCache[vm.GlobalId] = vm;
+
+            // Short page: the rows the placeholders stand for may never arrive. Resolve that now
+            // (shrink, or an error state) instead of leaving "Loading…" rows up forever.
+            if (viewModels.Count < itemsToLoad)
+                await ReconcileShortPageAsync(startIndex, viewModels.Count);
+
+            // A stale/mismatched _count (e.g. a count query and its paired data query
+            // disagreeing on how many rows match the active filter) can make this legitimately
+            // come back empty even though a page was requested. Nothing was loaded, so there's
+            // nothing to notify — critically, do NOT fall through to a Replace notification with
+            // zero old/new items below: Avalonia's ItemsRepeater throws NotSupportedException for
+            // that ("Replace ... OldItemsCount value of 0 ... Use Insert instead"), which is
+            // unhandled on the dispatcher thread and takes down the whole app.
+            if (viewModels.Count == 0) return;
+
             // Ensure _loadedItems has enough capacity
             while (_loadedItems.Count < startIndex + viewModels.Count)
             {
@@ -268,7 +673,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             // Store in pages for cache management
             var pageInfo = new PageInfo { Items = viewModels, LastAccess = DateTime.Now };
             _pages[pageIndex] = pageInfo;
-            
+
             // Defer the notification so it never fires mid-layout.
             // Avalonia's ItemsRepeater calls get_Item during its layout pass, which
             // triggers LoadPageAsync.  Raising CollectionChanged synchronously here
@@ -277,10 +682,68 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             var changeArgs = new NotifyCollectionChangedEventArgs(
                 NotifyCollectionChangedAction.Replace, viewModels, viewModels, startIndex);
             Dispatcher.UIThread.Post(() => CollectionChanged?.Invoke(this, changeArgs));
+
+            EvictLeastRecentlyUsedPagesIfNeeded();
         }
         finally
         {
             _pendingPages.Remove(pageIndex);
+        }
+    }
+
+    /// <summary>
+    /// Releases the least-recently-accessed loaded pages once residency exceeds
+    /// <see cref="MaxLoadedPages"/>, so a long scroll session over a large library doesn't keep
+    /// every row's PlaylistTrackViewModel (and its decoded artwork) resident for the collection's
+    /// whole lifetime. A page is skipped — left resident — if any of its rows are currently
+    /// selected, so a selected-then-scrolled-away row never silently reverts to a loading
+    /// placeholder out from under the user's selection.
+    /// </summary>
+    private void EvictLeastRecentlyUsedPagesIfNeeded()
+    {
+        if (_pages.Count <= MaxLoadedPages) return;
+
+        var overflow = _pages.Count - MaxLoadedPages;
+        var evictionCandidates = _pages
+            .OrderBy(p => p.Value.LastAccess)
+            .Where(p => !p.Value.Items.Any(vm => vm.IsSelected))
+            .Take(overflow)
+            .Select(p => p.Key)
+            .ToList();
+
+        if (evictionCandidates.Count == 0) return;
+
+        foreach (var pageIndex in evictionCandidates)
+        {
+            if (!_pages.TryGetValue(pageIndex, out var pageInfo)) continue;
+
+            var startIndex = pageIndex * _pageSize;
+            var placeholders = new List<PlaylistTrackViewModel>(pageInfo.Items.Count);
+
+            for (int i = 0; i < pageInfo.Items.Count; i++)
+            {
+                var loadedIndex = startIndex + i;
+                if (loadedIndex >= _loadedItems.Count) break;
+
+                _viewModelCache.TryRemove(pageInfo.Items[i].GlobalId, out _);
+                pageInfo.Items[i].Dispose();
+                _loadedItems[loadedIndex] = null!;
+                placeholders.Add(PlaylistTrackViewModel.Placeholder);
+            }
+
+            _pages.Remove(pageIndex);
+
+            if (placeholders.Count == 0) continue;
+
+            // One notification per page — each page's own items are a contiguous run, unlike
+            // the set of evicted pages as a whole (LRU order has no reason to be page-adjacent),
+            // and NotifyCollectionChangedEventArgs' Replace constructor only represents a single
+            // contiguous range. Same deferred-notification reasoning as the load path above —
+            // never raise CollectionChanged synchronously from inside a call that can originate
+            // from the indexer during ItemsRepeater's layout pass.
+            var changeArgs = new NotifyCollectionChangedEventArgs(
+                NotifyCollectionChangedAction.Replace, placeholders, placeholders, startIndex);
+            Dispatcher.UIThread.Post(() => CollectionChanged?.Invoke(this, changeArgs));
         }
     }
 
@@ -296,8 +759,20 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
 
         try
         {
-            var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending);
-            var viewModels = tracks.Select(t => new PlaylistTrackViewModel(t, _eventBus, _libraryService, _artworkCache)).ToList();
+            var pageSw = System.Diagnostics.Stopwatch.StartNew();
+            var callerIsUi = Dispatcher.UIThread.CheckAccess();
+            // Task.Run: Sqlite's "async" queries run synchronously on the calling thread, and this is
+            // usually called from the indexer during Avalonia's layout pass (UI thread) — so without
+            // it every page load froze the UI for the whole query, and for up to the 10s busy
+            // timeout whenever a download/analysis/maintenance write held the DB lock. The await
+            // resumes on the caller's context, so the non-thread-safe bookkeeping below stays put.
+            var tracks = await Task.Run(() => _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending, _qualityTier));
+            if (tracks.Count == 0) ReportQueryOutcome(_libraryService.LastTrackQueryError);
+            var fetchMs = pageSw.ElapsedMilliseconds;
+            var viewModels = tracks.Select(CreateOrReuse).ToList();
+            _logger.LogDebug("[PERF] VTC page load at {Start}: fetch {FetchMs}ms, build {Count} VMs {BuildMs}ms (caller ui={CallerUi}, after fetch ui={AfterUi})",
+                startIndex, fetchMs, viewModels.Count, pageSw.ElapsedMilliseconds - fetchMs, callerIsUi, Dispatcher.UIThread.CheckAccess());
+            foreach (var vm in viewModels) _viewModelCache[vm.GlobalId] = vm;
 
             _loadedItems.AddRange(viewModels);
 
@@ -309,6 +784,8 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
                 NotifyCollectionChangedAction.Add, viewModels, startIndex);
             Dispatcher.UIThread.Post(() => CollectionChanged?.Invoke(this, changeArgs));
 
+            EvictLeastRecentlyUsedPagesIfNeeded();
+
             return viewModels.Count;
         }
         finally
@@ -319,8 +796,16 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
 
     public void Dispose()
     {
+        _disposed = true;
         _disposables.Dispose();
-        foreach (var item in _loadedItems) item.Dispose();
+        foreach (var vm in _retained.Values) vm.Dispose();
+        _retained.Clear();
+        _dirtyRows.Clear();
+        // Null entries are expected here: LoadPageAsync's capacity-padding loop can leave
+        // not-yet-loaded slots as null, and eviction (EvictLeastRecentlyUsedPagesIfNeeded) nulls
+        // out and disposes slots for pages it releases — both pre-date whether Dispose() happens
+        // to run before every slot is filled.
+        foreach (var item in _loadedItems) item?.Dispose();
         _loadedItems.Clear();
         foreach (var page in _pages.Values)
         {

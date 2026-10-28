@@ -13,11 +13,55 @@ namespace SLSKDONET.Views.Avalonia
         private WindowState _preFullScreenWindowState = WindowState.Normal;
         private SystemDecorations _preFullScreenDecorations = SystemDecorations.Full;
 
+        // Context panel resize grip: dragging left widens the panel (it sits on the right). The
+        // grip moves with the panel's edge, so each delta is relative to where it is now.
+        private void OnContextPanelResizeDelta(object? sender, global::Avalonia.Input.VectorEventArgs e)
+        {
+            // MainViewModel clamps to the window (FitContextPanelWidth), so the drag can't exceed it.
+            if (DataContext is MainViewModel vm)
+                vm.ContextPanelWidth = vm.ContextPanelWidth - e.Vector.X;
+        }
+
+        private void OnContextPanelResizeCompleted(object? sender, global::Avalonia.Input.VectorEventArgs e)
+        {
+            if (DataContext is MainViewModel vm) vm.SaveContextPanelWidth();
+        }
+
+        // A toast that leads somewhere opens it on click (the ✕ button handles its own tap).
+        private void OnToastTapped(object? sender, global::Avalonia.Input.TappedEventArgs e)
+        {
+            if (e.Handled || sender is not Control { DataContext: SLSKDONET.ViewModels.ToastNotificationViewModel toast } || !toast.IsClickable) return;
+            if (e.Source is global::Avalonia.Visual v && FindAncestor<Button>(v) != null) return;
+            if (DataContext is MainViewModel vm) vm.OpenToast(toast);
+            e.Handled = true;
+        }
+
+        private static T? FindAncestor<T>(global::Avalonia.Visual? v) where T : class
+        {
+            for (; v != null; v = global::Avalonia.VisualTree.VisualExtensions.GetVisualParent(v))
+                if (v is T t) return t;
+            return null;
+        }
+
+        private SLSKDONET.Services.Entertainment.IAmbientModeService? _ambientModeService;
+        private DateTime _lastActivityReportUtc = DateTime.MinValue;
+
+        private void ReportUserActivity()
+        {
+            var now = DateTime.UtcNow;
+            if ((now - _lastActivityReportUtc).TotalSeconds < 1) return; // pointer moves fire constantly
+            _lastActivityReportUtc = now;
+            _ambientModeService ??= (App.Current as App)?.Services?.GetService(typeof(SLSKDONET.Services.Entertainment.IAmbientModeService))
+                as SLSKDONET.Services.Entertainment.IAmbientModeService;
+            _ambientModeService?.NotifyUserActivity();
+        }
+
         public MainWindow()
         {
             InitializeComponent();
 #if DEBUG
-            this.AttachDevTools();
+            // Not F12: that is ORBIT's perf-overlay shortcut (DevTools on F12 opened both at once).
+            this.AttachDevTools(new global::Avalonia.Input.KeyGesture(global::Avalonia.Input.Key.F12, global::Avalonia.Input.KeyModifiers.Control | global::Avalonia.Input.KeyModifiers.Shift));
 #endif
 
             // Get config from DataContext (MainViewModel will set it)
@@ -29,6 +73,12 @@ namespace SLSKDONET.Views.Avalonia
 
             // Global Keyboard Shortcuts
             this.KeyDown += OnKeyDown;
+
+            // Feed user activity to Ambient Mode's idle timer (it was never told, so it always
+            // thought the user was idle and kept flipping the visualizer back to Ambient).
+            AddHandler(global::Avalonia.Input.InputElement.PointerMovedEvent, (_, _) => ReportUserActivity(), global::Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+            AddHandler(global::Avalonia.Input.InputElement.PointerPressedEvent, (_, _) => ReportUserActivity(), global::Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+            AddHandler(global::Avalonia.Input.InputElement.KeyDownEvent, (_, _) => ReportUserActivity(), global::Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
 
             this.DataContextChanged += (_, _) =>
             {
@@ -44,6 +94,16 @@ namespace SLSKDONET.Views.Avalonia
         {
             if (e.PropertyName == nameof(MainViewModel.IsZenMode) && sender is MainViewModel vm)
                 OnZenModeChanged(vm.IsZenMode);
+
+            if (e.PropertyName == nameof(MainViewModel.IsPerformanceOverlayVisible) && sender is MainViewModel mvm)
+            {
+                // Avalonia's own live FPS overlay (real compositor frame timing, not a hand-rolled
+                // counter) — RendererDiagnostics is a Window/TopLevel-level rendering API, so it's
+                // set here in the View rather than plumbing a Window reference into the ViewModel.
+                RendererDiagnostics.DebugOverlays = mvm.IsPerformanceOverlayVisible
+                    ? global::Avalonia.Rendering.RendererDebugOverlays.Fps
+                    : global::Avalonia.Rendering.RendererDebugOverlays.None;
+            }
         }
 
         /// <summary>
@@ -156,7 +216,8 @@ namespace SLSKDONET.Views.Avalonia
             if (e.Property == BoundsProperty && DataContext is MainViewModel vm)
             {
                 var width = Bounds.Width;
-                
+                vm.WindowWidth = width; // the context panel's max width follows the window
+
                 // Auto-collapse navigation below 800px
                 if (width < 800 && !vm.IsNavigationCollapsed)
                     vm.IsNavigationCollapsed = true;
@@ -180,24 +241,6 @@ namespace SLSKDONET.Views.Avalonia
                     if (vm.IsOverlaysPanelOpen) vm.IsOverlaysPanelOpen = false;
                 }
             }
-        }
-
-        // Tray Icon Event Handlers
-        private void ShowWindow_Click(object? sender, EventArgs e)
-        {
-            Show();
-            WindowState = WindowState.Normal;
-            Activate();
-        }
-
-        private void HideWindow_Click(object? sender, EventArgs e)
-        {
-            Hide();
-        }
-
-        private void Exit_Click(object? sender, EventArgs e)
-        {
-            Close();
         }
 
         private void OnWindowOpened(object? sender, EventArgs e)
@@ -241,6 +284,47 @@ namespace SLSKDONET.Views.Avalonia
 
         private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
+            // Closing the window (X button, Alt+F4, taskbar close) hides to the tray instead of
+            // exiting, so the download engine keeps running unattended in the background — only
+            // the tray's "Quit ORBIT" shuts the app down. Settings → Advanced → "Close button
+            // minimises to tray" turns this off, and it is never done without a working tray
+            // icon (the window would be unreachable).
+            if (App.Current is App exitCheckApp && !exitCheckApp.IsExitRequested)
+            {
+                var tray = exitCheckApp.Services?.GetService(typeof(SLSKDONET.Services.Shell.TrayIconController))
+                    as SLSKDONET.Services.Shell.TrayIconController;
+
+                if (tray is { ShouldHideOnClose: true })
+                {
+                    e.Cancel = true;
+                    Hide();
+
+                    if (tray.TryClaimCloseHint())
+                    {
+                        try
+                        {
+                            if (exitCheckApp.Services?.GetService(typeof(SLSKDONET.Services.WindowsToastService))
+                                is SLSKDONET.Services.WindowsToastService toastService)
+                            {
+                                toastService.ShowIfUnfocused(
+                                    "ORBIT is still running",
+                                    "Downloads continue in the background. Click the tray icon to reopen ORBIT, or right-click it to quit. Change this in Settings, Advanced.");
+                            }
+                        }
+                        catch (Exception toastEx)
+                        {
+                            // Courtesy hint only; never worth failing the close over.
+                            Serilog.Log.Debug(toastEx, "Close-to-tray hint toast failed");
+                        }
+                    }
+
+                    return;
+                }
+
+                // Real quit (setting off, or no tray icon this session).
+                exitCheckApp.IsExitRequested = true;
+            }
+
             // Save window state
             if (App.Current is App app && app.Services != null)
             {

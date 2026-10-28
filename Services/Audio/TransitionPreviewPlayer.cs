@@ -19,7 +19,29 @@ namespace SLSKDONET.Services.Audio
             string trackBTitle, string trackBFilePath,
             double overlapSeconds, CancellationToken ct = default);
 
+        /// <summary>
+        /// Preset-aware, analysis-driven preview — routes through the real TransitionDsp chain
+        /// (instead of a fixed triangular crossfade), starting each track at its own suggested or
+        /// saved trigger point rather than "near the literal end of A / literal start of B". See
+        /// <see cref="ISurgicalProcessingService"/>'s TransitionModel overload.
+        /// </summary>
+        Task StartTransitionPreviewAsync(
+            string trackATitle, string trackAFilePath, double sourceTriggerSeconds,
+            string trackBTitle, string trackBFilePath, double targetTriggerSeconds,
+            SLSKDONET.Models.Timeline.TransitionModel model, double projectBpm,
+            CancellationToken ct = default,
+            double leadInSeconds = 0, double tailSeconds = 0);
+
         void StopPreview();
+
+        /// <summary>Playback position within the rendered preview, or null when nothing is playing.</summary>
+        TimeSpan? PreviewPosition { get; }
+
+        /// <summary>Length of the rendered preview, or null when nothing is loaded.</summary>
+        TimeSpan? PreviewLength { get; }
+
+        /// <summary>Scrubs within the rendered preview (a WAV, so the seek is exact).</summary>
+        void SeekPreview(TimeSpan position);
     }
 
     /// <summary>
@@ -44,10 +66,13 @@ namespace SLSKDONET.Services.Audio
 
         public event EventHandler? PreviewStopped;
 
-        public TransitionPreviewPlayer(ILogger<TransitionPreviewPlayer> logger, ISurgicalProcessingService surgicalService)
+        private readonly SLSKDONET.Configuration.AppConfig? _config;
+
+        public TransitionPreviewPlayer(ILogger<TransitionPreviewPlayer> logger, ISurgicalProcessingService surgicalService, SLSKDONET.Configuration.AppConfig? config = null)
         {
             _logger = logger;
             _surgicalService = surgicalService;
+            _config = config;
         }
 
         public async Task StartTransitionPreviewAsync(
@@ -64,14 +89,46 @@ namespace SLSKDONET.Services.Audio
                 trackBFilePath, overlapSeconds,
                 overlapSeconds, ct).ConfigureAwait(false);
 
+            await PlayRenderedPreviewAsync(previewPath, ct).ConfigureAwait(false);
+        }
+
+        public async Task StartTransitionPreviewAsync(
+            string trackATitle, string trackAFilePath, double sourceTriggerSeconds,
+            string trackBTitle, string trackBFilePath, double targetTriggerSeconds,
+            SLSKDONET.Models.Timeline.TransitionModel model, double projectBpm,
+            CancellationToken ct = default,
+            double leadInSeconds = 0, double tailSeconds = 0)
+        {
+            _logger.LogInformation("🎧 Starting preset-aware Transition Preview: {TrackA} -> {TrackB} ({Preset}), A@{SourceT}s B@{TargetT}s",
+                trackATitle, trackBTitle, model.Type, sourceTriggerSeconds, targetTriggerSeconds);
+
+            string previewPath = await _surgicalService.RenderTransitionPreviewAsync(
+                trackAFilePath, sourceTriggerSeconds, trackBFilePath, targetTriggerSeconds, model, projectBpm, ct, leadInSeconds, tailSeconds).ConfigureAwait(false);
+
+            await PlayRenderedPreviewAsync(previewPath, ct).ConfigureAwait(false);
+        }
+
+        private async Task PlayRenderedPreviewAsync(string previewPath, CancellationToken ct)
+        {
             await _gate.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                DisposePlaybackResources(deleteRenderedFile: true);
+                DisposePlaybackResources(deleteRenderedFile: true, stopOutput: true);
 
                 _reader = new AudioFileReader(previewPath);
-                _output = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
-                _output.Init(_reader);
+                // The Settings output device (shared mode), not always the Windows default.
+                try
+                {
+                    _output = AudioOutputProvider.CreatePreviewDevice(_config?.AudioOutputMode, _config?.AudioOutputDeviceName);
+                    _output.Init(_reader);
+                }
+                catch (Exception ex)
+                {
+                    _output?.Dispose();
+                    _logger.LogWarning(ex, "Transition preview: could not open output device {Device}; using the Windows default", _config?.AudioOutputDeviceName ?? "(default)");
+                    _output = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
+                    _output.Init(_reader);
+                }
                 _output.PlaybackStopped += OnPlaybackStopped;
                 _output.Play();
                 _renderedTempPath = previewPath;
@@ -82,19 +139,67 @@ namespace SLSKDONET.Services.Audio
             }
         }
 
+        public TimeSpan? PreviewPosition
+        {
+            get
+            {
+                var reader = _reader;
+                if (reader == null) return null;
+                try { return reader.CurrentTime; }
+                catch (ObjectDisposedException) { return null; }
+            }
+        }
+
+        public TimeSpan? PreviewLength
+        {
+            get
+            {
+                var reader = _reader;
+                if (reader == null) return null;
+                try { return reader.TotalTime; }
+                catch (ObjectDisposedException) { return null; }
+            }
+        }
+
+        public void SeekPreview(TimeSpan position)
+        {
+            var reader = _reader;
+            if (reader == null) return;
+            try
+            {
+                var clamped = TimeSpan.FromSeconds(Math.Clamp(position.TotalSeconds, 0, Math.Max(0, reader.TotalTime.TotalSeconds - 0.05)));
+                reader.CurrentTime = clamped; // rendered preview is a WAV: CurrentTime is exact
+            }
+            catch (ObjectDisposedException ex)
+            {
+                _logger.LogDebug(ex, "Transition preview: seek after the preview ended");
+            }
+        }
+
         public void StopPreview()
         {
             _logger.LogInformation("⏹️ Stopping Transition Preview");
-            _gate.Wait();
-            try
+            // Runs off the calling thread — StopPreview is invoked directly from
+            // MixTransitionViewModel.PauseCommand on the UI thread, and WasapiOut.Stop() blocks
+            // until its internal audio-render thread acknowledges the stop. If that thread was
+            // *already* mid-shutdown (natural end-of-file racing the user's Pause click) and
+            // OnPlaybackStopped below was holding _gate at that exact moment, the UI thread's
+            // synchronous _gate.Wait() froze the whole app waiting for a gate release that could
+            // itself be waiting on a NAudio thread transition. Task.Run keeps any blocking here
+            // off the UI thread entirely, whichever side wins the race.
+            Task.Run(() =>
             {
-                DisposePlaybackResources(deleteRenderedFile: true);
-            }
-            finally
-            {
-                _gate.Release();
-            }
-            PreviewStopped?.Invoke(this, EventArgs.Empty);
+                _gate.Wait();
+                try
+                {
+                    DisposePlaybackResources(deleteRenderedFile: true, stopOutput: true);
+                }
+                finally
+                {
+                    _gate.Release();
+                }
+                PreviewStopped?.Invoke(this, EventArgs.Empty);
+            });
         }
 
         private void OnPlaybackStopped(object? sender, StoppedEventArgs e)
@@ -105,7 +210,11 @@ namespace SLSKDONET.Services.Audio
             _gate.Wait();
             try
             {
-                DisposePlaybackResources(deleteRenderedFile: true);
+                // stopOutput: false — playback has already stopped (that's why this event fired),
+                // and this callback can itself run on WasapiOut's own audio-render thread. Calling
+                // Stop() again here would make that thread join itself and hang forever; Dispose()
+                // alone is enough to release the device.
+                DisposePlaybackResources(deleteRenderedFile: true, stopOutput: false);
             }
             finally
             {
@@ -114,9 +223,12 @@ namespace SLSKDONET.Services.Audio
             PreviewStopped?.Invoke(this, EventArgs.Empty);
         }
 
-        private void DisposePlaybackResources(bool deleteRenderedFile)
+        private void DisposePlaybackResources(bool deleteRenderedFile, bool stopOutput)
         {
-            try { _output?.Stop(); } catch { /* already stopped/disposed */ }
+            if (stopOutput)
+            {
+                try { _output?.Stop(); } catch { /* already stopped/disposed */ }
+            }
             try { _output?.Dispose(); } catch { }
             try { _reader?.Dispose(); } catch { }
             _output = null;
@@ -135,7 +247,7 @@ namespace SLSKDONET.Services.Audio
             _gate.Wait();
             try
             {
-                DisposePlaybackResources(deleteRenderedFile: true);
+                DisposePlaybackResources(deleteRenderedFile: true, stopOutput: true);
             }
             finally
             {

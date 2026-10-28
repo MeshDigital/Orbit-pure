@@ -29,22 +29,19 @@ public class SecurityAuditEntryViewModel
     // ─── Display helpers ────────────────────────────────────
     public string TimeLabel    => Timestamp.ToString("HH:mm:ss");
 
-    public string CategoryIcon => Category switch
+    public string CategoryLabel => Category switch
     {
-        SecurityAuditCategory.Shield      => "🛡",
-        SecurityAuditCategory.Gate        => "🚧",
-        SecurityAuditCategory.ForensicLab => "🔬",
-        SecurityAuditCategory.Blacklist   => "🚫",
-        SecurityAuditCategory.Integrity   => "🔐",
-        _                                 => "ℹ",
+        SecurityAuditCategory.Shield      => "Shield",
+        SecurityAuditCategory.Gate        => "Gate",
+        SecurityAuditCategory.ForensicLab => "Forensic Lab",
+        SecurityAuditCategory.Blacklist   => "Blacklist",
+        SecurityAuditCategory.Integrity   => "Integrity",
+        _                                 => "Info",
     };
 
-    public string SeverityColor => Severity switch
-    {
-        SecurityAuditSeverity.Block => "#F44336",  // red
-        SecurityAuditSeverity.Warn  => "#FFA500",  // amber
-        _                           => "#4EC9B0",  // teal-green (info)
-    };
+    // Severity drives semantic text classes in the view (TextBlock.warning / .error).
+    public bool IsBlock => Severity == SecurityAuditSeverity.Block;
+    public bool IsWarn  => Severity == SecurityAuditSeverity.Warn;
 
     public string SeverityLabel => Severity switch
     {

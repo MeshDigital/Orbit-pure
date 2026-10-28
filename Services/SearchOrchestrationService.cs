@@ -23,10 +23,7 @@ namespace SLSKDONET.Services;
 /// </summary>
 public class SearchOrchestrationService
 {
-    private static readonly HashSet<string> LosslessFormats = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "flac", "wav", "aif", "aiff", "ape", "alac"
-    };
+    private static IReadOnlySet<string> LosslessFormats => SLSKDONET.Services.Audio.AudioFormats.LosslessTokenSet;
 
     private static readonly string[] StrictLosslessNegativeTokens =
     {
@@ -43,6 +40,7 @@ public class SearchOrchestrationService
     
     private readonly ILibraryService _libraryService;
     private readonly IEventBus _eventBus;
+    private readonly EngineDiagnosticsService _diagnostics;
 
     // Set when server sends a ban global message; checked before each search.
     private DateTime _searchBanUntilUtc = DateTime.MinValue;
@@ -57,7 +55,8 @@ public class SearchOrchestrationService
         AppConfig config,
         Network.ProtocolHardeningService hardeningService,
         ILibraryService libraryService,
-        IEventBus eventBus)
+        IEventBus eventBus,
+        EngineDiagnosticsService diagnostics)
     {
         _logger = logger;
         _soulseek = soulseek;
@@ -68,6 +67,7 @@ public class SearchOrchestrationService
         _config = config;
         _libraryService = libraryService;
         _eventBus = eventBus;
+        _diagnostics = diagnostics;
 
         _banSub = _eventBus.GetEvent<SearchBanDetectedEvent>().Subscribe(e =>
         {
@@ -370,8 +370,7 @@ public class SearchOrchestrationService
             return false;
         }
 
-        var isLossless = ext is "flac" or "wav" or "aif" or "aiff" or "ape" or "alac" ||
-                         format is "flac" or "wav" or "aif" or "aiff" or "ape" or "alac";
+        var isLossless = SLSKDONET.Services.Audio.AudioFormats.IsLossless(ext) || SLSKDONET.Services.Audio.AudioFormats.IsLossless(format);
 
         var effectiveMinBitrate = Math.Max(minBitrate, ScoringConstants.Availability.FastLaneMinBitrate);
         return isLossless || track.Bitrate >= effectiveMinBitrate;
@@ -408,16 +407,21 @@ public class SearchOrchestrationService
                                    formatFilter.Any(IsLosslessFormat) &&
                                    !formatFilter.Contains("mp3", StringComparer.OrdinalIgnoreCase);
 
+        // Upper bounds raised from 20 to 30: with SearchTimeout now 20s (was 12s) to give distant/
+        // slower peers real time to answer, the non-desperate lane's floor (searchTimeoutSeconds +
+        // 2) could already reach 22 — above the old 20 cap, which made Math.Clamp throw outright.
+        // AccumulatorShortCircuit still exits early the moment a good candidate arrives, so this
+        // only extends the worst-case wait for genuinely scarce tracks, not the common case.
         var brainBufferSeconds = lane == SearchQueryLane.Desperate
-            ? Math.Clamp(_config.SearchAccumulatorWindowSeconds, 5, 20)  // was 30 cap — AccumulatorShortCircuit exits early for good tracks
-            : Math.Clamp(_config.MinSearchDurationSeconds, searchTimeoutSeconds + 2, 20); // was +4/30 — +2s overhead is sufficient; AccumulatorShortCircuit handles fast exits
+            ? Math.Clamp(_config.SearchAccumulatorWindowSeconds, 5, 30)
+            : Math.Clamp(_config.MinSearchDurationSeconds, searchTimeoutSeconds + 2, 30);
 
         if (isLosslessOnlyIntent)
         {
             brainBufferSeconds = Math.Clamp(
                 Math.Max(brainBufferSeconds, _config.MinLosslessSearchDurationSeconds),
-                10,  // was 20 — AccumulatorShortCircuit handles immediate golden exits; 10s fallback for sparse tracks
-                20); // was 30 — tighter cap reduces worst-case latency for truly obscure tracks
+                10,
+                30);
         }
 
         var brainWinnerCount = lane == SearchQueryLane.Desperate
@@ -432,6 +436,13 @@ public class SearchOrchestrationService
         if (progressiveYield && lane != SearchQueryLane.Desperate)
         {
             var allowLossy = maxBitrate > 0 || System.Linq.Enumerable.Contains(formatFilter, "mp3", StringComparer.OrdinalIgnoreCase);
+            // Progressive lanes stream/yield immediately rather than buffering then ranking, so
+            // there's no final winner list to build the buffered path's full SearchSelectionAudit
+            // from (see LogSelectionAudit below) — this was a real audit gap (every progressive
+            // search was invisible to engine diagnostics). Track just the count/outcome here; the
+            // per-candidate score detail progressive lanes lack is exactly what Part 3's structured
+            // diagnostics table is for.
+            var progressiveCandidateCount = 0;
             await foreach (var track in _soulseek.StreamResultsAsync(
                 networkQuery,
                 formatFilter,
@@ -442,6 +453,7 @@ public class SearchOrchestrationService
             {
                 _safetyFilter.EvaluateSafety(track, normalizedQuery, allowLossy, _config?.SearchPolicy);
                 ScoreSingleTrack(track, target, normalizedQuery, formatFilter, minBitrate, maxBitrate);
+                progressiveCandidateCount++;
                 yield return track;
 
                 if (_config.EnableAccumulatorPerfectMatchShortCircuit && IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
@@ -450,9 +462,22 @@ public class SearchOrchestrationService
                         "Search accumulator short-circuit: found ideal candidate for '{Query}' from {User}.",
                         normalizedQuery,
                         track.Username ?? "Unknown");
+                    _logger.LogInformation(
+                        "[SEARCH_AUDIT] Query='{Query}' NetworkQuery='{NetworkQuery}' Lane={Lane} Progressive=true Candidates={Count} Outcome=ShortCircuit",
+                        normalizedQuery, networkQuery, lane, progressiveCandidateCount);
+                    var fireAndForgetShortCircuit = _diagnostics.LogSearchResolvedAsync(
+                        trackHash: null, normalizedQuery, $"{progressiveCandidateCount} candidate(s) — short-circuit match",
+                        details: new { networkQuery, lane = lane.ToString(), progressive = true, progressiveCandidateCount, outcome = "ShortCircuit" });
                     yield break;
                 }
             }
+
+            _logger.LogInformation(
+                "[SEARCH_AUDIT] Query='{Query}' NetworkQuery='{NetworkQuery}' Lane={Lane} Progressive=true Candidates={Count} Outcome=Exhausted",
+                normalizedQuery, networkQuery, lane, progressiveCandidateCount);
+            var fireAndForgetExhausted = _diagnostics.LogSearchResolvedAsync(
+                trackHash: null, normalizedQuery, $"{progressiveCandidateCount} candidate(s) — {(progressiveCandidateCount == 0 ? "no results" : "exhausted, no short-circuit")}",
+                details: new { networkQuery, lane = lane.ToString(), progressive = true, progressiveCandidateCount, outcome = "Exhausted" });
             yield break;
         }
 
@@ -727,7 +752,7 @@ public class SearchOrchestrationService
                     hasFreeUploadSlot: track.HasFreeUploadSlot);
                 EnsureBlendTelemetryMetadata(track, baseMatchScore, fitScore, 0.5, finalScore);
                 var existingBreakdown = track.ScoreBreakdown;
-                var blendBreakdown = $"Blend: Match={baseMatchScore:F1}, Fit={fitScore:F1}, Rel=0.50, Queue={track.QueueLength}, FreeSlot={track.HasFreeUploadSlot}, Final={finalScore:F1}";
+                var blendBreakdown = NumFormat.Ui($"Blend: Match={baseMatchScore:F1}, Fit={fitScore:F1}, Rel=0.50, Queue={track.QueueLength}, FreeSlot={track.HasFreeUploadSlot}, Final={finalScore:F1}");
                 track.ScoreBreakdown = string.IsNullOrWhiteSpace(existingBreakdown)
                     ? blendBreakdown
                     : $"{existingBreakdown}; {blendBreakdown}";
@@ -876,56 +901,12 @@ public class SearchOrchestrationService
 
         _logger.LogDebug("[SEARCH_AUDIT] Candidates {Payload}", JsonSerializer.Serialize(audit.Candidates));
         _logger.LogDebug("[SEARCH_AUDIT] Winners {Payload}", JsonSerializer.Serialize(audit.Winners));
+
+        var summary = $"{audit.CandidateCount} candidate(s), {audit.WinnerCount} winner(s)" + (audit.WinnerCount == 0 ? " — no match" : "");
+        var fireAndForget = _diagnostics.LogSearchResolvedAsync(
+            trackHash: null, audit.Query, summary,
+            details: new { audit.NetworkQuery, audit.CandidateCount, audit.WinnerCount, audit.BufferSeconds, audit.Candidates, audit.Winners });
     }
     
 
-    private List<AlbumSearchResult> GroupResultsByAlbum(List<Track> tracks)
-    {
-        _logger.LogInformation("Grouping {Count} tracks into albums", tracks.Count);
-        
-        // Group by Album + Artist
-        var grouped = tracks
-            .Where(t => !string.IsNullOrEmpty(t.Album))
-            .GroupBy(t => new { t.Album, t.Artist })
-            .Select(g => new AlbumSearchResult
-            {
-                Album = g.Key.Album ?? "Unknown Album",
-                Artist = g.Key.Artist ?? "Unknown Artist",
-                TrackCount = g.Count(),
-                Tracks = g.ToList(),
-                // Use the highest bitrate track's info for album metadata
-                AverageBitrate = (int)g.Average(t => t.Bitrate),
-                Format = g.OrderByDescending(t => t.Bitrate).First().Format
-            })
-            .OrderByDescending(a => a.TrackCount)
-            .ThenByDescending(a => a.AverageBitrate)
-            .ToList();
-        
-        _logger.LogInformation("Grouped into {Count} albums", grouped.Count);
-        return grouped;
-    }
-}
-
-/// <summary>
-/// Result of a search operation.
-/// </summary>
-public class SearchResult
-{
-    public int TotalCount { get; set; }
-    public List<Track> Tracks { get; set; } = new();
-    public List<AlbumSearchResult> Albums { get; set; } = new();
-    public bool IsAlbumSearch { get; set; }
-}
-
-/// <summary>
-/// Represents an album in search results.
-/// </summary>
-public class AlbumSearchResult
-{
-    public string Album { get; set; } = string.Empty;
-    public string Artist { get; set; } = string.Empty;
-    public int TrackCount { get; set; }
-    public int AverageBitrate { get; set; }
-    public string? Format { get; set; }
-    public List<Track> Tracks { get; set; } = new();
 }

@@ -685,7 +685,12 @@ public class SpotifyScraperInputSource
                 Title = title,
                 Album = album ?? "Unknown",
                 SourceTitle = sourceTitle,
-                TrackHash = $"{artist}|{title}".ToLowerInvariant()
+                // TrackHashUtil.Compute is the canonical "artist-title" identity used across the
+                // rest of the library (Models.Track.UniqueHash and now SpotifyInputSource) — this
+                // used to be a locally-invented "artist|title" variant that was incompatible with
+                // it, which meant a track scraped here could never be recognized as already
+                // present when synced again, and got silently re-added as a duplicate every time.
+                TrackHash = SLSKDONET.Utils.TrackHashUtil.Compute(artist, title)
             };
         }
         catch (Exception ex)

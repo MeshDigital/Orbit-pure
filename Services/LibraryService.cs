@@ -27,23 +27,34 @@ public class LibraryService : ILibraryService
     private readonly AppConfig _appConfig;
     private readonly IEventBus _eventBus;
     private readonly LibraryCacheService _cache; // Session 1: Performance cache
+    private readonly EngineDiagnosticsService? _diagnostics;
+    private readonly AudioAnalysis.TrackFingerprintStore? _fingerprintStore;
 
     // Events now published via IEventBus (ProjectDeletedEvent, ProjectUpdatedEvent)
+
+    private volatile string? _lastTrackQueryError;
+
+    /// <inheritdoc />
+    public string? LastTrackQueryError => _lastTrackQueryError;
 
 
 
     public LibraryService(
-        ILogger<LibraryService> logger, 
-        DatabaseService databaseService, 
-        AppConfig appConfig, 
+        ILogger<LibraryService> logger,
+        DatabaseService databaseService,
+        AppConfig appConfig,
         IEventBus eventBus,
-        LibraryCacheService cache) // Session 1: Inject cache
+        LibraryCacheService cache, // Session 1: Inject cache
+        EngineDiagnosticsService? diagnostics = null,
+        AudioAnalysis.TrackFingerprintStore? fingerprintStore = null)
     {
         _logger = logger;
         _databaseService = databaseService;
         _appConfig = appConfig;
         _eventBus = eventBus;
         _cache = cache;
+        _diagnostics = diagnostics;
+        _fingerprintStore = fingerprintStore;
 
         _logger.LogDebug("LibraryService initialized (Data Only) with caching enabled");
     }
@@ -437,23 +448,19 @@ public class LibraryService : ILibraryService
         try
         {
             _logger.LogInformation("Removing track from global library index: {Hash}", trackHash);
-            var entryEntity = await _databaseService.FindLibraryEntryAsync(trackHash);
-            if (entryEntity != null)
-            {
-                // We use DatabaseService directly or via repository
-                // The DatabaseService usually has methods for specific entities
-                await _databaseService.RemoveTrackAsync(trackHash); // Wait, RemoveTrackAsync might be for TrackEntity
-            }
-            
-            // Actually, we should check if DatabaseService has a RemoveLibraryEntryAsync
-            // Looking at the outline, it has RemoveTrackAsync which takes globalId. 
-            // In AppDbContext, TrackEntity.GlobalId is the UniqueHash.
-            // But LibraryEntryEntity.UniqueHash is also the UniqueHash.
-            
-            // I'll check DatabaseService.RemoveTrackAsync implementation.
+
+            // The master track record (Tracks table) AND the library index row (LibraryEntries —
+            // what the Library page's virtualized track list actually queries) are separate
+            // tables keyed by the same hash; both have to go or the track keeps showing up in the
+            // Library view after a "successful" removal.
             await _databaseService.RemoveTrackAsync(trackHash);
-            
+            await _databaseService.DeleteLibraryEntryByHashAsync(trackHash);
+
             _cache.InvalidateGlobalLibrary();
+            // TrackFingerprintStore's in-memory cache is unbounded by design (fingerprints are
+            // small), but a deleted track's fingerprint has no reason to stick around — the
+            // Invalidate/InvalidateAll API existed but had zero production callers until now.
+            _fingerprintStore?.Invalidate(trackHash);
         }
         catch (Exception ex)
         {
@@ -472,6 +479,11 @@ public class LibraryService : ILibraryService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to delete library entry {Id}", id);
+            // Rethrow — callers (e.g. OrphanedTrackViewModel.RemoveAsync) decide whether the row
+            // is safe to drop from their own UI state, and must not assume success on a swallowed
+            // failure. Previously this method ate every exception, so a failed delete still looked
+            // like a success to the caller's try/catch, which could never actually fire.
+            throw;
         }
     }
 
@@ -786,10 +798,24 @@ public class LibraryService : ILibraryService
 
     public async Task<PlaylistJob> CreateEmptyPlaylistAsync(string title)
     {
+        // Explicit, low-frequency user action (New Playlist / Combine Playlists) — no uniqueness
+        // check existed before, so combining twice with the same auto-suggested name (or naming
+        // two playlists identically) silently created two indistinguishable playlists.
+        var existingTitles = (await LoadAllPlaylistJobsAsync().ConfigureAwait(false))
+            .Select(p => p.SourceTitle)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var finalTitle = title;
+        var suffix = 2;
+        while (existingTitles.Contains(finalTitle))
+        {
+            finalTitle = $"{title} ({suffix++})";
+        }
+
         var job = new PlaylistJob
         {
             Id = Guid.NewGuid(),
-            SourceTitle = title,
+            SourceTitle = finalTitle,
             SourceType = "User",
             CreatedAt = DateTime.UtcNow,
             PlaylistTracks = new List<PlaylistTrack>(),
@@ -931,6 +957,22 @@ public class LibraryService : ILibraryService
         }
     }
 
+    public async Task<List<PlaylistTrack>> LoadLibraryOverviewTracksAsync(bool likedOnly = false)
+    {
+        await using var db = new AppDbContext();
+        return await Library.LibraryOverviewQuery.LoadAsync(db, likedOnly).ConfigureAwait(false);
+    }
+
+    public async Task<Dictionary<string, string>> GetMetadataProvenanceAsync(string trackHash)
+    {
+        await using var db = new AppDbContext();
+        var rows = await db.MetadataProvenance.AsNoTracking()
+            .Where(p => p.TrackUniqueHash == trackHash)
+            .Select(p => new { p.Field, p.Source })
+            .ToListAsync().ConfigureAwait(false);
+        return rows.ToDictionary(r => r.Field, r => r.Source, StringComparer.OrdinalIgnoreCase);
+    }
+
     public async Task<PlaylistTrack?> GetPlaylistTrackByHashAsync(Guid playlistId, string trackHash)
     {
         try
@@ -959,40 +1001,39 @@ public class LibraryService : ILibraryService
         }
     }
 
-    public async Task<int> GetTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
+    public async Task<int> GetTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, string? qualityTier = null)
     {
         try
         {
-            if (playlistId == Guid.Empty)
-            {
-                return await _databaseService.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter).ConfigureAwait(false);
-            }
-
-            return await _databaseService.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter).ConfigureAwait(false);
+            var count = playlistId == Guid.Empty
+                ? await _databaseService.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier).ConfigureAwait(false)
+                : await _databaseService.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier).ConfigureAwait(false);
+            _lastTrackQueryError = null;
+            return count;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get track count for {PlaylistId}", playlistId);
+            _lastTrackQueryError = ex.Message;
             return 0;
         }
     }
 
-    public async Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false)
+    public async Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null)
     {
         try
         {
-            if (playlistId == Guid.Empty)
-            {
-                var globalEntities = await _databaseService.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending).ConfigureAwait(false);
-                return globalEntities.Select(EntityToPlaylistTrack).ToList();
-            }
-
-            var entities = await _databaseService.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending).ConfigureAwait(false);
-            return entities.Select(EntityToPlaylistTrack).ToList();
+            var entities = playlistId == Guid.Empty
+                ? await _databaseService.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier).ConfigureAwait(false)
+                : await _databaseService.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier).ConfigureAwait(false);
+            var tracks = entities.Select(EntityToPlaylistTrack).ToList();
+            _lastTrackQueryError = null;
+            return tracks;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load paged playlist tracks for {PlaylistId}", playlistId);
+            _lastTrackQueryError = ex.Message;
             return new List<PlaylistTrack>();
         }
     }
@@ -1050,6 +1091,7 @@ public class LibraryService : ILibraryService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to update global like status for {Hash}", trackHash);
+            throw; // callers revert their optimistic UI and tell the user
         }
     }
 
@@ -1066,6 +1108,7 @@ public class LibraryService : ILibraryService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to update global rating for {Hash}", trackHash);
+            throw; // callers revert their optimistic UI and tell the user
         }
     }
 
@@ -1119,22 +1162,13 @@ public class LibraryService : ILibraryService
 
             if (libraryEntry != null)
             {
-                var libraryWaveform = ResolveWaveformBands(
-                    libraryEntry.WaveformData,
-                    libraryEntry.RmsData,
-                    libraryEntry.LowData,
-                    libraryEntry.MidData,
-                    libraryEntry.HighData,
-                    libraryEntry.AudioFeatures?.WaveformBlob);
-
+                // TrackTechnicalEntity's own waveform columns were dead (dropped in
+                // SchemaMigratorService's patch #27) — waveform bands are resolved from
+                // AudioFeaturesEntity.WaveformBlob via EntityToLibraryEntry/EntityToPlaylistTrack's
+                // own ResolveWaveformBands call instead, not through this synthesized entity.
                 return new TrackTechnicalEntity
                 {
                     PlaylistTrackId = playlistTrackId,
-                    WaveformData = libraryWaveform.PeakData,
-                    RmsData = libraryWaveform.RmsData,
-                    LowData = libraryWaveform.LowData,
-                    MidData = libraryWaveform.MidData,
-                    HighData = libraryWaveform.HighData,
                     CuePointsJson = !string.IsNullOrWhiteSpace(libraryEntry.CuePointsJson)
                         ? libraryEntry.CuePointsJson
                         : libraryEntry.AudioFeatures?.CuePointsJson,
@@ -1187,7 +1221,7 @@ public class LibraryService : ILibraryService
                 FilePath = actualFilePath,
                 Bitrate = track.Bitrate,
                 DurationSeconds = track.Length,
-                Format = track.Format ?? "Unknown"
+                Format = SLSKDONET.Models.AudioFileFormat.Resolve(track.Format, actualFilePath) ?? string.Empty
             };
 
             await SaveOrUpdateLibraryEntryAsync(entry).ConfigureAwait(false);
@@ -1249,13 +1283,16 @@ public class LibraryService : ILibraryService
 
     private PlaylistTrack EntityToPlaylistTrack(PlaylistTrackEntity entity)
     {
+        // TechnicalDetails.WaveformData/RmsData/LowData/MidData/HighData were dropped (dead columns,
+        // never populated) — the real path is always AudioFeaturesEntity.WaveformBlob below.
         var playlistWaveform = ResolveWaveformBands(
-            entity.TechnicalDetails?.WaveformData,
-            entity.TechnicalDetails?.RmsData,
-            entity.TechnicalDetails?.LowData,
-            entity.TechnicalDetails?.MidData,
-            entity.TechnicalDetails?.HighData,
-            entity.AudioFeatures?.WaveformBlob);
+            null,
+            null,
+            null,
+            null,
+            null,
+            entity.AudioFeatures?.WaveformBlob,
+            entity.AudioFeatures?.WaveformBlobSampleCount ?? 0);
 
         return new PlaylistTrack
         {
@@ -1277,7 +1314,7 @@ public class LibraryService : ILibraryService
             SortOrder = entity.SortOrder,
             PreferredFormats = entity.PreferredFormats,
             MinBitrateOverride = entity.MinBitrateOverride,
-            Format = entity.Format,
+            Format = SLSKDONET.Models.AudioFileFormat.Resolve(entity.Format, entity.ResolvedFilePath),
             AvailabilityState = entity.AvailabilityState,
             SpotifyPlaylistId = entity.SpotifyPlaylistId,
             SpotifyUri = entity.SpotifyUri,
@@ -1331,7 +1368,8 @@ public class LibraryService : ILibraryService
             SpotifyKey = entity.SpotifyKey,
             ManualBPM = entity.ManualBPM,
             ManualKey = entity.ManualKey,
-            
+            TagBPM = entity.TagBPM,
+
             IsEnriched = entity.IsEnriched,
             
             // Sonic Integrity
@@ -1357,7 +1395,7 @@ public class LibraryService : ILibraryService
             SpectralNoiseFloorDbfs = entity.SpectralNoiseFloorDbfs,
             
             // Phase 17: Technical Audio Analysis
-            Loudness = entity.Loudness,
+            Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.Loudness),
             TruePeak = entity.TruePeak,
             DynamicRange = entity.DynamicRange,
             
@@ -1443,7 +1481,8 @@ public class LibraryService : ILibraryService
             SpotifyKey = track.SpotifyKey,
             ManualBPM = track.ManualBPM,
             ManualKey = track.ManualKey,
-            
+            TagBPM = track.TagBPM,
+
             IsEnriched = track.IsEnriched,
             
             // Sonic Integrity
@@ -1455,7 +1494,7 @@ public class LibraryService : ILibraryService
             QualityDetails = track.QualityDetails,
             
             // Phase 17: Technical Audio Analysis
-            Loudness = track.Loudness,
+            Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(track.Loudness),
             TruePeak = track.TruePeak,
             DynamicRange = track.DynamicRange,
             InstrumentalProbability = track.InstrumentalProbability // Phase 18.2
@@ -1476,7 +1515,8 @@ public class LibraryService : ILibraryService
             entity.LowData,
             entity.MidData,
             entity.HighData,
-            entity.AudioFeatures?.WaveformBlob);
+            entity.AudioFeatures?.WaveformBlob,
+            entity.AudioFeatures?.WaveformBlobSampleCount ?? 0);
 
         return new LibraryEntry
         {
@@ -1488,7 +1528,7 @@ public class LibraryService : ILibraryService
             FilePath = entity.FilePath,
             Bitrate = entity.Bitrate,
             DurationSeconds = entity.DurationSeconds,
-            Format = entity.Format,
+            Format = SLSKDONET.Models.AudioFileFormat.Resolve(entity.Format, entity.FilePath),
             AvailabilityState = entity.AvailabilityState,
             SpotifyPlaylistId = entity.SpotifyPlaylistId,
             SpotifyUri = entity.SpotifyUri,
@@ -1515,7 +1555,7 @@ public class LibraryService : ILibraryService
             IsEnriched = entity.IsEnriched,
             
             // Phase 17: Technical Audio Analysis
-            Loudness = entity.Loudness ?? (entity.AudioFeatures?.LoudnessLUFS > 0 ? (double?)entity.AudioFeatures.LoudnessLUFS : null),
+            Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.Loudness) ?? SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.AudioFeatures?.LoudnessLUFS),
             TruePeak = entity.TruePeak,
             DynamicRange = entity.DynamicRange,
             
@@ -1524,13 +1564,14 @@ public class LibraryService : ILibraryService
             LowData = libraryWaveform.LowData,
             MidData = libraryWaveform.MidData,
             HighData = libraryWaveform.HighData,
-            
+
             // Dual-Truth
             SpotifyBPM = entity.SpotifyBPM,
             SpotifyKey = entity.SpotifyKey,
             ManualBPM = entity.ManualBPM,
             ManualKey = entity.ManualKey,
-            
+            TagBPM = entity.TagBPM,
+
             InstrumentalProbability = entity.InstrumentalProbability ?? (entity.AudioFeatures?.InstrumentalProbability > 0 ? (double?)entity.AudioFeatures.InstrumentalProbability : null) // Phase 18.2
             ,
             BpmConfidence = entity.AudioFeatures?.BpmConfidence,
@@ -1538,7 +1579,7 @@ public class LibraryService : ILibraryService
             BpmStability = entity.AudioFeatures?.BpmStability,
             CamelotKey = entity.AudioFeatures?.CamelotKey,
             ChordProgression = entity.AudioFeatures?.ChordProgression,
-            LoudnessLufs = entity.AudioFeatures?.LoudnessLUFS,
+            LoudnessLufs = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.AudioFeatures?.LoudnessLUFS),
             DropTimeSeconds = entity.AudioFeatures?.DropTimeSeconds,
             DropConfidence = entity.AudioFeatures?.DropConfidence,
             EnergyCurveJson = entity.AudioFeatures?.EnergyCurveJson,
@@ -1555,7 +1596,8 @@ public class LibraryService : ILibraryService
         byte[]? lowData,
         byte[]? midData,
         byte[]? highData,
-        byte[]? packedWaveformBlob)
+        byte[]? packedWaveformBlob,
+        int waveformBlobSampleCount = 0)
     {
         var resolvedPeak = peakData ?? Array.Empty<byte>();
         var resolvedRms = rmsData ?? Array.Empty<byte>();
@@ -1564,7 +1606,7 @@ public class LibraryService : ILibraryService
         var resolvedHigh = highData ?? Array.Empty<byte>();
 
         var needsBlobFallback = resolvedLow.Length == 0 || resolvedMid.Length == 0 || resolvedHigh.Length == 0;
-        if (needsBlobFallback && TryUnpackWaveformBlob(packedWaveformBlob, out var unpackedLow, out var unpackedMid, out var unpackedHigh))
+        if (needsBlobFallback && TryUnpackWaveformBlob(packedWaveformBlob, waveformBlobSampleCount, out var unpackedLow, out var unpackedMid, out var unpackedHigh))
         {
             resolvedLow = unpackedLow;
             resolvedMid = unpackedMid;
@@ -1584,20 +1626,35 @@ public class LibraryService : ILibraryService
         return (resolvedPeak, resolvedRms, resolvedLow, resolvedMid, resolvedHigh);
     }
 
+    /// <summary>
+    /// Unpacks a low|mid|high packed waveform blob (see WaveformExtractionService) using the real
+    /// per-band sample count it was written with — the extractor's sample count scales with track
+    /// duration (2000-12000, not a fixed number), so a hardcoded band length here silently sliced
+    /// the wrong byte ranges for virtually every track, corrupting the mid/high bands.
+    /// </summary>
     private static bool TryUnpackWaveformBlob(
         byte[]? packedWaveformBlob,
+        int sampleCount,
         out byte[] lowBand,
         out byte[] midBand,
         out byte[] highBand)
     {
-        const int bandLength = 1000;
-        const int totalLength = bandLength * 3;
-
         lowBand = Array.Empty<byte>();
         midBand = Array.Empty<byte>();
         highBand = Array.Empty<byte>();
 
-        if (packedWaveformBlob is null || packedWaveformBlob.Length < totalLength)
+        if (packedWaveformBlob is null || packedWaveformBlob.Length < 3)
+        {
+            return false;
+        }
+
+        // Fall back to an even three-way split for rows analyzed before WaveformBlobSampleCount
+        // was populated, or if the stored count doesn't actually fit the blob (corrupt/short data).
+        int bandLength = sampleCount > 0 && packedWaveformBlob.Length >= sampleCount * 3
+            ? sampleCount
+            : packedWaveformBlob.Length / 3;
+
+        if (bandLength <= 0)
         {
             return false;
         }
@@ -1682,7 +1739,7 @@ public class LibraryService : ILibraryService
         entity.PrimaryGenre = entry.PrimaryGenre;
         
         // Phase 17: Technical Audio Analysis
-        entity.Loudness = entry.Loudness;
+        entity.Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entry.Loudness);
         entity.TruePeak = entry.TruePeak;
         entity.DynamicRange = entry.DynamicRange;
         
@@ -1697,6 +1754,7 @@ public class LibraryService : ILibraryService
         entity.SpotifyKey = entry.SpotifyKey;
         entity.ManualBPM = entry.ManualBPM;
         entity.ManualKey = entry.ManualKey;
+        entity.TagBPM = entry.TagBPM;
         
         entity.InstrumentalProbability = entry.InstrumentalProbability; // Phase 18.2
         
@@ -1794,6 +1852,11 @@ public class LibraryService : ILibraryService
             clone.IsPrepared = false;
             clone.CuePointsJson = null; // Fresh start for cues
             clone.Status = TrackStatus.Downloaded; // Immediately ready
+            // Explicit, not inherited from source — EntityToPlaylistTrack copies AvailabilityState
+            // from the source track above, which would leave the clone stuck showing "FILE MISSING"
+            // if the source ever happened to be Ghost, even though the clone's file is confirmed
+            // present at newPath right now.
+            clone.AvailabilityState = TrackAvailabilityState.LocalUnanalyzed;
             clone.AddedAt = DateTime.UtcNow;
 
             // 5. Persist to PlaylistTracks table
@@ -1845,7 +1908,7 @@ public class LibraryService : ILibraryService
             // (drag-drop, Smart Insert, the context-menu action, Flow Builder) — filtering here
             // catches ID tracks regardless of how they ended up in the source list.
             var incoming = tracks.ToList();
-            var skippedIdTracks = incoming.Where(t => t.Title.Trim().Equals("ID", StringComparison.OrdinalIgnoreCase)).ToList();
+            var skippedIdTracks = incoming.Where(t => CommentTracklistParser.IsUnidentifiedTitle(t.Title)).ToList();
             if (skippedIdTracks.Count > 0)
             {
                 incoming = incoming.Except(skippedIdTracks).ToList();
@@ -1856,6 +1919,25 @@ public class LibraryService : ILibraryService
                         ? "1 track titled \"ID\" (unidentified) was not added."
                         : $"{skippedIdTracks.Count} tracks titled \"ID\" (unidentified) were not added.",
                     NotificationType.Warning));
+            }
+
+            // Dedup guard: this method is the single chokepoint every "add to playlist" path
+            // funnels through (drag-drop, Smart Insert, Flow Builder, batch add, cross-playlist
+            // add) — without this, calling it more than once for the same track+playlist (a
+            // resumed action, a retry, pulling the same bridge track twice) silently created
+            // another row instead of being a no-op.
+            var existingHashes = (await LoadPlaylistTracksAsync(targetProjectId))
+                .Select(t => t.TrackUniqueHash)
+                .Where(h => !string.IsNullOrEmpty(h))
+                .ToHashSet(StringComparer.Ordinal);
+
+            var skippedDuplicateTracks = incoming
+                .Where(t => !string.IsNullOrEmpty(t.TrackUniqueHash) && existingHashes.Contains(t.TrackUniqueHash))
+                .ToList();
+            if (skippedDuplicateTracks.Count > 0)
+            {
+                incoming = incoming.Except(skippedDuplicateTracks).ToList();
+                _logger.LogInformation("Skipped {Count} track(s) already in project {Title}", skippedDuplicateTracks.Count, project.SourceTitle);
             }
 
             var newTracks = new List<PlaylistTrack>();
@@ -1911,9 +1993,10 @@ public class LibraryService : ILibraryService
                 project.TotalTracks += newTracks.Count;
                 
                 await SavePlaylistJobAsync(project);
-                
+
                 _logger.LogInformation("Added {Count} tracks to project {Title}", newTracks.Count, project.SourceTitle);
-                
+                var fireAndForget = _diagnostics?.LogTracksAddedToPlaylistAsync(targetProjectId, newTracks.Count, project.SourceTitle);
+
                 // Publish event so UI can refresh
                 _eventBus.Publish(new ProjectUpdatedEvent(targetProjectId));
             }
@@ -1941,6 +2024,33 @@ public class LibraryService : ILibraryService
         _eventBus.Publish(new ProjectUpdatedEvent(playlistId));
 
         _logger.LogInformation("Removed {Count} track(s) from playlist {PlaylistId} (library entries untouched)", playlistTrackIds.Count, playlistId);
+    }
+
+    /// <summary>
+    /// Deletes the PlaylistTrack row(s) for this hash out of every playlist that contains it —
+    /// see ILibraryService.RemoveTrackFromAllPlaylistsAsync's doc for why a permanent delete must
+    /// do this instead of marking those rows TrackStatus.Missing.
+    /// </summary>
+    public async Task RemoveTrackFromAllPlaylistsAsync(string trackHash)
+    {
+        using var db = new AppDbContext();
+        var playlistTracks = await db.PlaylistTracks
+            .Where(t => t.TrackUniqueHash == trackHash)
+            .ToListAsync();
+
+        if (playlistTracks.Count == 0) return;
+
+        var affectedPlaylistIds = playlistTracks.Select(t => t.PlaylistId).Distinct().ToList();
+        db.PlaylistTracks.RemoveRange(playlistTracks);
+        await db.SaveChangesAsync();
+
+        foreach (var playlistId in affectedPlaylistIds)
+        {
+            _cache.InvalidateProject(playlistId);
+            _eventBus.Publish(new ProjectUpdatedEvent(playlistId));
+        }
+
+        _logger.LogInformation("Removed track {Hash} from {Count} playlist(s)", trackHash, affectedPlaylistIds.Count);
     }
 
     public async Task UpdateTrackCuePointsAsync(string trackHash, string cuePointsJson)
@@ -1975,6 +2085,31 @@ public class LibraryService : ILibraryService
         }
 
         await db.SaveChangesAsync();
+    }
+
+    public async Task UpdateTrackFilePathAsync(string trackHash, string newFilePath)
+    {
+        using var db = new AppDbContext();
+
+        // 1. Update Library Entry
+        var entry = await db.LibraryEntries.FirstOrDefaultAsync(e => e.UniqueHash == trackHash);
+        if (entry != null)
+        {
+            entry.FilePath = newFilePath;
+        }
+
+        // 2. Update every Playlist Track sharing this hash — the same file can be referenced by
+        // rows in multiple playlists, each denormalizing its own ResolvedFilePath (read back
+        // verbatim, never re-resolved from LibraryEntries), so all of them must move together.
+        // Same pattern as UpdateTrackCuePointsAsync above.
+        var playlistTracks = await db.PlaylistTracks.Where(t => t.TrackUniqueHash == trackHash).ToListAsync();
+        foreach (var track in playlistTracks)
+        {
+            track.ResolvedFilePath = newFilePath;
+        }
+
+        await db.SaveChangesAsync();
+        _cache.InvalidateGlobalLibrary();
     }
 
     public async Task UpdateAudioFeaturesAsync(AudioFeaturesEntity entity)

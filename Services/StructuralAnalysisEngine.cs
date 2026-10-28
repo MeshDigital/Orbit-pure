@@ -79,13 +79,18 @@ public sealed class StructuralSection
 /// ========================
 /// A "drop" is characterized by:
 ///   1. A preceding section of rising energy (the build).
-///   2. A sudden, sharp peak in energy at a 8-bar or 16-bar phrase boundary.
+///   2. A sudden, sharp peak in energy — a genuine local maximum of the novelty curve,
+///      wherever in the track it actually occurs.
 ///   3. Sustained high energy for at least 8 bars after the peak
 ///      (anti-false-drop / anti-fake-drop guard).
 ///
-/// The algorithm computes the first-order derivative (novelty curve) of the
-/// energy curve, finds the highest positive derivatives that align within one
-/// bar of a phrase boundary, and returns the top N candidates.
+/// The algorithm computes the first-order derivative (novelty curve) of the energy curve,
+/// finds local maxima anywhere in it (NOT constrained to land near a mechanically-spaced
+/// 16-bar-from-track-start phrase grid — a real track's arrangement doesn't reliably stay
+/// aligned to that grid, so gating candidates near it can miss the real drop by several bars),
+/// and returns the top N candidates by novelty strength, at least <see cref="SustainedEnergyMinBars"/>
+/// bars apart. The drop's timing is derived from the audio; any phrase/approach-cue grid is then
+/// derived FROM the drop, not the other way around.
 /// </summary>
 public sealed class StructuralAnalysisEngine
 {
@@ -100,12 +105,6 @@ public sealed class StructuralAnalysisEngine
     public const int MaxDrops = 3;
 
     /// <summary>
-    /// A drop candidate must be within this many seconds of a phrase boundary.
-    /// One bar at 128 BPM ≈ 1.875 s; we allow two bars of tolerance.
-    /// </summary>
-    public const double PhraseBoundaryToleranceSeconds = 4.0;
-
-    /// <summary>
     /// After the suspected drop, energy must remain above this fraction of the
     /// peak energy for at least <see cref="SustainedEnergyMinBars"/> bars.
     /// Guards against "fake drops" (build that drops into silence).
@@ -114,6 +113,28 @@ public sealed class StructuralAnalysisEngine
 
     /// <summary>Minimum number of bars of sustained energy required after the drop.</summary>
     public const int SustainedEnergyMinBars = 8;
+
+    /// <summary>
+    /// Weight applied to <see cref="DipDepth"/>'s pre-drop-silence bonus when ranking drop
+    /// candidates. A soft multiplier (score *= 1 + weight*depth), not a hard filter.
+    /// </summary>
+    public const float DipDepthWeight = 1.0f;
+
+    /// <summary>
+    /// Drop candidates within this many seconds of track start are excluded from dip scoring —
+    /// the near-silence at a file's true beginning has no real preceding "buildup" baseline to
+    /// measure a dip against, which spuriously inflates <see cref="DipDepth"/> there, and no
+    /// genuine drop lands this early anyway.
+    /// </summary>
+    public const double MinBuildupSeconds = 8.0;
+
+    /// <summary>
+    /// A pre-drop dip only counts as a genuine "silence" signature if it drops below this
+    /// fraction of the track's peak energy — an ordinary, still-fairly-loud wobble that's merely
+    /// quieter than its immediate surroundings (common mid-buildup, especially for tracks with a
+    /// gradual filter-sweep rise rather than a sharp riser) must not qualify.
+    /// </summary>
+    public const float AbsoluteSilenceFraction = 0.35f;
 
     // -----------------------------------------------------------------------
 
@@ -174,14 +195,17 @@ public sealed class StructuralAnalysisEngine
     ///
     /// Steps:
     ///   1. Compute the novelty curve from the energy curve.
-    ///   2. Find novelty peaks that fall within <see cref="PhraseBoundaryToleranceSeconds"/>
-    ///      of a phrase boundary.
+    ///   2. Find every local-maximum novelty peak anywhere in the track (not gated to a
+    ///      phrase-boundary grid — see class remarks).
     ///   3. Apply the anti-false-drop guard: energy must remain ≥ threshold for
     ///      <see cref="SustainedEnergyMinBars"/> bars after the peak.
     ///   4. Return up to <see cref="MaxDrops"/> candidates sorted by confidence.
     /// </summary>
     /// <param name="energyCurve">Normalised RMS energy values per window (0–1).</param>
-    /// <param name="phraseBoundaries">Phrase boundary timestamps in seconds.</param>
+    /// <param name="phraseBoundaries">
+    /// Phrase boundary timestamps in seconds. No longer used to constrain candidate search — kept
+    /// so an empty/absent grid (no usable BPM/duration) still disqualifies detection.
+    /// </param>
     /// <param name="bpm">Track BPM (used to compute bar duration for sustain check).</param>
     /// <param name="energyWindowSeconds">Duration of each energy window in seconds.</param>
     public static IReadOnlyList<(double TimestampSeconds, float Confidence)> FindDrops(
@@ -193,6 +217,9 @@ public sealed class StructuralAnalysisEngine
         if (energyCurve == null || energyCurve.Count == 0)
             return Array.Empty<(double, float)>();
 
+        // phraseBoundaries is kept as a required parameter — an empty grid means the track had
+        // no usable BPM/duration to build one at all, which still disqualifies drop detection —
+        // but it no longer CONSTRAINS where a drop can be found (see below).
         if (phraseBoundaries == null || phraseBoundaries.Count == 0)
             return Array.Empty<(double, float)>();
 
@@ -202,48 +229,62 @@ public sealed class StructuralAnalysisEngine
         double sustainDuration = barDuration * SustainedEnergyMinBars;
         float peakEnergy = energyCurve.Max();
 
-        // Build candidate list: novelty peaks near phrase boundaries
+        // Candidates are genuine novelty local maxima anywhere in the track, NOT gated to
+        // ±PhraseBoundaryToleranceSeconds of a phrase-boundary grid counted from track start.
+        // Verified failure mode (library tracks Gancher & Ruin - Rituals, ShockOne - Follow Me,
+        // among others): a real track's arrangement doesn't reliably stay aligned to a rigid
+        // 16-bar-from-t=0 grid — an odd-length intro, a non-16-bar breakdown, or BPM-detection
+        // drift compounding over several minutes can all push the true drop several bars off the
+        // grid, past the ±4s tolerance the old boundary-gated search used, causing the real drop
+        // to be missed (or the wrong nearby grid slot to be picked) entirely. The drop's timing
+        // should be derived from the audio itself; the phrase/approach-cue grid is then derived
+        // FROM the drop (see CueGenerationService.BuildDropApproachCueSet), not the other way
+        // around.
         var candidates = new List<(double TimestampSeconds, float NoveltyScore, int WindowIndex)>();
-
-        foreach (double boundary in phraseBoundaries)
+        for (int i = 1; i < novelty.Count - 1; i++)
         {
-            // Find the window index closest to this boundary
-            int windowIdx = (int)Math.Round(boundary / energyWindowSeconds);
-            if (windowIdx <= 0 || windowIdx >= energyCurve.Count) continue;
-
-            // Search for the local novelty maximum within ±tolerance
-            int toleranceWindows = (int)Math.Ceiling(PhraseBoundaryToleranceSeconds / energyWindowSeconds);
-            int searchStart = Math.Max(1, windowIdx - toleranceWindows);
-            int searchEnd = Math.Min(energyCurve.Count - 1, windowIdx + toleranceWindows);
-
-            float bestNovelty = 0f;
-            int bestIdx = windowIdx;
-            for (int i = searchStart; i <= searchEnd; i++)
-            {
-                if (novelty[i] > bestNovelty)
-                {
-                    bestNovelty = novelty[i];
-                    bestIdx = i;
-                }
-            }
-
-            if (bestNovelty <= 0f) continue;
-
-            double candidateTimestamp = bestIdx * energyWindowSeconds;
-            candidates.Add((candidateTimestamp, bestNovelty, bestIdx));
+            if (novelty[i] <= 0f) continue;
+            if (novelty[i] < novelty[i - 1] || novelty[i] < novelty[i + 1]) continue; // local max only
+            candidates.Add((i * energyWindowSeconds, novelty[i], i));
         }
 
         if (candidates.Count == 0)
             return Array.Empty<(double, float)>();
 
-        // Sort by novelty score descending
-        candidates.Sort((a, b) => b.NoveltyScore.CompareTo(a.NoveltyScore));
+        // Score each candidate by novelty amplitude with a soft multiplicative bonus for a
+        // genuine "pre-drop silence" immediately before it — real EDM production denies the
+        // sub-bass/energy right before beat 1 specifically to make the drop land harder, and a
+        // candidate preceded by that dip is far more likely the actual drop than a same-strength
+        // novelty spike that isn't (verified against real library tracks: Metrik - Simulation had
+        // 5 novelty peaks of broadly comparable strength, only one — the real drop — preceded by
+        // a sharp energy dip; Brk - Obsession's real second drop, mislabeled by external phrase
+        // data, was independently found by this exact scoring as the single highest-ranked
+        // candidate). Deliberately a soft bonus, not a hard filter — a track with a rolling
+        // bassline or a vocal fill straight into the drop, with no silence at all, must still be
+        // able to win on novelty amplitude alone; requiring the dip would repeat the earlier
+        // over-eager "DSP corroboration" mistake that rejected perfectly good signals outright.
+        // Candidates within MinBuildupSeconds of track start are excluded from dip scoring: the
+        // near-silence at a file's true beginning has no real preceding "buildup" baseline to
+        // dip below, which spuriously inflates DipDepth there — and no genuine drop lands that
+        // early anyway.
+        var scoredCandidates = candidates
+            .Where(c => c.WindowIndex * energyWindowSeconds >= MinBuildupSeconds)
+            .Select(c => (
+                c.TimestampSeconds,
+                c.WindowIndex,
+                Score: c.NoveltyScore * (1f + DipDepthWeight * DipDepth(energyCurve, c.WindowIndex, peakEnergy))))
+            .ToList();
+
+        if (scoredCandidates.Count == 0)
+            return Array.Empty<(double, float)>();
+
+        scoredCandidates.Sort((a, b) => b.Score.CompareTo(a.Score));
 
         // Apply anti-false-drop guard and build final results
         var drops = new List<(double TimestampSeconds, float Confidence)>();
         float sustainThreshold = peakEnergy * SustainedEnergyThresholdFraction;
 
-        foreach (var (ts, noveltyScore, idx) in candidates)
+        foreach (var (ts, idx, score) in scoredCandidates)
         {
             if (drops.Count >= MaxDrops) break;
 
@@ -267,14 +308,66 @@ public sealed class StructuralAnalysisEngine
             bool tooClose = drops.Any(d => Math.Abs(d.TimestampSeconds - ts) < barDuration * 8);
             if (tooClose) continue;
 
-            // Normalise confidence: novelty score relative to the global peak novelty
-            float maxNovelty = candidates[0].NoveltyScore;
-            float confidence = maxNovelty > 0 ? Math.Min(1f, noveltyScore / maxNovelty) : 0f;
+            // Normalise confidence: combined score relative to the global peak combined score
+            float maxScore = scoredCandidates[0].Score;
+            float confidence = maxScore > 0 ? Math.Min(1f, score / maxScore) : 0f;
 
             drops.Add((ts, confidence));
         }
 
         return drops;
+    }
+
+    /// <summary>
+    /// Measures how much energy dipped immediately before <paramref name="index"/>, relative to
+    /// the energy level during the preceding buildup — the "pre-drop silence" signature (HPF
+    /// sweeping out the sub-bass, then a sample-drop/silence right before beat 1) real EDM
+    /// productions use to make the drop land harder. Returns 0-1; 0 means no dip (energy was flat
+    /// or rising right up to the candidate).
+    ///
+    /// Gated by <paramref name="peakEnergy"/>: a genuine pre-drop silence is quiet in ABSOLUTE
+    /// terms (production intentionally cuts to near-nothing), not merely quieter than whatever
+    /// the immediately preceding few seconds happened to be. Without this gate, a track with a
+    /// gradual filter-sweep buildup (no sharp silence at all — the norm for techno/progressive
+    /// styles, which build tension through modulation rather than a dramatic riser) can have an
+    /// ordinary, still-fairly-loud wobble mid-buildup score as if it were a real dip purely
+    /// because it's a little quieter than the seconds right around it (verified case: ShockOne -
+    /// Follow Me had a minor wobble at ~0.62 during an already-loud buildup section outrank the
+    /// track's real, later transition, which has no dip at all — just a slow rise with no single
+    /// strong transient).
+    /// </summary>
+    private static float DipDepth(IReadOnlyList<float> energyCurve, int index, float peakEnergy)
+    {
+        const int PreDipLookbackStart = 1;
+        const int PreDipLookbackEnd = 3;
+        const int BuildupLookbackStart = 3;
+        const int BuildupLookbackEnd = 9;
+
+        int buildupFrom = Math.Max(0, index - BuildupLookbackEnd);
+        int buildupTo = Math.Max(0, index - BuildupLookbackStart);
+        if (buildupTo <= buildupFrom) return 0f;
+
+        float buildupEnergy = 0f;
+        int buildupCount = 0;
+        for (int i = buildupFrom; i < buildupTo; i++)
+        {
+            buildupEnergy += energyCurve[i];
+            buildupCount++;
+        }
+        if (buildupCount == 0 || buildupEnergy <= 0f) return 0f;
+        buildupEnergy /= buildupCount;
+
+        int predipFrom = Math.Max(0, index - PreDipLookbackEnd);
+        int predipTo = Math.Max(0, index - PreDipLookbackStart + 1);
+        if (predipTo <= predipFrom) return 0f;
+
+        float predipEnergy = float.MaxValue;
+        for (int i = predipFrom; i < predipTo; i++)
+            predipEnergy = Math.Min(predipEnergy, energyCurve[i]);
+
+        if (predipEnergy > AbsoluteSilenceFraction * peakEnergy) return 0f;
+
+        return Math.Clamp((buildupEnergy - predipEnergy) / buildupEnergy, 0f, 1f);
     }
 
     private static IReadOnlyList<StructuralSection> BuildSections(
@@ -337,10 +430,22 @@ public sealed class StructuralAnalysisEngine
                 _ => 0.62f,
             };
 
+            // A section classified as a drop can otherwise report only its enclosing phrase-grid
+            // slot's boundary as its Start — losing precisely the timestamp FindDrops worked to
+            // locate. A slot spans a full phrase (commonly 20-40s), and the real detected drop can
+            // sit anywhere inside it, so use the actual matched drop timestamp when one exists.
+            double sectionStart = start;
+            if (type == PhraseType.Drop)
+            {
+                var matchedDrop = FindMatchingDrop(start, end, drops);
+                if (matchedDrop.HasValue)
+                    sectionStart = Math.Clamp(matchedDrop.Value.TimestampSeconds, 0, end - 0.01);
+            }
+
             sections.Add(new StructuralSection
             {
                 Type = type,
-                StartSeconds = start,
+                StartSeconds = sectionStart,
                 EndSeconds = end,
                 EnergyLevel = Math.Clamp(sectionEnergy, 0f, 1f),
                 Confidence = confidence,
@@ -366,11 +471,22 @@ public sealed class StructuralAnalysisEngine
         if (index == 0) return PhraseType.Intro;
         if (index == sectionCount - 1) return PhraseType.Outro;
 
-        bool containsDrop = drops.Any(d => d.TimestampSeconds >= startSeconds && d.TimestampSeconds < endSeconds + EnergyWindowSeconds);
-        bool closeToDrop = drops.Any(d => d.TimestampSeconds >= startSeconds - EnergyWindowSeconds && d.TimestampSeconds < endSeconds + (EnergyWindowSeconds * 0.5));
+        // Strict [start, end) containment — a drop belongs to whichever section actually spans
+        // its timestamp, full stop. This used to have extra slop on both ends (a drop up to
+        // EnergyWindowSeconds before startSeconds, or up to EnergyWindowSeconds after endSeconds,
+        // still "contained"; a separate closeToDrop check softened it further), added back when
+        // FindDrops only ever returned a timestamp near a phrase-boundary and needed some
+        // rounding tolerance to land in the "right" section. Now that FindDrops is unconstrained
+        // and returns the drop's real position, that slop actively misclassifies: a drop at
+        // t=45.0 sitting just inside section [44.39, 66.59) would leak backward into the
+        // genuinely-low-energy buildup section [22.20, 44.39) too (45.0 < 44.39 + 1.0), tagging a
+        // quiet buildup section "Drop" (verified case: Metrik - Simulation). Sections tile the
+        // track with no gaps, so every real drop already falls inside exactly one section's
+        // strict bounds — no tolerance needed.
+        bool containsDrop = drops.Any(d => d.TimestampSeconds >= startSeconds && d.TimestampSeconds < endSeconds);
         bool immediatelyBeforeDrop = !containsDrop && drops.Any(d => d.TimestampSeconds >= endSeconds && d.TimestampSeconds <= endSeconds + (endSeconds - startSeconds));
 
-        if (containsDrop || (closeToDrop && energyLevel >= averageEnergy))
+        if (containsDrop)
             return PhraseType.Drop;
 
         if (immediatelyBeforeDrop || energyLevel >= (highThreshold * 0.85f))
@@ -406,13 +522,46 @@ public sealed class StructuralAnalysisEngine
         double endSeconds,
         IReadOnlyList<(double TimestampSeconds, float Confidence)> drops)
     {
+        // Strict [start, end) — matches DetermineSectionType's containsDrop check, so this always
+        // finds the same drop that justified classifying the section "Drop" in the first place,
+        // not a different, incorrectly nearby one.
         foreach (var drop in drops)
         {
-            if (drop.TimestampSeconds >= startSeconds && drop.TimestampSeconds < endSeconds + EnergyWindowSeconds)
+            if (drop.TimestampSeconds >= startSeconds && drop.TimestampSeconds < endSeconds)
                 return drop.Confidence;
         }
 
         return drops.FirstOrDefault().Confidence;
+    }
+
+    /// <summary>
+    /// Finds the highest-confidence detected drop that justified classifying [startSeconds,
+    /// endSeconds) as a Drop section, so the section's reported Start can be moved to the drop's
+    /// real timestamp instead of the section's grid boundary. Uses the same strict [start, end)
+    /// window as <see cref="DetermineSectionType"/>'s containsDrop check — a looser window here
+    /// once let one real drop event that landed near a shared grid boundary get claimed as the
+    /// Start override by BOTH the section ending there
+    /// and the section starting there, producing a spurious near-zero-duration "Drop" sliver
+    /// immediately next to the real one (verified case: Maduk, Lexurus, RIENK - New Beginning had
+    /// exactly this: Drop@88.78 dur=0.01s directly beside the real Drop@89.00 dur=21.98s).
+    /// Requiring the match to fall within this section's own [start, end) keeps the override
+    /// anchored to a timestamp that's actually inside the slot being relabeled.
+    /// </summary>
+    private static (double TimestampSeconds, float Confidence)? FindMatchingDrop(
+        double startSeconds,
+        double endSeconds,
+        IReadOnlyList<(double TimestampSeconds, float Confidence)> drops)
+    {
+        (double TimestampSeconds, float Confidence)? best = null;
+        foreach (var drop in drops)
+        {
+            bool inRange = drop.TimestampSeconds >= startSeconds &&
+                           drop.TimestampSeconds < endSeconds;
+            if (!inRange) continue;
+            if (best == null || drop.Confidence > best.Value.Confidence)
+                best = drop;
+        }
+        return best;
     }
 
     private static string BuildLabel(PhraseType type, int ordinal)

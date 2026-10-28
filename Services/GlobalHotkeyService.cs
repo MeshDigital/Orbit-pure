@@ -27,7 +27,23 @@ public class GlobalHotkeyService : IDisposable
         _logger = logger;
         _router = router;
 
-        // Attach the router to the main window TopLevel
+        // This constructor runs as part of MainViewModel's DI graph, which App.axaml.cs resolves
+        // while desktop.MainWindow is still the splash screen (the real MainWindow isn't assigned
+        // until a few lines later, after this constructor has already returned) — attaching here
+        // would silently bind every DJ hotkey to a window that closes moments later, forever
+        // (KeyboardEventRouter.Attach used to no-op on any later call once _topLevel was non-
+        // null). Attach here anyway for any code path that constructs this service after the
+        // real window is already up; App.axaml.cs calls AttachToCurrentMainWindow() again right
+        // after showing the real MainWindow to cover the startup race.
+        AttachToCurrentMainWindow();
+    }
+
+    /// <summary>
+    /// Re-resolves the app's current TopLevel and (re)attaches the router to it — see the
+    /// constructor's comment for why this needs to be callable again after construction.
+    /// </summary>
+    public void AttachToCurrentMainWindow()
+    {
         var topLevel = Application.Current?.ApplicationLifetime is ClassicDesktopStyleApplicationLifetime desktop
             ? desktop.MainWindow as TopLevel
             : null;

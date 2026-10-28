@@ -24,6 +24,8 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Large Collection Support**: Optimized for libraries with 10,000+ tracks
 - **Context Menu Actions**: Right-click any track for Play Track, Queue Track, Queue Selected, 🔬 Analyse, Hard Retry, Open Folder, Export CSV, Remove — all actions fall back to the current selection when invoked from the Avalonia popup visual tree (where element-name bindings are unavailable)
 - **Selection FAB**: Floating bottom bar appears when ≥1 track is selected — one-click ▶️ Play, ⊕ Add to Queue, 🔬 Analyse, ✏️ Tag Edit, 📤 Rekordbox export, and ✕ Clear selection without opening context menus
+- **Playlist view that makes room for tracks**: the header collapses to a slim bar (▶, shuffle, name, Discover) while scrolling; search, status chips, filters, Mix and Columns share a single toolbar row; columns you hide take no space, and when the list is narrow (e.g. context panel open) the least important columns step aside (Forensics → Rating → Duration → Format → Energy)
+- **Resizable context panel**: drag the right-hand panel's left edge; the width is remembered (`[Layout] ContextPanelWidth`)
 
 ### Enhanced Export Capabilities
 - **Forensic CSV Export**: Professional-grade playlist exports with integrity metrics
@@ -36,6 +38,7 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Metadata Enrichment**: Spotify and MusicBrainz integration for accurate tagging
 - **Harmonic Matching**: Key-based track recommendations for DJ workflows
 - **Quality Filtering**: Pre-download verification of file authenticity
+- **Playlist Discover**: A ✨ Discover button on a playlist opens a sidepanel tab with tracks to add. It draws on new releases by the playlist's artists and the genre top 100 from Beatport, plus Deezer's related artists. It hides what you already own and ranks the rest by BPM (half/double time included), key and genre fit. Tracks both Beatport and Deezer suggest get a ★ and rank first. Each suggestion has a preview clip, **Queue** (adds it to the playlist and downloads it via Soulseek), a Soulseek search, and a Beatport buy link.
 
 ---
 
@@ -109,12 +112,45 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Session Persistence**: Workstation state (loaded tracks, deck positions, active mode, timeline zoom/offset) is autosaved to `%APPDATA%\Antigravity\workstation-session.json` using atomic temp-file swap writes — survives crashes, power loss, and normal app close; fully restored on next launch including cue points and stem preferences
 - **Analyse Track**: Single-track audio analysis trigger from the library right-click context menu (`🔬 Analyse Track`)
 
+- **Edit Lab**: stem-based DJ edits. Layer vocals/drums/bass/other from any number of tracks on a bar grid, with switchable auto tempo/key matching and per-clip overrides, editable templates, live preview, and rendering to WAV/FLAC as a new library track with provenance
+
+### Mix & Cue Workspace (Flow Builder)
+- **Transition designer with overlay**: both tracks drawn on one tempo-matched timeline with the overlap, gain curves and bar numbers; drag B to shift the mix-in (undoable); the auto plan prefers A's outro and B's intro regions
+- **Intro end / Outro section markers** in Cue Forge and the Flow Builder decks (Shift+I / Shift+O or a phrase-based suggestion), exported to Rekordbox as memory cues
+- **Click-to-prelisten**: clicking a cue flag or chip plays from that cue; dragging still moves it
+- **All-in-one transition editor**: click the ⇄ between two cards to open both decks' waveforms, transition presets and custom effects (EQ swap, echo, filter, Double Drop loop), mix-point picking and crossfade preview in one place
+- **Set navigation**: ◀ Previous / Next ▶ transition, "Transition N of M", and a mini strip of the whole set — click any ⇄ to jump to that transition
+- **In-place cue editing** (✏ Edit cues): drag cues on the waveform (snapped to the track's beat / bar / phrase grid), right-click to add, and edit name, role (with Rekordbox colour), hot-cue pad A–H or memory cue, colour, beat/bar nudges and 4/8/16-bar loops, with undo/redo; "⇥ Use as mix point" sets the transition from a cue, and the mix point follows a cue you drag
+- **Auto-save**: cue edits save when moving to another transition or closing the editor
+- **Play from a track**: the playlist Play button starts at the selected track; with **+ Mix** on, Play Track continues the mix from that track through the rest of the playlist with each pair's saved transition
+
+### Cue Tools
+- **One-click drops** (◆ Drop, key **D**, right-click "Drop here"; **Shift+1** / **Shift+2** force Drop 1 / Drop 2) in Cue Forge and the Flow Builder cue editor:
+  - **Snap:** the drop lands on a bar line.
+  - **Numbering:** drops are numbered by position.
+  - **Build-in cues** are placed before each drop from the cue template: **[IN -16] [IN -8] [DROP 1]** on pads A–C and **[DROP 2]** on D–F.
+  - **[OUT]** goes on pad G, 32 bars after the last drop.
+  - **Auto cues** from analysis are removed. Placing, adding or moving a cue yourself hands the track to your cues; undo brings the auto cues back.
+- **Linked build-in cues**: dragging a drop moves its build-in cues with it. A build-in cue you moved or renamed yourself is unlinked. [OUT] follows the last drop until you move it.
+- **Cue templates** (`[Cues] DropCountdownMode`), also used by automatic cue generation:
+  - **DnB / Bass** −16 −8
+  - **Long Blend / House** −32 −16
+  - **Quick Mix / Hip-Hop** −8 −4
+  - **Custom** (`[Cues] CustomCountdownBars`)
+  - **Off**
+  - **Auto**: DnB for drum & bass, hardstyle and techno; Long Blend for house, tech house and trance; Quick Mix for hip-hop, pop and R&B
+- **Manual cues are kept**: background re-analysis never adds auto cues back to a track where you placed drops yourself.
+- **Fine-tune by ear**: ← → move the selected cue 1 beat, Shift 1 bar, Ctrl 10 ms; every press replays from the cue. In Flow Builder a playing mix pauses while you audition and resumes when the cues are saved
+- **Precise beat grids**: BPM and grid are fitted to the beat tracker's ticks (no more whole-number or wrongly doubled BPMs), the downbeat comes from the bass structure, and Rekordbox's own grid is used for tracks it has analysed
+- **Cue accuracy benchmark**: `Tests/CueBenchmark` scores auto cues against hand-placed Rekordbox cues, Rekordbox's own analysis, or your own hand-set drops
+
 ### AI Automix Engine
 - **Similarity Search**: Cosine-distance matching over 128-dim audio embeddings stored per-track — `SimilarityIndex` with 1-hour TTL cache and thread-safe lazy-load
 - **Playlist Optimization**: Greedy nearest-neighbour graph over Camelot distance, BPM delta, and EnergyScore with configurable per-factor weights (`PlaylistOptimizer`)
 - **Energy Curve Sequencing**: Post-ordering pass reshapes any playlist into `Rising`, `Wave` (arch), or `Peak` (low-body + high-energy spike) energy profiles
 - **Max-BPM-Jump Guard**: Configurable penalty rejects transitions wider than a set BPM range, preventing jarring key-tempo collisions
 - **Seeded Ordering**: Optional fixed start/end track constraints for opening and closing track pinning
+- **Structure-planned mixes**: playback mixes from each track's intro/outro sections in whole 8/16/32-bar phrases. Auto picks **Rolling** (the incoming drop lands as the outgoing main section ends) or **Relaxed**; **Drop Sync** (double drop) is a preset only. Vocal clashes are avoided, tempos are matched up to 6%, and an automatic mix never starts before half the outgoing track has played
 
 ### Background Processing
 - **Job Queue**: `Channel<T>`-backed unbounded job queue (`BackgroundJobQueue`) with configurable concurrency

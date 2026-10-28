@@ -664,11 +664,13 @@ public class UserCollectionViewModelTests
     // ─────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void FolderNode_Icon_IsFolder()
+    public void FolderNode_Kind_IsFolder()
     {
         var folder = new UserCollectionFolderNodeViewModel("TestFolder");
 
-        Assert.Equal("📁", folder.Icon);
+        Assert.True(folder.IsFolder);
+        Assert.False(folder.IsMusic);
+        Assert.False(folder.IsPlainFile);
     }
 
     [Fact]
@@ -706,21 +708,24 @@ public class UserCollectionViewModelTests
     // ─────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void FileNode_MusicFile_IconIsNote()
+    public void FileNode_MusicFile_KindIsMusic()
     {
         var track = MakeTrack("song.flac", format: "flac");
         var node = new UserCollectionFileNodeViewModel(track, "song.flac", isMusicFile: true);
 
-        Assert.Equal("🎵", node.Icon);
+        Assert.True(node.IsMusic);
+        Assert.False(node.IsFolder);
+        Assert.False(node.IsPlainFile);
     }
 
     [Fact]
-    public void FileNode_NonMusicFile_IconIsDocument()
+    public void FileNode_NonMusicFile_KindIsPlainFile()
     {
         var track = MakeTrack("image.jpg", format: "jpg");
         var node = new UserCollectionFileNodeViewModel(track, "image.jpg", isMusicFile: false);
 
-        Assert.Equal("📄", node.Icon);
+        Assert.True(node.IsPlainFile);
+        Assert.False(node.IsMusic);
     }
 
     [Fact]
@@ -765,7 +770,7 @@ public class UserCollectionViewModelTests
         var track = MakeTrack("song.flac", format: "flac", sampleRate: 44100);
         var node = new UserCollectionFileNodeViewModel(track, "song.flac", isMusicFile: true);
 
-        var expectedSampleRate = $"{track.SampleRate!.Value / 1000.0:0.0} kHz";
+        var expectedSampleRate = "44.1 kHz"; // invariant on every machine (NumFormat)
         Assert.Contains(expectedSampleRate, node.SecondaryText);
     }
 

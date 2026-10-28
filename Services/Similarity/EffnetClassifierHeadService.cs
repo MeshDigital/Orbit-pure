@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using Microsoft.Extensions.Logging;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
@@ -119,6 +120,13 @@ public sealed class EffnetClassifierHeadService : IDisposable
         private InferenceSession? _session;
         private bool _loadAttempted;
 
+        // EffnetClassifierHeadService is a DI singleton — these 6 Head instances (one session
+        // each) are shared across the whole app, but the analysis pipeline processes many tracks
+        // concurrently. Concurrent Run() calls on one session under the DirectML (GPU) execution
+        // provider crashed the whole process natively — see DiscogsEffnetEmbeddingExtractor's
+        // _inferenceLock for the confirmed root cause and why a managed try/catch can't help here.
+        private readonly SemaphoreSlim _inferenceLock = new(1, 1);
+
         public Head(string modelPath, int classCount, ILogger logger)
         {
             _modelPath  = modelPath;
@@ -140,13 +148,32 @@ public sealed class EffnetClassifierHeadService : IDisposable
             var tensor = new DenseTensor<float>(embedding, new[] { 1, embedding.Length });
             var inputs = new[] { NamedOnnxValue.CreateFromTensor("embeddings", tensor) };
 
-            using var results = _session.Run(inputs);
-            var output = results.First(r => r.Name == "activations").AsTensor<float>();
+            try
+            {
+                _inferenceLock.Wait();
+                IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results;
+                try
+                {
+                    results = _session.Run(inputs);
+                }
+                finally
+                {
+                    _inferenceLock.Release();
+                }
 
-            var scores = new float[_classCount];
-            for (int i = 0; i < _classCount; i++)
-                scores[i] = output[0, i];
-            return scores;
+                using var _ = results;
+                var output = results.First(r => r.Name == "activations").AsTensor<float>();
+
+                var scores = new float[_classCount];
+                for (int i = 0; i < _classCount; i++)
+                    scores[i] = output[0, i];
+                return scores;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[ClassifierHead] ONNX inference failed for {Path} — skipping this prediction", _modelPath);
+                return null;
+            }
         }
 
         private void EnsureLoaded()
@@ -172,6 +199,10 @@ public sealed class EffnetClassifierHeadService : IDisposable
             }
         }
 
-        public void Dispose() => _session?.Dispose();
+        public void Dispose()
+        {
+            _session?.Dispose();
+            _inferenceLock.Dispose();
+        }
     }
 }

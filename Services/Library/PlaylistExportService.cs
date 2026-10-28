@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using Microsoft.EntityFrameworkCore;
@@ -12,22 +13,34 @@ using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
+using SLSKDONET.Services.Export;
 using SLSKDONET.Services.Library.Rekordbox;
 using SLSKDONET.Services.Models.Export;
 
 namespace SLSKDONET.Services.Library;
 
+public sealed record M3uExportResult(
+    int Exported,
+    int SkippedDuplicates,
+    IReadOnlyList<string> SkippedTrackProblems)
+{
+    public int Skipped => SkippedDuplicates + SkippedTrackProblems.Count;
+}
+
 public class PlaylistExportService
 {
     private readonly ILogger<PlaylistExportService> _logger;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly SLSKDONET.Services.IO.IFileWriteService _fileWriteService;
 
     public PlaylistExportService(
         ILogger<PlaylistExportService> logger,
-        IDbContextFactory<AppDbContext> dbFactory)
+        IDbContextFactory<AppDbContext> dbFactory,
+        SLSKDONET.Services.IO.IFileWriteService fileWriteService)
     {
         _logger = logger;
         _dbFactory = dbFactory;
+        _fileWriteService = fileWriteService;
     }
 
     /// <param name="pathMap">
@@ -107,6 +120,14 @@ public class PlaylistExportService
                 }
             }
 
+            // Prior cue-sync snapshots for this exact target file, keyed by track hash — feeds the
+            // three-way cue merge below (see RekordboxXmlMerger.MergeCuePoints).
+            var normalizedTargetPath = Path.GetFullPath(targetPath);
+            var priorCueSnapshotsByHash = await db.RekordboxExportCueSync
+                .AsNoTracking()
+                .Where(s => s.TargetPath == normalizedTargetPath)
+                .ToDictionaryAsync(s => s.TrackUniqueHash, s => s.CueSnapshot, StringComparer.Ordinal);
+
             // Build parallel lists so cue look-up stays correct even when some tracks
             // are skipped (file not found). Using a separate source list avoids the
             // index-mismatch bug that occurs when iterating rbTracks by index into trackList.
@@ -134,12 +155,17 @@ public class PlaylistExportService
                     Artist = track.Artist ?? "Unknown Artist",
                     Album = track.Album ?? "Unknown Album",
                     Genre = track.Genres ?? "",
+                    Kind = ResolveKind(effectivePath),
                     Size = fileInfo.Length,
                     TotalTime = Math.Max(0, track.CanonicalDuration.GetValueOrDefault() / 1000),
                     DateAdded = track.AddedAt.ToString("yyyy-MM-dd"),
                     BitRate = track.Bitrate ?? 0,
+                    SampleRate = track.SpectralSampleRateHz.GetValueOrDefault() > 0 ? track.SpectralSampleRateHz!.Value : 44100,
                     AverageBpm = track.BPM ?? 0,
                     Tonality = track.MusicalKey ?? "",
+                    Label = track.Label ?? "",
+                    TrackNumber = Math.Max(0, track.TrackNumber),
+                    Year = track.ReleaseDate?.Year ?? 0,
                     Location = BuildLocationUri(effectivePath),
                     Rating = Math.Clamp(track.Rating, 0, 5) * 51,
                     Comments = track.Comments ?? "",
@@ -189,7 +215,8 @@ public class PlaylistExportService
                         playlistPathChain.AddRange(Enumerable.Reverse(folderChainLeafToRoot));
                         playlistPathChain.Add(playlistName);
 
-                        finalDoc = RekordboxXmlMerger.MergeIntoExisting(existingDoc, doc, playlistPathChain, _logger);
+                        var priorCueSnapshotByTrackId = BuildPriorCueSnapshotByTrackId(rbTracks, rbSources, priorCueSnapshotsByHash);
+                        finalDoc = RekordboxXmlMerger.MergeIntoExisting(existingDoc, doc, playlistPathChain, _logger, priorCueSnapshotByTrackId);
                         _logger.LogInformation("Merged export into existing Rekordbox XML at {Path}", targetPath);
                     }
                     else
@@ -203,7 +230,35 @@ public class PlaylistExportService
                 }
             }
 
-            await Task.Run(() => finalDoc.Save(targetPath));
+            await PersistCueSyncSnapshotsAsync(db, normalizedTargetPath, finalDoc, rbTracks, rbSources);
+
+            // Atomic write (temp file in the same directory, verified, then renamed into place) —
+            // a direct XDocument.Save(targetPath) truncates the target file before streaming the
+            // new content out, so a crash, a killed process, or (very plausible for a USB export)
+            // the drive being unplugged mid-write leaves a corrupted, truncated rekordbox.xml. For
+            // a first-time export that's just a failed export; for a merge-mode re-export it would
+            // destroy the EXISTING file — including whatever ratings/colours/cues the user had
+            // already edited in Rekordbox, which the whole merge feature exists to protect.
+            bool writeOk = await _fileWriteService.WriteAtomicAsync(
+                targetPath,
+                writeAction: tempPath => { finalDoc.Save(tempPath); return Task.CompletedTask; },
+                verifyAction: tempPath =>
+                {
+                    try
+                    {
+                        var check = XDocument.Load(tempPath);
+                        return Task.FromResult(check.Root?.Name.LocalName == "DJ_PLAYLISTS");
+                    }
+                    catch
+                    {
+                        return Task.FromResult(false);
+                    }
+                });
+
+            if (!writeOk)
+            {
+                throw new IOException($"Failed to write Rekordbox XML to {targetPath} (atomic write/verification failed — original file, if any, was left untouched).");
+            }
             _logger.LogInformation("Rekordbox XML export completed successfully.");
         }
         catch (Exception ex)
@@ -295,6 +350,94 @@ public class PlaylistExportService
     }
 
     /// <summary>
+    /// Rekeys the per-track cue-sync snapshots loaded for this export target (by track hash) onto
+    /// this run's freshly-assigned TrackIDs — the shape <see cref="RekordboxXmlMerger.MergeIntoExisting"/>
+    /// needs, since it matches tracks by TrackID/Location and has no concept of ORBIT's hash.
+    /// </summary>
+    private static Dictionary<string, string> BuildPriorCueSnapshotByTrackId(
+        List<RekordboxTrack> rbTracks, List<PlaylistTrack> rbSources, Dictionary<string, string> priorCueSnapshotsByHash)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (priorCueSnapshotsByHash.Count == 0) return result;
+
+        for (int i = 0; i < rbTracks.Count; i++)
+        {
+            var hash = rbSources[i].TrackUniqueHash;
+            if (!string.IsNullOrEmpty(hash) && priorCueSnapshotsByHash.TryGetValue(hash, out var snapshot))
+                result[rbTracks[i].TrackID.ToString(CultureInfo.InvariantCulture)] = snapshot;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Records, per exported track, the cue set that actually ended up in <paramref name="finalDoc"/>
+    /// (whichever the three-way merge decided on — fresh, preserved, or unchanged) as the new
+    /// baseline for the next export's comparison. Runs for every export (merged or fresh-write) so
+    /// a brand-new file's first export seeds a valid baseline for its second export to compare
+    /// against, not just merges into an already-existing file.
+    /// </summary>
+    private async Task PersistCueSyncSnapshotsAsync(
+        AppDbContext db, string targetPath, XDocument finalDoc, List<RekordboxTrack> rbTracks, List<PlaylistTrack> rbSources)
+    {
+        var collection = finalDoc.Root?.Element("COLLECTION");
+        if (collection == null) return;
+
+        var tracksById = collection.Elements("TRACK")
+            .ToDictionary(t => (string?)t.Attribute("TrackID") ?? "", t => t, StringComparer.Ordinal);
+
+        var existingRows = await db.RekordboxExportCueSync
+            .Where(s => s.TargetPath == targetPath)
+            .ToDictionaryAsync(s => s.TrackUniqueHash, StringComparer.Ordinal);
+
+        for (int i = 0; i < rbTracks.Count; i++)
+        {
+            var hash = rbSources[i].TrackUniqueHash;
+            if (string.IsNullOrEmpty(hash)) continue;
+
+            var trackIdStr = rbTracks[i].TrackID.ToString(CultureInfo.InvariantCulture);
+            if (!tracksById.TryGetValue(trackIdStr, out var trackElem)) continue;
+
+            var snapshot = RekordboxXmlMerger.CanonicalizeCues(trackElem.Elements("POSITION_MARK"));
+
+            if (existingRows.TryGetValue(hash, out var row))
+            {
+                row.CueSnapshot = snapshot;
+                row.UpdatedAtUtc = DateTime.UtcNow;
+            }
+            else
+            {
+                db.RekordboxExportCueSync.Add(new RekordboxExportCueSyncEntity
+                {
+                    TargetPath = targetPath,
+                    TrackUniqueHash = hash,
+                    CueSnapshot = snapshot,
+                    UpdatedAtUtc = DateTime.UtcNow,
+                });
+            }
+        }
+
+        try
+        {
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            // Non-fatal: worst case, the next export falls back to the conservative
+            // preserve-existing-cues rule for tracks whose snapshot failed to save.
+            _logger.LogWarning(ex, "Rekordbox export: failed to persist cue-sync snapshots for {Path} — next export will fall back to preserving existing cues for affected tracks.", targetPath);
+        }
+    }
+
+    /// <summary>
+    /// Maps a file extension to Rekordbox's real Kind string (e.g. "MP3 File"), confirmed against
+    /// actual rekordbox-exported XML rather than guessed — Rekordbox does not use a numeric code
+    /// here despite some third-party tools assuming otherwise. Unrecognized extensions get a
+    /// best-effort "{EXT} File" label rather than a silently wrong guess.
+    /// </summary>
+    internal static string ResolveKind(string filePath) => SLSKDONET.Services.Audio.AudioFormats.RekordboxKind(filePath);
+
+    /// <summary>
     /// Resolves a deterministic Rekordbox TrackID for <paramref name="track"/> so the same track
     /// gets the same ID across separate export runs (enables re-importing an updated XML without
     /// Rekordbox treating every track as brand new). Falls back through TrackUniqueHash → resolved
@@ -348,7 +491,8 @@ public class PlaylistExportService
             new XAttribute("Tonality", t.Tonality),
             new XAttribute("Location", t.Location),
             new XAttribute("Rating", t.Rating),
-            new XAttribute("Comments", t.Comments)
+            new XAttribute("Comments", t.Comments),
+            new XAttribute("Label", t.Label)
         );
 
         // Track-level colour tag — omitted entirely when unset (no UI to set it yet; this is
@@ -357,6 +501,12 @@ public class PlaylistExportService
         {
             trackElem.Add(new XAttribute("Colour", t.Colour.TrimStart('#')));
         }
+
+        // TrackNumber/Year: omitted entirely when unknown (0) rather than writing a misleading "0".
+        if (t.TrackNumber > 0)
+            trackElem.Add(new XAttribute("TrackNumber", t.TrackNumber));
+        if (t.Year > 0)
+            trackElem.Add(new XAttribute("Year", t.Year));
 
         // TEMPO node(s) — derived from the track's real beat grid when available (multiple
         // anchors for a track with genuine tempo drift), otherwise a single anchor at the real
@@ -397,6 +547,23 @@ public class PlaylistExportService
             return nextFreePad < 8 ? nextFreePad++ : -1;
         }
 
+        // Section markers (Intro end / Outro) are memory cues with a fixed name, so they show on the
+        // CDJ's memory strip the same way everywhere. One that was also put on a pad keeps that pad.
+        foreach (var marker in pointCues.Where(c => c.IsSectionMarker))
+        {
+            var (r, g, b) = HexToRgb(marker.Color, t.Name);
+            trackElem.Add(new XElement("POSITION_MARK",
+                new XAttribute("Name", Engine.Cueing.SectionMarkers.ExportName(marker.Role)!),
+                new XAttribute("Type", "0"),
+                new XAttribute("Start", marker.Timestamp.ToString("F3", CultureInfo.InvariantCulture)),
+                new XAttribute("Num", "-1"),
+                new XAttribute("Red", r),
+                new XAttribute("Green", g),
+                new XAttribute("Blue", b)
+            ));
+        }
+        pointCues = pointCues.Where(c => !c.IsSectionMarker || c.SlotIndex is >= 0 and <= 7).ToList();
+
         foreach (var cue in pointCues.Take(32))
         {
             var (r, g, b) = HexToRgb(cue.Color, t.Name);
@@ -415,7 +582,7 @@ public class PlaylistExportService
             // A cue occupying a hot-cue pad also gets a memory-cue duplicate at the same
             // position, so it stays visible on Rekordbox's memory-cue strip even if the pad
             // is later overwritten on the hardware.
-            if (num >= 0)
+            if (num >= 0 && !cue.IsSectionMarker) // a section marker already has its memory cue
             {
                 trackElem.Add(new XElement("POSITION_MARK",
                     new XAttribute("Name", cue.Name),
@@ -425,6 +592,37 @@ public class PlaylistExportService
                     new XAttribute("Red", r),
                     new XAttribute("Green", g),
                     new XAttribute("Blue", b)
+                ));
+            }
+        }
+
+        // Phrase-countdown memory cues: a memory-cue-only marker 16 bars before each Drop, purely
+        // so Rekordbox/CDJs show an on-screen "bars remaining" countdown heading into the drop —
+        // the same pattern the open-source "djcues" project uses (memory cues at phrase markers,
+        // separate from the hot cue at the trigger point itself, so they don't consume a hot-cue
+        // pad). Skipped if it would land before the track start or within 2 bars of another cue —
+        // early drops are common (short radio edits, DnB tracks with Drop 1 around bar 9-17), and
+        // a countdown marker jammed right next to the cue it's counting down to (or the Intro/
+        // First-Beat cue) is worse than no countdown marker at all.
+        if (bpm > 0)
+        {
+            double barSeconds = 60.0 / bpm * 4;
+            foreach (var cue in pointCues.Where(c => c.Role == CueRole.Drop))
+            {
+                double countdownAt = cue.Timestamp - barSeconds * 16;
+                if (countdownAt < 0) continue;
+                bool tooClose = allCues.Any(c => Math.Abs(c.Timestamp - countdownAt) < barSeconds * 2);
+                if (tooClose) continue;
+
+                var (cr, cg, cb) = HexToRgb(cue.Color, t.Name);
+                trackElem.Add(new XElement("POSITION_MARK",
+                    new XAttribute("Name", $"16 bars to {cue.Name}"),
+                    new XAttribute("Type", "0"),
+                    new XAttribute("Start", countdownAt.ToString("F3", CultureInfo.InvariantCulture)),
+                    new XAttribute("Num", "-1"),
+                    new XAttribute("Red", cr),
+                    new XAttribute("Green", cg),
+                    new XAttribute("Blue", cb)
                 ));
             }
         }
@@ -492,7 +690,10 @@ public class PlaylistExportService
                 Source         = CueSource.Auto,
                 IsLoop         = c.IsLoop,
                 LoopEndSeconds = c.LoopEndSeconds,
-                SlotIndex      = c.SlotIndex
+                SlotIndex      = c.SlotIndex,
+                // Only the section markers carry their role into the export (see BuildTrackElement);
+                // other types keep the previous behaviour.
+                Role           = c.Type is CuePointType.IntroEnd or CuePointType.OutroStart ? OrbitCue.RoleFromType(c.Type) : CueRole.Custom,
             });
         }
 
@@ -571,25 +772,49 @@ public class PlaylistExportService
     }
 
 
-    public async Task ExportToM3uAsync(
+    /// <summary>
+    /// Scans all tracks, exports those with readable/decodable local files, and reports unavailable
+    /// tracks rather than allowing them to cancel export of the usable tracks. Returns actual
+    /// exported and skipped counts so the caller can report what happened.
+    /// </summary>
+    public async Task<M3uExportResult> ExportToM3uAsync(
         string playlistName,
         IEnumerable<PlaylistTrack> tracks,
-        string targetPath)
+        string targetPath,
+        CancellationToken cancellationToken = default)
     {
         try
         {
             _logger.LogInformation("Exporting playlist '{PlaylistName}' to M3U: {Path}", playlistName, targetPath);
 
-            var trackList = tracks
-                .Where(t => !string.IsNullOrEmpty(t.ResolvedFilePath) && File.Exists(t.ResolvedFilePath))
-                .GroupBy(t => t.ResolvedFilePath!, StringComparer.OrdinalIgnoreCase)
+            var allTracks = tracks.ToList();
+            var scan = await TrackExportPreflight.ScanAsync(allTracks, cancellationToken);
+            if (scan.ValidTracks.Count == 0)
+            {
+                if (scan.Problems.Count > 0)
+                    throw new TrackExportValidationException(scan.Problems);
+                throw new InvalidOperationException("The selected playlist contains no tracks to export.");
+            }
+
+            var trackList = scan.ValidTracks
+                .GroupBy(t => t.ResolvedFilePath ?? "", StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.First())
                 .ToList();
+            int skippedDuplicates = scan.ValidTracks.Count - trackList.Count;
+            if (scan.Problems.Count > 0)
+            {
+                _logger.LogWarning(
+                    "M3U export will omit {SkippedCount} tracks with missing, unreadable, or invalid audio files",
+                    scan.Problems.Count);
+            }
 
             var lines = new List<string> { "#EXTM3U", $"#PLAYLIST:{playlistName}" };
 
             foreach (var track in trackList)
             {
+                if (string.IsNullOrWhiteSpace(track.ResolvedFilePath) || !File.Exists(track.ResolvedFilePath))
+                    throw new IOException($"Track file disappeared during export: '{track.Title}' ({track.ResolvedFilePath ?? "no file location"}).");
+
                 int durationSec = Math.Max(0, track.CanonicalDuration.GetValueOrDefault() / 1000);
                 string artist = track.Artist ?? "Unknown Artist";
                 string title = track.Title ?? "Unknown Title";
@@ -597,8 +822,37 @@ public class PlaylistExportService
                 lines.Add(track.ResolvedFilePath!);
             }
 
-            await File.WriteAllLinesAsync(targetPath, lines, System.Text.Encoding.UTF8);
-            _logger.LogInformation("M3U export completed: {Count} tracks.", trackList.Count);
+            // Rekordbox's M3U8 importer requires "#EXTM3U" to be the literal first bytes of the
+            // file — System.Text.Encoding.UTF8 (the static instance) writes a UTF-8 byte-order-mark
+            // ahead of it by default, which Rekordbox doesn't strip, so the playlist silently failed
+            // to import (or imported as a single bad entry) despite being well-formed otherwise.
+            // new UTF8Encoding(false) omits the BOM. Atomic write (temp file, verified, then renamed
+            // into place) for the same reason the Rekordbox XML export above uses it — this is
+            // routinely written straight to a USB drive, and a direct write truncates the target
+            // before the new content lands, so an unplugged drive or killed process leaves a
+            // corrupted file instead of just a failed export.
+            var utf8NoBom = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+            bool writeOk = await _fileWriteService.WriteAtomicAsync(
+                targetPath,
+                writeAction: tempPath => File.WriteAllLinesAsync(tempPath, lines, utf8NoBom, cancellationToken),
+                verifyAction: async tempPath =>
+                {
+                    var firstLine = (await File.ReadAllLinesAsync(tempPath)).FirstOrDefault();
+                    return firstLine == "#EXTM3U";
+                },
+                cancellationToken);
+
+            if (!writeOk)
+            {
+                throw new IOException($"Failed to write M3U playlist to '{targetPath}' (atomic write/verify failed).");
+            }
+
+            _logger.LogInformation(
+                "M3U export completed: {Exported} tracks exported, {SkippedDuplicates} duplicate paths and {SkippedInvalid} invalid tracks skipped.",
+                trackList.Count,
+                skippedDuplicates,
+                scan.Problems.Count);
+            return new M3uExportResult(trackList.Count, skippedDuplicates, scan.Problems);
         }
         catch (Exception ex)
         {

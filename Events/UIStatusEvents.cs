@@ -16,11 +16,22 @@ public record NavigationEvent(PageType PageType);
 public record TrackSelectionChangedEvent(PlaylistTrack? Track); // Phase 12.6: Inspector Sync
 public record PlayTrackRequestEvent(PlaylistTrackViewModel Track);
 public record AddToQueueRequestEvent(PlaylistTrackViewModel Track);
-public record PlayAlbumRequestEvent(IEnumerable<PlaylistTrack> Tracks);
-public record DownloadAlbumRequestEvent(object Album); // object to handle AlbumNode or PlaylistJob
+/// <param name="MixModeEnabled">True when the playlist's own "+ Mix" toggle was on at the moment
+/// Play was pressed — tells PlayerViewModel to surface the inline Mix editor for the first hop
+/// immediately, instead of requiring a separate click to discover the transition settings.</param>
+/// <param name="StartTrackId">PlaylistTrack.Id to start playing from (the selected track, or the
+/// one right-clicked with Mix on). The whole list is still queued, so earlier tracks stay reachable
+/// with Previous and the mix continues from this track onward. Null = start at the first track.</param>
+public record PlayAlbumRequestEvent(IEnumerable<PlaylistTrack> Tracks, bool MixModeEnabled = false, Guid? StartTrackId = null);
 public record RequestTheaterModeEvent();
 public record AddToTimelineRequestEvent(IEnumerable<PlaylistTrack> Tracks);
+
 public record AddToProjectRequestEvent(IEnumerable<PlaylistTrack> Tracks); // Phase 12.7: Context Menu Actions
 public record RevealFileRequestEvent(string FilePath);
 public record SeekRequestEvent(double PositionPercent); // 0.0 to 1.0
 public record SeekToSecondsRequestEvent(double Seconds);
+
+/// <summary>Published after navigating to the Search page via Ctrl+F/"Focus Search" so
+/// SearchPage's code-behind can actually put keyboard focus in the search box — navigation alone
+/// only makes the page visible, it doesn't focus anything inside it.</summary>
+public record FocusSearchBoxRequestedEvent();

@@ -37,6 +37,81 @@ public class SelectableTrack : INotifyPropertyChanged
 
     public Action? OnSelectionChanged { get; set; }
 
+    /// <summary>Raised after the user edits Artist or Title, so the import preview can re-match the row.</summary>
+    public Action? OnIdentityChanged { get; set; }
+
+    // ─── Import preview status ────────────────────────────────────────────────
+
+    private ImportRowStatus _status = ImportRowStatus.New;
+    private string _statusTooltip = string.Empty;
+
+    /// <summary>What importing this row will do. Set by <see cref="ImportPreviewViewModel"/>.</summary>
+    public ImportRowStatus Status => _status;
+
+    /// <summary>Hover text explaining <see cref="Status"/> in a full sentence.</summary>
+    public string StatusTooltip => _statusTooltip;
+
+    public void SetStatus(ImportRowStatus status, string tooltip)
+    {
+        var changed = _status != status;
+        _status = status;
+        if (_statusTooltip != tooltip)
+        {
+            _statusTooltip = tooltip;
+            OnPropertyChanged(nameof(StatusTooltip));
+        }
+        if (!changed) return;
+        OnPropertyChanged(nameof(Status));
+        OnPropertyChanged(nameof(StatusLabel));
+        OnPropertyChanged(nameof(IsToneAccent));
+        OnPropertyChanged(nameof(IsToneSuccess));
+        OnPropertyChanged(nameof(IsToneInfo));
+        OnPropertyChanged(nameof(IsToneWarning));
+        OnPropertyChanged(nameof(IsToneError));
+    }
+
+    /// <summary>Short status word shown next to the dot.</summary>
+    public string StatusLabel => _status switch
+    {
+        ImportRowStatus.New => "New",
+        ImportRowStatus.Owned => "Owned",
+        ImportRowStatus.InPlaylist => "In playlist",
+        ImportRowStatus.Queued => "Queued",
+        ImportRowStatus.Retry => "Retry",
+        ImportRowStatus.Similar => "Similar",
+        ImportRowStatus.Repeat => "Repeat",
+        ImportRowStatus.NoMatch => "No match",
+        _ => string.Empty
+    };
+
+    public bool IsToneAccent => _status == ImportRowStatus.New;
+    public bool IsToneSuccess => _status == ImportRowStatus.Owned;
+    public bool IsToneInfo => _status == ImportRowStatus.Queued;
+    public bool IsToneWarning => _status is ImportRowStatus.Retry or ImportRowStatus.Similar;
+    public bool IsToneError => _status == ImportRowStatus.NoMatch;
+
+    /// <summary>Hash of the owned library file this row resolved to (null when not owned).</summary>
+    internal string? OwnedLibraryHash { get; set; }
+
+    /// <summary>True when the same track is already waiting/searching/downloading.</summary>
+    internal bool IsInFlight { get; set; }
+
+    /// <summary>"m:ss" from <see cref="Track.Length"/> (seconds) or <see cref="Track.CanonicalDuration"/> (ms); an en dash when unknown.</summary>
+    public string DurationDisplay
+    {
+        get
+        {
+            int seconds = 0;
+            if (Model.Length is > 0) seconds = Model.Length.Value;
+            else if (Model.CanonicalDuration is > 0)
+                seconds = Model.CanonicalDuration.Value > 10_000 ? Model.CanonicalDuration.Value / 1000 : Model.CanonicalDuration.Value;
+            if (seconds <= 0) return "–";
+            return seconds >= 3600
+                ? $"{seconds / 3600}:{seconds % 3600 / 60:00}:{seconds % 60:00}"
+                : $"{seconds / 60}:{seconds % 60:00}";
+        }
+    }
+
     // ─── Editable Artist / Title ──────────────────────────────────────────────
 
     /// <summary>
@@ -52,6 +127,7 @@ public class SelectableTrack : INotifyPropertyChanged
             {
                 Model.Artist = value;
                 OnPropertyChanged();
+                OnIdentityChanged?.Invoke();
                 OnPropertyChanged(nameof(RawInputDisplay));
                 OnPropertyChanged(nameof(HasAnyChange));
                 OnPropertyChanged(nameof(IsCleaned));
@@ -74,6 +150,7 @@ public class SelectableTrack : INotifyPropertyChanged
             {
                 Model.Title = value;
                 OnPropertyChanged();
+                OnIdentityChanged?.Invoke();
                 OnPropertyChanged(nameof(RawInputDisplay));
                 OnPropertyChanged(nameof(HasAnyChange));
                 OnPropertyChanged(nameof(IsCleaned));
@@ -137,12 +214,12 @@ public class SelectableTrack : INotifyPropertyChanged
         {
             if (!HasAnyChange) return string.Empty;
             var lines = new System.Text.StringBuilder();
-            lines.AppendLine("⚠️ Field(s) were sanitized during import:");
+            lines.AppendLine("Cleaned up during import:");
             if (Model.OriginalArtist != null && Model.OriginalArtist != Model.Artist)
                 lines.AppendLine($"  Artist:  \"{Model.OriginalArtist}\"  →  \"{Model.Artist}\"");
             if (Model.OriginalTitle != null && Model.OriginalTitle != Model.Title)
                 lines.AppendLine($"  Title:   \"{Model.OriginalTitle}\"  →  \"{Model.Title}\"");
-            lines.Append("Click ↩ to restore the original text.");
+            lines.Append("Use the restore button to put the original text back.");
             return lines.ToString();
         }
     }
@@ -236,3 +313,24 @@ public class SelectableTrack : INotifyPropertyChanged
     }
 }
 
+
+/// <summary>What the import preview will do with one row.</summary>
+public enum ImportRowStatus
+{
+    /// <summary>Not in the library: will be searched and downloaded.</summary>
+    New,
+    /// <summary>Already in the library: the playlist links the existing file.</summary>
+    Owned,
+    /// <summary>Already in the destination playlist: skipped.</summary>
+    InPlaylist,
+    /// <summary>Already downloading: linked when it finishes.</summary>
+    Queued,
+    /// <summary>In the destination playlist but failed before: retried.</summary>
+    Retry,
+    /// <summary>Not owned, but a close match exists in the library: review.</summary>
+    Similar,
+    /// <summary>Same track appears earlier in this import: imported once.</summary>
+    Repeat,
+    /// <summary>Missing artist or title: can't be searched.</summary>
+    NoMatch
+}

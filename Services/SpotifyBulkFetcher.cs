@@ -7,11 +7,14 @@ using SpotifyAPI.Web;
 namespace SLSKDONET.Services;
 
 /// <summary>
-/// "The Bulk Brain"
-/// Implements the Three Laws of robust Spotify fetching:
-/// 1. Rule of 50/100 (Chunking)
-/// 2. Two-Pass Fetch (Metadata + Features)
-/// 3. Retry-After Mandate (via Configured Client)
+/// Bulk track-metadata fetch by Spotify ID, in chunks of 50 (the Tracks endpoint limit), through
+/// the authenticated client whose retry handler honours Retry-After.
+/// <para>
+/// Audio features (BPM/key/energy) are deliberately NOT fetched: since November 2024 Spotify
+/// returns 403 for <c>audio-features</c> and <c>recommendations</c> to new apps, and ORBIT's own
+/// analysis owns BPM/key/energy anyway. Library enrichment lives in
+/// <see cref="Enrichment.MetadataEnrichmentOrchestrator"/>.
+/// </para>
 /// </summary>
 public class SpotifyBulkFetcher
 {
@@ -22,60 +25,19 @@ public class SpotifyBulkFetcher
         _auth = auth;
     }
 
-    /// <summary>
-    /// Downloads Track Metadata AND Audio Features (BPM, Key) for a list of IDs.
-    /// Handles chunking (50/100 limits) automatically.
-    /// </summary>
-    public async Task<List<FullTrackWithFeatures>> GetEnrichedTracksAsync(List<string> trackIds)
+    /// <summary>Full track metadata for a list of IDs; unknown IDs are skipped.</summary>
+    public async Task<List<FullTrack>> GetTracksAsync(List<string> trackIds)
     {
-        if (trackIds == null || !trackIds.Any())
-            return new List<FullTrackWithFeatures>();
+        if (trackIds == null || trackIds.Count == 0)
+            return new List<FullTrack>();
 
         var client = await _auth.GetAuthenticatedClientAsync();
-        var distinctIds = trackIds.Distinct().ToList();
-
-        // 1. Get Basic Metadata (Limit 50 per call)
-        // Rule of 50: Tracks endpoint limit
-        var metadataTasks = distinctIds.Chunk(50).Select(async batch => 
+        var results = new List<FullTrack>();
+        foreach (var batch in trackIds.Distinct().Chunk(50))
         {
             var response = await client.Tracks.GetSeveral(new TracksRequest(batch.ToList()));
-            return response.Tracks;
-        });
-
-        // 2. Get Audio Features (Limit 100 per call)
-        // Rule of 100: Audio Features endpoint limit
-        var featuresTasks = distinctIds.Chunk(100).Select(async batch => 
-        {
-            var response = await client.Tracks.GetSeveralAudioFeatures(new TracksAudioFeaturesRequest(batch.ToList()));
-            return response.AudioFeatures;
-        });
-
-        // 3. Wait for all requests to finish (Parallel execution)
-        var metadataResults = (await Task.WhenAll(metadataTasks)).SelectMany(x => x).ToList();
-        var featuresResults = (await Task.WhenAll(featuresTasks)).SelectMany(x => x).ToList();
-
-        // 4. Stitch them together
-        var enrichedTracks = new List<FullTrackWithFeatures>();
-        
-        foreach (var track in metadataResults)
-        {
-            if (track == null) continue; // Handle dead IDs
-
-            var feature = featuresResults.FirstOrDefault(f => f != null && f.Id == track.Id);
-            enrichedTracks.Add(new FullTrackWithFeatures 
-            { 
-                Track = track, 
-                Features = feature // This might be null if analysis isn't available
-            });
+            results.AddRange(response.Tracks.Where(t => t != null));
         }
-
-        return enrichedTracks;
+        return results;
     }
-}
-
-// Helper DTO to keep your "Brain" organized
-public class FullTrackWithFeatures
-{
-    public FullTrack Track { get; set; } = null!;
-    public TrackAudioFeatures? Features { get; set; }
 }

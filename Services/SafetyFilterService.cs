@@ -25,14 +25,11 @@ public class SafetyFilterService : ISafetyFilterService
     private readonly ILogger<SafetyFilterService> _logger;
     private readonly AppConfig _config;
     private readonly string[] _bannedExtensions = new[] { ".exe", ".zip", ".rar", ".lnk", ".bat", ".cmd", ".vbs", ".dmg", ".iso" };
-    private static readonly HashSet<string> _losslessWhitelist = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".flac", ".aif", ".aiff", ".wav"
-    };
-    private static readonly HashSet<string> _lossyBlacklist = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mp3", ".m4a", ".mp4", ".ogg", ".wma"
-    };
+    // From the format table: lossless formats ORBIT imports (FLAC/WAV/AIFF), and lossy ones it can use.
+    private static bool IsAllowedLossless(string ext) =>
+        SLSKDONET.Services.Audio.AudioFormats.Find(ext) is { IsLossless: true, IsImportable: true };
+    private static bool IsUsableLossy(string ext) =>
+        SLSKDONET.Services.Audio.AudioFormats.Find(ext) is { IsLossless: false, Support: not SLSKDONET.Services.Audio.AudioFormatSupport.Recognised };
 
     public SafetyFilterService(ILogger<SafetyFilterService> logger, AppConfig config)
     {
@@ -88,12 +85,12 @@ public class SafetyFilterService : ISafetyFilterService
         }
 
         // 1B. Purist First Barrier: hard extension allow/deny
-        if (!allowLossy && _lossyBlacklist.Contains(ext))
+        if (!allowLossy && SLSKDONET.Services.Audio.AudioFormats.IsLossy(ext))
         {
             return new SafetyCheckResult(false, "Lossy Extension Rejected", $"Extension '{ext}' is blacklisted for lossless hunting.");
         }
 
-        if (!_losslessWhitelist.Contains(ext) && (!allowLossy || !_lossyBlacklist.Contains(ext)))
+        if (!IsAllowedLossless(ext) && (!allowLossy || !IsUsableLossy(ext)))
         {
             return new SafetyCheckResult(false, "Unsupported Extension", $"Extension '{ext}' is outside the allowed audio whitelist.");
         }
@@ -183,8 +180,16 @@ public class SafetyFilterService : ISafetyFilterService
         if (policy?.EnforceStrictTitleMatch == true && !string.IsNullOrWhiteSpace(query) && !string.IsNullOrEmpty(candidate.Filename))
         {
             var filenameLower = candidate.Filename.ToLowerInvariant();
-            var queryTokens = query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            var missingToken = queryTokens.FirstOrDefault(t => t.Length > 1 && !filenameLower.Contains(t.ToLowerInvariant()));
+            var queryTokens = query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                // Trim edge punctuation before requiring a token verbatim — e.g. a title like
+                // "Burn 'Em Down" splits into a raw "'Em" token, but peer filenames almost always
+                // drop the apostrophe ("Burn Em Down"). Without this, a token that's really just
+                // "em" with a leading quote mark permanently disqualifies an otherwise-correct
+                // match (confirmed in the wild: Pythius - Burn 'Em Down (Primate Remix) rejecting
+                // real candidates from multiple peers on this exact token, live audit log 2026-08).
+                .Select(t => t.Trim('\'', '"', '’', '.', ',', '!', '?', ':', ';', '(', ')', '[', ']'))
+                .Where(t => t.Length > 1);
+            var missingToken = queryTokens.FirstOrDefault(t => !filenameLower.Contains(t.ToLowerInvariant()));
             if (missingToken != null)
             {
                 return new SafetyCheckResult(false, "Strict Title Mismatch", $"Filename is missing query token '{missingToken}'.");

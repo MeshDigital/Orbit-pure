@@ -13,10 +13,16 @@ public class ToastNotificationViewModel
     public string Message { get; }
     public NotificationType Type { get; }
 
-    public ToastNotificationViewModel(string title, string message, NotificationType type)
+    /// <summary>Page a click opens (navigation key), or null.</summary>
+    public string? OpenPage { get; }
+    public bool IsClickable => OpenPage != null;
+    public string ClickHint => OpenPage == "Projects" ? "Click to open the Download Center →" : "Click to open →";
+
+    public ToastNotificationViewModel(string title, string message, NotificationType type, string? openPage = null)
     {
         Title = title;
         Message = message;
         Type = type;
+        OpenPage = openPage;
     }
 }

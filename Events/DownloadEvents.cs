@@ -18,13 +18,22 @@ public record TrackRemovedEvent(string TrackGlobalId);
 public record TrackMovedEvent(string TrackGlobalId, Guid OldProjectId, Guid NewProjectId);
 public record RemoveTrackFromInspectorEvent(string TrackGlobalId);
 public record EditTagsFromInspectorEvent(string TrackGlobalId);
-public record TrackStateChangedEvent(string TrackGlobalId, Guid ProjectId, PlaylistTrackState State, DownloadFailureReason FailureReason = DownloadFailureReason.None, string? Error = null, SearchAttemptLog? SearchLog = null, string? PeerName = null);
+// Track Inspector actions routed to LibraryViewModel's existing Operations commands.
+public record OpenInCueForgeFromInspectorEvent(string TrackGlobalId);
+public record OpenInEditLabFromInspectorEvent(string TrackGlobalId);
+public record RetryDownloadFromInspectorEvent(string TrackGlobalId);
+// WasAlreadyPresent: true when a Completed transition came from a "file already exists locally /
+// in the library, just reuse it" fast path (DownloadManager.ProcessTrackAsync's three pre-checks)
+// rather than an actual Soulseek transfer finishing — lets listeners like the download-complete
+// toast tell "this genuinely just finished downloading" apart from "this was already sitting on
+// disk and got silently relinked", which otherwise looked identical and produced a success
+// notification for a download that never happened.
+public record TrackStateChangedEvent(string TrackGlobalId, Guid ProjectId, PlaylistTrackState State, DownloadFailureReason FailureReason = DownloadFailureReason.None, string? Error = null, SearchAttemptLog? SearchLog = null, string? PeerName = null, bool WasAlreadyPresent = false);
 // Phase 2.5: Enhanced with byte-level progress tracking
 public record TrackProgressChangedEvent(string TrackGlobalId, double Progress, long BytesReceived, long TotalBytes, string? CorrelationId = null);
 public record TrackMetadataUpdatedEvent(string TrackGlobalId);
 public record ForceStartRequestEvent(string TrackGlobalId);
 public record TrackQueuePositionUpdatedEvent(string TrackGlobalId, int Position, string PeerUsername);
-public record BumpToTopRequestEvent(string TrackGlobalId); // [NEW] Overhaul Phase
 
 // Transfer lifecycle events
 public record TransferProgressEvent(string Filename, string Username, long BytesTransferred, long TotalBytes);

@@ -1,0 +1,564 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels.EditLab"
+             xmlns:svc="clr-namespace:SLSKDONET.Services.EditLab"
+             xmlns:ctrl="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             mc:Ignorable="d" d:DesignWidth="1400" d:DesignHeight="900"
+             x:Class="SLSKDONET.Views.Avalonia.EditLabPage"
+             x:DataType="vm:EditLabViewModel"
+             x:CompileBindings="True"
+             Background="{StaticResource BrushBg1}"
+             Focusable="True">
+
+    <!-- Layout (top → bottom): project header · one toolbar (transport, edit, grid, templates) ·
+         problems strip · source bin | lanes + arranger | clip inspector · status line. -->
+    <UserControl.Styles>
+        <Style Selector="ToggleButton.lane">
+            <Setter Property="Width" Value="24"/>
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="FontSize" Value="{StaticResource TextSizeCaption}"/>
+        </Style>
+        <Style Selector="TextBox.fact">
+            <Setter Property="FontFamily" Value="{StaticResource FontMono}"/>
+            <Setter Property="MinWidth" Value="64"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+
+        <!-- ═══ Header: project + tempo/key + matching + preview ═══ -->
+        <Border Grid.Row="0" Padding="24,12" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                <Button Grid.Column="0" Classes="secondary small" Margin="0,0,16,0" VerticalAlignment="Center" ToolTip.Tip="Open a recent edit or start a new one">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="{StaticResource icon_folder}" Width="14" Height="14"/>
+                        <TextBlock Text="Edits"/>
+                        <PathIcon Data="{StaticResource icon_chevron_down}" Width="12" Height="12"/>
+                    </StackPanel>
+                    <Button.Flyout>
+                        <Flyout Placement="BottomEdgeAlignedLeft">
+                            <StackPanel Width="320" Spacing="8">
+                                <Button Classes="primary small" Command="{Binding NewProjectCommand}" HorizontalAlignment="Left">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <PathIcon Data="{StaticResource icon_add}" Width="12" Height="12"/>
+                                        <TextBlock Text="New edit"/>
+                                    </StackPanel>
+                                </Button>
+                                <TextBlock Classes="section" Text="RECENT" IsVisible="{Binding HasRecentProjects}"/>
+                                <TextBlock Classes="caption" Text="No saved edits yet." IsVisible="{Binding !HasRecentProjects}"/>
+                                <ItemsControl ItemsSource="{Binding RecentProjects}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="svc:EditProjectSummary">
+                                            <Grid ColumnDefinitions="*,Auto" Height="40">
+                                                <Button Grid.Column="0" Classes="ghost" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                                        Click="OnRecentProjectClick" ToolTip.Tip="Open this edit">
+                                                    <StackPanel Spacing="0">
+                                                        <TextBlock Classes="body" Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Classes="caption" Text="{Binding BaseTitle, TargetNullValue='No base track'}" TextTrimming="CharacterEllipsis"/>
+                                                    </StackPanel>
+                                                </Button>
+                                                <Button Grid.Column="1" Classes="icon small danger" Click="OnDeleteRecentProjectClick" ToolTip.Tip="Delete this edit (the rendered tracks stay in the library)">
+                                                    <PathIcon Data="{StaticResource icon_delete}" Width="12" Height="12"/>
+                                                </Button>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                    <TextBlock Classes="h2" Text="Edit Lab" IsVisible="{Binding HasNoProject}"/>
+                    <TextBox x:Name="ProjectNameBox" Classes="small" MaxWidth="420" HorizontalAlignment="Left" IsVisible="{Binding HasProject}"
+                             Text="{Binding ProjectName, UpdateSourceTrigger=LostFocus}" ToolTip.Tip="Edit name (used for the rendered track)"/>
+                    <TextBlock Classes="subtitle" Text="{Binding BaseDescription}" TextTrimming="CharacterEllipsis" IsVisible="{Binding HasProject}"/>
+                    <TextBlock Classes="subtitle" Text="Combine tracks, stems and loops into intros and edits." IsVisible="{Binding HasNoProject}"/>
+                </StackPanel>
+
+                <!-- Tempo / key: mono, editable; matching toggles -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center" Margin="16,0" IsVisible="{Binding HasProject}">
+                    <StackPanel Spacing="2">
+                        <TextBlock Classes="section" Text="BPM"/>
+                        <TextBox x:Name="BpmBox" Classes="small fact" Text="{Binding BpmText, UpdateSourceTrigger=LostFocus}"
+                                 ToolTip.Tip="Project tempo. Comes from the base track; type a value to override it."/>
+                    </StackPanel>
+                    <StackPanel Spacing="2">
+                        <TextBlock Classes="section" Text="KEY"/>
+                        <TextBox x:Name="KeyBox" Classes="small fact" Text="{Binding KeyText, UpdateSourceTrigger=LostFocus}"
+                                 ToolTip.Tip="Project key (Camelot 8A or Am). Comes from the base track; type to override."/>
+                    </StackPanel>
+                    <StackPanel Spacing="2">
+                        <TextBlock Classes="section" Text="MATCHING"/>
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <ToggleButton Classes="chip" Content="Tempo" IsChecked="{Binding AutoMatchTempo}"
+                                          ToolTip.Tip="Auto-match tempo: stretch every clip to the project BPM (key-locked). Each clip can override this."/>
+                            <ToggleButton Classes="chip" Content="Key" IsChecked="{Binding AutoMatchKey}"
+                                          ToolTip.Tip="Auto-match key: shift each clip by the smallest amount that makes it harmonically compatible. Each clip can override this."/>
+                        </StackPanel>
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding HasProject}">
+                    <Button Classes="secondary" Command="{Binding PlayPauseCommand}" ToolTip.Tip="Preview the edit (Space)">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <PathIcon Data="{StaticResource icon_play}" Width="14" Height="14" IsVisible="{Binding !IsPlaying}"/>
+                            <PathIcon Data="{StaticResource icon_stop}" Width="14" Height="14" IsVisible="{Binding IsPlaying}"/>
+                            <TextBlock Text="Preview" IsVisible="{Binding !IsPlaying}"/>
+                            <TextBlock Text="Stop" IsVisible="{Binding IsPlaying}"/>
+                        </StackPanel>
+                    </Button>
+
+                    <!-- Render: the one primary action. Options in the flyout; progress + cancel while it runs. -->
+                    <Button Classes="primary" IsVisible="{Binding IsNotRendering}" IsEnabled="{Binding CanRenderAtAll}"
+                            ToolTip.Tip="Render the edit to a new track in your library">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <PathIcon Data="{StaticResource icon_export}" Width="14" Height="14"/>
+                            <TextBlock Text="Render"/>
+                        </StackPanel>
+                        <Button.Flyout>
+                            <Flyout Placement="BottomEdgeAlignedRight">
+                                <StackPanel Width="320" Spacing="12">
+                                    <TextBlock Classes="h3" Text="Render to library"/>
+                                    <TextBlock Classes="caption" Text="{Binding RenderSummary}" TextWrapping="Wrap"/>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="section" Text="FORMAT"/>
+                                        <Border Classes="segmented" HorizontalAlignment="Left">
+                                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                                <RadioButton Classes="chip" GroupName="renderFormat" Content="WAV 24-bit" IsChecked="{Binding RenderAsWav}"/>
+                                                <RadioButton Classes="chip" GroupName="renderFormat" Content="FLAC" IsChecked="{Binding RenderAsFlac}"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <ToggleButton Classes="chip" Content="Loop region only" IsChecked="{Binding RenderLoopOnly}" IsEnabled="{Binding HasLoop}"
+                                                      ToolTip.Tip="Render just the loop region (drag across the bar ruler to set one)"/>
+                                        <ToggleButton Classes="chip" Content="Write cues" IsChecked="{Binding RenderWriteCues}"
+                                                      ToolTip.Tip="Add a memory cue at every clip start, so the sections are marked in Cue Forge and exports"/>
+                                    </StackPanel>
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Classes="caption" Text="Saved to"/>
+                                        <TextBlock Classes="mono muted" Text="{Binding RenderOutputFolder}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <Button Classes="primary small" Content="Start render" Command="{Binding RenderCommand}" HorizontalAlignment="Left"/>
+                                </StackPanel>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding IsRendering}">
+                        <TextBlock Classes="caption" Text="Rendering" VerticalAlignment="Center"/>
+                        <ProgressBar Classes="meter" Width="120" Minimum="0" Maximum="1" Value="{Binding RenderProgress}" VerticalAlignment="Center"/>
+                        <TextBlock Classes="mono" Width="40" Text="{Binding RenderProgress, Converter={StaticResource NumberConverter}, ConverterParameter=pct}" VerticalAlignment="Center"/>
+                        <Button Classes="secondary small" Content="Cancel" Command="{Binding CancelRenderCommand}"/>
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ═══ Toolbar ═══ -->
+        <Border Grid.Row="1" Classes="toolbar" Padding="24,0" IsVisible="{Binding HasProject}">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                    <Button Classes="icon" Command="{Binding StopCommand}" ToolTip.Tip="Stop and return to the start (or the loop start)">
+                        <PathIcon Data="{StaticResource icon_skip_previous}" Width="16" Height="16"/>
+                    </Button>
+                    <Button Classes="icon" Command="{Binding PlayPauseCommand}" ToolTip.Tip="Play / stop (Space)">
+                        <Panel>
+                            <PathIcon Data="{StaticResource icon_play}" Width="16" Height="16" IsVisible="{Binding !IsPlaying}"/>
+                            <PathIcon Data="{StaticResource icon_stop}" Width="16" Height="16" IsVisible="{Binding IsPlaying}"/>
+                        </Panel>
+                    </Button>
+                    <TextBlock Classes="mono" Text="{Binding PositionDisplay}" VerticalAlignment="Center" MinWidth="128" Margin="8,0,0,0"
+                               ToolTip.Tip="Bar.beat and time at the playhead"/>
+                    <TextBlock Classes="caption" Text="Preparing audio…" VerticalAlignment="Center" IsVisible="{Binding IsPreparing}"/>
+                </StackPanel>
+
+                <Border Grid.Column="1" Classes="divider vertical" Height="20" Margin="16,0"/>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                    <Button Classes="icon small" Command="{Binding UndoCommand}" ToolTip.Tip="Undo (Ctrl+Z)">
+                        <PathIcon Data="{StaticResource icon_undo}" Width="14" Height="14"/>
+                    </Button>
+                    <Button Classes="icon small" Command="{Binding RedoCommand}" ToolTip.Tip="Redo (Ctrl+Y)">
+                        <PathIcon Data="{StaticResource icon_redo}" Width="14" Height="14"/>
+                    </Button>
+                    <Button Classes="ghost small" Command="{Binding AddLaneCommand}" ToolTip.Tip="Add an empty lane">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <PathIcon Data="{StaticResource icon_add}" Width="12" Height="12"/>
+                            <TextBlock Text="Lane"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="icon small" ToolTip.Tip="Clip actions">
+                        <PathIcon Data="{StaticResource icon_more}" Width="14" Height="14"/>
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                                <MenuItem Header="Split at playhead (S)" Command="{Binding SplitClipCommand}"/>
+                                <MenuItem Header="Duplicate (Ctrl+D)" Command="{Binding DuplicateClipCommand}"/>
+                                <MenuItem Header="Loop this clip (L)" Command="{Binding LoopToSelectionCommand}"/>
+                                <MenuItem Header="Clear loop" Command="{Binding ClearLoopCommand}"/>
+                                <Separator/>
+                                <MenuItem Header="Delete clip (Del)" Command="{Binding DeleteClipCommand}"/>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+                </StackPanel>
+
+                <Border Grid.Column="3" Classes="divider vertical" Height="20" Margin="16,0"/>
+
+                <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock Classes="caption" Text="Snap" VerticalAlignment="Center"/>
+                    <ComboBox Classes="small" Width="80" ItemsSource="{x:Static vm:EditLabViewModel.SnapOptions}" SelectedItem="{Binding Snap}"
+                              ToolTip.Tip="Grid for moving and trimming clips. Hold Shift while dragging to place freely."/>
+                    <Button Classes="icon small" Command="{Binding ZoomOutCommand}" ToolTip.Tip="Zoom out (Ctrl+wheel on the arranger)">
+                        <PathIcon Data="{StaticResource ws_zoom_out_regular}" Width="14" Height="14"/>
+                    </Button>
+                    <Button Classes="icon small" Command="{Binding ZoomInCommand}" ToolTip.Tip="Zoom in (Ctrl+wheel on the arranger)">
+                        <PathIcon Data="{StaticResource ws_zoom_in_regular}" Width="14" Height="14"/>
+                    </Button>
+                    <TextBlock Classes="mono" Text="{Binding LoopDisplay}" VerticalAlignment="Center" Margin="8,0,0,0"
+                               ToolTip.Tip="Drag across the bar ruler to set a loop region; the preview then loops it."/>
+                </StackPanel>
+
+                <!-- Templates: starting points that create ordinary, editable clips -->
+                <Button Grid.Column="6" Classes="secondary small" VerticalAlignment="Center" ToolTip.Tip="Start from a template (custom intro, acapella, instrumental, bassline swap, extended intro)">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="{StaticResource icon_wand}" Width="14" Height="14"/>
+                        <TextBlock Text="Templates"/>
+                        <PathIcon Data="{StaticResource icon_chevron_down}" Width="12" Height="12"/>
+                    </StackPanel>
+                    <Button.Flyout>
+                        <Flyout Placement="BottomEdgeAlignedRight">
+                            <StackPanel Width="320" Spacing="12">
+                                <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Templates}" SelectedItem="{Binding SelectedTemplate}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="svc:EditTemplateInfo">
+                                            <TextBlock Text="{Binding Name}"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <TextBlock Classes="caption" Text="{Binding TemplateDescription}" TextWrapping="Wrap"/>
+                                <Grid ColumnDefinitions="96,*" RowDefinitions="Auto,8,Auto,8,Auto,8,Auto,8,Auto">
+                                    <TextBlock Grid.Row="0" Classes="caption" Text="Track A" VerticalAlignment="Center"/>
+                                    <ComboBox Grid.Row="0" Grid.Column="1" Classes="small" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding Sources}" SelectedItem="{Binding TemplateTrackA}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:EditSourceItemViewModel">
+                                                <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Row="2" Classes="caption" Text="Track B" VerticalAlignment="Center" IsVisible="{Binding TemplateNeedsTrackB}"/>
+                                    <ComboBox Grid.Row="2" Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" IsVisible="{Binding TemplateNeedsTrackB}"
+                                              ItemsSource="{Binding Sources}" SelectedItem="{Binding TemplateTrackB}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:EditSourceItemViewModel">
+                                                <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Row="4" Classes="caption" Text="Bars" VerticalAlignment="Center" IsVisible="{Binding TemplateUsesBars}"/>
+                                    <NumericUpDown Grid.Row="4" Grid.Column="1" Classes="small" Value="{Binding TemplateBars}" Minimum="1" Maximum="256" Increment="4"
+                                                   FormatString="0" IsVisible="{Binding TemplateUsesBars}"/>
+                                    <TextBlock Grid.Row="6" Classes="caption" Text="From bar" VerticalAlignment="Center" IsVisible="{Binding TemplateUsesStartBar}"/>
+                                    <NumericUpDown Grid.Row="6" Grid.Column="1" Classes="small" Value="{Binding TemplateStartBar}" Minimum="1" Increment="4"
+                                                   FormatString="0.##" IsVisible="{Binding TemplateUsesStartBar}"/>
+                                    <TextBlock Grid.Row="8" Classes="caption" Text="Times" VerticalAlignment="Center" IsVisible="{Binding TemplateUsesRepeats}"/>
+                                    <NumericUpDown Grid.Row="8" Grid.Column="1" Classes="small" Value="{Binding TemplateRepeats}" Minimum="1" Maximum="16" Increment="1"
+                                                   FormatString="0" IsVisible="{Binding TemplateUsesRepeats}"/>
+                                </Grid>
+                                <TextBlock Classes="caption warning" Text="{Binding TemplateBlocker}" TextWrapping="Wrap" IsVisible="{Binding HasTemplateBlocker}"/>
+                                <TextBlock Classes="caption" TextWrapping="Wrap"
+                                           Text="Replaces the current arrangement with ordinary clips you can edit. Ctrl+Z brings the old one back."/>
+                                <Button Classes="primary small" Content="Apply template" Command="{Binding ApplyTemplateCommand}" HorizontalAlignment="Left"/>
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- ═══ Problems: clips that can't play yet ═══ -->
+        <Border Grid.Row="2" Padding="24,8" Background="{StaticResource BrushWarningSubtle}"
+                BorderBrush="{StaticResource BrushWarningBorder}" BorderThickness="0,0,0,1" IsVisible="{Binding HasProblems}">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <PathIcon Data="{StaticResource icon_alert}" Width="14" Height="14" Foreground="{StaticResource BrushWarning}"/>
+                <TextBlock Classes="body-sm" Text="{Binding Problems}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <!-- ═══ No project ═══ -->
+        <StackPanel Grid.Row="3" Classes="empty-state" IsVisible="{Binding HasNoProject}">
+            <PathIcon Data="{StaticResource icon_mix}"/>
+            <TextBlock Classes="h3" Text="No edit open"/>
+            <TextBlock Classes="caption" TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center"
+                       Text="Build a custom intro, an acapella, a bassline swap or an extended intro from your library tracks and their stems. Or right-click a track in the Library and choose Open in Edit Lab."/>
+            <Button Classes="primary" Content="New edit" Command="{Binding NewProjectCommand}"/>
+        </StackPanel>
+
+        <!-- ═══ Workspace: bin | arranger | inspector ═══ -->
+        <Grid Grid.Row="3" ColumnDefinitions="280,*,300" IsVisible="{Binding HasProject}">
+
+            <!-- Source bin -->
+            <Border Grid.Column="0" Classes="panel" BorderThickness="0,0,1,0">
+                <Grid RowDefinitions="Auto,Auto,*">
+                    <Border Grid.Row="0" Classes="panel-header">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Classes="section" Text="TRACKS" VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" x:Name="AddTrackButton" Classes="icon small" ToolTip.Tip="Add a track from the library">
+                                <PathIcon Data="{StaticResource icon_add}" Width="12" Height="12"/>
+                                <Button.Flyout>
+                                    <Flyout Placement="RightEdgeAlignedTop">
+                                        <Grid Width="340" Height="420" RowDefinitions="Auto,8,*">
+                                            <TextBox x:Name="PickerSearchBox" Grid.Row="0" Classes="search small" Text="{Binding PickerQuery}"
+                                                     Watermark="Search downloaded tracks"/>
+                                            <TextBlock Grid.Row="2" Classes="caption" Text="{Binding PickerStatus}" TextWrapping="Wrap"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16" IsVisible="{Binding HasPickerStatus}"/>
+                                            <ListBox x:Name="PickerList" Grid.Row="2" ItemsSource="{Binding PickerResults}" IsVisible="{Binding !HasPickerStatus}"
+                                                     SelectionMode="Single" SelectionChanged="OnPickerSelectionChanged">
+                                                <ListBox.ItemTemplate>
+                                                    <DataTemplate x:DataType="svc:EditLibraryHit">
+                                                        <Grid ColumnDefinitions="*,Auto" Margin="0,4">
+                                                            <StackPanel Spacing="2">
+                                                                <TextBlock Classes="body" Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                                                <TextBlock Classes="caption" Text="{Binding Artist}" TextTrimming="CharacterEllipsis"/>
+                                                            </StackPanel>
+                                                            <TextBlock Grid.Column="1" Classes="mono muted" Text="{Binding Facts}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </ListBox.ItemTemplate>
+                                            </ListBox>
+                                        </Grid>
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
+                        </Grid>
+                    </Border>
+
+                    <TextBlock Grid.Row="1" Classes="caption warning" Margin="16,8" TextWrapping="Wrap"
+                               Text="{Binding SeparatorUnavailableReason}" IsVisible="{Binding !CanSeparateStems}"/>
+
+                    <!-- Empty bin -->
+                    <StackPanel Grid.Row="2" Classes="empty-state" IsVisible="{Binding HasNoSources}">
+                        <PathIcon Data="{StaticResource icon_music}"/>
+                        <TextBlock Classes="h3" Text="No tracks yet"/>
+                        <TextBlock Classes="caption" TextWrapping="Wrap" MaxWidth="220" TextAlignment="Center"
+                                   Text="Add the tracks you want to cut up. The first one sets the tempo and key."/>
+                        <Button Classes="primary" Content="Add track" Click="OnOpenPickerClick"/>
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="2" IsVisible="{Binding HasSources}">
+                        <ItemsControl ItemsSource="{Binding Sources}" Margin="12,8">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:EditSourceItemViewModel">
+                                    <Border Classes="card" Margin="0,0,0,8">
+                                        <StackPanel Spacing="8">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <StackPanel Spacing="2">
+                                                    <TextBlock Classes="body" Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Classes="caption" Text="{Binding Artist}" TextTrimming="CharacterEllipsis"/>
+                                                </StackPanel>
+                                                <Button Grid.Column="1" Classes="icon small" ToolTip.Tip="Add a clip of this track, make it the base, or remove it" VerticalAlignment="Top">
+                                                    <PathIcon Data="{StaticResource icon_more}" Width="14" Height="14"/>
+                                                    <Button.Flyout>
+                                                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                                            <MenuItem Header="Add full mix clip" Command="{Binding AddClipCommand}" CommandParameter="FullMix"/>
+                                                            <MenuItem Header="Add vocals clip" Command="{Binding AddClipCommand}" CommandParameter="Vocals"/>
+                                                            <MenuItem Header="Add drums clip" Command="{Binding AddClipCommand}" CommandParameter="Drums"/>
+                                                            <MenuItem Header="Add bass clip" Command="{Binding AddClipCommand}" CommandParameter="Bass"/>
+                                                            <MenuItem Header="Add other (melody) clip" Command="{Binding AddClipCommand}" CommandParameter="Other"/>
+                                                            <MenuItem Header="Add instrumental clip" Command="{Binding AddClipCommand}" CommandParameter="Instrumental"/>
+                                                            <Separator/>
+                                                            <MenuItem Header="Use as base (tempo and key)" Command="{Binding SetBaseCommand}"/>
+                                                            <MenuItem Header="Remove from edit" Command="{Binding RemoveCommand}"/>
+                                                        </MenuFlyout>
+                                                    </Button.Flyout>
+                                                </Button>
+                                            </Grid>
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <Border Classes="fact"><TextBlock Text="{Binding BpmDisplay}"/></Border>
+                                                <Border Classes="fact"><TextBlock Text="{Binding KeyDisplay}"/></Border>
+                                                <Border Classes="fact" IsVisible="{Binding IsBase}" ToolTip.Tip="The project tempo and key come from this track">
+                                                    <TextBlock Text="Base"/>
+                                                </Border>
+                                            </StackPanel>
+                                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                                <Ellipse Grid.Column="0" Classes="status-dot" Classes.success="{Binding StemsReady}" Classes.accent="{Binding IsSeparating}"
+                                                         VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                <TextBlock Grid.Column="1" Classes="caption" Text="{Binding StemsText}" VerticalAlignment="Center"/>
+                                                <Button Grid.Column="2" Classes="secondary small" Content="Separate stems" Command="{Binding SeparateCommand}"
+                                                        IsVisible="{Binding CanStartSeparation}"
+                                                        ToolTip.Tip="Split into vocals, drums, bass and other on this machine. Cached, so it only runs once per track."/>
+                                                <Button Grid.Column="2" Classes="ghost small" Content="Cancel" Command="{Binding CancelSeparationCommand}"
+                                                        IsVisible="{Binding IsSeparating}"/>
+                                            </Grid>
+                                            <ProgressBar Classes="meter" Minimum="0" Maximum="1" Value="{Binding SeparationProgress}" IsVisible="{Binding IsSeparating}"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
+            <!-- Lanes + arranger -->
+            <Grid Grid.Column="1" RowDefinitions="*,Auto">
+                <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <Grid ColumnDefinitions="160,*">
+                        <StackPanel Grid.Column="0">
+                            <Border Height="24" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,1,1" Background="{StaticResource BrushBg2}">
+                                <TextBlock Classes="section" Text="LANES" VerticalAlignment="Center" Margin="12,0"/>
+                            </Border>
+                            <ItemsControl ItemsSource="{Binding Lanes}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:EditLaneItemViewModel">
+                                        <Border Height="48" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,1,1" Padding="12,0,4,0">
+                                            <Grid ColumnDefinitions="*,Auto,Auto,Auto" VerticalAlignment="Center">
+                                                <TextBlock Classes="body-sm" Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                <ToggleButton Grid.Column="1" Classes="chip lane" Content="M" IsChecked="{Binding Muted}" ToolTip.Tip="Mute lane" Margin="4,0,0,0"/>
+                                                <ToggleButton Grid.Column="2" Classes="chip lane" Content="S" IsChecked="{Binding Solo}" ToolTip.Tip="Solo lane" Margin="4,0,0,0"/>
+                                                <Button Grid.Column="3" Classes="icon small" Command="{Binding RemoveCommand}" ToolTip.Tip="Remove lane and its clips" Margin="4,0,0,0">
+                                                    <PathIcon Data="{StaticResource icon_close}" Width="10" Height="10"/>
+                                                </Button>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                        <Panel Grid.Column="1">
+                            <ctrl:EditArrangerControl x:Name="Arranger" VerticalAlignment="Top"/>
+                            <StackPanel Classes="empty-state" IsVisible="{Binding ShowArrangerHint}" VerticalAlignment="Top" Margin="0,48,0,0">
+                                <PathIcon Data="{StaticResource icon_waves}"/>
+                                <TextBlock Classes="h3" Text="No clips yet"/>
+                                <TextBlock Classes="caption" TextWrapping="Wrap" MaxWidth="360" TextAlignment="Center" Text="{Binding ArrangerHint}"/>
+                            </StackPanel>
+                        </Panel>
+                    </Grid>
+                </ScrollViewer>
+                <ScrollBar Grid.Row="1" Orientation="Horizontal" Margin="160,0,0,0" AllowAutoHide="False"
+                           Minimum="0" Maximum="{Binding #Arranger.ScrollMaximum}" ViewportSize="{Binding #Arranger.VisibleBars}"
+                           Value="{Binding #Arranger.ViewStartBar, Mode=TwoWay}"/>
+            </Grid>
+
+            <!-- Clip inspector -->
+            <Border Grid.Column="2" Classes="panel" BorderThickness="1,0,0,0">
+                <Grid RowDefinitions="Auto,*">
+                    <Border Grid.Row="0" Classes="panel-header">
+                        <TextBlock Classes="section" Text="CLIP" VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel Grid.Row="1" Classes="empty-state" IsVisible="{Binding HasNoSelectedClip}">
+                        <PathIcon Data="{StaticResource icon_tune}"/>
+                        <TextBlock Classes="h3" Text="No clip selected"/>
+                        <TextBlock Classes="caption" TextWrapping="Wrap" MaxWidth="220" TextAlignment="Center"
+                                   Text="Click a clip to set its stem, in-point, gain, fades and tempo/key matching."/>
+                    </StackPanel>
+                    <ScrollViewer Grid.Row="1" IsVisible="{Binding HasSelectedClip}">
+                        <StackPanel DataContext="{Binding SelectedClip}" x:DataType="vm:EditClipInspectorViewModel" Margin="16,12" Spacing="12">
+                            <StackPanel Spacing="2">
+                                <TextBlock Classes="body" Text="{Binding SourceTitle}" TextWrapping="Wrap"/>
+                                <TextBlock Classes="caption warning" Text="This stem isn't separated yet: separate the track's stems in the bin."
+                                           TextWrapping="Wrap" IsVisible="{Binding StemMissing}"/>
+                            </StackPanel>
+
+                            <Grid ColumnDefinitions="96,*" RowDefinitions="Auto,8,Auto,8,Auto,8,Auto" >
+                                <TextBlock Grid.Row="0" Classes="caption" Text="Stem" VerticalAlignment="Center"/>
+                                <ComboBox Grid.Row="0" Grid.Column="1" Classes="small" HorizontalAlignment="Stretch"
+                                          ItemsSource="{x:Static vm:EditClipInspectorViewModel.StemOptions}" SelectedItem="{Binding StemName}"/>
+                                <TextBlock Grid.Row="2" Classes="caption" Text="Start bar" VerticalAlignment="Center"/>
+                                <NumericUpDown Grid.Row="2" Grid.Column="1" Classes="small" Value="{Binding StartBar}" Minimum="1" Increment="1" FormatString="0.##"/>
+                                <TextBlock Grid.Row="4" Classes="caption" Text="Length (bars)" VerticalAlignment="Center"/>
+                                <NumericUpDown Grid.Row="4" Grid.Column="1" Classes="small" Value="{Binding LengthBars}" Minimum="0.25" Increment="1" FormatString="0.##"/>
+                                <TextBlock Grid.Row="6" Classes="caption" Text="Source in (bar)" VerticalAlignment="Center"
+                                           ToolTip.Tip="Where in the source track the clip starts, as a bar of that track (bar 1 = its first downbeat)"/>
+                                <StackPanel Grid.Row="6" Grid.Column="1" Spacing="2">
+                                    <NumericUpDown Classes="small" Value="{Binding SourceInBar}" Increment="1" FormatString="0.###"/>
+                                    <TextBlock Classes="mono muted" Text="{Binding SourceInTime}"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <Border Classes="divider"/>
+                            <StackPanel Spacing="4">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Classes="caption" Text="Gain"/>
+                                    <TextBlock Grid.Column="1" Classes="mono" Text="{Binding GainDisplay}"/>
+                                </Grid>
+                                <Slider Minimum="-24" Maximum="12" TickFrequency="0.5" IsSnapToTickEnabled="True" Value="{Binding GainDb}"/>
+                            </StackPanel>
+                            <Grid ColumnDefinitions="96,*" RowDefinitions="Auto,8,Auto">
+                                <TextBlock Grid.Row="0" Classes="caption" Text="Fade in (bars)" VerticalAlignment="Center"/>
+                                <NumericUpDown Grid.Row="0" Grid.Column="1" Classes="small" Value="{Binding FadeInBars}" Minimum="0" Increment="0.25" FormatString="0.##"/>
+                                <TextBlock Grid.Row="2" Classes="caption" Text="Fade out (bars)" VerticalAlignment="Center"/>
+                                <NumericUpDown Grid.Row="2" Grid.Column="1" Classes="small" Value="{Binding FadeOutBars}" Minimum="0" Increment="0.25" FormatString="0.##"/>
+                            </Grid>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <ToggleButton Classes="chip" Content="Mute" IsChecked="{Binding Muted}"/>
+                                <ToggleButton Classes="chip" Content="Solo" IsChecked="{Binding Solo}"/>
+                            </StackPanel>
+
+                            <Border Classes="divider"/>
+                            <StackPanel Spacing="8">
+                                <TextBlock Classes="section" Text="TEMPO"/>
+                                <Border Classes="segmented" HorizontalAlignment="Left">
+                                    <StackPanel Orientation="Horizontal" Spacing="2">
+                                        <RadioButton Classes="chip" GroupName="clipTempo" Content="Project" IsChecked="{Binding TempoFollowsProject}"
+                                                     ToolTip.Tip="Follow the project's Auto-match tempo toggle"/>
+                                        <RadioButton Classes="chip" GroupName="clipTempo" Content="Match" IsChecked="{Binding TempoAlwaysFollow}"
+                                                     ToolTip.Tip="Always stretch this clip to the project tempo"/>
+                                        <RadioButton Classes="chip" GroupName="clipTempo" Content="Native" IsChecked="{Binding TempoNative}"
+                                                     ToolTip.Tip="Always play this clip at its own tempo"/>
+                                    </StackPanel>
+                                </Border>
+                                <Grid ColumnDefinitions="96,*" RowDefinitions="Auto,4,Auto">
+                                    <TextBlock Classes="caption" Text="BPM"/>
+                                    <TextBlock Grid.Column="1" Classes="mono" Text="{Binding SourceTempoDisplay}"/>
+                                    <TextBlock Grid.Row="2" Classes="caption" Text="Stretch"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="1" Classes="mono" Classes.warning="{Binding StretchWarning}" Text="{Binding StretchDisplay}"/>
+                                </Grid>
+                                <TextBlock Classes="caption warning" Text="{Binding StretchWarningText}" TextWrapping="Wrap" IsVisible="{Binding StretchWarning}"/>
+                            </StackPanel>
+
+                            <StackPanel Spacing="8">
+                                <TextBlock Classes="section" Text="KEY"/>
+                                <Border Classes="segmented" HorizontalAlignment="Left">
+                                    <StackPanel Orientation="Horizontal" Spacing="2">
+                                        <RadioButton Classes="chip" GroupName="clipKey" Content="Auto" IsChecked="{Binding KeyAuto}"
+                                                     ToolTip.Tip="Use the suggested shift when the project's Auto-match key is on, otherwise none"/>
+                                        <RadioButton Classes="chip" GroupName="clipKey" Content="Manual" IsChecked="{Binding KeyManual}"
+                                                     ToolTip.Tip="Use the semitone shift below, whatever the project toggle says"/>
+                                    </StackPanel>
+                                </Border>
+                                <Grid ColumnDefinitions="96,*" RowDefinitions="Auto,8,Auto,4,Auto">
+                                    <TextBlock Classes="caption" Text="Semitones" VerticalAlignment="Center"/>
+                                    <NumericUpDown Grid.Column="1" Classes="small" Value="{Binding ManualSemitones}" Minimum="-12" Maximum="12" Increment="1" FormatString="+0;-0;0"/>
+                                    <TextBlock Grid.Row="2" Classes="caption" Text="Shift"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="1" Classes="mono" Text="{Binding ShiftDisplay}"/>
+                                    <TextBlock Grid.Row="4" Classes="caption" Text="Key"/>
+                                    <TextBlock Grid.Row="4" Grid.Column="1" Classes="mono" Text="{Binding KeyDisplay}"/>
+                                </Grid>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Classes="secondary small" Command="{Binding UseSuggestedShiftCommand}" IsVisible="{Binding HasSuggestion}"
+                                            Content="{Binding SuggestionDisplay}" ToolTip.Tip="Apply the suggested shift to this clip"/>
+                                    <Button Classes="ghost small" Content="Reset" Command="{Binding ResetShiftCommand}" ToolTip.Tip="Back to Auto with no manual shift"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- ═══ Status ═══ -->
+        <Border Grid.Row="4" Padding="24,6" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,1,0,0" IsVisible="{Binding HasProject}">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="caption" Text="{Binding Status}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1" Classes="mono muted" Text="{Binding LengthDisplay}" VerticalAlignment="Center" ToolTip.Tip="Length of the edit"/>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

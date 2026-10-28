@@ -1,12 +1,16 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
-using Avalonia.Media;
 using SLSKDONET.Models;
 using System;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Views.Avalonia.Controls;
 
+/// <summary>
+/// Energy / mood / vocal summary for a <see cref="SonicProfileData"/>. Analysis output, so it is
+/// shown as neutral bars and percentages (no colour-coded "vibe" fills).
+/// </summary>
 public partial class SonicProfileControl : UserControl
 {
     public static readonly StyledProperty<SonicProfileData?> ProfileProperty =
@@ -18,25 +22,17 @@ public partial class SonicProfileControl : UserControl
         set => SetValue(ProfileProperty, value);
     }
 
-    // Display Properties (computed from Profile)
-    public static readonly DirectProperty<SonicProfileControl, double> EnergyBarWidthProperty =
-        AvaloniaProperty.RegisterDirect<SonicProfileControl, double>(nameof(EnergyBarWidth), o => o.EnergyBarWidth);
+    // Display properties (computed from Profile)
 
-    private double _energyBarWidth;
-    public double EnergyBarWidth
+    public static readonly DirectProperty<SonicProfileControl, double> EnergyValueProperty =
+        AvaloniaProperty.RegisterDirect<SonicProfileControl, double>(nameof(EnergyValue), o => o.EnergyValue);
+
+    private double _energyValue;
+    /// <summary>Energy, 0..1.</summary>
+    public double EnergyValue
     {
-        get => _energyBarWidth;
-        private set => SetAndRaise(EnergyBarWidthProperty, ref _energyBarWidth, value);
-    }
-    
-    public static readonly DirectProperty<SonicProfileControl, IBrush> EnergyColorProperty =
-        AvaloniaProperty.RegisterDirect<SonicProfileControl, IBrush>(nameof(EnergyColor), o => o.EnergyColor);
-        
-    private IBrush _energyColor = Brushes.Gray;
-    public IBrush EnergyColor
-    {
-        get => _energyColor;
-        private set => SetAndRaise(EnergyColorProperty, ref _energyColor, value);
+        get => _energyValue;
+        private set => SetAndRaise(EnergyValueProperty, ref _energyValue, value);
     }
 
     public static readonly DirectProperty<SonicProfileControl, string> EnergyDisplayProperty =
@@ -49,36 +45,27 @@ public partial class SonicProfileControl : UserControl
         private set => SetAndRaise(EnergyDisplayProperty, ref _energyDisplay, value);
     }
 
-    public static readonly DirectProperty<SonicProfileControl, double> ValencePositionProperty =
-        AvaloniaProperty.RegisterDirect<SonicProfileControl, double>(nameof(ValencePosition), o => o.ValencePosition);
+    public static readonly DirectProperty<SonicProfileControl, double> ValenceValueProperty =
+        AvaloniaProperty.RegisterDirect<SonicProfileControl, double>(nameof(ValenceValue), o => o.ValenceValue);
 
-    private double _valencePosition;
-    public double ValencePosition
+    private double _valenceValue;
+    /// <summary>Valence (melancholic 0 .. euphoric 1).</summary>
+    public double ValenceValue
     {
-        get => _valencePosition;
-        private set => SetAndRaise(ValencePositionProperty, ref _valencePosition, value);
+        get => _valenceValue;
+        private set => SetAndRaise(ValenceValueProperty, ref _valenceValue, value);
     }
-    
+
     public static readonly DirectProperty<SonicProfileControl, string> MoodDisplayProperty =
         AvaloniaProperty.RegisterDirect<SonicProfileControl, string>(nameof(MoodDisplay), o => o.MoodDisplay);
-        
+
     private string _moodDisplay = "—";
     public string MoodDisplay
     {
         get => _moodDisplay;
         private set => SetAndRaise(MoodDisplayProperty, ref _moodDisplay, value);
     }
-    
-    public static readonly DirectProperty<SonicProfileControl, string> VocalIconProperty =
-        AvaloniaProperty.RegisterDirect<SonicProfileControl, string>(nameof(VocalIcon), o => o.VocalIcon);
 
-    private string _vocalIcon = "";
-    public string VocalIcon
-    {
-        get => _vocalIcon;
-        private set => SetAndRaise(VocalIconProperty, ref _vocalIcon, value);
-    }
-    
     public static readonly DirectProperty<SonicProfileControl, string> VocalTextProperty =
         AvaloniaProperty.RegisterDirect<SonicProfileControl, string>(nameof(VocalText), o => o.VocalText);
 
@@ -88,7 +75,7 @@ public partial class SonicProfileControl : UserControl
         get => _vocalText;
         private set => SetAndRaise(VocalTextProperty, ref _vocalText, value);
     }
-    
+
     public static readonly DirectProperty<SonicProfileControl, bool> HasVocalDataProperty =
         AvaloniaProperty.RegisterDirect<SonicProfileControl, bool>(nameof(HasVocalData), o => o.HasVocalData);
 
@@ -99,10 +86,15 @@ public partial class SonicProfileControl : UserControl
         private set => SetAndRaise(HasVocalDataProperty, ref _hasVocalData, value);
     }
 
+    static SonicProfileControl()
+    {
+        // Registered once for the type (it used to be re-added in every instance constructor).
+        ProfileProperty.Changed.AddClassHandler<SonicProfileControl>((control, _) => control.UpdateVisuals());
+    }
+
     public SonicProfileControl()
     {
         InitializeComponent();
-        ProfileProperty.Changed.AddClassHandler<SonicProfileControl>(OnProfileChanged);
     }
 
     private void InitializeComponent()
@@ -110,60 +102,27 @@ public partial class SonicProfileControl : UserControl
         AvaloniaXamlLoader.Load(this);
     }
 
-    private void OnProfileChanged(SonicProfileControl control, AvaloniaPropertyChangedEventArgs args)
-    {
-        control.UpdateVisuals();
-    }
-
-    protected override void OnSizeChanged(SizeChangedEventArgs e)
-    {
-        base.OnSizeChanged(e);
-        UpdateVisuals();
-    }
-
     private void UpdateVisuals()
     {
         if (Profile == null)
         {
-            EnergyBarWidth = 0;
-            ValencePosition = 0;
-            EnergyDisplay = "Unknown";
+            EnergyValue = 0;
+            ValenceValue = 0;
+            EnergyDisplay = "—";
             MoodDisplay = "Unknown";
             HasVocalData = false;
             return;
         }
 
-        // Energy
-        double totalWidth = Bounds.Width > 0 ? Bounds.Width : 200; // Fallback
-        EnergyBarWidth = Math.Clamp(Profile.Energy, 0, 1) * totalWidth;
-        
-        if (Profile.Energy > 0.8) EnergyColor = Brushes.OrangeRed;
-        else if (Profile.Energy > 0.5) EnergyColor = Brushes.LimeGreen;
-        else EnergyColor = Brushes.DeepSkyBlue;
-        
-        EnergyDisplay = $"{Profile.Energy:P0}";
+        EnergyValue = Math.Clamp(Profile.Energy, 0, 1);
+        EnergyDisplay = NumFormat.Ui($"{EnergyValue:P0}");
 
-        // Valence (Mood)
-        // Position on slider (padding for icon)
-        double sliderWidth = totalWidth - 30; // approx
-        if (sliderWidth < 0) sliderWidth = 0;
-        ValencePosition = Math.Clamp(Profile.Valence, 0, 1) * sliderWidth;
-        
+        ValenceValue = Math.Clamp(Profile.Valence, 0, 1);
         if (Profile.Valence > 0.7) MoodDisplay = "Happy";
         else if (Profile.Valence < 0.3) MoodDisplay = "Sad";
         else MoodDisplay = "Neutral";
 
-        // Vocals
         HasVocalData = Profile.Instrumentalness > 0 || Profile.IsInstrumental;
-        if (Profile.IsInstrumental)
-        {
-            VocalIcon = "🚫🎤"; 
-            VocalText = "Instrumental";
-        }
-        else
-        {
-            VocalIcon = "🎤";
-            VocalText = "Vocal";
-        }
+        VocalText = Profile.IsInstrumental ? "Instrumental" : "Vocal";
     }
 }

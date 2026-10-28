@@ -40,8 +40,8 @@ public class LibraryDatagridTests
     public void SampleRateDisplay_WhenSpectralSampleRateSet_FormatsAsKhz()
     {
         var vm = BuildVm(t => t.SpectralSampleRateHz = 44100);
-           var expectedFormatted = (44100 / 1000.0).ToString("F1", System.Globalization.CultureInfo.CurrentCulture) + " kHz";
-           Assert.Equal(expectedFormatted, vm.SampleRateDisplay);
+        // Invariant decimal point whatever the UI culture (nl-NL used to give "44,1 kHz").
+        Assert.Equal("44.1 kHz", vm.SampleRateDisplay);
     }
 
     [Fact]

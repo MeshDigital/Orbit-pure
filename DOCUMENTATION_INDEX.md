@@ -12,7 +12,7 @@ removed and why). Every link below was verified to point at a file that actually
 | [FEATURES.md](FEATURES.md) | User-facing feature list |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System design — layers, data flow, the major subsystems |
 | [RECENT_CHANGES.md](RECENT_CHANGES.md) | Chronological changelog — the most reliably up to date doc in the repo |
-| [TODO.md](TODO.md) | Roadmap / upgrade backlog |
+| [DOCS/OPEN_WORK_PLAN_2026-09-27.md](DOCS/OPEN_WORK_PLAN_2026-09-27.md) | **Current open-work plan** (replaces TODO.md, now archived) |
 | [USER_MANUAL.md](USER_MANUAL.md) | End-user usage guide |
 | [BETA_TESTER_GUIDE.md](BETA_TESTER_GUIDE.md) | Onboarding for beta testers |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
@@ -27,8 +27,8 @@ removed and why). Every link below was verified to point at a file that actually
 | [QUEUE_SYSTEM_INVESTIGATION.md](QUEUE_SYSTEM_INVESTIGATION.md) | Download Center queue system investigation |
 | [LIBRARY_VIRTUALIZATION_DEEPDIVE.md](LIBRARY_VIRTUALIZATION_DEEPDIVE.md) | Library UI virtualization & data pipeline |
 | [SOULSEEK_LOGIN_AND_SERVICE_SIGNALS_TECHNICAL.md](SOULSEEK_LOGIN_AND_SERVICE_SIGNALS_TECHNICAL.md) | Soulseek login/service signal handling |
-| [SEARCH_ENGINE_HEURISTIC_UPGRADE_PLAN.md](SEARCH_ENGINE_HEURISTIC_UPGRADE_PLAN.md) | Search ranking heuristics plan |
-| [CONNECTION_SEARCH_HARDENING_IMPLEMENTATION_PLAN.md](CONNECTION_SEARCH_HARDENING_IMPLEMENTATION_PLAN.md) | Soulseek.NET connection/search hardening plan |
+| [SEARCH_ENGINE_HEURISTIC_UPGRADE_PLAN.md](DOCS/archive/plans/SEARCH_ENGINE_HEURISTIC_UPGRADE_PLAN.md) | Search ranking heuristics plan |
+| [CONNECTION_SEARCH_HARDENING_IMPLEMENTATION_PLAN.md](DOCS/archive/plans/CONNECTION_SEARCH_HARDENING_IMPLEMENTATION_PLAN.md) | Soulseek.NET connection/search hardening plan |
 
 ## Technical deep-dives (DOCS/)
 
@@ -45,7 +45,7 @@ removed and why). Every link below was verified to point at a file that actually
 | [DOCS/PLAYER_PREP_AND_ROUTING.md](DOCS/PLAYER_PREP_AND_ROUTING.md) | Player prep/routing readiness surfaces |
 | [DOCS/ANALYSIS_QUEUE_UX_SURFACES.md](DOCS/ANALYSIS_QUEUE_UX_SURFACES.md) | Analysis queue UX |
 | [DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md](DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md) | Reactive search runtime internals |
-| [DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md](DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md) | Search stream hardening plan |
+| [DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md](DOCS/archive/plans/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md) | Search stream hardening plan |
 | [DOCS/ANTIGRAVITY_LIBRARY_SIDEPANEL_REDESIGN.md](DOCS/ANTIGRAVITY_LIBRARY_SIDEPANEL_REDESIGN.md) | Library sidepanel redesign notes |
 | [DOCS/POST_METRICS_LIFECYCLE_AUDIT_PLAYBOOK.md](DOCS/POST_METRICS_LIFECYCLE_AUDIT_PLAYBOOK.md) | Post-download metrics lifecycle audit |
 | [DOCS/strict_mode_gui_validation_checklist.md](DOCS/strict_mode_gui_validation_checklist.md) | Auto-download strict-mode GUI validation checklist |
@@ -75,8 +75,8 @@ decision was made, not a live reference. Treat anything here as possibly superse
 [RECENT_CHANGES.md](RECENT_CHANGES.md) or the code itself.
 
 - [DOCS/CURRENT_AND_FUTURE_PLAN_SUMMARY.md](DOCS/CURRENT_AND_FUTURE_PLAN_SUMMARY.md)
-- [DOCS/ROADMAP_PROGRESS_AND_DOC_GAPS_2026-04-20.md](DOCS/ROADMAP_PROGRESS_AND_DOC_GAPS_2026-04-20.md)
-- [DOCS/automatic_downloads_phase2_plan.md](DOCS/automatic_downloads_phase2_plan.md) / [DOCS/automatic_downloads_phase2_memory.md](DOCS/automatic_downloads_phase2_memory.md)
+- [DOCS/ROADMAP_PROGRESS_AND_DOC_GAPS_2026-04-20.md](DOCS/archive/plans/ROADMAP_PROGRESS_AND_DOC_GAPS_2026-04-20.md)
+- [DOCS/automatic_downloads_phase2_plan.md](DOCS/archive/plans/automatic_downloads_phase2_plan.md) / [DOCS/automatic_downloads_phase2_memory.md](DOCS/automatic_downloads_phase2_memory.md)
 - [DOCS/discoverability/](DOCS/discoverability/) — routing/library-intelligence lane maps from the Phase 3/4 development passes
 - [DOCS/recaps/](DOCS/recaps/) — recap packs for the same passes
 - [DOCS/memory/](DOCS/memory/) — ~20 dated investigation/completion-report notes (see [DOCS/memory/MEMORY_INDEX.md](DOCS/memory/MEMORY_INDEX.md))

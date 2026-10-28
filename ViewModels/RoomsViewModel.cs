@@ -19,6 +19,7 @@ public class RoomsViewModel : ReactiveObject, IDisposable
     private readonly RoomChatService _roomChat;
     private readonly ChatAttachmentService _chatAttachments;
     private readonly IFileInteractionService _fileInteraction;
+    private readonly IDialogService _dialogService;
     private readonly IEventBus _eventBus;
     private readonly ILogger<RoomsViewModel> _logger;
     private readonly List<RoomSummary> _allAvailableRooms = new();
@@ -74,6 +75,20 @@ public class RoomsViewModel : ReactiveObject, IDisposable
 
     public bool HasJoinStatusMessage => !string.IsNullOrWhiteSpace(JoinStatusMessage);
 
+    private string? _roomListErrorMessage;
+    /// <summary>Set when the server room list couldn't be fetched; shown above the list with a retry.</summary>
+    public string? RoomListErrorMessage
+    {
+        get => _roomListErrorMessage;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _roomListErrorMessage, value);
+            this.RaisePropertyChanged(nameof(HasRoomListError));
+        }
+    }
+
+    public bool HasRoomListError => !string.IsNullOrEmpty(RoomListErrorMessage);
+
     /// <summary>
     /// Free-text room name for joining or creating a room not in <see cref="AvailableRooms"/> —
     /// per the Soulseek protocol, joining a room name that doesn't exist yet creates it, so this
@@ -98,11 +113,12 @@ public class RoomsViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<RoomViewModel, Unit> LeaveRoomCommand { get; }
     public ReactiveCommand<Unit, Unit> CreateOrJoinRoomCommand { get; }
 
-    public RoomsViewModel(RoomChatService roomChat, ChatAttachmentService chatAttachments, IFileInteractionService fileInteraction, IEventBus eventBus, ILogger<RoomsViewModel> logger)
+    public RoomsViewModel(RoomChatService roomChat, ChatAttachmentService chatAttachments, IFileInteractionService fileInteraction, IDialogService dialogService, IEventBus eventBus, ILogger<RoomsViewModel> logger)
     {
         _roomChat = roomChat;
         _chatAttachments = chatAttachments;
         _fileInteraction = fileInteraction;
+        _dialogService = dialogService;
         _eventBus = eventBus;
         _logger = logger;
 
@@ -117,6 +133,10 @@ public class RoomsViewModel : ReactiveObject, IDisposable
             .ObserveOn(RxApp.MainThreadScheduler)
             .Where(e => !e.IsOutgoing)
             .Subscribe(OnIncomingRoomMessage)
+            .DisposeWith(_disposables);
+
+        this.WhenAnyValue(x => x.SelectedRoom)
+            .Subscribe(room => _eventBus.Publish(new ActiveRoomChangedEvent(room?.RoomName)))
             .DisposeWith(_disposables);
 
         _ = RefreshRoomListAsync();
@@ -153,10 +173,12 @@ public class RoomsViewModel : ReactiveObject, IDisposable
             _allAvailableRooms.Clear();
             _allAvailableRooms.AddRange(rooms.OrderByDescending(r => r.UserCount));
             ApplyRoomFilter();
+            RoomListErrorMessage = null;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to refresh Soulseek room list");
+            RoomListErrorMessage = $"Couldn't load the room list: {ex.Message}";
         }
         finally
         {
@@ -194,6 +216,7 @@ public class RoomsViewModel : ReactiveObject, IDisposable
         {
             SelectedRoom = JoinedRooms.First(r => string.Equals(r.RoomName, roomName, StringComparison.OrdinalIgnoreCase));
             SelectedRoom.HasUnread = false;
+            _ = _roomChat.MarkRoomReadAsync(roomName);
             return;
         }
 
@@ -202,10 +225,11 @@ public class RoomsViewModel : ReactiveObject, IDisposable
         try
         {
             var snapshot = await _roomChat.JoinRoomAsync(roomName, isPrivate).ConfigureAwait(true);
-            var room = new RoomViewModel(snapshot.Name, snapshot.IsPrivate, _roomChat, _chatAttachments, _fileInteraction, _eventBus, _logger);
+            var room = new RoomViewModel(snapshot.Name, snapshot.IsPrivate, _roomChat, _chatAttachments, _fileInteraction, _dialogService, _eventBus, _logger);
             await room.LoadHistoryAsync(snapshot.Members).ConfigureAwait(true);
             JoinedRooms.Add(room);
             SelectedRoom = room;
+            _ = _roomChat.MarkRoomReadAsync(roomName);
         }
         catch (Exception ex)
         {

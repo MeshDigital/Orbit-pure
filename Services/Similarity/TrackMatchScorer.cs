@@ -2,6 +2,7 @@ using System;
 using SLSKDONET.Configuration;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services.Similarity;
 
@@ -117,7 +118,10 @@ public static class TrackMatchScorer
 
     // ── Harmony ────────────────────────────────────────────────────────────
 
-    private static float ComputeHarmony(
+    /// <remarks>Internal (not private) so PlaylistIntelligenceService.ReorderAsync's optional
+    /// double-drop weighting can reuse this exact, already-tested formula instead of
+    /// re-deriving harmony scoring independently.</remarks>
+    internal static float ComputeHarmony(
         string? keyA,
         string? keyB,
         out string label)
@@ -147,7 +151,8 @@ public static class TrackMatchScorer
 
     // ── Beat ───────────────────────────────────────────────────────────────
 
-    private static float ComputeBeat(
+    /// <remarks>Internal (not private) — see ComputeHarmony's remark; same reuse rationale.</remarks>
+    internal static float ComputeBeat(
         float bpmA,
         float bpmB,
         double decayWidth,
@@ -181,17 +186,17 @@ public static class TrackMatchScorer
         // Build human label
         if (bestRatioLabel == "Same BPM")
         {
-            label = bestDiff < 1.0 ? "Same BPM" : $"±{bestDiff:F1} BPM";
+            label = bestDiff < 1.0 ? "Same BPM" : NumFormat.Ui($"±{bestDiff:F1} BPM");
         }
         else
         {
-            label = $"{bestRatioLabel} (±{bestDiff:F1})";
+            label = NumFormat.Ui($"{bestRatioLabel} (±{bestDiff:F1})");
         }
 
         return score;
     }
 
-    private static float ComputeBeatFromBestDiff(double bestDiff, double decayWidth)
+    internal static float ComputeBeatFromBestDiff(double bestDiff, double decayWidth)
         => (float)Math.Clamp(Math.Exp(-bestDiff / decayWidth), 0.0, 1.0);
 
     // ── Drop sonic ─────────────────────────────────────────────────────────

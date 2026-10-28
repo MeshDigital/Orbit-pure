@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using TagLib;
@@ -101,21 +102,26 @@ public sealed class SeratoMetadataImporter
     private List<ImportedCue> ParseSeratoCues(TagLib.File tagFile)
     {
         var cues = new List<ImportedCue>();
-
         try
         {
-            // Try to read Serato Markers2 GEOB frame (ID3)
-            if (tagFile.Tag is TagLib.Id3v2.Tag id3Tag)
+            // Serato Markers2: ID3 GEOB frame (MP3/AIFF/WAV) or SERATO_MARKERS_V2 Vorbis comment (FLAC/Ogg).
+            List<Serato.SeratoEntry>? entries = null;
+            if (tagFile.GetTag(TagTypes.Id3v2, false) is TagLib.Id3v2.Tag id3
+                && Serato.SeratoCueExportService.FindGeob(id3) is { } geob)
+                entries = Serato.SeratoMarkers2.ParseId3Body(geob.Data.Data);
+            else if (tagFile.GetTag(TagTypes.Xiph, false) is TagLib.Ogg.XiphComment xiph
+                && xiph.GetFirstField(Serato.SeratoMarkers2.VorbisField) is { Length: > 0 } value)
+                entries = Serato.SeratoMarkers2.ParseVorbisValue(value);
+
+            foreach (var cue in (entries ?? new()).Select(Serato.SeratoMarkers2.ReadCue).Where(c => c != null))
             {
-                foreach (var frame in id3Tag.GetFrames())
+                cues.Add(new ImportedCue
                 {
-                    if (frame is TagLib.Id3v2.AttachmentFrame af &&
-                        af.Description.Contains("Serato Markers2", StringComparison.OrdinalIgnoreCase))
-                    {
-                        ParseSeratoMarkersPayload(af.Data.Data, cues);
-                        break;
-                    }
-                }
+                    Index            = cue!.Index,
+                    TimestampSeconds = cue.PositionMs / 1000.0,
+                    Name             = string.IsNullOrEmpty(cue.Name) ? $"Cue {cue.Index + 1}" : cue.Name,
+                    Color            = $"#{cue.R:X2}{cue.G:X2}{cue.B:X2}",
+                });
             }
         }
         catch (Exception ex)
@@ -124,70 +130,6 @@ public sealed class SeratoMetadataImporter
             // Serato hot cues could end up with zero cues transferred and no indication why.
             _logger.LogWarning(ex, "Failed to parse Serato Markers2 cue data — import will proceed with no cues");
         }
-
-        return cues;
-    }
-
-    /// <summary>
-    /// Minimal Serato Markers2 binary parser.
-    /// The payload is a base64-encoded binary blob; this reads the header
-    /// and extracts hot-cue entries (type 0x00).
-    /// </summary>
-    private static void ParseSeratoMarkersPayload(byte[] data, List<ImportedCue> cues)
-    {
-        if (data is null || data.Length < 10) return;
-
-        // Serato Markers2 starts with "application/octet-stream\0\0" header
-        // followed by base64 entries. For robustness, scan for CUE markers.
-        // Entry format (after base64 decode): type(1) | size(4 BE) | payload
-        //   type 0x00 = hot cue: index(1) | pos_ms(4 BE) | colour(3)
-
-        // Locate the base64 content after the header
-        int start = 0;
-        for (int i = 0; i < data.Length - 1; i++)
-        {
-            if (data[i] == 0 && data[i + 1] == 0) { start = i + 2; break; }
-        }
-        if (start == 0 || start >= data.Length) return;
-
-        // Base64-decode the remainder
-        string b64 = Encoding.ASCII.GetString(data, start,
-            Math.Min(data.Length - start, 4096)).TrimEnd('\0');
-        byte[] decoded;
-        try   { decoded = Convert.FromBase64String(b64); }
-        catch (FormatException) { return; }
-
-        int pos = 0;
-        while (pos + 6 < decoded.Length)
-        {
-            byte type = decoded[pos];
-            if (pos + 5 > decoded.Length) break;
-            int size = (decoded[pos + 1] << 24) | (decoded[pos + 2] << 16)
-                     | (decoded[pos + 3] <<  8) |  decoded[pos + 4];
-            pos += 5;
-
-            if (size < 0 || pos + size > decoded.Length) break;
-
-            if (type == 0x00 && size >= 8) // HOT CUE
-            {
-                int  index    = decoded[pos];
-                long ms       = (decoded[pos + 1] << 24) | (decoded[pos + 2] << 16)
-                              | (decoded[pos + 3] <<  8) |  decoded[pos + 4];
-                // byte 5: enabled flag; bytes 6-8: RGB colour
-                string colour = size >= 9
-                    ? $"#{decoded[pos + 6]:X2}{decoded[pos + 7]:X2}{decoded[pos + 8]:X2}"
-                    : "#FFFFFF";
-
-                cues.Add(new ImportedCue
-                {
-                    Index            = index,
-                    TimestampSeconds = ms / 1000.0,
-                    Name             = $"Cue {index + 1}",
-                    Color            = colour,
-                });
-            }
-
-            pos += size;
-        }
+        return cues.OrderBy(c => c.Index).ToList();
     }
 }

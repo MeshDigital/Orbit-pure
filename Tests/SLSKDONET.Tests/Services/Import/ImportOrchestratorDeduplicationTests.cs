@@ -24,6 +24,14 @@ public class ImportOrchestratorDeduplicationTests
         return (string?)method!.Invoke(null, new object[] { input });
     }
 
+    private static string? InvokeCanonicalize(string input)
+    {
+        var method = _orchestratorType.GetMethod(
+            "CanonicalizeUrl",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        return (string?)method!.Invoke(null, new object[] { input });
+    }
+
     private static string? InvokeExtractSpotifyId(string input)
     {
         var method = _orchestratorType.GetMethod(
@@ -65,6 +73,45 @@ public class ImportOrchestratorDeduplicationTests
     {
         var result = InvokeNormalize("Some Pasted Tracklist");
         Assert.Equal("some pasted tracklist", result, StringComparer.Ordinal);
+    }
+
+    // ── CanonicalizeUrl (the actual fetch/storage form — must preserve case) ─
+    // Spotify playlist/album/track ids are case-sensitive base62 (e.g. mixed upper/lower like
+    // "37i9dQZF1DXcBWIGoYBM5M"). Regression coverage for the bug where every synced Spotify
+    // playlist's stored SourceUrl was silently and permanently lowercased on import, making
+    // every subsequent "Sync" refetch an id that never existed — Spotify's API correctly
+    // responded 404 "not found" to a request for an id that, post-lowercasing, wasn't real.
+
+    [Fact]
+    public void CanonicalizeUrl_SpotifyUrl_PreservesCase()
+    {
+        var result = InvokeCanonicalize("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M");
+        Assert.Equal("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M", result, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void CanonicalizeUrl_SpotifyUri_PreservesCase()
+    {
+        var result = InvokeCanonicalize("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M");
+        Assert.Equal("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M", result, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void CanonicalizeUrl_StripsQueryParameters_ButKeepsCase()
+    {
+        var result = InvokeCanonicalize("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=abc123");
+        Assert.Equal("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M", result, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void CanonicalizeUrl_ThenLowercased_MatchesNormalizeImportInput()
+    {
+        // NormalizeImportInput must remain exactly CanonicalizeUrl().ToLowerInvariant() — the
+        // job-id hash and case-insensitive URL lookups depend on this staying byte-for-byte
+        // consistent with what CanonicalizeUrl produces, or existing playlists would silently
+        // stop matching their stored job on the next sync.
+        const string url = "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=xyz";
+        Assert.Equal(InvokeCanonicalize(url)!.ToLowerInvariant(), InvokeNormalize(url), StringComparer.Ordinal);
     }
 
     // ── ExtractSpotifyPlaylistId ───────────────────────────────────────────

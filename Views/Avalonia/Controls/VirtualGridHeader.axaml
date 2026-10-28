@@ -6,8 +6,8 @@
              x:Class="SLSKDONET.Views.Avalonia.Controls.VirtualGridHeader"
              Background="Transparent">
 
-    <Border Background="#1A1A1D" 
-            BorderBrush="#3E3E3E" 
+    <Border Background="{StaticResource BrushBg2}"
+            BorderBrush="{StaticResource BrushBorder0}"
             BorderThickness="0,0,0,1" 
             Padding="16,8">
         <ContentPresenter Content="{Binding HeaderContent, RelativeSource={RelativeSource AncestorType=UserControl}}" />

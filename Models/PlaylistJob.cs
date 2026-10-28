@@ -134,8 +134,16 @@ public class PlaylistJob : INotifyPropertyChanged
     public int FailedCount
     {
         get => _failedCount;
-        set { SetProperty(ref _failedCount, value); }
+        set
+        {
+            SetProperty(ref _failedCount, value);
+            OnPropertyChanged(nameof(FailedCountSuffix));
+        }
     }
+
+    /// <summary>" · 3 failed" for the Library playlist header's counts line, empty when nothing failed.
+    /// One string so the whole line can sit in a single TextBlock and trim with an ellipsis.</summary>
+    public string FailedCountSuffix => _failedCount > 0 ? $" · {_failedCount} failed" : string.Empty;
 
     /// <summary>
     /// Number of tracks yet to be downloaded (status = Missing).

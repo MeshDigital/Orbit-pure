@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using SLSKDONET.Data.Entities;
 
 namespace SLSKDONET.Services;
@@ -24,7 +25,10 @@ public sealed class PeerReliabilityService
         var peer = GetOrCreate(username);
         Interlocked.Increment(ref peer.SearchCandidates);
         Interlocked.Exchange(ref peer.LastSeenTicks, DateTime.UtcNow.Ticks);
-        SaveToDatabase(username);
+        // Fire-and-forget: SaveToDatabase does a synchronous EF Core upsert, which would
+        // otherwise throttle this call's hot path (e.g. once per Soulseek search result,
+        // 50-200 per search) on DB latency.
+        _ = Task.Run(() => SaveToDatabase(username));
     }
 
     public void RecordDownloadStarted(string? username)
@@ -33,7 +37,10 @@ public sealed class PeerReliabilityService
         var peer = GetOrCreate(username);
         Interlocked.Increment(ref peer.DownloadStarts);
         Interlocked.Exchange(ref peer.LastSeenTicks, DateTime.UtcNow.Ticks);
-        SaveToDatabase(username);
+        // Fire-and-forget: SaveToDatabase does a synchronous EF Core upsert, which would
+        // otherwise throttle this call's hot path (e.g. once per Soulseek search result,
+        // 50-200 per search) on DB latency.
+        _ = Task.Run(() => SaveToDatabase(username));
     }
 
     public void RecordProgress(string? username, long bytesDelta)
@@ -51,7 +58,10 @@ public sealed class PeerReliabilityService
         var peer = GetOrCreate(username);
         Interlocked.Increment(ref peer.DownloadCompletions);
         Interlocked.Exchange(ref peer.LastSeenTicks, DateTime.UtcNow.Ticks);
-        SaveToDatabase(username);
+        // Fire-and-forget: SaveToDatabase does a synchronous EF Core upsert, which would
+        // otherwise throttle this call's hot path (e.g. once per Soulseek search result,
+        // 50-200 per search) on DB latency.
+        _ = Task.Run(() => SaveToDatabase(username));
     }
 
     public void RecordDownloadFailed(string? username, bool stalled)
@@ -64,7 +74,10 @@ public sealed class PeerReliabilityService
             Interlocked.Increment(ref peer.StallFailures);
         }
         Interlocked.Exchange(ref peer.LastSeenTicks, DateTime.UtcNow.Ticks);
-        SaveToDatabase(username);
+        // Fire-and-forget: SaveToDatabase does a synchronous EF Core upsert, which would
+        // otherwise throttle this call's hot path (e.g. once per Soulseek search result,
+        // 50-200 per search) on DB latency.
+        _ = Task.Run(() => SaveToDatabase(username));
     }
 
     public double GetReliabilityScore(string? username)
@@ -141,7 +154,46 @@ public sealed class PeerReliabilityService
     /// <summary>Every username this service has ever tracked stats for — the row source for the Users/Contacts page.</summary>
     public IReadOnlyList<string> GetKnownUsernames() => _peers.Keys.ToList();
 
-    private PeerStats GetOrCreate(string username) => _peers.GetOrAdd(username, static _ => new PeerStats());
+    // Unbounded, this dictionary grows forever over a long session (a single search can surface
+    // 50-200 distinct usernames). Cap it and evict the least-recently-seen peers in a batch once
+    // the cap is exceeded, rather than growing forever.
+    private const int MaxTrackedPeers = 2000;
+    private const int EvictionBatchSize = 200;
+
+    private PeerStats GetOrCreate(string username)
+    {
+        if (_peers.TryGetValue(username, out var existing)) return existing;
+
+        var created = _peers.GetOrAdd(username, static _ => new PeerStats());
+
+        if (_peers.Count > MaxTrackedPeers)
+        {
+            EvictLeastRecentlySeenPeers();
+        }
+
+        return created;
+    }
+
+    private void EvictLeastRecentlySeenPeers()
+    {
+        try
+        {
+            var oldest = _peers
+                .OrderBy(kv => Interlocked.Read(ref kv.Value.LastSeenTicks))
+                .Take(EvictionBatchSize)
+                .Select(kv => kv.Key)
+                .ToList();
+
+            foreach (var key in oldest)
+            {
+                _peers.TryRemove(key, out _);
+            }
+        }
+        catch (Exception)
+        {
+            // Best-effort cleanup — never let eviction itself become a new failure mode.
+        }
+    }
 
     private void LoadFromDatabase()
     {

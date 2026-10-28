@@ -222,4 +222,78 @@ public class RekordboxXmlMergerTests
         Assert.Single(merged.Root!.Element("COLLECTION")!.Elements("TRACK"));
         Assert.Equal("111", (string)merged.Root.Element("COLLECTION")!.Elements("TRACK").Single().Attribute("TrackID")!);
     }
+
+    private static XElement BuildCue(string name, string start, string num = "0") =>
+        new("POSITION_MARK",
+            new XAttribute("Name", name), new XAttribute("Type", "0"),
+            new XAttribute("Start", start), new XAttribute("Num", num),
+            new XAttribute("Red", "255"), new XAttribute("Green", "0"), new XAttribute("Blue", "0"));
+
+    [Fact]
+    public void Merge_CueSnapshotMatchesPrior_WritesThroughFreshCues()
+    {
+        // Existing on-disk cues are exactly what ORBIT wrote last time (per the prior snapshot) —
+        // nothing changed in Rekordbox, so a genuine ORBIT-side cue edit should propagate.
+        var existingTrack = BuildTrack("1", @"C:\a.mp3", withCue: false);
+        existingTrack.Add(BuildCue("Old Drop", "10.000"));
+        var existing = BuildDoc(new[] { existingTrack }, "MyPlaylist");
+
+        var freshTrack = BuildTrack("1", @"C:\a.mp3", withCue: false);
+        freshTrack.Add(BuildCue("New Drop", "20.000"));
+        var fresh = BuildDoc(new[] { freshTrack }, "MyPlaylist");
+
+        var priorSnapshot = RekordboxXmlMerger.CanonicalizeCues(existingTrack.Elements("POSITION_MARK"));
+        var priorByTrackId = new Dictionary<string, string> { ["1"] = priorSnapshot };
+
+        var merged = RekordboxXmlMerger.MergeIntoExisting(existing, fresh, new[] { "ROOT", "MyPlaylist" }, NullLogger.Instance, priorByTrackId);
+        var track = FindTrack(merged, "1")!;
+
+        Assert.Single(track.Elements("POSITION_MARK"));
+        Assert.Equal("New Drop", (string)track.Elements("POSITION_MARK").Single().Attribute("Name")!);
+    }
+
+    [Fact]
+    public void Merge_CueSnapshotDiffersFromPrior_PreservesExistingHandEdit()
+    {
+        // On-disk cues no longer match what ORBIT last wrote (a name/position changed) — presumed
+        // hand-edited in Rekordbox since then, so ORBIT's fresh cues must NOT overwrite them.
+        var trackAtLastSync = BuildTrack("1", @"C:\a.mp3", withCue: false);
+        trackAtLastSync.Add(BuildCue("Old Drop", "10.000"));
+        var priorSnapshot = RekordboxXmlMerger.CanonicalizeCues(trackAtLastSync.Elements("POSITION_MARK"));
+
+        var existingTrack = BuildTrack("1", @"C:\a.mp3", withCue: false);
+        existingTrack.Add(BuildCue("Hand-Renamed In Rekordbox", "10.000")); // user changed it since
+        var existing = BuildDoc(new[] { existingTrack }, "MyPlaylist");
+
+        var freshTrack = BuildTrack("1", @"C:\a.mp3", withCue: false);
+        freshTrack.Add(BuildCue("New Drop", "20.000"));
+        var fresh = BuildDoc(new[] { freshTrack }, "MyPlaylist");
+
+        var priorByTrackId = new Dictionary<string, string> { ["1"] = priorSnapshot };
+
+        var merged = RekordboxXmlMerger.MergeIntoExisting(existing, fresh, new[] { "ROOT", "MyPlaylist" }, NullLogger.Instance, priorByTrackId);
+        var track = FindTrack(merged, "1")!;
+
+        Assert.Single(track.Elements("POSITION_MARK"));
+        Assert.Equal("Hand-Renamed In Rekordbox", (string)track.Elements("POSITION_MARK").Single().Attribute("Name")!);
+    }
+
+    [Fact]
+    public void Merge_NoPriorSnapshotSupplied_FallsBackToPreservingExistingCues()
+    {
+        // No snapshot info at all (e.g. an older caller, or nothing recorded yet for this track) —
+        // must degrade to the original conservative all-or-nothing rule, not silently overwrite.
+        var existingTrack = BuildTrack("1", @"C:\a.mp3", withCue: false);
+        existingTrack.Add(BuildCue("Existing Cue", "10.000"));
+        var existing = BuildDoc(new[] { existingTrack }, "MyPlaylist");
+
+        var freshTrack = BuildTrack("1", @"C:\a.mp3", withCue: false);
+        freshTrack.Add(BuildCue("Fresh Cue", "20.000"));
+        var fresh = BuildDoc(new[] { freshTrack }, "MyPlaylist");
+
+        var merged = RekordboxXmlMerger.MergeIntoExisting(existing, fresh, new[] { "ROOT", "MyPlaylist" }, NullLogger.Instance);
+        var track = FindTrack(merged, "1")!;
+
+        Assert.Equal("Existing Cue", (string)track.Elements("POSITION_MARK").Single().Attribute("Name")!);
+    }
 }

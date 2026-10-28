@@ -10,6 +10,7 @@ using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.ViewModels.Workstation;
 using SLSKDONET.Views.Avalonia.Controls;
+using System;
 using System.Linq;
 using System.Reactive;
 using System.Reactive.Linq;
@@ -473,7 +474,7 @@ public partial class WorkstationPage : UserControl
     {
         if (this.FindControl<TabControl>("DrawerTabs") is { } tabs)
         {
-            tabs.SelectedIndex = 1;
+            tabs.SelectedIndex = 0;
         }
 
         if (!_overlaySizePinnedByUser)
@@ -487,14 +488,6 @@ public partial class WorkstationPage : UserControl
     private void OnCloseTrackListOverlayClick(object? sender, RoutedEventArgs e)
     {
         SetTrackListOverlayVisible(false);
-    }
-
-    private void OnFocusTrackListTabClick(object? sender, RoutedEventArgs e)
-    {
-        if (this.FindControl<TabControl>("DrawerTabs") is { } tabs)
-        {
-            tabs.SelectedIndex = 1;
-        }
     }
 
     private void OnTrackListOverlayBackdropPressed(object? sender, PointerPressedEventArgs e)
@@ -988,6 +981,8 @@ public partial class WorkstationPage : UserControl
 
     private async void OnCockpitKeyDown(object? sender, KeyEventArgs e)
     {
+        try
+        {
         if (DataContext is not WorkstationViewModel vm)
         {
             return;
@@ -999,18 +994,6 @@ public partial class WorkstationPage : UserControl
             if (this.FindControl<TabControl>("DrawerTabs") is { } tabs)
             {
                 tabs.SelectedIndex = 0;
-            }
-
-            e.Handled = true;
-            return;
-        }
-
-        if (e.KeyModifiers == KeyModifiers.Control &&
-            (e.Key == Key.D2 || e.Key == Key.NumPad2))
-        {
-            if (this.FindControl<TabControl>("DrawerTabs") is { } tabs)
-            {
-                tabs.SelectedIndex = 1;
             }
 
             e.Handled = true;
@@ -1158,6 +1141,13 @@ public partial class WorkstationPage : UserControl
                 await ExecuteStemToggle(vm.FocusedDeck.ToggleOtherCommand);
                 e.Handled = true;
             }
+        }
+        }
+        catch (Exception ex)
+        {
+            // Fires on nearly every cockpit keystroke — a bad command execution must not
+            // be allowed to crash the whole app.
+            Serilog.Log.Error(ex, "WorkstationPage: cockpit key handler failed for key {Key}", e.Key);
         }
     }
 

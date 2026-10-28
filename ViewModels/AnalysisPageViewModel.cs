@@ -14,7 +14,9 @@ using ReactiveUI;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
+using SLSKDONET.Services.AudioAnalysis;
 using SLSKDONET.Services.Library;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -239,7 +241,47 @@ public class AnalysisTrackItem : ReactiveObject
         }
     }
 
-    public bool HasAnalysis => AnalysisData is not null;
+    // ── Engine coverage ───────────────────────────────────────────────────
+    // Null until a coverage pass has run for this row. When it is set, it — not the fabricated
+    // AnalysisData — decides what the row claims about analysis.
+
+    private TrackAnalysisCoverage? _coverage;
+
+    /// <summary>What this track has and what it lacks, per engine. Null when not yet measured.</summary>
+    public TrackAnalysisCoverage? Coverage
+    {
+        get => _coverage;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _coverage, value);
+            this.RaisePropertyChanged(nameof(HasCoverage));
+            this.RaisePropertyChanged(nameof(IsFullyAnalysed));
+            this.RaisePropertyChanged(nameof(HasMissingEngines));
+            this.RaisePropertyChanged(nameof(MissingEnginesSummary));
+            this.RaisePropertyChanged(nameof(HasAnalysis));
+            this.RaisePropertyChanged(nameof(HasIncompleteAnalysis));
+            this.RaisePropertyChanged(nameof(HasSufficientAnalysis));
+            this.RaisePropertyChanged(nameof(IncompleteAnalysisSummary));
+        }
+    }
+
+    public bool HasCoverage => _coverage is not null;
+
+    /// <summary>True only when every engine in the coverage mask produced output.</summary>
+    public bool IsFullyAnalysed => _coverage?.IsComplete ?? false;
+
+    /// <summary>True when this track is measurable and at least one engine is missing.</summary>
+    public bool HasMissingEngines => _coverage is { IsComplete: false };
+
+    /// <summary>"Key, Cues and Fingerprint" for the row chip; empty when complete or unmeasured.</summary>
+    public string MissingEnginesSummary => _coverage is { IsComplete: false } coverage
+        ? AnalysisEngines.Describe(coverage.Missing)
+        : string.Empty;
+
+    /// <summary>The engines a "run what's missing" action should queue for this row.</summary>
+    public AnalysisEngine RunnableMissingEngines => _coverage?.RunnableMissing ?? AnalysisEngine.None;
+
+    public bool HasAnalysis => _coverage?.HasAnyOutput ?? AnalysisData is not null;
     public bool HasIncompleteAnalysis => GetIncompleteAnalysisReasons().Count > 0;
     public bool HasSufficientAnalysis => !HasIncompleteAnalysis;
     public string IncompleteAnalysisSummary => BuildIncompleteAnalysisSummary(GetIncompleteAnalysisReasons());
@@ -254,6 +296,32 @@ public class AnalysisTrackItem : ReactiveObject
     public string KeyConfidenceTier => ToConfidenceTier(KeyConfidence);
     public string ConfidenceSemanticsSummary => $"Tonal {BpmConfidenceTier} • Key {KeyConfidenceTier}";
     public int CueCount => HasAnalysis ? _cueCount : 0;
+
+    // ── Measured values (0–1) straight from the library, null when the analyser never stored one.
+    // The view shows these as bars; it never derives moods or confidences from defaults.
+    public double? MeasuredBpmConfidence { get; }
+    public double? MeasuredKeyConfidence { get; }
+    public double? MeasuredEnergy { get; }
+    public double? MeasuredValence { get; }
+    public bool HasMeasuredBpmConfidence => MeasuredBpmConfidence.HasValue;
+    public bool HasMeasuredKeyConfidence => MeasuredKeyConfidence.HasValue;
+    public bool HasMeasuredEnergy => MeasuredEnergy.HasValue;
+    public bool HasMeasuredValence => MeasuredValence.HasValue;
+    public bool HasMeasuredProfile => HasMeasuredEnergy || HasMeasuredValence;
+    public bool HasGenres => AnalysisData?.Genres is { Count: > 0 };
+
+    /// <summary>
+    /// Brings a stored score onto 0–1: values already in range pass through, 0–10 and 0–100
+    /// scales are divided down, and a −1…1 valence is shifted up.
+    /// </summary>
+    private static double? Normalize01(double? value)
+    {
+        if (value is not { } v || double.IsNaN(v)) return null;
+        if (v < 0) return Math.Clamp((v + 1.0) / 2.0, 0, 1);
+        if (v <= 1.0) return v;
+        if (v <= 10.0) return v / 10.0;
+        return Math.Clamp(v / 100.0, 0, 1);
+    }
     public byte[] WaveformLow => _waveformLow;
     public byte[] WaveformMid => _waveformMid;
     public byte[] WaveformHigh => _waveformHigh;
@@ -307,8 +375,16 @@ public class AnalysisTrackItem : ReactiveObject
         double? loudnessLufs = null,
         string? camelotKey = null,
         string? chordProgression = null,
-        double? durationSeconds = null)
+        double? durationSeconds = null,
+        double? measuredBpmConfidence = null,
+        double? measuredKeyConfidence = null,
+        double? measuredEnergy = null,
+        double? measuredValence = null)
     {
+        MeasuredBpmConfidence = Normalize01(measuredBpmConfidence);
+        MeasuredKeyConfidence = Normalize01(measuredKeyConfidence);
+        MeasuredEnergy = Normalize01(measuredEnergy);
+        MeasuredValence = Normalize01(measuredValence);
         TrackId = trackId;
         Artist = artist;
         Title = title;
@@ -317,20 +393,15 @@ public class AnalysisTrackItem : ReactiveObject
         MusicalKey = musicalKey;
         FilePath = filePath;
         _analysisData = analysisData;
-        _cueCount = cueCount > 0 ? cueCount : (analysisData is not null ? EstimateCueCount(trackId) : 0);
-        var canUseSyntheticWaveform = string.IsNullOrWhiteSpace(filePath);
-        _waveformLow = lowBand is { Length: > 0 }
-            ? lowBand
-            : (canUseSyntheticWaveform ? BuildWaveformBand(trackId, 64, 7) : Array.Empty<byte>());
-        _waveformMid = midBand is { Length: > 0 }
-            ? midBand
-            : (canUseSyntheticWaveform ? BuildWaveformBand(trackId, 64, 17) : Array.Empty<byte>());
-        _waveformHigh = highBand is { Length: > 0 }
-            ? highBand
-            : (canUseSyntheticWaveform ? BuildWaveformBand(trackId, 64, 29) : Array.Empty<byte>());
+        // Only real data: no estimated cue counts, synthetic waveforms or invented timestamps.
+        // A track with no stored cues shows 0 and an empty waveform well, not placeholder numbers.
+        _cueCount = Math.Max(0, cueCount);
+        _waveformLow = lowBand ?? Array.Empty<byte>();
+        _waveformMid = midBand ?? Array.Empty<byte>();
+        _waveformHigh = highBand ?? Array.Empty<byte>();
         _stemsReady = analysisData?.Stems?.AreGenerated ?? false;
-        _lastAnalyzedAt = lastAnalyzedAt ?? (analysisData is not null ? DateTime.UtcNow.AddMinutes(-EstimateCueCount(trackId) * 7) : null);
-        _modelVersion = modelVersion ?? (analysisData is not null ? "essentia-2.1-b6" : null);
+        _lastAnalyzedAt = lastAnalyzedAt;
+        _modelVersion = modelVersion;
         _energyCurvePoints = energyCurvePoints ?? Array.Empty<double>();
         _segmentedEnergyPoints = segmentedEnergyPoints ?? Array.Empty<double>();
         _dropTimeSeconds = dropTimeSeconds;
@@ -544,7 +615,7 @@ public class AnalysisTrackItem : ReactiveObject
     private static string BuildQualityProfileSummary(double? qualityConfidence, double? loudnessLufs, double? bpmStability)
     {
         var confidenceText = qualityConfidence.HasValue ? $"Q {qualityConfidence.Value * 100:F0}%" : "Q —";
-        var loudnessText = loudnessLufs.HasValue ? $"LUFS {loudnessLufs.Value:F1}" : "LUFS —";
+        var loudnessText = loudnessLufs.HasValue ? NumFormat.Ui($"LUFS {loudnessLufs.Value:F1}") : "LUFS —";
         var stabilityText = bpmStability.HasValue ? $"Stability {bpmStability.Value * 100:F0}%" : "Stability —";
         return $"{confidenceText} • {loudnessText} • {stabilityText}";
     }
@@ -633,26 +704,14 @@ public class AnalysisTrackItem : ReactiveObject
                 end,
                 (end - start) * 100.0,
                 Math.Max(26.0, (end - start) * 280.0),
-                ResolvePhraseColor(label, energy),
+                energy,
                 $"{label} • energy {(energy * 100):F0}%"));
         }
 
         return blocks;
     }
 
-    private static string ResolvePhraseColor(string label, double energy)
-    {
-        return label switch
-        {
-            "Intro" => "#3A4A5A",
-            "Build" => "#5A4A2A",
-            "Drop" => "#7A2A2A",
-            "Break" => "#2A4A5A",
-            "Outro" => "#3A3A46",
-            _ => energy >= 0.6 ? "#4A5A3A" : "#3A4A3A"
-        };
-    }
-
+}
 
 public sealed record PhraseTimelineBlock(
     string Label,
@@ -660,34 +719,17 @@ public sealed record PhraseTimelineBlock(
     double EndRatio,
     double WidthPercent,
     double WidthPx,
-    string FillColor,
-    string Tooltip);
-    private static int EstimateCueCount(string seed)
-    {
-        var hash = Math.Abs(seed.Aggregate(17, (current, c) => current * 31 + c));
-        return 4 + (hash % 5);
-    }
-
-    private static byte[] BuildWaveformBand(string seed, int length, int salt)
-    {
-        var data = new byte[length];
-        var hash = Math.Abs(seed.Aggregate(salt, (current, c) => current * 31 + c));
-        var rng = new Random(hash);
-
-        for (var i = 0; i < length; i++)
-        {
-            var wave = Math.Abs(Math.Sin((i + salt) / 6.0));
-            var jitter = rng.NextDouble() * 0.35;
-            data[i] = (byte)Math.Clamp((wave + jitter) * 180.0, 18, 255);
-        }
-
-        return data;
-    }
+    double Energy,
+    string Tooltip)
+{
+    /// <summary>The drop segment is the one block the view highlights; the rest stay neutral.</summary>
+    public bool IsDrop => Label == "Drop";
 }
 
 /// <summary>
 /// ViewModel for the Analysis page.
-/// Manages the library track list, the analysis queue, processing state, and mock data.
+/// Manages the library track list, the analysis queue and processing state. Sample data is only
+/// used when no library service exists (designer/tests), never as a stand-in for a failed load.
 /// </summary>
 public class AnalysisPageViewModel : ReactiveObject, IDisposable
 {
@@ -697,10 +739,14 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     private readonly IClipboardService? _clipboardService;
     private readonly LibraryCorruptionScanService? _corruptionScanService;
     private readonly CorruptFileRemediationService? _remediationService;
+    private readonly AnalyzeTrackStructureJob? _cueStructureJob;
     private readonly CompositeDisposable _disposables = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly Stopwatch _analysisSessionStopwatch = new();
     private readonly Dictionary<string, DateTime> _trackAnalysisStartedAtUtc = new(StringComparer.Ordinal);
+    // Hashes whose library entry is being looked up after a TrackAnalysisRequestedEvent for a
+    // track this page hasn't loaded yet (see OnTrackAnalysisRequested) — dedupes repeat requests.
+    private readonly HashSet<string> _pendingQueueResolutions = new(StringComparer.Ordinal);
     private readonly System.Reactive.Subjects.Subject<System.Reactive.Unit> _refreshRequestSubject = new();
     private readonly System.Reactive.Subjects.Subject<string?> _filterRequestSubject = new();
 
@@ -777,8 +823,38 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public string? LibraryLoadErrorMessage
     {
         get => _libraryLoadErrorMessage;
-        private set => this.RaiseAndSetIfChanged(ref _libraryLoadErrorMessage, value);
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _libraryLoadErrorMessage, value);
+            this.RaisePropertyChanged(nameof(HasLibraryLoadError));
+            this.RaisePropertyChanged(nameof(ShowNoLibraryTracks));
+        }
     }
+
+    private bool _isLibraryLoading;
+
+    /// <summary>True while the library snapshot is being read; drives the pane's loading state.</summary>
+    public bool IsLibraryLoading
+    {
+        get => _isLibraryLoading;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _isLibraryLoading, value);
+            this.RaisePropertyChanged(nameof(ShowNoLibraryTracks));
+            this.RaisePropertyChanged(nameof(ShowNoSearchMatches));
+        }
+    }
+
+    public bool HasLibraryLoadError => !string.IsNullOrEmpty(LibraryLoadErrorMessage);
+
+    /// <summary>Library loaded fine but holds no tracks at all.</summary>
+    public bool ShowNoLibraryTracks => !IsLibraryLoading && !HasLibraryLoadError && LibraryTracks.Count == 0;
+
+    /// <summary>The library has tracks but the current search hides all of them.</summary>
+    public bool ShowNoSearchMatches => !IsLibraryLoading && LibraryTracks.Count > 0 && FilteredLibraryTracks.Count == 0;
+
+    /// <summary>Re-reads the library after a failed load (the error state's Retry button).</summary>
+    public ReactiveCommand<Unit, Unit> RetryLoadLibraryCommand { get; private set; } = null!;
 
     public bool IsIdle => ProcessingState == AnalysisProcessingState.Idle;
     public bool IsProcessing => ProcessingState == AnalysisProcessingState.Processing;
@@ -843,6 +919,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public int QueueTrackCount => AnalysisQueue.Count;
     public int IncompleteAnalysisTrackCount => LibraryTracks.Count(t => t.HasIncompleteAnalysis);
     public bool HasIncompleteAnalysisTracks => IncompleteAnalysisTrackCount > 0;
+    public bool HasIncompleteCorruptTracks => LibraryTracks.Any(t => t.HasIncompleteAnalysis && t.IsLikelyCorruptFile);
     public IReadOnlyList<AnalysisTrackItem> IncompleteAnalysisTracks => LibraryTracks
         .Where(t => t.HasIncompleteAnalysis)
         .OrderBy(t => t.Artist)
@@ -851,12 +928,12 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public int StemsReadyCount => LibraryTracks.Count(t => t.StemsReady);
     public bool HasQueueMetrics => QueueTrackCount > 0 || _completedAnalysisRuns > 0 || IsProcessing;
     public bool IsDeveloperMode => Debugger.IsAttached || string.Equals(Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase);
-    public string AvgAnalysisTimeDisplay => _completedAnalysisRuns == 0 ? "—" : $"{_totalAnalysisSeconds / _completedAnalysisRuns:F1}s";
-    public string ThroughputDisplay => _completedAnalysisRuns == 0 ? "—" : $"{_completedAnalysisRuns / Math.Max(_analysisSessionStopwatch.Elapsed.TotalMinutes, 1.0 / 60.0):F1}/min";
-    public string FilterPerformanceDisplay => $"Filter {_lastFilterMilliseconds:F1} ms (avg {_averageFilterMilliseconds:F1} ms)";
+    public string AvgAnalysisTimeDisplay => _completedAnalysisRuns == 0 ? "—" : NumFormat.Ui($"{_totalAnalysisSeconds / _completedAnalysisRuns:F1}s");
+    public string ThroughputDisplay => _completedAnalysisRuns == 0 ? "—" : NumFormat.Ui($"{_completedAnalysisRuns / Math.Max(_analysisSessionStopwatch.Elapsed.TotalMinutes, 1.0 / 60.0):F1}/min");
+    public string FilterPerformanceDisplay => NumFormat.Ui($"Filter {_lastFilterMilliseconds:F1} ms (avg {_averageFilterMilliseconds:F1} ms)");
     public string InteractionPerformanceDisplay => _lastQueueMutationMilliseconds <= 0
         ? "Queue update —"
-        : $"Queue update {_lastQueueMutationMilliseconds:F1} ms";
+        : NumFormat.Ui($"Queue update {_lastQueueMutationMilliseconds:F1} ms");
     public string PerformanceDiagnosticsSummary => $"{_filteredTrackCount}/{LibraryTracks.Count} visible • {FilterPerformanceDisplay} • {InteractionPerformanceDisplay}";
     public string? PerformanceProbeSummary
     {
@@ -905,6 +982,13 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     /// </summary>
     public ReactiveCommand<Unit, Unit> ReanalyzeAllTracksCommand { get; }
 
+    /// <summary>
+    /// Re-maps cue points for every already-analysed track in the library, without touching
+    /// BPM/key/energy/vocal/embedding data — for picking up a CueGenerationService logic change
+    /// across the whole library without paying for a full re-analysis pass on every track.
+    /// </summary>
+    public ReactiveCommand<Unit, Unit> RegenerateAllCuesCommand { get; }
+
     /// <summary>Copies the full analysis JSON for a track to the clipboard.</summary>
     public ReactiveCommand<AnalysisTrackItem, Unit> CopyAnalysisJsonCommand { get; }
     public ReactiveCommand<Unit, Unit> CopyPerformanceSnapshotCommand { get; }
@@ -922,6 +1006,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         {
             this.RaiseAndSetIfChanged(ref _isIntegrityScanRunning, value);
             this.RaisePropertyChanged(nameof(CanScanIntegrity));
+            this.RaisePropertyChanged(nameof(ShowIntegrityPanel));
         }
     }
 
@@ -934,8 +1019,21 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public string IntegrityScanStatusText
     {
         get => _integrityScanStatusText;
-        private set => this.RaiseAndSetIfChanged(ref _integrityScanStatusText, value);
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _integrityScanStatusText, value);
+            this.RaisePropertyChanged(nameof(ShowIntegrityPanel));
+        }
     }
+
+    /// <summary>
+    /// The integrity card only appears once a scan or remediation has something to say; the scan
+    /// itself is started from the page's overflow menu, so a resting page has no empty panel.
+    /// </summary>
+    public bool ShowIntegrityPanel => IsIntegrityScanRunning
+        || !string.IsNullOrEmpty(IntegrityScanStatusText)
+        || !string.IsNullOrEmpty(RemediationStatusText)
+        || HasScanIssues;
 
     public bool CanScanIntegrity => !_isIntegrityScanRunning && _corruptionScanService is not null;
 
@@ -944,6 +1042,17 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> FixCorruptCommand   { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> FixMissingCommand   { get; private set; } = null!;
 
+    /// <summary>
+    /// Deletes one track already flagged corrupt in the "Incomplete Analysis" list and resets it
+    /// to Missing so the download queue re-acquires a clean copy — the same remediation the
+    /// "Scan Library Integrity" flow performs, just reachable directly from a track this session's
+    /// own analysis pass already flagged, instead of requiring a separate full-library rescan.
+    /// </summary>
+    public ReactiveCommand<AnalysisTrackItem, Unit> RemediateTrackCommand { get; private set; } = null!;
+
+    /// <summary>Same as <see cref="RemediateTrackCommand"/>, applied to every currently-flagged corrupt track at once.</summary>
+    public ReactiveCommand<Unit, Unit> RemediateAllIncompleteCorruptCommand { get; private set; } = null!;
+
     public bool IsRemediating
     {
         get => _isRemediating;
@@ -951,13 +1060,18 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         {
             this.RaiseAndSetIfChanged(ref _isRemediating, value);
             this.RaisePropertyChanged(nameof(CanRemediate));
+            this.RaisePropertyChanged(nameof(CanRemediateFlaggedTrack));
         }
     }
 
     public string RemediationStatusText
     {
         get => _remediationStatusText;
-        private set => this.RaiseAndSetIfChanged(ref _remediationStatusText, value);
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _remediationStatusText, value);
+            this.RaisePropertyChanged(nameof(ShowIntegrityPanel));
+        }
     }
 
     public IReadOnlyList<CorruptFileScanEntry> ScanIssues
@@ -968,6 +1082,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             _scanIssues = value;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(HasScanIssues));
+            this.RaisePropertyChanged(nameof(ShowIntegrityPanel));
             this.RaisePropertyChanged(nameof(CorruptIssueCount));
             this.RaisePropertyChanged(nameof(MissingIssueCount));
             this.RaisePropertyChanged(nameof(CanRemediate));
@@ -978,6 +1093,14 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public int  CorruptIssueCount  => _scanIssues.Count(e => !e.IsMissing);
     public int  MissingIssueCount  => _scanIssues.Count(e => e.IsMissing);
     public bool CanRemediate    => HasScanIssues && !_isRemediating && _remediationService is not null;
+
+    /// <summary>
+    /// Gate for <see cref="RemediateTrackCommand"/>/<see cref="RemediateAllIncompleteCorruptCommand"/> —
+    /// deliberately doesn't require <see cref="HasScanIssues"/>, since those act on tracks this
+    /// session's own analysis pass flagged (<see cref="AnalysisTrackItem.IsLikelyCorruptFile"/>),
+    /// a separate detection path from the "Scan Library Integrity" issue list.
+    /// </summary>
+    public bool CanRemediateFlaggedTrack => !_isRemediating && _remediationService is not null;
 
     private string? _automixStatusMessage;
 
@@ -992,20 +1115,36 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
     // ── Constructor ──────────────────────────────────────────────────────────────
 
+    /// <summary>"N tracks need a loudness measurement" card. A DI singleton shared with the Library
+    /// tools menu, so it is not disposed here. Null in design/test construction (card hidden).</summary>
+    public LoudnessBackfillViewModel? LoudnessBackfill { get; }
+
+    /// <summary>Library metadata enrichment card (shared DI singleton, not disposed here). Null in tests.</summary>
+    public EnrichmentViewModel? Enrichment { get; }
+    public bool HasEnrichment => Enrichment != null;
+
     public AnalysisPageViewModel(
         IEventBus eventBus,
         ILifecycleProjectionService lifecycleProjectionService,
         ILibraryService? libraryService = null,
         IClipboardService? clipboardService = null,
         LibraryCorruptionScanService? corruptionScanService = null,
-        CorruptFileRemediationService? remediationService = null)
+        CorruptFileRemediationService? remediationService = null,
+        AnalyzeTrackStructureJob? cueStructureJob = null,
+        LoudnessBackfillViewModel? loudnessBackfill = null,
+        EnrichmentViewModel? enrichment = null,
+        AnalysisCoverageService? coverageService = null)
     {
         _eventBus = eventBus;
+        LoudnessBackfill = loudnessBackfill;
+        Enrichment = enrichment;
+        _coverageService = coverageService;
         _libraryService = libraryService;
         _clipboardService = clipboardService;
         _lifecycleProjectionService = lifecycleProjectionService;
         _corruptionScanService = corruptionScanService;
         _remediationService = remediationService;
+        _cueStructureJob = cueStructureJob;
 
         if (_libraryService is null)
             LoadMockData();
@@ -1037,10 +1176,12 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         ReanalyzeCommand = ReactiveCommand.Create<AnalysisTrackItem>(Reanalyze);
         ReanalyzeAllIncompleteCommand = ReactiveCommand.CreateFromTask(ReanalyzeAllIncompleteAsync);
         ReanalyzeAllTracksCommand = ReactiveCommand.CreateFromTask(ReanalyzeAllTracksAsync);
+        RegenerateAllCuesCommand = ReactiveCommand.CreateFromTask(RegenerateAllCuesAsync);
         CopyAnalysisJsonCommand = ReactiveCommand.CreateFromTask<AnalysisTrackItem>(CopyAnalysisJsonAsync);
         CopyPerformanceSnapshotCommand = ReactiveCommand.CreateFromTask(CopyPerformanceSnapshotAsync);
         ClearPerformanceProbeHistoryCommand = ReactiveCommand.Create(ClearPerformanceProbeHistory);
         SetPaneModeCommand = ReactiveCommand.Create<AnalysisPaneMode>(SetPaneMode);
+        RetryLoadLibraryCommand = ReactiveCommand.CreateFromTask(LoadLibraryAsync);
 
         var canScan = this.WhenAnyValue(x => x.CanScanIntegrity);
         ScanLibraryIntegrityCommand = ReactiveCommand.CreateFromTask(ScanLibraryIntegrityAsync, canScan);
@@ -1053,10 +1194,33 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         FixMissingCommand = ReactiveCommand.CreateFromTask(
             () => RemediateAsync(_scanIssues.Where(e => e.IsMissing).ToList()), canRemediate);
 
+        var canRemediateFlaggedTrack = this.WhenAnyValue(x => x.CanRemediateFlaggedTrack);
+        RemediateTrackCommand = ReactiveCommand.CreateFromTask<AnalysisTrackItem>(
+            track => RemediateAsync(new[] { BuildScanEntry(track) }), canRemediateFlaggedTrack);
+        RemediateAllIncompleteCorruptCommand = ReactiveCommand.CreateFromTask(
+            () => RemediateAsync(IncompleteAnalysisTracks.Where(t => t.IsLikelyCorruptFile).Select(BuildScanEntry).ToList()),
+            canRemediateFlaggedTrack);
+
         // Keep all computed dashboard metrics in sync as the collections change.
         LibraryTracks.CollectionChanged += (_, _) => RefreshComputedState();
         AnalysisQueue.CollectionChanged += (_, _) => RefreshComputedState();
         PerformanceProbeRuns.CollectionChanged += (_, _) => this.RaisePropertyChanged(nameof(HasPerformanceProbeRuns));
+
+        // ── Playlist coverage ────────────────────────────────────────────────
+        RefreshCoverageCommand = ReactiveCommand.CreateFromTask(RefreshCoverageAsync);
+        RunMissingForPlaylistCommand = ReactiveCommand.CreateFromTask(RunMissingForPlaylistAsync);
+        RunMissingForTrackCommand = ReactiveCommand.Create<AnalysisTrackItem>(
+            item => QueueEngines(new[] { item }, item.RunnableMissingEngines));
+        RunEngineForPlaylistCommand = ReactiveCommand.Create<EngineCoverageRow>(
+            row => QueueCoverageRequests(Coverage?.GetRequests(row.Engine) ?? Array.Empty<TrackCoverageRequest>()));
+
+        _coverageRefreshSubject
+            .Throttle(TimeSpan.FromMilliseconds(500), RxApp.MainThreadScheduler)
+            .Subscribe(unit => { _ = RefreshCoverageAsync(); })
+            .DisposeWith(_disposables);
+
+        if (_coverageService is not null)
+            _ = LoadCoveragePlaylistsAsync();
 
         // React to per-track progress events
         _eventBus.GetEvent<AnalysisProgressEvent>()
@@ -1071,7 +1235,10 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
         _eventBus.GetEvent<TrackAnalysisFailedEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(OnTrackAnalysisFailed)
+            .Subscribe(evt =>
+            {
+                _ = OnTrackAnalysisFailedAsync(evt);
+            })
             .DisposeWith(_disposables);
 
         _eventBus.GetEvent<TrackAnalysisCompletedEvent>()
@@ -1100,6 +1267,15 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         _eventBus.GetEvent<FileIngestionCompletedEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(OnFileIngestionCompleted)
+            .DisposeWith(_disposables);
+
+        // A folder import adds tracks in one go and publishes one completion event: reload the
+        // page's library once, so "Analyse N new tracks" finds them here instead of doing one
+        // library lookup per requested track (OnTrackAnalysisRequested).
+        _eventBus.GetEvent<LibraryImportCompletedEvent>()
+            .Where(evt => evt.Result.ChangedLibrary && _libraryService is not null)
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(evt => { _ = LoadLibraryAsync(); })
             .DisposeWith(_disposables);
 
         _eventBus.GetEvent<FileMissingDetectedEvent>()
@@ -1218,6 +1394,47 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         AutomixStatusMessage = allTracks.Count == 0
             ? "No tracks in library to reanalyze."
             : $"Queued all {allTracks.Count} track(s) for full reanalysis. Click Start Analysis to run.";
+
+        RefreshComputedState();
+    }
+
+    /// <summary>
+    /// Re-maps cue points for every already-analysed track in the library — a DB round-trip per
+    /// track via AnalyzeTrackStructureJob.RegenerateCuesOnlyAsync, not a queued full re-analysis.
+    /// Runs immediately (no "Start Analysis" step needed) since it never touches the audio-decode
+    /// concurrency-gated pipeline.
+    /// </summary>
+    public async Task RegenerateAllCuesAsync()
+    {
+        if (_cueStructureJob == null)
+        {
+            AutomixStatusMessage = "Cue regeneration service unavailable.";
+            return;
+        }
+
+        var timer = Stopwatch.StartNew();
+        var allTracks = LibraryTracks.ToList();
+
+        int succeeded = 0, skipped = 0, batchCount = 0;
+        foreach (var track in allTracks)
+        {
+            if (await _cueStructureJob.RegenerateCuesOnlyAsync(track.TrackId))
+                succeeded++;
+            else
+                skipped++;
+
+            batchCount++;
+            if (batchCount % 10 == 0)
+            {
+                await Task.Yield();
+                AutomixStatusMessage = $"Regenerating cues… {succeeded + skipped}/{allTracks.Count}";
+            }
+        }
+
+        timer.Stop();
+        AutomixStatusMessage = allTracks.Count == 0
+            ? "No tracks in library."
+            : NumFormat.Ui($"Regenerated cues for {succeeded} track(s){(skipped > 0 ? $" — {skipped} skipped (not analysed yet)" : "")} in {timer.Elapsed.TotalSeconds:0.#}s.");
 
         RefreshComputedState();
     }
@@ -1350,21 +1567,30 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         RefreshComputedState();
     }
 
-    private void OnTrackAnalysisFailed(TrackAnalysisFailedEvent evt)
+    /// <summary>
+    /// Marks a row this page shows as failed. Requests for tracks the page never resolved to a
+    /// real library entry have no row (see <see cref="OnTrackAnalysisRequested"/>), so they are
+    /// not counted as failed analyses here.
+    /// </summary>
+    private Task OnTrackAnalysisFailedAsync(TrackAnalysisFailedEvent evt)
     {
         var track = FindTrack(evt.TrackGlobalId);
         if (track is null)
-            return;
+            return Task.CompletedTask;
 
         track.AnalysisStatus = AnalysisRunStatus.Failed;
         track.CurrentStep = "Analysis failed";
         track.AnalysisError = evt.Error;
         track.ProgressPercent = 100;
         RefreshComputedState();
+        return Task.CompletedTask;
     }
 
     private async Task OnTrackAnalysisCompletedAsync(TrackAnalysisCompletedEvent evt)
     {
+        if (evt.Success)
+            _coverageRefreshSubject.OnNext(Unit.Default);
+
         var track = FindTrack(evt.TrackGlobalId);
         if (track is null)
         {
@@ -1386,9 +1612,10 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                         refreshedTrack.IsInPlaylist = track.IsInPlaylist;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Ignore refresh lookup failures; keep status updates flowing.
+                    // Keep status updates flowing; the row just keeps its previous values.
+                    Serilog.Log.Debug(ex, "AnalysisPage: refresh lookup failed for {TrackId}", evt.TrackGlobalId);
                 }
             }
 
@@ -1482,22 +1709,61 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         if (AnalysisQueue.Any(t => t.TrackId == evt.TrackGlobalId))
             return;
 
-        var track = LibraryTracks.FirstOrDefault(t => t.TrackId == evt.TrackGlobalId)
-            ?? AnalysisQueue.FirstOrDefault(t => t.TrackId == evt.TrackGlobalId);
-
-        if (track == null)
+        var track = LibraryTracks.FirstOrDefault(t => t.TrackId == evt.TrackGlobalId);
+        if (track != null)
         {
-            track = new AnalysisTrackItem(
-                evt.TrackGlobalId,
-                "Selected Artist",
-                "Selected Track");
-
-            HookTrack(track);
-            LibraryTracks.Add(track);
-            ApplyFilter();
+            AddToQueue(track);
+            return;
         }
 
-        AddToQueue(track);
+        // A track this page hasn't loaded (e.g. one a folder import just added): look up the real
+        // entry instead of inventing a row. This used to add an "Selected Artist — Selected Track"
+        // placeholder — when the library query was failing (2026-10-19, fresh-install schema
+        // drift) a 2,650-track folder import filled the page with 2,650 fake rows, every one then
+        // marked "Analysis failed", hiding the real "Couldn't load your library" error.
+        _ = QueueUnlistedTrackAsync(evt.TrackGlobalId);
+    }
+
+    private async Task QueueUnlistedTrackAsync(string trackHash)
+    {
+        // The library can't be read right now: the error state already says so, and every lookup
+        // would fail the same way.
+        if (_libraryService is null || HasLibraryLoadError || !_pendingQueueResolutions.Add(trackHash))
+            return;
+
+        try
+        {
+            var entry = await _libraryService.FindLibraryEntryAsync(trackHash).ConfigureAwait(true);
+            if (entry is null)
+            {
+                Serilog.Log.Debug("AnalysisPage: analysis requested for {TrackId}, which is not in the library; not listing it", trackHash);
+                return;
+            }
+
+            if (AnalysisQueue.Any(t => t.TrackId == trackHash))
+                return;
+
+            var track = LibraryTracks.FirstOrDefault(t => t.TrackId == trackHash);
+            if (track is null)
+            {
+                track = MapLibraryEntryToTrack(entry);
+                HookTrack(track);
+                LibraryTracks.Add(track);
+                ApplyFilter();
+            }
+
+            AddToQueue(track);
+        }
+        catch (Exception ex)
+        {
+            // The analysis itself still runs (AnalysisQueueService has the request); only this
+            // page's row for it is missing.
+            Serilog.Log.Warning(ex, "AnalysisPage: could not resolve requested track {TrackId}", trackHash);
+        }
+        finally
+        {
+            _pendingQueueResolutions.Remove(trackHash);
+        }
     }
 
     private void OnFileIngestionQueued(FileIngestionQueuedEvent evt)
@@ -1568,6 +1834,8 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         _filteredTrackCount = FilteredLibraryTracks.Count;
 
         this.RaisePropertyChanged(nameof(IsLibraryEmpty));
+        this.RaisePropertyChanged(nameof(ShowNoLibraryTracks));
+        this.RaisePropertyChanged(nameof(ShowNoSearchMatches));
         this.RaisePropertyChanged(nameof(FilterPerformanceDisplay));
         this.RaisePropertyChanged(nameof(PerformanceDiagnosticsSummary));
     }
@@ -1612,7 +1880,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         var previousP95 = PerformanceProbeRuns.Count > 0 ? PerformanceProbeRuns[0].P95Ms : (double?)null;
         var p95Delta = previousP95.HasValue ? p95 - previousP95.Value : (double?)null;
 
-        PerformanceProbeSummary = $"Probe {samples.Count} queries • avg {average:F1} ms • p95 {p95:F1} ms • max {max:F1} ms";
+        PerformanceProbeSummary = NumFormat.Ui($"Probe {samples.Count} queries • avg {average:F1} ms • p95 {p95:F1} ms • max {max:F1} ms");
         PerformanceProbeRuns.Insert(0, new PerformanceProbeRun(DateTime.UtcNow, samples.Count, average, p95, max, p95Delta));
         while (PerformanceProbeRuns.Count > 10)
         {
@@ -1658,18 +1926,24 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
     private async Task LoadLibraryAsync()
     {
+        if (_libraryService is null)
+            return;
+
+        IsLibraryLoading = true;
+        LibraryLoadErrorMessage = null;
         try
         {
-            if (_libraryService is null)
-                return;
 
-            var entries = await _libraryService.LoadAllLibraryEntriesAsync();
-            var existingEntries = entries
-                .Where(e => !string.IsNullOrWhiteSpace(e.FilePath) && System.IO.File.Exists(e.FilePath))
-                .ToList();
-
-            var lifecycleMetrics = await _lifecycleProjectionService.ComputeMetricsAsync().ConfigureAwait(false);
-            ApplyLifecycleMetrics(lifecycleMetrics);
+            // One shared full-library scan (entries + File.Exists sweep) instead of loading
+            // and re-checking existence twice — ComputeSnapshotAsync does this same work
+            // internally to derive the lifecycle metrics, so reuse its result here too.
+            // ConfigureAwait(true): the rest fills LibraryTracks, which the page is bound to. With
+            // (false) the import-completed reload resumed on a pool thread and filled the bound
+            // ObservableCollection from there ("call from invalid thread" → the page showed
+            // "Couldn't load your library" right after a folder import).
+            var snapshot = await _lifecycleProjectionService.ComputeSnapshotAsync().ConfigureAwait(true);
+            var existingEntries = snapshot.ExistingEntries;
+            ApplyLifecycleMetrics(snapshot.Metrics);
 
             LibraryTracks.Clear();
 
@@ -1681,9 +1955,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                 LibraryTracks.Add(entry);
             }
 
-            if (lifecycleMetrics.StaleIndexed > 0)
+            if (snapshot.Metrics.StaleIndexed > 0)
             {
-                AutomixStatusMessage = $"Loaded {existingEntries.Count} valid tracks; skipped {lifecycleMetrics.StaleIndexed} stale index entries.";
+                AutomixStatusMessage = $"Loaded {existingEntries.Count} valid tracks; skipped {snapshot.Metrics.StaleIndexed} stale index entries.";
             }
 
             LibraryLoadErrorMessage = null;
@@ -1692,14 +1966,16 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         }
         catch (Exception ex)
         {
-            Serilog.Log.Warning(ex, "AnalysisPage: failed to load the real library — falling back to demo data");
-            if (LibraryTracks.Count == 0)
-            {
-                LibraryLoadErrorMessage = $"Couldn't load your library ({ex.Message}) — showing sample data instead. This is not your real collection.";
-                LoadMockData();
-                ApplyFilter();
-                RefreshComputedState();
-            }
+            // Never substitute sample tracks for the user's collection: show the failure and
+            // offer a retry instead (the page's error state binds to LibraryLoadErrorMessage).
+            Serilog.Log.Warning(ex, "AnalysisPage: failed to load the library");
+            LibraryLoadErrorMessage = $"Couldn't load your library: {ex.Message}";
+        }
+        finally
+        {
+            IsLibraryLoading = false;
+            this.RaisePropertyChanged(nameof(ShowNoLibraryTracks));
+            this.RaisePropertyChanged(nameof(ShowNoSearchMatches));
         }
     }
 
@@ -1766,27 +2042,6 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             };
         }
 
-        if (analysisData == null)
-        {
-            analysisData = new AnalysisData
-            {
-                Mechanics = new MechanicsData
-                {
-                    Bpm = entry.BPM ?? entry.SpotifyBPM ?? 0,
-                    KeyScale = entry.MusicalKey ?? entry.SpotifyKey ?? string.Empty,
-                    TonalProbability = Math.Clamp(entry.KeyConfidence ?? entry.QualityConfidence ?? 0.55, 0.1, 1.0)
-                },
-                Affective = new AffectiveData
-                {
-                    Arousal = 0,
-                    Valence = 0
-                },
-                Moods = new MoodData(),
-                Genres = genrePredictions,
-                Stems = new StemData { AreGenerated = false }
-            };
-        }
-
         return new AnalysisTrackItem(
             entry.UniqueHash,
             entry.Artist,
@@ -1813,7 +2068,11 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             loudnessLufs: entry.LoudnessLufs,
             camelotKey: entry.CamelotKey,
                 chordProgression: entry.ChordProgression,
-                durationSeconds: entry.DurationSeconds);
+                durationSeconds: entry.DurationSeconds,
+                measuredBpmConfidence: entry.BpmConfidence,
+                measuredKeyConfidence: entry.KeyConfidence,
+                measuredEnergy: entry.Energy,
+                measuredValence: entry.Valence);
     }
 
     private static List<double> ParseSegmentedEnergyPoints(string? segmentedEnergyJson, IReadOnlyList<double> fallbackCurve)
@@ -1841,9 +2100,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore malformed JSON and fall back.
+                Serilog.Log.Debug(ex, "AnalysisPage: malformed energy curve JSON; using fallback");
             }
         }
 
@@ -1895,9 +2154,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore malformed JSON and fall back to synthetic points.
+                Serilog.Log.Debug(ex, "AnalysisPage: malformed curve JSON; using synthetic points");
             }
         }
 
@@ -1933,9 +2192,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                         .ToList();
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore malformed JSON and use fallback list.
+                Serilog.Log.Debug(ex, "AnalysisPage: malformed genre distribution JSON; using fallback list");
             }
         }
 
@@ -1968,8 +2227,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             using var doc = JsonDocument.Parse(cuePointsJson);
             return doc.RootElement.ValueKind == JsonValueKind.Array ? doc.RootElement.GetArrayLength() : 0;
         }
-        catch
+        catch (Exception ex)
         {
+            Serilog.Log.Debug(ex, "AnalysisPage: malformed cue points JSON; counting 0 cues");
             return 0;
         }
     }
@@ -2016,6 +2276,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(QueueTrackCount));
         this.RaisePropertyChanged(nameof(IncompleteAnalysisTrackCount));
         this.RaisePropertyChanged(nameof(HasIncompleteAnalysisTracks));
+        this.RaisePropertyChanged(nameof(HasIncompleteCorruptTracks));
         this.RaisePropertyChanged(nameof(IncompleteAnalysisTracks));
         this.RaisePropertyChanged(nameof(IncompleteAnalysisSummary));
         this.RaisePropertyChanged(nameof(StemsReadyCount));
@@ -2171,6 +2432,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         }
         catch (Exception ex)
         {
+            Serilog.Log.Warning(ex, "AnalysisPage: library integrity scan failed");
             IntegrityScanStatusText = $"Scan failed: {ex.Message}";
         }
         finally
@@ -2178,6 +2440,19 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             IsIntegrityScanRunning = false;
         }
     }
+
+    /// <summary>
+    /// Builds a remediation entry for a track this session's own analysis pass already flagged
+    /// corrupt, reusing the same <see cref="CorruptFileRemediationService"/> path the "Scan
+    /// Library Integrity" flow uses.
+    /// </summary>
+    private static CorruptFileScanEntry BuildScanEntry(AnalysisTrackItem track) => new(
+        track.TrackId,
+        track.FilePath ?? string.Empty,
+        track.Artist,
+        track.Title,
+        CorruptionStatus.Fatal,
+        track.AnalysisError ?? "Corrupt file detected during analysis");
 
     private async Task RemediateAsync(IReadOnlyList<CorruptFileScanEntry> entries)
     {
@@ -2211,6 +2486,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         }
         catch (Exception ex)
         {
+            Serilog.Log.Warning(ex, "AnalysisPage: corrupt-file remediation failed");
             RemediationStatusText = $"Remediation failed: {ex.Message}";
         }
         finally
@@ -2226,6 +2502,255 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         _cts.Dispose();
     }
 
+
+    // ── Playlist analysis coverage ────────────────────────────────────────
+    // "How much of this set is actually analysed, and what exactly is missing?" — the question
+    // the old page could not answer because every library row was mapped with a fabricated
+    // AnalysisData and therefore always looked complete.
+
+    private readonly AnalysisCoverageService? _coverageService;
+    private readonly System.Reactive.Subjects.Subject<Unit> _coverageRefreshSubject = new();
+    private PlaylistAnalysisCoverage? _coverage;
+    private bool _isCoverageLoading;
+    private string? _coverageError;
+    private int _coverageRefreshVersion;
+
+    /// <summary>Playlists offered in the picker, plus a "whole library" entry at the top.</summary>
+    public ObservableCollection<PlaylistChoice> CoveragePlaylists { get; } = new();
+
+    private PlaylistChoice? _selectedCoveragePlaylist;
+
+    /// <summary>Which playlist the coverage card describes. Changing it reloads the card.</summary>
+    public PlaylistChoice? SelectedCoveragePlaylist
+    {
+        get => _selectedCoveragePlaylist;
+        set
+        {
+            if (ReferenceEquals(_selectedCoveragePlaylist, value)) return;
+            this.RaiseAndSetIfChanged(ref _selectedCoveragePlaylist, value);
+            _ = RefreshCoverageAsync();
+        }
+    }
+
+    /// <summary>One row per engine: how many tracks have it, how many do not, and a run action.</summary>
+    public ObservableCollection<EngineCoverageRow> CoverageRows { get; } = new();
+
+    public PlaylistAnalysisCoverage? Coverage
+    {
+        get => _coverage;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _coverage, value);
+            this.RaisePropertyChanged(nameof(HasCoverageData));
+            this.RaisePropertyChanged(nameof(CoverageHeadline));
+            this.RaisePropertyChanged(nameof(CoverageSummary));
+            this.RaisePropertyChanged(nameof(CoverageOnDiskCount));
+            this.RaisePropertyChanged(nameof(PlaylistMissingEngines));
+            this.RaisePropertyChanged(nameof(CanRunMissingForPlaylist));
+        }
+    }
+
+    public bool IsCoverageLoading
+    {
+        get => _isCoverageLoading;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _isCoverageLoading, value);
+            this.RaisePropertyChanged(nameof(CanRunMissingForPlaylist));
+        }
+    }
+
+    public string? CoverageError
+    {
+        get => _coverageError;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _coverageError, value);
+            this.RaisePropertyChanged(nameof(HasCoverageError));
+        }
+    }
+
+    public bool HasCoverageError => !string.IsNullOrWhiteSpace(CoverageError);
+
+    public bool HasCoverageData => Coverage is not null;
+
+    /// <summary>"92 of 140 tracks fully analysed" — the one number this card exists to show.</summary>
+    public string CoverageHeadline => Coverage is null
+        ? "No playlist selected"
+        : $"{Coverage.FullyAnalyzedTracks} of {Coverage.TotalTracks} tracks fully analysed";
+
+    /// <summary>The breakdown line under the headline.</summary>
+    public string CoverageSummary => Coverage is null
+        ? string.Empty
+        : Coverage switch
+        {
+            { TotalTracks: 0 } => "No tracks with audio on disk in this selection yet.",
+            { IsComplete: true } => "Nothing missing — every engine has output for every track.",
+            _ => $"{Coverage.PartiallyAnalyzedTracks} partially analysed · {Coverage.UnanalysedTracks} not analysed at all",
+        };
+
+    /// <summary>How many tracks in the selection are downloaded and on disk (the measurable set).</summary>
+    public int CoverageOnDiskCount => Coverage?.TotalTracks ?? 0;
+
+    /// <summary>Every engine missing somewhere in this playlist.</summary>
+    public AnalysisEngine PlaylistMissingEngines => Coverage?.MissingAnywhere ?? AnalysisEngine.None;
+
+    public bool CanRunMissingForPlaylist =>
+        _coverageService is not null && PlaylistMissingEngines != AnalysisEngine.None && !IsCoverageLoading;
+
+    public ReactiveCommand<Unit, Unit> RefreshCoverageCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> RunMissingForPlaylistCommand { get; private set; } = null!;
+    public ReactiveCommand<AnalysisTrackItem, Unit> RunMissingForTrackCommand { get; private set; } = null!;
+    public ReactiveCommand<EngineCoverageRow, Unit> RunEngineForPlaylistCommand { get; private set; } = null!;
+
+    private async Task RefreshCoverageAsync()
+    {
+        if (_coverageService is null) return;
+
+        var version = ++_coverageRefreshVersion;
+        var selection = SelectedCoveragePlaylist;
+        IsCoverageLoading = true;
+        CoverageError = null;
+        try
+        {
+            var coverage = selection?.PlaylistId is { } playlistId
+                ? await _coverageService.GetPlaylistCoverageAsync(playlistId, selection.Name).ConfigureAwait(true)
+                : await _coverageService.GetLibraryCoverageAsync().ConfigureAwait(true);
+
+            // A slower response for an old playlist must not overwrite the newer selection.
+            if (version != _coverageRefreshVersion || !ReferenceEquals(selection, SelectedCoveragePlaylist))
+                return;
+
+            Coverage = coverage;
+            RebuildCoverageRows();
+            ApplyCoverageToTracks();
+        }
+        catch (Exception ex)
+        {
+            if (version == _coverageRefreshVersion)
+                CoverageError = ex.Message;
+        }
+        finally
+        {
+            if (version == _coverageRefreshVersion)
+            {
+                IsCoverageLoading = false;
+                this.RaisePropertyChanged(nameof(CanRunMissingForPlaylist));
+            }
+        }
+    }
+
+    private void RebuildCoverageRows()
+    {
+        CoverageRows.Clear();
+        if (Coverage is null) return;
+
+        foreach (var summary in Coverage.EngineRows)
+            CoverageRows.Add(new EngineCoverageRow(summary));
+    }
+
+    /// <summary>
+    /// Pushes measured coverage onto the library rows, matched by track hash. The library list and
+    /// a playlist are different populations in different orders, so positional matching would
+    /// attribute one track's gaps to another.
+    /// </summary>
+    private void ApplyCoverageToTracks()
+    {
+        if (Coverage is null) return;
+
+        foreach (var item in LibraryTracks)
+            item.Coverage = Coverage.ForTrack(item.TrackId);
+    }
+
+    /// <summary>Queues only the selected coverage population and each track's own missing engines.</summary>
+    private void QueueCoverageRequests(IEnumerable<TrackCoverageRequest> requests)
+    {
+        foreach (var request in requests)
+        {
+            var item = LibraryTracks.FirstOrDefault(t =>
+                string.Equals(t.TrackId, request.TrackHash, StringComparison.OrdinalIgnoreCase));
+
+            if (item is null)
+            {
+                // The selected playlist can contain tracks outside the currently loaded page.
+                // The normal request handler resolves the real library entry instead of inventing one.
+                _eventBus.Publish(new TrackAnalysisRequestedEvent(
+                    request.TrackHash, AnalysisTier.Tier1, false, request.Engines));
+                continue;
+            }
+
+            QueueEngineRequest(item, request.Engines);
+        }
+
+        NotifyAnalysisQueueChanged();
+    }
+
+    /// <summary>Queues the given engines for a set of tracks, reusing the normal analysis queue.</summary>
+    private void QueueEngines(IEnumerable<AnalysisTrackItem> tracks, AnalysisEngine engines)
+    {
+        if (engines == AnalysisEngine.None) return;
+
+        foreach (var item in tracks)
+            QueueEngineRequest(item, engines);
+
+        NotifyAnalysisQueueChanged();
+    }
+
+    private void QueueEngineRequest(AnalysisTrackItem item, AnalysisEngine engines)
+    {
+        var requested = item.HasCoverage ? item.RunnableMissingEngines & engines : engines;
+        if (requested == AnalysisEngine.None) return;
+
+        if (!AnalysisQueue.Contains(item))
+        {
+            item.AnalysisStatus = AnalysisRunStatus.Queued;
+            AnalysisQueue.Add(item);
+        }
+
+        item.IsInQueue = true;
+        _eventBus.Publish(new TrackAnalysisRequestedEvent(item.TrackId, AnalysisTier.Tier1, false, requested));
+    }
+
+    private void NotifyAnalysisQueueChanged()
+    {
+        this.RaisePropertyChanged(nameof(QueueTrackCount));
+        this.RaisePropertyChanged(nameof(IsQueueEmpty));
+        RefreshComputedStateInternal();
+    }
+
+    /// <summary>Loads the playlist picker, then the coverage for the current selection.</summary>
+    private async Task LoadCoveragePlaylistsAsync()
+    {
+        try
+        {
+            CoveragePlaylists.Clear();
+            CoveragePlaylists.Add(PlaylistChoice.Library);
+
+            if (_libraryService is not null)
+            {
+                var jobs = await _libraryService.LoadAllPlaylistJobsAsync().ConfigureAwait(true);
+                foreach (var job in jobs.Where(j => !j.IsDeleted).OrderByDescending(j => j.DateUpdated))
+                {
+                    CoveragePlaylists.Add(new PlaylistChoice(job.Id, job.SourceTitle, job.PlaylistTracks?.Count ?? 0));
+                }
+            }
+
+            _selectedCoveragePlaylist = CoveragePlaylists.Count > 0 ? CoveragePlaylists[0] : null;
+            this.RaisePropertyChanged(nameof(SelectedCoveragePlaylist));
+            await RefreshCoverageAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            CoverageError = ex.Message;
+        }
+    }
+
+    /// <summary>Queues every engine that is missing anywhere in the selected playlist.</summary>
+    private Task RunMissingForPlaylistAsync()
+    {
+        QueueCoverageRequests(Coverage?.GetRequests(PlaylistMissingEngines) ?? Array.Empty<TrackCoverageRequest>());
+        return Task.CompletedTask;
+    }
 
     // ── Automix flow (#43) ────────────────────────────────────────────────────
 
@@ -2378,7 +2903,7 @@ public sealed record PerformanceProbeRun(
         _ => "→"
     };
 
-    public string TrendText => DeltaP95Ms.HasValue ? $"{DeltaP95Ms.Value:+0.0;-0.0;0.0} ms" : "baseline";
+    public string TrendText => DeltaP95Ms.HasValue ? NumFormat.Ui($"{DeltaP95Ms.Value:+0.0;-0.0;0.0} ms") : "baseline";
 
     public string SeverityLabel => P95Ms switch
     {
@@ -2387,12 +2912,9 @@ public sealed record PerformanceProbeRun(
         _ => "slow"
     };
 
-    public string SeverityColor => P95Ms switch
-    {
-        <= 6.0 => "#7BD88F",
-        <= 14.0 => "#F1C15A",
-        _ => "#FF8A80"
-    };
+    public bool IsGood => P95Ms <= 6.0;
+    public bool IsWarn => P95Ms is > 6.0 and <= 14.0;
+    public bool IsSlow => P95Ms > 14.0;
 
-    public string DisplayLabel => $"{TimestampUtc:HH:mm:ss} · {SeverityLabel} · {TrendArrow} {TrendText} · {QueryCount}q · avg {AverageMs:F1} ms · p95 {P95Ms:F1} ms · max {MaxMs:F1} ms";
+    public string DisplayLabel => NumFormat.Ui($"{TimestampUtc:HH:mm:ss} · {SeverityLabel} · {TrendArrow} {TrendText} · {QueryCount}q · avg {AverageMs:F1} ms · p95 {P95Ms:F1} ms · max {MaxMs:F1} ms");
 }

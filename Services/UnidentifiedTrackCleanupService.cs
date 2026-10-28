@@ -8,14 +8,17 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
 using SLSKDONET.Models;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services;
 
 /// <summary>
 /// Finds and fully removes "ID" placeholder tracks — DJ-tracklist shorthand for a track whose
-/// identity was never established (e.g. "Basstripper - ID"). <see cref="Utils.CommentTracklistParser"/>
-/// drops these at parse time for new imports, but that filter can't retroactively clean tracklists
-/// that were imported before it existed, so they can still be sitting in the library.
+/// identity was never established (e.g. "Basstripper - ID", or "ID (Deeper)"/"ID (VIP)"-style
+/// qualified variants). <see cref="CommentTracklistParser"/> drops these at parse time for new
+/// imports, but that filter can't retroactively clean tracklists that were imported before it
+/// existed (or before it recognized the qualified-variant form), so they can still be sitting
+/// in the library.
 ///
 /// Unlike <see cref="CorruptFileRemediationService"/> (which resets a track to Missing so the
 /// download queue re-acquires a clean copy), this removes the track entirely: "ID" carries no real
@@ -39,9 +42,10 @@ public sealed class UnidentifiedTrackCleanupService
     }
 
     /// <summary>
-    /// Removes every track whose title (playlist row or library entry) is exactly "ID" once
-    /// trimmed, case-insensitively. Deletes the physical file(s), every PlaylistTrack row across
-    /// every playlist, the LibraryEntry, and all cached analysis data for that track.
+    /// Removes every track whose title (playlist row or library entry) is DJ-tracklist shorthand
+    /// for unidentified — see <see cref="CommentTracklistParser.IsUnidentifiedTitle"/> for exactly
+    /// which titles qualify. Deletes the physical file(s), every PlaylistTrack row across every
+    /// playlist, the LibraryEntry, and all cached analysis data for that track.
     /// </summary>
     public async Task<UnidentifiedCleanupResult> RemoveAllAsync(CancellationToken cancellationToken = default)
     {
@@ -51,19 +55,27 @@ public sealed class UnidentifiedTrackCleanupService
 
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 
-        // Check both surfaces — a track's PlaylistTrack.Title and LibraryEntry.Title can drift out
-        // of sync after a manual metadata edit, so a hash could carry "ID" on only one of them.
-        var hashesFromPlaylists = await db.PlaylistTracks
-            .Where(t => t.Title != null && t.Title.Trim().ToLower() == "id")
-            .Select(t => t.TrackUniqueHash)
-            .Distinct()
+        // Pull (hash, title) pairs and filter client-side — IsUnidentifiedTitle strips a trailing
+        // "(...)"/"[...]" qualifier before comparing, which EF can't translate to SQL. Check both
+        // surfaces — a track's PlaylistTrack.Title and LibraryEntry.Title can drift out of sync
+        // after a manual metadata edit, so a hash could carry an unidentified title on only one.
+        var playlistTitles = await db.PlaylistTracks
+            .Where(t => t.Title != null)
+            .Select(t => new { t.TrackUniqueHash, t.Title })
             .ToListAsync(cancellationToken).ConfigureAwait(false);
 
-        var hashesFromLibrary = await db.LibraryEntries
-            .Where(e => e.Title != null && e.Title.Trim().ToLower() == "id")
-            .Select(e => e.UniqueHash)
-            .Distinct()
+        var libraryTitles = await db.LibraryEntries
+            .Where(e => e.Title != null)
+            .Select(e => new { Hash = e.UniqueHash, e.Title })
             .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        var hashesFromPlaylists = playlistTitles
+            .Where(t => CommentTracklistParser.IsUnidentifiedTitle(t.Title))
+            .Select(t => t.TrackUniqueHash);
+
+        var hashesFromLibrary = libraryTitles
+            .Where(e => CommentTracklistParser.IsUnidentifiedTitle(e.Title))
+            .Select(e => e.Hash);
 
         var hashes = hashesFromPlaylists
             .Concat(hashesFromLibrary)

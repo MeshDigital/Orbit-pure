@@ -36,11 +36,22 @@ namespace SLSKDONET;
 public partial class App : Application
 {
     public IServiceProvider? Services { get; private set; }
+
+    /// <summary>
+    /// True only once the user has explicitly chosen "Exit" from the tray menu (or another real
+    /// shutdown path sets it). Closing the main window (X button, Alt+F4, taskbar close) does NOT
+    /// set this — MainWindow.OnWindowClosing checks it to decide whether to actually exit or just
+    /// hide to the tray, so the download engine (and the app's whole background queue processing)
+    /// keeps running unattended instead of the process exiting the moment the window closes.
+    /// </summary>
+    public bool IsExitRequested { get; set; }
     private Views.Avalonia.ErrorStreamWindow? _errorStreamWindow;
 
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
+        // Invariant numbers in every NumericUpDown; a typed decimal comma is entered as '.'.
+        Views.Avalonia.NumericInputLocale.Install();
     }
 
     public override async void OnFrameworkInitializationCompleted()
@@ -56,6 +67,14 @@ public partial class App : Application
             // Eagerly activate background queue listeners that subscribe to the event bus.
             // Without resolving this singleton, manual Analyse actions appear to do nothing.
             _ = Services.GetRequiredService<Services.AnalysisQueueService>();
+            // Same for the loudness backfill: it listens for the inspector's single-track "Measure".
+            _ = Services.GetRequiredService<Services.AudioAnalysis.LoudnessBackfillService>();
+            // And library metadata enrichment: it listens for imports/downloads and resumes its queue.
+            _ = Services.GetRequiredService<Services.Enrichment.MetadataEnrichmentOrchestrator>();
+
+            // Eagerly activate the network activity monitor so it's observing from startup, not
+            // only once something (e.g. the Settings page) happens to resolve it first.
+            _ = Services.GetRequiredService<Services.NetworkActivityMonitor>();
 
             // Register shutdown handler to prevent orphaned processes
             desktop.Exit += async (_, __) =>
@@ -115,6 +134,11 @@ public partial class App : Application
                             Serilog.Log.Information("Closing crash recovery journal...");
                             await crashJournal.DisposeAsync();
                         }
+
+                        // Plain AddSingleton services are never auto-disposed (the container itself
+                        // is never disposed), so the EventListener-based network monitor needs an
+                        // explicit unsubscribe here to avoid leaking its runtime event subscriptions.
+                        Services?.GetService<Services.NetworkActivityMonitor>()?.Dispose();
 
                         // Stop IHostedService background workers
                         try
@@ -211,18 +235,49 @@ public partial class App : Application
                         await databaseService.InitAsync().WaitAsync(initCts.Token);
                         
                         Serilog.Log.Information("✅ Database initialization completed successfully");
+
+                        // First-run setup: decide before the UI exists. An install that has an
+                        // account, chosen folders or tracks is marked completed here and never
+                        // sees the wizard; only a genuinely fresh one does.
+                        var showSetupWizard = false;
+                        try
+                        {
+                            var firstRun = await Services.GetRequiredService<Services.Setup.FirstRunCoordinator>().EvaluateAsync();
+                            showSetupWizard = firstRun.ShouldShowWizard;
+                        }
+                        catch (Exception setupEx)
+                        {
+                            Serilog.Log.Error(setupEx, "First-run check failed; the setup wizard stays closed (Settings → Advanced → Setup opens it)");
+                        }
                         
                         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => splashScreen.UpdateStatus("Starting UI..."));
                         await Task.Delay(50);
 
-                        // Create main window and show it immediately on the UI thread
-                        // We resolve MainViewModel on the UI thread because it creates UI-bound components (like TreeDataGridSource)
+                        // We resolve MainViewModel on the UI thread because it creates UI-bound
+                        // components (like TreeDataGridSource). This single DI resolve constructs
+                        // ~15 ViewModels' worth of constructor work (Player/Library/Search/
+                        // Settings/Home/Timeline/Sidebar/FlowBuilder/...), and constructing the
+                        // MainWindow's whole visual tree is its own non-trivial chunk of work too.
+                        // Previously both happened inside one atomic Dispatcher.InvokeAsync call —
+                        // since a dispatched callback runs to completion before the UI thread gets
+                        // to process anything else (paint included), the splash screen's status
+                        // text and progress bar sat frozen on "Starting UI..." for the whole
+                        // duration, which read as the app having hung. Splitting this into two
+                        // separate InvokeAsync calls with a real status update and a yield between
+                        // them lets the dispatcher actually pump a paint pass in between, so the
+                        // splash visibly keeps moving instead of appearing stuck.
                         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                         {
                             mainVm = Services.GetRequiredService<MainViewModel>();
                             mainVm.StatusText = "Finalizing UI...";
                             mainVm.IsInitializing = true;
-                            
+                            splashScreen.UpdateStatus("Loading interface...");
+                        });
+
+                        await Task.Delay(1);
+
+                        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                        {
                             var mainWindow = new Views.Avalonia.MainWindow
                             {
                                 DataContext = mainVm
@@ -232,10 +287,34 @@ public partial class App : Application
                             mainWindow.Show();
                             splashScreen.Close();
 
+                            // GlobalHotkeyService was constructed as part of mainVm's DI graph
+                            // above, while desktop.MainWindow was still the splash screen — its
+                            // constructor-time attach bound to that (about-to-close) window.
+                            // Re-attach now that the real window is actually showing, or every DJ
+                            // keyboard shortcut (play/pause, cues, loops, beat jump, ...) would
+                            // silently never fire for the rest of the session.
+                            Services.GetRequiredService<GlobalHotkeyService>().AttachToCurrentMainWindow();
+
                             // Real OS-level notifications (Windows Action Center toasts) need the
                             // main window's native handle, which only exists after Show().
                             var toastHandle = mainWindow.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
                             Services.GetRequiredService<WindowsToastService>().Initialize(toastHandle);
+
+                            Services.GetRequiredService<UiStallWatchdog>().Start();
+
+                            if (showSetupWizard)
+                                mainVm?.Setup?.OpenWizard();
+
+                            // Tray icon (live tooltip + menu) and the Windows taskbar button
+                            // (thumbnail Previous/Play/Next + download progress).
+                            try
+                            {
+                                Services.GetRequiredService<Services.Shell.TrayIconController>().Start(mainWindow);
+                            }
+                            catch (Exception shellEx)
+                            {
+                                Serilog.Log.Warning(shellEx, "Tray/taskbar integration failed to start (non-critical)");
+                            }
                         });
 
                         // --- THE BARRIER: WE ARE NOW DATA-SAFE ---
@@ -245,9 +324,37 @@ public partial class App : Application
                         var downloadManager = Services.GetRequiredService<DownloadManager>();
                         _ = downloadManager.StartAsync(); // Auto-start engine on launch
 
+                        // One-time re-fit of stored beat grids (quantised BPM fix); no-op once done.
+                        Services.GetRequiredService<Services.AudioAnalysis.BeatGridRecomputeService>().StartIfPending();
+
                         // Activate post-download spectral scan listener (eager resolve so it
                         // subscribes to TrackStateChangedEvent immediately after the engine starts).
                         _ = Services.GetRequiredService<PostDownloadSpectralScanService>();
+                        _ = Services.GetRequiredService<PostDownloadDurationCaptureService>();
+
+                        // NativeDependencyHealthService.IsHealthy defaults to false and only ever
+                        // gets computed inside CheckHealthAsync() — which nothing in the app was
+                        // actually calling (only its own unit tests did). Result: the Library
+                        // context menu's "Analyse Track"/"Hard Retry" items (IsEnabled bound to
+                        // AreDependenciesHealthy) stayed permanently disabled for the whole session
+                        // regardless of whether FFmpeg/Essentia were genuinely available.
+                        _ = Services.GetRequiredService<NativeDependencyHealthService>().CheckHealthAsync();
+
+                        // SpotifyAuthService.IsAuthenticated defaults to false and only ever gets
+                        // set true inside VerifyConnectionAsync()/RefreshAccessTokenAsync() — which
+                        // nothing at startup was calling; the only caller was Settings' "Test
+                        // Connection" button. Result: a genuinely-connected user (valid stored
+                        // refresh token) still read as IsAuthenticated=false for the whole session
+                        // until they happened to open Settings and click Test — so every Spotify
+                        // call elsewhere (Library's playlist Sync included) silently fell back to
+                        // Client Credentials auth, which Spotify 404s for private/collaborative
+                        // playlists (i.e. almost anyone's own playlists) as if they don't exist.
+                        _ = Services.GetRequiredService<SpotifyAuthService>().VerifyConnectionAsync();
+
+                        // Fire-and-forget: a single throttled GitHub Releases check. Never awaited
+                        // so a slow/unreachable network never delays startup; all failures inside
+                        // are caught and logged, never thrown.
+                        _ = Services.GetRequiredService<IUpdateCheckService>().CheckForUpdatesAsync();
 
                         // Eager-resolve chat/notification services so they start listening for
                         // incoming Soulseek messages from app launch, not just after the user
@@ -304,12 +411,38 @@ public partial class App : Application
                             Serilog.Log.Error(syncEx, "Start-up Library sync failed");
                         }
                         
+                        // Start watching any library folders flagged for auto-import
+                        try
+                        {
+                            var folderWatchService = Services.GetRequiredService<LibraryFolderWatchService>();
+                            await folderWatchService.StartAsync();
+                        }
+                        catch (Exception watchEx)
+                        {
+                            Serilog.Log.Warning(watchEx, "Library folder watch service failed to start (non-critical)");
+                        }
+
                         // Load projects into the LibraryViewModel
                         if (mainVm?.LibraryViewModel != null)
                         {
                             await mainVm.LibraryViewModel.LoadProjectsAsync();
                         }
-                        
+
+                        // Mission Control's 500ms heartbeat (CPU load, zombie-process count,
+                        // dead-letter/failed-retry count, adaptive library-health audit) — started
+                        // here, after crash recovery and library sync have both already completed
+                        // above, so its very first tick reads settled state rather than racing
+                        // either of them. See the DashboardService/AddSingleton<MissionControlService>
+                        // registration above for why this was silently never running before.
+                        try
+                        {
+                            Services.GetRequiredService<MissionControlService>().Start();
+                        }
+                        catch (Exception missionControlEx)
+                        {
+                            Serilog.Log.Warning(missionControlEx, "Mission Control Service failed to start (non-critical)");
+                        }
+
                         // Update UI on completion
                         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                         {
@@ -321,7 +454,8 @@ public partial class App : Application
                             Serilog.Log.Information("Background initialization completed");
 
                             // Start maintenance tasks AFTER initialization is confirmed complete
-                            _ = RunMaintenanceTasksAsync();
+                            // Off the UI thread: it walks the download folder and touches the DB.
+                            _ = Task.Run(RunMaintenanceTasksAsync);
                         });
                     }
                     catch (OperationCanceledException)
@@ -352,35 +486,6 @@ public partial class App : Application
         base.OnFrameworkInitializationCompleted();
     }
 
-    // Tray Icon Event Handlers
-    private void ShowWindow_Click(object? sender, EventArgs e)
-    {
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop && 
-            desktop.MainWindow != null)
-        {
-            desktop.MainWindow.Show();
-            desktop.MainWindow.WindowState = WindowState.Normal;
-            desktop.MainWindow.Activate();
-        }
-    }
-
-    private void HideWindow_Click(object? sender, EventArgs e)
-    {
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop && 
-            desktop.MainWindow != null)
-        {
-            desktop.MainWindow.Hide();
-        }
-    }
-
-    private void Exit_Click(object? sender, EventArgs e)
-    {
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            desktop.Shutdown();
-        }
-    }
-
     private static IServiceProvider ConfigureServices()
     {
         var services = new ServiceCollection();
@@ -406,9 +511,22 @@ public partial class App : Application
         services.AddSingleton(provider =>
         {
             var configManager = provider.GetRequiredService<ConfigManager>();
-            var appConfig = configManager.Load();
+            AppConfig appConfig;
+            try
+            {
+                appConfig = configManager.Load();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to load config.ini — falling back to default settings so the app can still start");
+                appConfig = new AppConfig();
+            }
             if (string.IsNullOrEmpty(appConfig.DownloadDirectory))
-                appConfig.DownloadDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "SLSKDONET");
+                appConfig.DownloadDirectory = AppConfig.FallbackDownloadDirectory;
+            // A --profile / --setup-preview instance usually runs next to the real ORBIT, which
+            // already holds the Soulseek listen port; give the preview its own free port.
+            if (SLSKDONET.Data.OrbitPaths.IsProfileOverridden)
+                appConfig.ListenPort = SLSKDONET.Services.Setup.PortProbe.FindFreePortFrom(appConfig.ListenPort);
             return appConfig;
         });
 
@@ -427,14 +545,17 @@ public partial class App : Application
         services.AddSingleton<ISavedDoublesService, SavedDoublesService>();
         
         // Session 2: Performance Optimization - Extracted services
-        services.AddSingleton<LibraryOrganizationService>();
         services.AddSingleton<IAudioIntegrityService, AudioIntegrityService>();
         services.AddSingleton<PostDownloadSpectralScanService>(); // Runs FFT analysis on completed FLAC downloads
+        services.AddSingleton<PostDownloadDurationCaptureService>(); // TagLib duration probe for every completed download (any format)
         services.AddSingleton<AudioCorruptionScannerService>();   // Fast per-file corruption probe (FFmpeg + NAudio)
         services.AddSingleton<LibraryCorruptionScanService>();    // Batch library-wide corruption scan
         services.AddSingleton<CorruptFileRemediationService>();   // Disk delete + DB reset + re-queue for corrupt/missing files
         services.AddSingleton<UnidentifiedTrackCleanupService>(); // Full removal of "ID" placeholder tracks (no identity to redownload against)
-        services.AddSingleton<ArtworkPipeline>();
+        services.AddSingleton<DuplicateTrackCleanupService>(); // Merges duplicate LibraryEntries + removes duplicate in-playlist track rows
+        services.AddSingleton<EngineDiagnosticsService>(); // Structured import/search audit trail — "Engine Diagnostics"
+        services.AddSingleton<AvailabilityStateReconciliationService>(); // Fixes tracks stuck "FILE MISSING" despite the file existing on disk
+        services.AddSingleton<DurationBackfillService>(); // One-time TagLib duration sweep for tracks that predate PostDownloadDurationCaptureService
         services.AddSingleton<DragAdornerService>();
         
         // Session 3: Performance Optimization - Polymorphic taggers
@@ -442,6 +563,7 @@ public partial class App : Application
 
         // Services
         services.AddSingleton<INetworkHealthService, NetworkHealthService>();
+        services.AddSingleton<NetworkActivityMonitor>();
         services.AddSingleton<ShareIndexService>();
         services.AddSingleton<ChatAttachmentService>();
         services.AddSingleton<SoulseekAdapter>();
@@ -471,6 +593,16 @@ public partial class App : Application
         // Phase 1: Library Enrichment
         services.AddSingleton<SpotifyEnrichmentService>();
         services.AddSingleton<DiscoveryBridgeService>();
+        // Playlist Discover tab: Beatport public pages + Deezer API → ranked suggestions.
+        services.AddHttpClient<Services.Discovery.BeatportCatalogClient>();
+        services.AddHttpClient<Services.Discovery.DeezerCatalogClient>();
+        services.AddSingleton<Services.Discovery.PlaylistDiscoveryService>();
+        services.AddSingleton<Services.Discovery.DiscoveryCache>();
+        services.AddSingleton<Services.Integrations.Serato.SeratoCueExportService>(); // cues → Serato Markers2 file tags
+        services.AddSingleton<Services.AudioAnalysis.CueDetrService>(); // CUE-DETR (ONNX) cue point detector
+        services.AddSingleton<Services.AudioAnalysis.CueDetrCueService>(); // cue regeneration with CUE-DETR (compare / AI only)
+        services.AddSingleton<Services.Transitions.TransitionPlanService>(); // Mixxx-style sections + DnB transition planning
+        services.AddSingleton<PlaylistDiscoveryViewModel>();
 
         // Input parsers
         services.AddSingleton<CsvInputSource>();
@@ -554,12 +686,15 @@ public partial class App : Application
         services.AddDbContextFactory<AppDbContext>();
         services.AddSingleton<SchemaMigratorService>();
         services.AddSingleton<SLSKDONET.Services.Repositories.ITrackRepository, SLSKDONET.Services.Repositories.TrackRepository>();
+        services.AddSingleton<SLSKDONET.Services.Repositories.ITransitionRepository, SLSKDONET.Services.Repositories.TransitionRepository>();
         services.AddSingleton<DatabaseService>();
         services.AddSingleton<IMetadataService, MetadataService>();
 
         // Navigation and UI services
         services.AddSingleton<INavigationService, NavigationService>();
-        services.AddSingleton<IUserInputService, UserInputService>();
+        services.AddSingleton<PerformanceTracker>(); // live perf overlay (Ctrl+Shift+P) — page-nav and opted-in ViewModel load timings
+        services.AddSingleton<UiStallWatchdog>();
+        services.AddSingleton<Services.AudioAnalysis.BeatGridRecomputeService>();
         services.AddSingleton<IFileInteractionService, FileInteractionService>();
         services.AddSingleton<INotificationService, NotificationServiceAdapter>();
         services.AddSingleton<IClipboardService, ClipboardService>();
@@ -569,6 +704,14 @@ public partial class App : Application
         // whole Flow Builder tab silently gets a null DataContext (every control dead).
         services.AddSingleton<ViewModels.FlowBuilderViewModel>();
         services.AddSingleton<DashboardService>();
+        // Never registered before — its Start() (500ms heartbeat publishing DashboardSnapshot)
+        // was consequently never called by anything, so HomeViewModel's CurrentSnapshot stayed at
+        // `new DashboardSnapshot()` (all-default) for the entire app session. The Dashboard's
+        // "System Status" tile (Stuck Processes/Failed Retries/CPU Load) and the Audio Quality
+        // tile's Gold/Silver/Bronze counts all read from CurrentSnapshot — they always rendered as
+        // 0/0/0/OPTIMAL regardless of real state, not just during a startup race. Started further
+        // down, once the background init sequence confirms the app is data-safe.
+        services.AddSingleton<MissionControlService>();
         // Keyboard mapping system (Epic #119)
         services.AddSingleton<IKeyboardMappingService, KeyboardMappingService>();
         services.AddSingleton<IKeyboardTelemetryService, KeyboardTelemetryService>();
@@ -580,6 +723,13 @@ public partial class App : Application
         services.AddSingleton<IRightPanelService, RightPanelService>();
         services.AddSingleton<SimilarTracksViewModel>();
         services.AddSingleton<NotificationCenterService>();
+        // Transient (not Singleton): both SidebarViewModel's compact "Mix" tab AND
+        // FlowBuilderViewModel's full-option transition editor inject this — sharing one
+        // singleton instance meant opening a pair in one silently clobbered whatever the other
+        // had loaded. Both consumers are themselves singletons, so DI still resolves this once
+        // per consumer at construction and holds it for the app's lifetime; this just gives each
+        // consumer its own independent instance instead of one shared, fought-over one.
+        services.AddTransient<MixTransitionViewModel>();
         services.AddSingleton<SidebarViewModel>();
 
         // ViewModels
@@ -599,19 +749,60 @@ public partial class App : Application
         services.AddSingleton<RoomChatService>();
         services.AddSingleton<PeerVerificationChallengeService>();
         services.AddSingleton<WindowsToastService>();
+        // Tray icon + Windows taskbar button (thumbnail toolbar, download progress). Started from
+        // the startup barrier once the main window is open; all three constructors are no-throw.
+        services.AddSingleton<Services.Shell.ShellStateMonitor>();
+        services.AddSingleton<Services.Shell.WindowsTaskbarIntegration>();
+        services.AddSingleton<Services.Shell.TrayIconController>();
         services.AddTransient<UsersViewModel>();
         services.AddTransient<UserProfileViewModel>();
         services.AddTransient<RoomsViewModel>();
         services.AddSingleton<SearchFilterViewModel>(); // [FIX] Added missing registration
         services.AddSingleton<ConnectionViewModel>();
-        services.AddSingleton<AiEngineService>();
         services.AddSingleton<SettingsViewModel>();
+
+        // First-run setup wizard + quick tour (DOCS/FIRST_RUN_SETUP.md). The wizard's view models
+        // only see these interfaces; the implementations reuse the services Settings uses.
+        services.AddSingleton<Services.Setup.ISetupStateStore, Services.Setup.ConfigSetupStateStore>();
+        services.AddSingleton<Services.Setup.ISetupFolderService, Services.Setup.SetupFolderService>();
+        services.AddSingleton<Services.Setup.ISetupSettingsGateway, Services.Setup.ConfigSetupSettingsGateway>();
+        services.AddSingleton<Services.Setup.ISoulseekSetupGateway>(sp => new Services.Setup.SoulseekSetupGateway(
+            sp.GetRequiredService<AppConfig>(),
+            sp.GetRequiredService<ConfigManager>(),
+            sp.GetRequiredService<IConnectionLifecycleService>(),
+            sp.GetRequiredService<IEventBus>(),
+            sp.GetRequiredService<ISoulseekCredentialService>(),
+            sp.GetRequiredService<ILogger<Services.Setup.SoulseekSetupGateway>>()));
+        services.AddSingleton<Services.Setup.ILibraryFolderSetupGateway, Services.Setup.LibraryFolderSetupGateway>();
+        services.AddSingleton<Services.Setup.ISpotifySetupGateway, ViewModels.Setup.SettingsSpotifySetupGateway>();
+        services.AddSingleton<Services.Setup.IAudioSetupGateway, ViewModels.Setup.SettingsAudioSetupGateway>();
+        services.AddSingleton<Services.Setup.ISetupEnrichmentGateway, Services.Setup.EnrichmentSetupGateway>();
+        services.AddSingleton<Services.Setup.FirstRunCoordinator>();
+        services.AddTransient<ViewModels.Setup.SetupWizardViewModel>();
+        services.AddSingleton(sp => new ViewModels.Setup.SetupShellViewModel(
+            () => sp.GetRequiredService<ViewModels.Setup.SetupWizardViewModel>(),
+            sp.GetRequiredService<Services.Setup.ISetupStateStore>(),
+            sp.GetRequiredService<ILogger<ViewModels.Setup.SetupShellViewModel>>(),
+            sp.GetRequiredService<IEventBus>(),
+            // The wizard has its own sign-in step; don't stack the login dialog under it.
+            onWizardOpened: () => sp.GetRequiredService<ConnectionViewModel>().IsLoginOverlayVisible = false,
+            onWizardClosed: () =>
+            {
+                sp.GetRequiredService<ConnectionViewModel>().ReloadFromConfig();
+                sp.GetRequiredService<SettingsViewModel>().RefreshFromConfig();
+                sp.GetRequiredService<ViewModels.MetadataSourcesSettingsViewModel>().RefreshFromConfig();
+            },
+            notifications: sp.GetService<INotificationService>()));
         services.AddSingleton<BulkOperationViewModel>();
         services.AddSingleton<HomeViewModel>();
 
         // [NEW] Library Scanning
         services.AddSingleton<LibraryFolderScannerService>();
-        
+        services.AddSingleton<LibraryFolderWatchService>();
+        // The import sheet is the launcher every "add / scan folder" entry point goes through.
+        services.AddSingleton<ViewModels.LibraryImportViewModel>();
+        services.AddSingleton<ILibraryImportLauncher>(sp => sp.GetRequiredService<ViewModels.LibraryImportViewModel>());
+
         // Orchestration Services
         services.AddSingleton<SearchOrchestrationService>();
         services.AddSingleton<DownloadOrchestrationService>();
@@ -636,6 +827,7 @@ public partial class App : Application
         services.AddSingleton<ImportHistoryViewModel>();
         services.AddSingleton<SpotifyImportViewModel>();
         services.AddSingleton<ViewModels.LibrarySourcesViewModel>();
+        services.AddSingleton<ViewModels.Library.LibraryHealthViewModel>();
         services.AddSingleton<Services.Import.AutoCleanerService>();
 
         // Utilities
@@ -643,6 +835,9 @@ public partial class App : Application
         
         // Phase 10.5: Native Dependency Health (Reliability)
         services.AddSingleton<NativeDependencyHealthService>();
+
+        // Update check — single GET against GitHub Releases, opt-out via AppConfig.EnableUpdateCheck.
+        services.AddSingleton<IUpdateCheckService, UpdateCheckService>();
         
         // Views - Register all page controls for NavigationService
         services.AddTransient<Views.Avalonia.HomePage>();
@@ -655,10 +850,11 @@ public partial class App : Application
         services.AddTransient<Views.Avalonia.ImportPreviewPage>();
         services.AddTransient<Views.Avalonia.AnalysisPage>();
         services.AddSingleton<ViewModels.AnalysisPageViewModel>();
-        services.AddTransient<Views.Avalonia.StemsPage>();
+        services.AddTransient<Views.Avalonia.EditLabPage>();
         services.AddTransient<Views.Avalonia.WorkstationPage>();
         services.AddTransient<Views.Avalonia.UsersPage>();
-        services.AddTransient<Views.Avalonia.CueForgePagee>();
+        services.AddTransient<Views.Avalonia.CueForgePage>();
+        services.AddTransient<Views.Avalonia.FlowBuilderPage>();
         services.AddSingleton<Services.ICuePointService, Services.CuePointService>();
         services.AddSingleton<Services.Audio.StemPreferenceService>();
         services.AddSingleton<Services.Audio.MixdownService>();
@@ -666,13 +862,16 @@ public partial class App : Application
         services.AddSingleton<Services.OrbSessionBundleService>();
         services.AddSingleton<Services.IUndoService, Services.UndoService>();
 
-        // ── EDMFormer ML phrase detection service (optional — requires local Python service on port 7774) ──
-        services.AddSingleton<Services.Audio.IEdmFormerService, Services.Audio.EdmFormerService>();
+
+        // ── Rekordbox PSSI phrase analysis (optional — reads Rekordbox's own local analysis cache) ──
+        services.AddSingleton<Services.Rekordbox.IRekordboxPssiService, Services.Rekordbox.RekordboxPssiService>();
 
         // ── Auto-cue / phrase detection pipeline ──────────────────────────
         services.AddSingleton<Services.AudioAnalysis.CuePointDetectionService>();
         services.AddSingleton<Services.AudioAnalysis.DnBTransientDetectionService>();
         services.AddSingleton<Services.DnBCueNamingService>();
+        services.AddSingleton<Engine.Analysis.BreakbeatAnalysisStrategy>();
+        services.AddSingleton<Engine.Analysis.FourOnTheFloorAnalysisStrategy>();
         services.AddSingleton<Services.CamelotKeyDisplayService>();
         services.AddSingleton<Services.PhraseAlignmentService>();
         services.AddSingleton<Services.IPhraseAlignmentService>(sp =>
@@ -681,14 +880,91 @@ public partial class App : Application
 
         services.AddSingleton<SLSKDONET.ViewModels.Workstation.WorkstationViewModel>();
         services.AddSingleton<SLSKDONET.ViewModels.Workstation.CueEditorViewModel>();
+        // Links every cue editor session (Cue Forge, Flow Builder / Mix decks) and holds the shared
+        // drop cue template. No I/O in its constructor, so it can't poison the container.
+        services.AddSingleton<SLSKDONET.ViewModels.CueSessionRegistry>();
         services.AddSingleton<SLSKDONET.ViewModels.CueForgeViewModel>();
         services.AddSingleton<SLSKDONET.Engine.Analysis.AnalysisPipeline>(sp =>
             new SLSKDONET.Engine.Analysis.AnalysisPipeline(
                 sp.GetRequiredService<SLSKDONET.Services.AudioAnalysis.AudioIngestionPipeline>(),
-                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SLSKDONET.Engine.Analysis.AnalysisPipeline>>(),
-                sp.GetService<SLSKDONET.Services.Audio.IEdmFormerService>()));
-        services.AddSingleton<SLSKDONET.Engine.Cueing.CueGenerationService>();
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SLSKDONET.Engine.Analysis.AnalysisPipeline>>()));
+        services.AddSingleton<SLSKDONET.Engine.Cueing.CueGenerationService>(sp =>
+        {
+            var generator = ActivatorUtilities.CreateInstance<SLSKDONET.Engine.Cueing.CueGenerationService>(sp);
+            // Build-in cues follow the cue template chosen in the editors (read at generation time).
+            var configManager = sp.GetRequiredService<ConfigManager>();
+            generator.CountdownBars = (genre, bpm) =>
+            {
+                var config = configManager.GetCurrent();
+                var bars = SLSKDONET.Engine.Cueing.DropCountdownCues.ResolveBars(config.DropCountdownMode, genre, bpm, config.CustomCountdownBars);
+                return bars.Count > 0 ? bars : new[] { 16, 8 }; // "Off" only affects manual editing
+            };
+            return generator;
+        });
         services.AddSingleton<Services.AnalysisQueueService>();
+        services.AddSingleton<Services.AudioAnalysis.LoudnessBackfillService>(sp =>
+            new Services.AudioAnalysis.LoudnessBackfillService(
+                sp.GetRequiredService<IDbContextFactory<AppDbContext>>(),
+                sp.GetRequiredService<Services.AudioAnalysis.AudioIngestionPipeline>(),
+                sp.GetRequiredService<IEventBus>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.AudioAnalysis.LoudnessBackfillService>>(),
+                sp.GetService<Services.AnalysisQueueService>()));
+        services.AddSingleton<ViewModels.LoudnessBackfillViewModel>();
+
+        // ── Library metadata enrichment (Services/Enrichment, DOCS/METADATA_ENRICHMENT.md) ──
+        services.AddHttpClient("enrichment", c => c.Timeout = TimeSpan.FromSeconds(20));
+        services.AddSingleton<Services.Enrichment.EnrichmentStore>();
+        services.AddSingleton<Services.Enrichment.IMetadataLookupCache>(sp => sp.GetRequiredService<Services.Enrichment.EnrichmentStore>());
+        services.AddSingleton(sp => new Services.Enrichment.MetadataCredentialStore(
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.MetadataCredentialStore>>()));
+        static System.Net.Http.HttpClient EnrichmentHttp(IServiceProvider sp) =>
+            sp.GetRequiredService<System.Net.Http.IHttpClientFactory>().CreateClient("enrichment");
+        services.AddSingleton<Services.Enrichment.IMetadataProvider, Services.Enrichment.Providers.LocalTagsProvider>();
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.DeezerProvider(
+            EnrichmentHttp(sp), sp.GetRequiredService<Services.Enrichment.IMetadataLookupCache>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.Providers.DeezerProvider>>()));
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.MusicBrainzProvider(
+            EnrichmentHttp(sp), sp.GetRequiredService<Services.Enrichment.IMetadataLookupCache>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.Providers.MusicBrainzProvider>>()));
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.DiscogsProvider(
+            EnrichmentHttp(sp), sp.GetRequiredService<Services.Enrichment.IMetadataLookupCache>(),
+            sp.GetRequiredService<Services.Enrichment.MetadataCredentialStore>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.Providers.DiscogsProvider>>()));
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.AcoustIdProvider(
+            EnrichmentHttp(sp), sp.GetRequiredService<Services.Enrichment.IMetadataLookupCache>(),
+            sp.GetRequiredService<Services.Enrichment.MetadataCredentialStore>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.Providers.AcoustIdProvider>>()));
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.SpotifyProvider(
+            sp.GetRequiredService<SpotifyEnrichmentService>(), sp.GetRequiredService<SpotifyAuthService>()));
+        services.AddSingleton<Services.Enrichment.IMetadataProvider>(sp => new Services.Enrichment.Providers.BeatportProvider(
+            sp.GetRequiredService<Services.Discovery.BeatportCatalogClient>()));
+        services.AddSingleton(sp =>
+        {
+            var config = sp.GetRequiredService<AppConfig>();
+            return new Services.Enrichment.MetadataEnrichmentOrchestrator(
+                sp.GetRequiredService<IDbContextFactory<AppDbContext>>(),
+                sp.GetRequiredService<Services.Enrichment.EnrichmentStore>(),
+                sp.GetServices<Services.Enrichment.IMetadataProvider>(),
+                sp.GetRequiredService<IEventBus>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.MetadataEnrichmentOrchestrator>>(),
+                () => SLSKDONET.Services.Enrichment.EnrichmentSettings.From(config),
+                sp.GetService<ArtworkCacheService>(),
+                () => sp.GetService<Services.AnalysisQueueService>()?.PendingCount > 0,
+                () => sp.GetService<IAudioPlayerService>()?.IsPlaying == true,
+                SLSKDONET.Services.Enrichment.MetadataEnrichmentOrchestrator.DefaultWorkers,
+                TimeSpan.FromSeconds(3),
+                startupResumeDelay: TimeSpan.FromSeconds(45),
+                isImportRunning: () => sp.GetService<LibraryFolderScannerService>()?.IsAnyImportRunning == true);
+        });
+        services.AddSingleton<ViewModels.EnrichmentViewModel>();
+        services.AddSingleton<ViewModels.MetadataSourcesSettingsViewModel>();
+        // The one background-activity chip/flyout (top bar + setup wizard header).
+        services.AddSingleton(sp => new ViewModels.Activity.BackgroundActivityHubViewModel(
+            sp.GetRequiredService<IEventBus>(),
+            sp.GetService<ViewModels.LibraryImportViewModel>(),
+            new ViewModels.Activity.OrchestratorEnrichmentActivityControl(sp.GetRequiredService<Services.Enrichment.MetadataEnrichmentOrchestrator>()),
+            page => sp.GetRequiredService<INavigationService>().NavigateTo(page),
+            sp.GetService<ILogger<ViewModels.Activity.BackgroundActivityHubViewModel>>()));
 
         // ── Task 1.5: Beatgrid Detection ──────────────────────────────────
         services.AddSingleton<Services.AudioAnalysis.BeatgridDetectionService>();
@@ -716,6 +992,9 @@ public partial class App : Application
         services.AddSingleton<Services.AudioAnalysis.AudioAnalysisService>();
         services.AddSingleton<Services.IAudioAnalysisService>(sp =>
             sp.GetRequiredService<Services.AudioAnalysis.AudioAnalysisService>());
+
+        // Per-playlist analysis completeness ("what exactly is missing") for the Analysis page.
+        services.AddSingleton<Services.AudioAnalysis.AnalysisCoverageService>();
 
         // ── Issue 2.1: Embedding Extraction Service ───────────────────────
         services.AddSingleton<Services.Embeddings.EmbeddingExtractionService>();
@@ -748,9 +1027,51 @@ public partial class App : Application
         services.AddSingleton<Services.Audio.ISurgicalProcessingService, Services.Audio.SurgicalProcessingService>();
         services.AddSingleton<Services.Audio.ITransitionPreviewPlayer, Services.Audio.TransitionPreviewPlayer>();
         services.AddSingleton<Services.IWaveformCacheService, Services.WaveformCacheService>();
-        services.AddSingleton<ViewModels.StemMixerViewModel>();
-        services.AddSingleton<ViewModels.StemWaveformViewModel>();
-        services.AddSingleton<ViewModels.NeuralMixEqViewModel>();
+
+        // ── Edit Lab: stems + track editing (replaces the old, unreachable Stems page) ──
+        // None of these do I/O in their constructors, so they can't poison the container.
+        services.AddSingleton<SLSKDONET.Services.EditLab.EditProjectStore>(sp =>
+            new SLSKDONET.Services.EditLab.EditProjectStore(sp.GetService<Microsoft.Extensions.Logging.ILogger<SLSKDONET.Services.EditLab.EditProjectStore>>()));
+        services.AddSingleton<SLSKDONET.Services.EditLab.EditLabSourceService>(sp =>
+            new SLSKDONET.Services.EditLab.EditLabSourceService(
+                sp.GetService<SLSKDONET.Services.ILibraryService>(),
+                sp.GetService<SLSKDONET.Services.DatabaseService>(),
+                sp.GetService<SLSKDONET.Services.Audio.Separation.CachedStemSeparator>(),
+                sp.GetService<Microsoft.Extensions.Logging.ILogger<SLSKDONET.Services.EditLab.EditLabSourceService>>()));
+        services.AddSingleton<SLSKDONET.Services.EditLab.EditPreviewEngine>(sp =>
+        {
+            var cfg = sp.GetService<AppConfig>();
+            return new SLSKDONET.Services.EditLab.EditPreviewEngine(() =>
+            {
+                try
+                {
+                    return SLSKDONET.Services.Audio.AudioOutputProvider.CreatePreviewDevice(cfg?.AudioOutputMode, cfg?.AudioOutputDeviceName);
+                }
+                catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException)
+                {
+                    Serilog.Log.Warning(ex, "Edit Lab preview: couldn't open {Device}; using the Windows default", cfg?.AudioOutputDeviceName ?? "(default)");
+                    return new NAudio.Wave.WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
+                }
+            });
+        });
+        services.AddSingleton<SLSKDONET.Services.EditLab.EditLabRenderService>(sp =>
+            new SLSKDONET.Services.EditLab.EditLabRenderService(
+                sp.GetRequiredService<SLSKDONET.Services.EditLab.EditLabSourceService>(),
+                sp.GetService<AppConfig>(),
+                sp.GetService<SLSKDONET.Services.IEventBus>(),
+                sp.GetService<SLSKDONET.Services.ICuePointService>(),
+                sp.GetService<Microsoft.Extensions.Logging.ILogger<SLSKDONET.Services.EditLab.EditLabRenderService>>()));
+        services.AddSingleton<ViewModels.EditLab.IEditLabPlayerGate>(sp =>
+            new ViewModels.EditLab.PlayerViewModelEditLabGate(sp.GetRequiredService<PlayerViewModel>()));
+        services.AddSingleton<ViewModels.EditLab.EditLabViewModel>(sp =>
+            new ViewModels.EditLab.EditLabViewModel(
+                sp.GetRequiredService<SLSKDONET.Services.EditLab.EditProjectStore>(),
+                sp.GetRequiredService<SLSKDONET.Services.EditLab.EditLabSourceService>(),
+                sp.GetRequiredService<SLSKDONET.Services.EditLab.EditPreviewEngine>(),
+                sp.GetService<ViewModels.EditLab.IEditLabPlayerGate>(),
+                sp.GetService<Views.INotificationService>(),
+                sp.GetService<Microsoft.Extensions.Logging.ILogger<ViewModels.EditLab.EditLabViewModel>>(),
+                renderService: sp.GetRequiredService<SLSKDONET.Services.EditLab.EditLabRenderService>()));
 
         // ── Task 7.4-7.6: Timeline Editor ViewModel ───────────────────────
         services.AddSingleton<ViewModels.TimelineViewModel>();
@@ -777,21 +1098,30 @@ public partial class App : Application
             new Services.AutoDownload.GhostAcquisitionOrchestrator(
                 sp.GetRequiredService<IDbContextFactory<AppDbContext>>(),
                 sp.GetRequiredService<AutoSearchService>(),
+                sp.GetRequiredService<DownloadDiscoveryService>(),
                 sp.GetRequiredService<SearchResultMatcher>(),
                 sp.GetRequiredService<DownloadManager>(),
                 sp.GetRequiredService<ILibraryService>(),
                 sp.GetRequiredService<IEventBus>(),
+                sp.GetRequiredService<AppConfig>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.AutoDownload.GhostAcquisitionOrchestrator>>()));
     }
 
     /// <summary>
-    /// Phase 8: Maintenance Task - Runs daily cleanup operations.
+    /// Phase 8: Maintenance Task - runs once per launch, on a pool thread.
     /// - Deletes backup files older than 7 days
-    /// - Vacuums database for performance
+    /// - Daily library snapshot, weekly VACUUM (see LibraryDatabaseMaintenance)
     /// </summary>
     private async Task RunMaintenanceTasksAsync()
     {
-        await PerformMaintenanceAsync();
+        try
+        {
+            await PerformMaintenanceAsync();
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "[Maintenance] Startup maintenance failed");
+        }
     }
 
     private async Task PerformMaintenanceAsync()
@@ -838,19 +1168,14 @@ public partial class App : Application
             }
         }
         
-        // Task 2: Vacuum database for performance
-        try
-        {
-            var dbService = Services?.GetService<DatabaseService>();
-            if (dbService != null)
-            {
-                await dbService.VacuumDatabaseAsync();
-            }
-        }
-        catch (Exception ex)
-        {
-            Serilog.Log.Warning(ex, "[Maintenance] Database vacuum failed");
-        }
+        // Task 2: weekly VACUUM (backlog E1).
+        // This used to VACUUM on every launch from a UI-thread continuation; SQLite's "async"
+        // calls are synchronous, so it froze the UI (~10 s) and locked the DB at startup. Now it
+        // is gated by a marker file and always runs on a pool thread.
+        var vacuumed = await Task.Run(() => SLSKDONET.Services.LibraryDatabaseMaintenance.RunScheduledVacuum(
+            onError: ex => Serilog.Log.Warning(ex, "[Maintenance] Weekly VACUUM failed")));
+        if (vacuumed)
+            Serilog.Log.Information("[Maintenance] Weekly VACUUM completed");
 
         // Task 3: Schedule batch sync of embeddings
         try

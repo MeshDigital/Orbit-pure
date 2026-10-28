@@ -14,10 +14,7 @@ namespace SLSKDONET.Services;
 /// </summary>
 public static class ResultSorter
 {
-    private static readonly HashSet<string> LosslessFormats = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "flac", "wav", "aif", "aiff", "ape", "alac"
-    };
+    private static IReadOnlySet<string> LosslessFormats => SLSKDONET.Services.Audio.AudioFormats.LosslessTokenSet;
 
     private static AppConfig? _config;
     
@@ -69,7 +66,7 @@ public static class ResultSorter
 
         result.CurrentRank = Math.Clamp(blendedScore, 0.0, 1.0);
         result.ScoreBreakdown =
-            $"Q:{qualityScore:F2} A:{availabilityScore:F2} M:{metadataScore:F2} Pref:{preferredScore:F2}";
+            NumFormat.Ui($"Q:{qualityScore:F2} A:{availabilityScore:F2} M:{metadataScore:F2} Pref:{preferredScore:F2}");
     }
 
     /// Orders search results based on bitrate.

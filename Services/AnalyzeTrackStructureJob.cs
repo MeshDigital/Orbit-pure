@@ -21,8 +21,7 @@ namespace SLSKDONET.Services;
 /// 1. Look up the track's stored <see cref="AudioFeaturesEntity"/> (BPM, duration, energy curve).
 /// 2. Run the <see cref="StructuralAnalysisEngine"/> to detect phrase boundaries and drops (feeds the
 ///    genre-aware phrase/section map — TrackPhrases, embeddings, energy profile — not cue placement).
-/// 3. Attempt EDMFormer ML phrase segmentation (optional, local microservice) before cue generation,
-///    so cue generation benefits from it the same run when available.
+/// 3. Use Rekordbox's own phrase analysis when Rekordbox has analysed the same file.
 /// 4. Use <see cref="Engine.Cueing.CueGenerationService"/> — built from the persisted sub-bass/novelty/
 ///    energy signals via <see cref="Engine.Analysis.AnalysisPipelineResultBuilder"/>, the same real-signal
 ///    path Cue Forge's manual Auto-Generate button uses — to map the results into <see cref="CuePointEntity"/>
@@ -37,7 +36,7 @@ public sealed class AnalyzeTrackStructureJob
     private readonly IPhraseAlignmentService _phraseAlignmentService;
     private readonly IEmbeddingExtractionService _embeddingExtractionService;
     private readonly EnergyAnalysisService _energyAnalysisService;
-    private readonly IEdmFormerService? _edmFormer;
+    private readonly Rekordbox.IRekordboxPssiService? _rekordboxPssi;
     private readonly IEventBus _eventBus;
     private readonly ILogger<AnalyzeTrackStructureJob> _logger;
 
@@ -49,14 +48,14 @@ public sealed class AnalyzeTrackStructureJob
         EnergyAnalysisService energyAnalysisService,
         IEventBus eventBus,
         ILogger<AnalyzeTrackStructureJob> logger,
-        IEdmFormerService? edmFormerService = null)
+        Rekordbox.IRekordboxPssiService? rekordboxPssiService = null)
     {
         _databaseService = databaseService;
         _cueGenerationService = cueGenerationService;
         _phraseAlignmentService = phraseAlignmentService;
         _embeddingExtractionService = embeddingExtractionService;
         _energyAnalysisService = energyAnalysisService;
-        _edmFormer = edmFormerService;
+        _rekordboxPssi = rekordboxPssiService;
         _eventBus = eventBus;
         _logger = logger;
     }
@@ -66,7 +65,11 @@ public sealed class AnalyzeTrackStructureJob
     /// </summary>
     /// <param name="trackUniqueHash">Content hash of the track to analyse.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task ExecuteAsync(string trackUniqueHash, CancellationToken cancellationToken = default)
+    /// <param name="generateCues">Whether to also generate cue rows; Structure-only runs leave them untouched.</param>
+    public async Task ExecuteAsync(
+        string trackUniqueHash,
+        CancellationToken cancellationToken = default,
+        bool generateCues = true)
     {
         _logger.LogInformation("[AnalyzeTrackStructureJob] Starting structural analysis for track {Hash}", trackUniqueHash);
 
@@ -127,14 +130,10 @@ public sealed class AnalyzeTrackStructureJob
                 : await BuildPhraseEntitiesAsync(trackUniqueHash, features, analysisResult, cancellationToken);
 
             // Bridge the real rule-based phrase analysis into PhraseSegmentsJson. This is the
-            // same field Cue Forge's phrase map reads, but it was previously only ever populated
-            // by the optional EDMFormer microservice (below), which requires a user to manually
-            // run a separate Python service. Without this bridge, the Cue Forge phrase map was
-            // silently empty for everyone who hasn't set EDMFormer up — even though this same
-            // rule-based structural analysis already ran for every track and produced real data,
-            // just under a different table (TrackPhrases) that nothing downstream consulted.
-            // Marked "Heuristic" (not "EDMFormer") so cue generation's signal-priority gate
-            // doesn't mistake this weak signal for ML-grade phrase data — see
+            // same field Cue Forge's phrase map reads; without this bridge the phrase map was empty
+            // for any track Rekordbox hadn't analysed, even though this rule-based structural
+            // analysis already ran for every track (into TrackPhrases, which nothing downstream
+            // consulted). Marked "Heuristic" so its provenance stays visible — see
             // AnalysisPipelineResultBuilder.Build's PhraseSegmentsSource check.
             if (sections.Count >= 2 && (string.IsNullOrWhiteSpace(features.PhraseSegmentsJson) || features.PhraseSegmentsJson == "[]"))
             {
@@ -151,47 +150,59 @@ public sealed class AnalyzeTrackStructureJob
             if (sections.Count > 0)
                 await _databaseService.SavePhrasesAsync(sections);
 
-            // Step 5: EDMFormer ML phrase detection (optional — requires local Python service).
-            // Runs before cue generation so, when it succeeds, cue generation benefits from the
-            // ML-grade segments in this same pass instead of lagging one analysis run behind.
-            if (_edmFormer?.IsAvailable == true)
+            // Step 4b: Rekordbox's own phrase analysis (optional — only present if the user has
+            // already analysed this exact file in Rekordbox) — its own commercial-grade analysis,
+            // preferred over the heuristic sections above; see Services/Rekordbox/RekordboxPssiService.cs.
+            if (_rekordboxPssi?.IsAvailable == true)
             {
                 try
                 {
                     var audioPath = await _databaseService.GetLocalFilePathByHashAsync(trackUniqueHash);
                     if (!string.IsNullOrEmpty(audioPath))
                     {
-                        var edmSegments = await _edmFormer.AnalyzeAsync(audioPath, cancellationToken);
-                        if (edmSegments is { Count: > 0 })
+                        double rbDownbeat = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
+                        List<double>? rbBeatGrid = null;
+                        if (!string.IsNullOrWhiteSpace(features.BeatGridJson) && features.BeatGridJson != "[]")
                         {
-                            features.PhraseSegmentsJson = JsonSerializer.Serialize(edmSegments);
-                            features.PhraseSegmentsSource = "EDMFormer";
+                            try { rbBeatGrid = JsonSerializer.Deserialize<List<double>>(features.BeatGridJson); }
+                            catch { /* fall back to constant-BPM conversion inside AnalyzeAsync */ }
+                        }
+                        var rbSegments = await _rekordboxPssi.AnalyzeAsync(
+                            audioPath, features.Bpm, rbDownbeat, rbBeatGrid, cancellationToken);
+                        if (rbSegments is { Count: > 0 })
+                        {
+                            features.PhraseSegmentsJson = JsonSerializer.Serialize(rbSegments);
+                            features.PhraseSegmentsSource = "RekordboxPSSI";
                             _logger.LogInformation(
-                                "[AnalyzeTrackStructureJob] EDMFormer produced {n} phrase segments for {Hash}",
-                                edmSegments.Count, trackUniqueHash);
+                                "[AnalyzeTrackStructureJob] Rekordbox PSSI produced {n} phrase segments for {Hash}",
+                                rbSegments.Count, trackUniqueHash);
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[AnalyzeTrackStructureJob] EDMFormer call failed for {Hash}, continuing without ML phrases", trackUniqueHash);
+                    _logger.LogWarning(ex, "[AnalyzeTrackStructureJob] Rekordbox PSSI lookup failed for {Hash}, continuing without it", trackUniqueHash);
                 }
             }
 
-            // Step 6: Generate and persist cue points — via the real-signal-aware
-            // Engine.Cueing.CueGenerationService, built from the features entity's persisted
-            // sub-bass/novelty/energy JSON (not a fresh, independent recompute), the exact same
-            // way Cue Forge's own Auto-Generate button does it.
-            var analysisPipelineResult = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features);
-            double downbeatAnchor = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
-            var cues = await _cueGenerationService.GenerateAndPersistCuesAsync(
-                trackUniqueHash,
-                analysisPipelineResult,
-                downbeatAnchor,
-                features.VocalStartSeconds.HasValue ? (double?)features.VocalStartSeconds.Value : null,
-                features.VocalEndSeconds.HasValue ? (double?)features.VocalEndSeconds.Value : null,
-                features.VocalIntensity > 0 ? (double?)features.VocalIntensity : null,
-                cancellationToken);
+            if (generateCues)
+            {
+                // Step 6: Generate and persist cue points — via the real-signal-aware
+                // Engine.Cueing.CueGenerationService, built from the features entity's persisted
+                // sub-bass/novelty/energy JSON (not a fresh, independent recompute), the exact same
+                // way Cue Forge's own Auto-Generate button does it.
+                var analysisPipelineResult = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features);
+                double downbeatAnchor = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
+                await _cueGenerationService.GenerateAndPersistCuesAsync(
+                    trackUniqueHash,
+                    analysisPipelineResult,
+                    downbeatAnchor,
+                    features.VocalStartSeconds.HasValue ? (double?)features.VocalStartSeconds.Value : null,
+                    features.VocalEndSeconds.HasValue ? (double?)features.VocalEndSeconds.Value : null,
+                    features.VocalIntensity > 0 ? (double?)features.VocalIntensity : null,
+                    cancellationToken,
+                    skipIfManualDrops: true); // drops you placed by hand own the track
+            }
 
             // Step 7: Mark structural analysis version on the features entity
             features.StructuralVersion += 1;
@@ -211,8 +222,8 @@ public sealed class AnalyzeTrackStructureJob
             PublishCompleted(trackUniqueHash, success: true);
 
             _logger.LogInformation(
-                "[AnalyzeTrackStructureJob] Finished for track {Hash}: {CueCount} cue points generated.",
-                trackUniqueHash, cues.Count);
+                "[AnalyzeTrackStructureJob] Finished for track {Hash} (cue generation: {GenerateCues}).",
+                trackUniqueHash, generateCues);
         }
         catch (OperationCanceledException)
         {
@@ -223,6 +234,56 @@ public sealed class AnalyzeTrackStructureJob
         {
             _logger.LogError(ex, "[AnalyzeTrackStructureJob] Failed for track {Hash}", trackUniqueHash);
             PublishCompleted(trackUniqueHash, success: false, error: ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Re-runs ONLY cue-point mapping (Step 6 of <see cref="ExecuteAsync"/>) against whatever
+    /// phrase/energy/sub-bass/novelty signals are already persisted on the track's
+    /// <see cref="AudioFeaturesEntity"/> — no audio decode, no structural-analysis/
+    /// Rekordbox re-run. For picking up a <see cref="Engine.Cueing.CueGenerationService"/> logic
+    /// change across many tracks without paying for a full re-analysis: cue placement is a pure
+    /// function of already-stored data, so this is a cheap DB round-trip per track instead of an
+    /// audio-decode + DSP pass. Returns false (not an exception) when the track has never been
+    /// fully analysed yet — there's nothing to remap cues from.
+    /// </summary>
+    public async Task<bool> RegenerateCuesOnlyAsync(string trackUniqueHash, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var features = await _databaseService.GetAudioFeaturesByHashAsync(trackUniqueHash);
+            if (features == null)
+            {
+                _logger.LogInformation(
+                    "[AnalyzeTrackStructureJob] Cues-only regen skipped for {Hash}: no analysis data yet (needs a full analysis first).",
+                    trackUniqueHash);
+                return false;
+            }
+
+            var analysisPipelineResult = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features);
+            double downbeatAnchor = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
+            var cues = await _cueGenerationService.GenerateAndPersistCuesAsync(
+                trackUniqueHash,
+                analysisPipelineResult,
+                downbeatAnchor,
+                features.VocalStartSeconds.HasValue ? (double?)features.VocalStartSeconds.Value : null,
+                features.VocalEndSeconds.HasValue ? (double?)features.VocalEndSeconds.Value : null,
+                features.VocalIntensity > 0 ? (double?)features.VocalIntensity : null,
+                cancellationToken);
+
+            _logger.LogInformation(
+                "[AnalyzeTrackStructureJob] Cues-only regen finished for {Hash}: {CueCount} cue points.",
+                trackUniqueHash, cues.Count);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[AnalyzeTrackStructureJob] Cues-only regen failed for {Hash}", trackUniqueHash);
+            return false;
         }
     }
 
@@ -259,7 +320,7 @@ public sealed class AnalyzeTrackStructureJob
 
     /// <summary>
     /// Converts rule-based structural sections into the same <see cref="PhraseSegment"/> shape
-    /// EDMFormer produces, so both writers of PhraseSegmentsJson are interchangeable to readers.
+    /// Rekordbox's phrase analysis produces, so both writers of PhraseSegmentsJson are interchangeable.
     /// </summary>
     private static List<PhraseSegment> ToPhraseSegments(IReadOnlyList<TrackPhraseEntity> sections, float bpm)
     {

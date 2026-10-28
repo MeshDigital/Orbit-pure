@@ -20,3 +20,10 @@ public sealed class PlaylistReorderResult
     public IReadOnlyList<PlaylistRecommendation> TransitionRecommendations { get; init; } = Array.Empty<PlaylistRecommendation>();
     public double AverageTransitionScore { get; init; }
 }
+
+/// <summary>
+/// Per-track metadata that TrackFingerprint doesn't carry (artist, subgenre) but that
+/// ReorderAsync's repetition-avoidance scoring needs — same reasoning as the separate
+/// bpmByHash lookup passed for double-drop scoring.
+/// </summary>
+public sealed record ReorderTrackMetadata(string? Artist, string? SubGenre);

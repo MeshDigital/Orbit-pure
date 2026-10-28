@@ -14,7 +14,7 @@ public class BoolToWidthConverter : IValueConverter
         if (value is bool isCollapsed && parameter is string param)
         {
             var parts = param.Split(',');
-            if (parts.Length == 2 && double.TryParse(parts[0], out var collapsedWidth) && double.TryParse(parts[1], out var expandedWidth))
+            if (parts.Length == 2 && double.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var collapsedWidth) && double.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var expandedWidth))
             {
                 return isCollapsed ? collapsedWidth : expandedWidth;
             }

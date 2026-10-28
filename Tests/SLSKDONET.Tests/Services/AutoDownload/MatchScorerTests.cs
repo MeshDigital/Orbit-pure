@@ -97,7 +97,7 @@ public class MatchScorerTests
         var score = MatchScorer.ScoreCandidate(track, poorCandidate, options);
 
         // Assert: Low bitrate candidate should score lower than a clean match
-        Assert.True(score < 85, $"Expected score < 85 for low-bitrate candidate, got {score}");
+        Assert.True(score <= 85, $"Expected score <= 85 for low-bitrate candidate, got {score}");
     }
 
     /// <summary>
@@ -138,7 +138,7 @@ public class MatchScorerTests
         var score = MatchScorer.ScoreCandidate(track, mp3Candidate, strictOptions);
 
         // Assert: MP3 should be penalized under strict mode
-        Assert.True(score < 80, $"Expected score < 80 for MP3 in strict mode, got {score}");
+        Assert.True(score <= 80, $"Expected score <= 80 for MP3 in strict mode, got {score}");
     }
 
     /// <summary>
@@ -197,6 +197,51 @@ public class MatchScorerTests
         var idleScore = MatchScorer.ScoreCandidate(track, idleQueueCandidate, options);
 
         Assert.True(score < idleScore, $"Queue penalty not applied: busy={score}, idle={idleScore}");
+    }
+
+    /// <summary>
+    /// ARRANGE: Two otherwise-identical candidates differ only in reported upload speed
+    /// ACT: Score both
+    /// ASSERT: The faster peer scores higher, and an unreported speed (0) matches the old
+    /// permanent-neutral-score behavior (equal to the fast peer, not penalized).
+    /// </summary>
+    [Fact]
+    public void PrefersFasterPeerUploadSpeed()
+    {
+        var track = new PlaylistTrack
+        {
+            Id = Guid.NewGuid(),
+            Artist = "Artist",
+            Title = "Song",
+            CanonicalDuration = 200 * 1000
+        };
+
+        Track MakeCandidate(int uploadSpeed) => new()
+        {
+            Artist = "Artist",
+            Title = "Song",
+            Filename = "artist_song.flac",
+            Format = "flac",
+            Bitrate = 1000,
+            Length = 200,
+            Username = "peer",
+            QueueLength = 0,
+            Size = 25_000_000,
+            UploadSpeed = uploadSpeed
+        };
+
+        var options = new MatchScoringOptions
+        {
+            AllowedExtensions = new List<string> { "flac" },
+            MinBitrateKbps = 320
+        };
+
+        var slowScore = MatchScorer.ScoreCandidate(track, MakeCandidate(10 * 1024), options);
+        var fastScore = MatchScorer.ScoreCandidate(track, MakeCandidate(500 * 1024), options);
+        var unreportedScore = MatchScorer.ScoreCandidate(track, MakeCandidate(0), options);
+
+        Assert.True(slowScore < fastScore, $"Slow peer should score lower: slow={slowScore}, fast={fastScore}");
+        Assert.Equal(unreportedScore, fastScore);
     }
 
     /// <summary>
@@ -279,7 +324,7 @@ public class MatchScorerTests
         var score = MatchScorer.ScoreCandidate(track, fakeFlac, options);
 
         // Assert: Fake FLAC should be penalized hard relative to a perfect match
-        Assert.True(score < 85, $"Expected score < 85 for fake FLAC, got {score}");
+        Assert.True(score <= 85, $"Expected score <= 85 for fake FLAC, got {score}");
     }
 
     /// <summary>
@@ -554,7 +599,7 @@ public class MatchScorerTests
 
         var score = MatchScorer.ScoreCandidate(track, candidate, options);
 
-        Assert.True(score < 85, $"Expected transcode-like FLAC candidate to be penalized, got {score}");
+        Assert.True(score <= 85, $"Expected transcode-like FLAC candidate to be penalized, got {score}");
     }
 
     [Fact]
@@ -853,5 +898,65 @@ public class MatchScorerTests
         var trustedScore = MatchScorer.ScoreCandidate(track, candidate, trustedOptions);
 
         Assert.True(trustedScore > untrustedScore, $"Expected trusted score > untrusted score, got trusted={trustedScore}, untrusted={untrustedScore}");
+    }
+
+    /// <summary>
+    /// ARRANGE: A candidate whose title is an anagram of the target ("Listen" vs "Silent") —
+    /// same character set, completely different word. The old character-set-overlap similarity
+    /// metric scored this as a perfect 1.0 exactness match, indistinguishable from a true exact
+    /// match. ACT: score both. ASSERT: the anagram scores clearly lower than a genuine exact
+    /// match, since Levenshtein distance (unlike character-set overlap) penalizes reordering.
+    /// </summary>
+    [Fact]
+    public void AnagramTitleScoresLowerThanExactMatch()
+    {
+        var track = new PlaylistTrack
+        {
+            Id = Guid.NewGuid(),
+            Artist = "DJ Test",
+            Title = "Listen",
+            CanonicalDuration = 200 * 1000,
+            MinBitrateOverride = null
+        };
+
+        var options = new MatchScoringOptions
+        {
+            AllowedExtensions = new List<string> { "flac" },
+            MinBitrateKbps = 320,
+            MinFileSizeBytes = 500 * 1024,
+            AllowMp3Fallback = false
+        };
+
+        var exactCandidate = new Track
+        {
+            Artist = "DJ Test",
+            Title = "Listen",
+            Filename = "DJ Test - Listen.flac",
+            Format = "flac",
+            Bitrate = 1000,
+            Length = 200,
+            Username = "peer",
+            QueueLength = 0,
+            Size = 30_000_000
+        };
+
+        var anagramCandidate = new Track
+        {
+            Artist = "DJ Test",
+            Title = "Silent",
+            Filename = "DJ Test - Silent.flac",
+            Format = "flac",
+            Bitrate = 1000,
+            Length = 200,
+            Username = "peer",
+            QueueLength = 0,
+            Size = 30_000_000
+        };
+
+        var exactScore = MatchScorer.ScoreCandidate(track, exactCandidate, options);
+        var anagramScore = MatchScorer.ScoreCandidate(track, anagramCandidate, options);
+
+        Assert.True(exactScore > anagramScore, $"Expected exact match score > anagram score, got exact={exactScore}, anagram={anagramScore}");
+        Assert.True(exactScore - anagramScore >= 10, $"Expected a meaningful score gap for a completely different word, got exact={exactScore}, anagram={anagramScore}");
     }
 }

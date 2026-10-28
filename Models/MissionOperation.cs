@@ -59,12 +59,41 @@ public class MissionOperation : INotifyPropertyChanged
     
     // Optional reference to a Track ViewModel or ActiveThreadInfo
     private object? _track;
-    public object? Track 
-    { 
-        get => _track; 
-        set => SetField(ref _track, value); 
+    public object? Track
+    {
+        get => _track;
+        set => SetField(ref _track, value);
     }
-    
+
+    private bool _isActive;
+    /// <summary>Whether the underlying download is actively transferring — drives the Pause button's visibility.</summary>
+    public bool IsActive
+    {
+        get => _isActive;
+        set => SetField(ref _isActive, value);
+    }
+
+    private string _speedDisplay = string.Empty;
+    public string SpeedDisplay
+    {
+        get => _speedDisplay;
+        set => SetField(ref _speedDisplay, value);
+    }
+
+    private System.Windows.Input.ICommand? _pauseCommand;
+    public System.Windows.Input.ICommand? PauseCommand
+    {
+        get => _pauseCommand;
+        set => SetField(ref _pauseCommand, value);
+    }
+
+    private System.Windows.Input.ICommand? _cancelCommand;
+    public System.Windows.Input.ICommand? CancelCommand
+    {
+        get => _cancelCommand;
+        set => SetField(ref _cancelCommand, value);
+    }
+
     private string _name = string.Empty;
     public string Name
     {

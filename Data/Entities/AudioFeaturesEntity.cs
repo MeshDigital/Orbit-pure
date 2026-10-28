@@ -168,6 +168,21 @@ public class AudioFeaturesEntity
     /// </summary>
     public string NoveltyDropSignaturesJson { get; set; } = "[]";
 
+    /// <summary>
+    /// Timestamps (JSON array of seconds) where House/Techno-family "structural stripping"
+    /// begins — kick+bass transients genuinely absent (not just quiet) for a sustained period,
+    /// from StructuralStrippingEngine. Distinct from SubBassDropoutTimestampsJson: that signal
+    /// is energy-level only and can misfire on a merely-quiet section that still has a faint
+    /// periodic kick; this one requires confirmed transient absence.
+    /// </summary>
+    public string StructuralStrippingStartTimestampsJson { get; set; } = "[]";
+
+    /// <summary>
+    /// Timestamps (JSON array of seconds) where a structural-stripping breakdown ends — kick
+    /// transients resume with a confirmed onset-density spike, from StructuralStrippingEngine.
+    /// </summary>
+    public string StructuralStrippingReturnTimestampsJson { get; set; } = "[]";
+
 
     /// <summary>
     /// Intro cue point (usually 0.0 - start of track).
@@ -479,12 +494,10 @@ public class AudioFeaturesEntity
     public string PhraseSegmentsJson { get; set; } = "[]";
 
     /// <summary>
-    /// Provenance of <see cref="PhraseSegmentsJson"/>: "EDMFormer" (ML-grade, from the optional
-    /// local microservice) or "Heuristic" (rule-based <c>StructuralAnalysisEngine</c> sections,
-    /// bridged in only so Cue Forge's phrase map isn't empty without EDMFormer). Cue generation's
-    /// signal-priority gate must only treat "EDMFormer" as ML-grade — heuristic sections are the
-    /// same weak signal the DSP path (SubBassDropoutEngine/SpectralFluxNoveltyEngine) is meant to
-    /// improve on, so letting them masquerade as phrase-segment data silently starves that path.
+    /// Provenance of <see cref="PhraseSegmentsJson"/>: "RekordboxPSSI" (Rekordbox's own phrase
+    /// analysis) or "Heuristic" (rule-based <c>StructuralAnalysisEngine</c> sections). Both are trusted
+    /// by cue generation's phrase path (see AnalysisPipelineResultBuilder). Older rows may still say
+    /// "EDMFormer" — that optional ML service was removed on 2026-09-28 and never produced data here.
     /// </summary>
     public string PhraseSegmentsSource { get; set; } = "";
 
@@ -577,6 +590,13 @@ public class AudioFeaturesEntity
     /// Phase 17: Persisted DJ Cue Points (JSON blob).
     /// </summary>
     public string? CuePointsJson { get; set; }
+
+    /// <summary>
+    /// CUE-DETR's cue points for this track, cached because they take ~10 s to compute:
+    /// {"model":"cue-detr|hash","points":[{"t":seconds,"s":score},…]}. Null = never run.
+    /// See Services/AudioAnalysis/CueDetrCueService.
+    /// </summary>
+    public string? CueDetrJson { get; set; }
 
     // ============================================
     // Task 2.1 — Discogs-Effnet 1280-D Embedding

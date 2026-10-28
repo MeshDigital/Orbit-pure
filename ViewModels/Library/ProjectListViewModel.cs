@@ -30,6 +30,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     private readonly ArtworkCacheService? _artworkCacheService;
     private readonly PlaylistMosaicService? _mosaicService;
     private readonly IEventBus _eventBus;
+    private readonly AnalyzeTrackStructureJob? _cueStructureJob;
 
     // Master List: All import jobs/projects
     private ObservableCollection<PlaylistJob> _allProjects = new();
@@ -105,6 +106,18 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>
+    /// Multi-select companion to <see cref="SelectedTreeNode"/>, bound to the sidebar TreeView's
+    /// SelectedItems (SelectionMode="Multiple"). Additive — doesn't affect the single-select browse
+    /// behavior driven by SelectedTreeNode/SelectedProjectCard above. Used by bulk playlist actions
+    /// like "Combine into New Playlist…".
+    /// </summary>
+    public ObservableCollection<PlaylistTreeNodeViewModel> SelectedTreeNodes { get; } = new();
+
+    /// <summary>True when 2+ playlists (not folders) are present in <see cref="SelectedTreeNodes"/>.</summary>
+    public bool HasMultiplePlaylistsSelected =>
+        SelectedTreeNodes.Count(n => n is PlaylistTreeCardNodeViewModel) >= 2;
+
     private LibraryPlaylistCardViewModel? _selectedProjectCard;
     public LibraryPlaylistCardViewModel? SelectedProjectCard
     {
@@ -152,6 +165,8 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                     OnPropertyChanged(nameof(SelectedProjectCard));
                 }
 
+                if (ReferenceEquals(value, _allTracksJob)) _ = RefreshAllTracksCountsAsync();
+
                 // Raise event for parent ViewModel to handle
                 ProjectSelected?.Invoke(this, value);
             }
@@ -198,6 +213,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand SyncProjectCommand { get; }
     public System.Windows.Input.ICommand OpenSourceUrlCommand { get; }
     public System.Windows.Input.ICommand GenerateCuesCommand { get; }
+    public System.Windows.Input.ICommand GenerateCuesForSelectedPlaylistsCommand { get; }
     public System.Windows.Input.ICommand ExportProjectCommand { get; }
 
     // Playlist Folder commands
@@ -239,7 +255,8 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         IEventBus eventBus,
         INotificationService notificationService,
         ArtworkCacheService? artworkCacheService = null,
-        PlaylistMosaicService? mosaicService = null)
+        PlaylistMosaicService? mosaicService = null,
+        AnalyzeTrackStructureJob? cueStructureJob = null)
     {
         _logger = logger;
         _libraryService = libraryService;
@@ -253,6 +270,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         _artworkCacheService = artworkCacheService;
         _mosaicService = mosaicService;
         _eventBus = eventBus;
+        _cueStructureJob = cueStructureJob;
 
         // Initialize commands
         OpenProjectCommand = new RelayCommand<PlaylistJob>(project => SelectedProject = project);
@@ -264,6 +282,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         SyncProjectCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteSyncProjectAsync);
         OpenSourceUrlCommand = new RelayCommand<PlaylistJob>(ExecuteOpenSourceUrl);
         GenerateCuesCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteGenerateCuesAsync);
+        GenerateCuesForSelectedPlaylistsCommand = new AsyncRelayCommand(ExecuteGenerateCuesForSelectedPlaylistsAsync);
         ExportProjectCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteExportProjectAsync);
 
         CreateFolderCommand = new AsyncRelayCommand(() => ExecuteCreateFolderAsync(null));
@@ -272,6 +291,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         DeleteFolderCommand = new AsyncRelayCommand<PlaylistTreeFolderNodeViewModel>(ExecuteDeleteFolderAsync);
 
         FilteredProjectCards.CollectionChanged += (_, _) => ScheduleRebuildTree();
+        SelectedTreeNodes.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasMultiplePlaylistsSelected));
         AllFolders.CollectionChanged += (_, _) => ScheduleRebuildTree();
 
         // Subscribe to auth changes
@@ -309,6 +329,49 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         
         // Subscribe to track state changes to update active download counts in real-time
         _disposables.Add(eventBus.GetEvent<TrackStateChangedEvent>().Subscribe(OnTrackStateChanged));
+
+        // Freshly-queued tracks only publish TrackAddedEvent/BatchTracksAddedEvent (state=Pending) —
+        // without this, the sidebar's "Syncing..." indicator stayed off until the engine actually
+        // picked the track up and transitioned its state (TrackStateChangedEvent), which can lag far
+        // behind the click if other playlists are ahead in the queue.
+        _disposables.Add(eventBus.GetEvent<TrackAddedEvent>().Subscribe(evt => RefreshActiveDownloadStats(evt.TrackModel.PlaylistId)));
+        _disposables.Add(eventBus.GetEvent<BatchTracksAddedEvent>().Subscribe(evt =>
+        {
+            foreach (var projectId in evt.Tracks.Select(t => t.Track.PlaylistId).Distinct())
+                RefreshActiveDownloadStats(projectId);
+        }));
+
+        // A folder import publishes one completion event; the All Tracks header counts follow it.
+        _disposables.Add(eventBus.GetEvent<LibraryImportCompletedEvent>().Subscribe(evt =>
+        {
+            if (evt.Result.ChangedLibrary) _ = RefreshAllTracksCountsAsync();
+        }));
+        // ...and grow with the import while it runs (batches land every few seconds).
+        _disposables.Add(System.Reactive.Linq.Observable.Sample(eventBus.GetEvent<LibraryEntriesAddedEvent>(), TimeSpan.FromSeconds(3))
+            .Subscribe(evt => { _ = RefreshAllTracksCountsAsync(); }));
+    }
+
+    /// <summary>
+    /// "All Tracks" is a pseudo-project with no PlaylistJobs row, so nothing ever filled its
+    /// TotalTracks / SuccessfulCount: the header read "0 tracks · 0 downloaded" on a full library.
+    /// Counted from the same LibraryEntries query the grid uses.
+    /// </summary>
+    internal async Task RefreshAllTracksCountsAsync()
+    {
+        try
+        {
+            var total = await _libraryService.GetTrackCountAsync(Guid.Empty).ConfigureAwait(false);
+            var downloaded = await _libraryService.GetTrackCountAsync(Guid.Empty, downloadedOnly: true).ConfigureAwait(false);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                _allTracksJob.TotalTracks = total;
+                _allTracksJob.SuccessfulCount = downloaded;
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to count All Tracks for the library header");
+        }
     }
 
     public void Dispose()
@@ -336,7 +399,9 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     }
 
     
-    private void OnTrackStateChanged(TrackStateChangedEvent evt)
+    private void OnTrackStateChanged(TrackStateChangedEvent evt) => RefreshActiveDownloadStats(evt.ProjectId);
+
+    private void RefreshActiveDownloadStats(Guid projectId)
     {
         // PERFORMANCE FIX: Target specific project instead of looping through all
         Dispatcher.UIThread.InvokeAsync(() =>
@@ -346,14 +411,14 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                 // Fix 5: Threading Race Condition Safety
                 // Ensure AllProjects isn't null or being modified by another thread (though UI thread marshaling helps)
                 if (AllProjects == null) return;
-                
+
                 // Find the specific project that changed
-                var project = AllProjects.FirstOrDefault(p => p.Id == evt.ProjectId);
+                var project = AllProjects.FirstOrDefault(p => p.Id == projectId);
                 if (project != null)
                 {
                     // Refresh ONLY the affected project's stats
                     project.RefreshStatusCounts();
-                    
+
                     // Real tracking via DownloadManager
                     project.ActiveDownloadsCount = _downloadManager.GetActiveDownloadsCountForProject(project.Id);
                     project.CurrentDownloadingTrack = _downloadManager.GetCurrentlyDownloadingTrackName(project.Id);
@@ -362,7 +427,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
             catch (Exception ex)
             {
                 // Prevent crash if collection is modified during read or other race condition
-                _logger.LogWarning(ex, "Race condition avoided in OnTrackStateChanged for project {Id}", evt.ProjectId);
+                _logger.LogWarning(ex, "Race condition avoided in RefreshActiveDownloadStats for project {Id}", projectId);
             }
         });
     }
@@ -404,6 +469,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             _logger.LogInformation("Loading projects from database...");
+            _ = RefreshAllTracksCountsAsync();
             var jobs = await _libraryService.LoadAllPlaylistJobsAsync();
             await LoadFoldersAsync();
 
@@ -773,11 +839,28 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             _logger.LogInformation("Syncing project: {Title} from {Url}", job.SourceTitle, job.SourceUrl);
-            
+
             var provider = _importProviders.FirstOrDefault(p => p.CanHandle(job.SourceUrl));
             if (provider == null)
             {
-                _notificationService.Show("Sync Error", "No suitable provider found for this project source.", Views.NotificationType.Error);
+                // No provider can re-fetch this source live (e.g. a pasted 1001Tracklists
+                // tracklist — there's no API to poll, only the page a human copied it from).
+                // A DJ set's tracklist on 1001Tracklists is often edited after the fact as more
+                // tracks get IDed, so the practical way to "sync" is: open the page, let the user
+                // copy the current version, and paste it back in — Import's existing duplicate
+                // detection will offer to merge it into this same playlist, adding only what's
+                // new (see ImportPreviewViewModel.IsMergeMode).
+                if (TryOpenSourceUrl(job.SourceUrl))
+                {
+                    _notificationService.Show(
+                        "Can't Auto-Sync This Source",
+                        $"Opened the source page for '{job.SourceTitle}'. Copy the current tracklist and paste it into Import — it'll offer to merge into this playlist, adding only the new tracks.",
+                        Views.NotificationType.Information);
+                }
+                else
+                {
+                    _notificationService.Show("Sync Error", "No suitable provider found for this project source, and the source page couldn't be opened.", Views.NotificationType.Error);
+                }
                 return;
             }
 
@@ -795,45 +878,120 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     {
         if (job == null || string.IsNullOrWhiteSpace(job.SourceUrl)) return;
 
-        try
+        if (!TryOpenSourceUrl(job.SourceUrl))
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(job.SourceUrl) { UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to open source URL {Url}", job.SourceUrl);
-            _notificationService.Show("Open Link Error", $"Could not open link: {ex.Message}", Views.NotificationType.Error);
+            _notificationService.Show("Open Link Error", "Could not open the source link.", Views.NotificationType.Error);
         }
     }
 
+    private bool TryOpenSourceUrl(string url)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to open source URL {Url}", url);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Re-maps cue points for every already-analysed track in the playlist, without re-running
+    /// the full analysis pipeline. Previously this published a TrackAnalysisRequestedEvent per
+    /// track — despite being labeled "Generate Auto-Cues", that queued a FULL re-analysis
+    /// (corruption scan, BPM/key/energy/vocal/embedding) for every track just to get
+    /// at the cue-mapping step buried at the end of it — exactly what you'd want to avoid when
+    /// only CueGenerationService's own logic changed. AnalyzeTrackStructureJob.RegenerateCuesOnlyAsync
+    /// re-maps cues from each track's already-persisted analysis data instead — a DB round-trip
+    /// per track, not an audio-decode + DSP pass.
+    /// </summary>
     private async Task ExecuteGenerateCuesAsync(PlaylistJob? job)
     {
         if (job == null) return;
+        if (_cueStructureJob == null)
+        {
+            _notificationService.Show("Generate Cues", "Cue regeneration service unavailable.", Views.NotificationType.Error);
+            return;
+        }
+
         try
         {
             var tracks = await _libraryService.LoadPlaylistTracksAsync(job.Id);
             var eligible = tracks
-                .Where(t => !string.IsNullOrEmpty(t.ResolvedFilePath) && System.IO.File.Exists(t.ResolvedFilePath))
+                .Where(t => !string.IsNullOrEmpty(t.TrackUniqueHash))
                 .ToList();
 
             if (eligible.Count == 0)
             {
                 _notificationService.Show("Generate Cues",
-                    "No downloaded tracks found in this playlist. Download tracks first.",
+                    "No tracks found in this playlist.",
                     Views.NotificationType.Warning);
                 return;
             }
 
+            int succeeded = 0, skippedNoAnalysis = 0;
             foreach (var track in eligible)
-                _eventBus.Publish(new Models.TrackAnalysisRequestedEvent(track.TrackUniqueHash));
+            {
+                if (await _cueStructureJob.RegenerateCuesOnlyAsync(track.TrackUniqueHash))
+                    succeeded++;
+                else
+                    skippedNoAnalysis++;
+            }
 
-            _notificationService.Show("Generate Cues",
-                $"Queued {eligible.Count} track(s) in '{job.SourceTitle}' for cue generation.",
-                Views.NotificationType.Success);
+            var message = skippedNoAnalysis == 0
+                ? $"Regenerated cues for {succeeded} track(s) in '{job.SourceTitle}'."
+                : $"Regenerated cues for {succeeded} track(s) in '{job.SourceTitle}' — {skippedNoAnalysis} skipped (not analysed yet).";
+            _notificationService.Show("Generate Cues", message, Views.NotificationType.Success);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "GenerateCues failed for playlist {Id}", job.Id);
+            _notificationService.Show("Generate Cues Failed", ex.Message, Views.NotificationType.Error);
+        }
+    }
+
+    /// <summary>Same cues-only regeneration as <see cref="ExecuteGenerateCuesAsync"/>, fanned out
+    /// across every track in every currently multi-selected playlist (Ctrl/Shift-click in the
+    /// tree) — the "multiple playlists" scope.</summary>
+    private async Task ExecuteGenerateCuesForSelectedPlaylistsAsync()
+    {
+        if (_cueStructureJob == null)
+        {
+            _notificationService.Show("Generate Cues", "Cue regeneration service unavailable.", Views.NotificationType.Error);
+            return;
+        }
+
+        var jobs = SelectedTreeNodes.OfType<PlaylistTreeCardNodeViewModel>().Select(n => n.Card.Model).ToList();
+        if (jobs.Count == 0) return;
+
+        try
+        {
+            var hashes = new HashSet<string>();
+            foreach (var job in jobs)
+            {
+                var tracks = await _libraryService.LoadPlaylistTracksAsync(job.Id);
+                foreach (var t in tracks)
+                    if (!string.IsNullOrEmpty(t.TrackUniqueHash)) hashes.Add(t.TrackUniqueHash);
+            }
+
+            int succeeded = 0, skipped = 0;
+            foreach (var hash in hashes)
+            {
+                if (await _cueStructureJob.RegenerateCuesOnlyAsync(hash)) succeeded++; else skipped++;
+            }
+
+            _notificationService.Show("Generate Cues",
+                skipped == 0
+                    ? $"Regenerated cues for {succeeded} track(s) across {jobs.Count} playlist(s)."
+                    : $"Regenerated cues for {succeeded} track(s) across {jobs.Count} playlist(s) — {skipped} skipped (not analysed yet).",
+                Views.NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GenerateCues failed for {Count} selected playlists", jobs.Count);
             _notificationService.Show("Generate Cues Failed", ex.Message, Views.NotificationType.Error);
         }
     }

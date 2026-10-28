@@ -11,15 +11,12 @@
         CanResize="False"
         SystemDecorations="Full">
 
-    <Border Padding="20">
+    <Border Padding="24" Background="{DynamicResource BrushBg2}">
         <StackPanel Spacing="16">
 
             <StackPanel Spacing="8">
-                <TextBlock Name="TitleText"
-                           FontWeight="Bold"
-                           FontSize="16"
-                           Text="Remove Track"/>
-                <TextBlock Name="MessageText"
+                <TextBlock Name="TitleText" Classes="h2" Text="Remove track"/>
+                <TextBlock Name="MessageText" Classes="body-sm"
                            TextWrapping="Wrap"
                            MaxWidth="480"
                            Text="What do you want to do with this track?"/>
@@ -30,11 +27,11 @@
             <Button Name="RemoveFromPlaylistButton"
                     HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Left"
-                    Padding="14,10">
+                    Padding="12,8">
                 <StackPanel Spacing="2">
-                    <TextBlock Name="RemoveFromPlaylistTitle" Text="Remove from playlist" FontWeight="SemiBold" FontSize="13"/>
-                    <TextBlock Text="Keeps the file and its entry in All Tracks — only removes it from this playlist."
-                               FontSize="11" Opacity="0.7" TextWrapping="Wrap"/>
+                    <TextBlock Name="RemoveFromPlaylistTitle" Classes="body" FontWeight="SemiBold" Text="Remove from playlist"/>
+                    <TextBlock Classes="caption" TextWrapping="Wrap"
+                               Text="Keeps the file and its entry in All Tracks. Only removes it from this playlist."/>
                 </StackPanel>
             </Button>
 
@@ -42,19 +39,17 @@
             <Button Name="DeletePermanentlyButton"
                     HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Left"
-                    Padding="14,10"
-                    Background="#3A1E1E"
-                    BorderBrush="#8B3A3A"
-                    BorderThickness="1">
+                    Padding="12,8"
+                    Classes="danger">
                 <StackPanel Spacing="2">
-                    <TextBlock Text="Delete from library &amp; disk" FontWeight="SemiBold" FontSize="13" Foreground="#FFD6D6"/>
-                    <TextBlock Text="Permanently deletes the file and removes it from every playlist and your download history."
-                               FontSize="11" Opacity="0.8" Foreground="#FFD6D6" TextWrapping="Wrap"/>
+                    <TextBlock Classes="body" FontWeight="SemiBold" Text="Delete from library and disk"/>
+                    <TextBlock Classes="caption" TextWrapping="Wrap"
+                               Text="Permanently deletes the file and removes it from every playlist and your download history."/>
                 </StackPanel>
             </Button>
 
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,4,0,0">
-                <Button Name="CancelButton" Content="Cancel" MinWidth="90" Padding="16,8" HorizontalContentAlignment="Center"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,4,0,0">
+                <Button Name="CancelButton" Classes="secondary" Content="Cancel" MinWidth="88" HorizontalContentAlignment="Center"/>
             </StackPanel>
         </StackPanel>
     </Border>

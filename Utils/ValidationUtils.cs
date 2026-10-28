@@ -50,7 +50,7 @@ public static class ValidationUtils
         if (string.IsNullOrWhiteSpace(format))
             return (true, null);
 
-        var validFormats = new[] { "mp3", "flac", "m4a", "aac", "ogg", "wav", "wma", "opus" };
+        var validFormats = SLSKDONET.Services.Audio.AudioFormats.ImportableTokens; // the one format table (AIFF included)
         var lowerFormat = format.ToLower().TrimStart('.');
 
         if (!validFormats.Contains(lowerFormat))

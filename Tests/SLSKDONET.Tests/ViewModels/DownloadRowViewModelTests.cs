@@ -24,7 +24,8 @@ public class DownloadRowViewModelTests
         using var row = new DownloadRowViewModel(track);
 
         Assert.Equal(DownloadRowStatus.Searching, row.Status);
-        Assert.Equal("SEARCHING", row.StatusBadgeText);
+        Assert.Equal("Searching", row.StatusLabel);
+        Assert.True(row.IsToneInfo);
         Assert.Equal(DownloadRowPriority.Active, row.Priority);
     }
 
@@ -49,7 +50,7 @@ public class DownloadRowViewModelTests
         using var row = new DownloadRowViewModel(track);
 
         Assert.Equal(DownloadRowStatus.Queued, row.Status);
-        Assert.Equal("QUEUED", row.StatusBadgeText);
+        Assert.Equal("In peer queue", row.StatusLabel);
         Assert.Equal(DownloadRowPriority.Active, row.Priority);
     }
 
@@ -65,26 +66,96 @@ public class DownloadRowViewModelTests
         track.State = PlaylistTrackState.Downloading;
 
         Assert.Equal(DownloadRowStatus.Downloading, row.Status);
-        Assert.Equal("DOWNLOADING", row.StatusBadgeText);
+        Assert.Equal("Downloading", row.StatusLabel);
+        Assert.True(row.IsToneAccent);
     }
 
     [Theory]
-    [InlineData(PlaylistTrackState.Searching, "Searching", true)]
-    [InlineData(PlaylistTrackState.Downloading, "Searching", false)]
-    [InlineData(PlaylistTrackState.Downloading, "Downloading", true)]
-    [InlineData(PlaylistTrackState.Failed, "Failed", true)]
-    [InlineData(PlaylistTrackState.Stalled, "Failed", true)]
-    [InlineData(PlaylistTrackState.Cancelled, "Failed", true)]
-    [InlineData(PlaylistTrackState.Completed, "Completed", true)]
-    [InlineData(PlaylistTrackState.Completed, "Downloading", false)]
-    [InlineData(PlaylistTrackState.Searching, "All", true)]
-    [InlineData(PlaylistTrackState.Completed, "All", true)]
-    public void MatchesRowStatusFilter_MatchesExpectedStates(PlaylistTrackState state, string filter, bool expected)
+    [InlineData(PlaylistTrackState.Searching, DownloadStatusFilter.Active, true)]
+    [InlineData(PlaylistTrackState.Downloading, DownloadStatusFilter.Queued, false)]
+    [InlineData(PlaylistTrackState.Downloading, DownloadStatusFilter.Active, true)]
+    [InlineData(PlaylistTrackState.Failed, DownloadStatusFilter.Failed, true)]
+    [InlineData(PlaylistTrackState.Stalled, DownloadStatusFilter.Failed, true)]
+    [InlineData(PlaylistTrackState.Cancelled, DownloadStatusFilter.Failed, true)]
+    [InlineData(PlaylistTrackState.Completed, DownloadStatusFilter.Completed, true)]
+    [InlineData(PlaylistTrackState.Completed, DownloadStatusFilter.Active, false)]
+    [InlineData(PlaylistTrackState.Searching, DownloadStatusFilter.All, true)]
+    [InlineData(PlaylistTrackState.Completed, DownloadStatusFilter.All, true)]
+    public void MatchesStatusFilter_MatchesExpectedStates(PlaylistTrackState state, DownloadStatusFilter filter, bool expected)
     {
         var track = CreateTrackViewModel(CreateTrack("hash-filter", Guid.NewGuid()));
         track.State = state;
 
-        Assert.Equal(expected, DownloadCenterViewModel.MatchesRowStatusFilter(track, filter));
+        Assert.Equal(expected, DownloadCenterViewModel.MatchesStatusFilter(track, filter));
+    }
+
+    [Fact]
+    public void FailedRow_ShowsShortLabel_WithFullReasonInTooltip()
+    {
+        var track = CreateTrackViewModel(CreateTrack("hash-fail", Guid.NewGuid()));
+        track.FailureEnum = DownloadFailureReason.AllResultsRejectedQuality;
+        track.State = PlaylistTrackState.Failed;
+
+        using var row = new DownloadRowViewModel(track);
+
+        Assert.Equal("Quality too low", row.StatusLabel);
+        Assert.True(row.IsToneError);
+        Assert.Contains("Quality too low", row.StatusDetail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Bitrate threshold", row.StatusDetail);
+        Assert.True(row.CanRetry);
+        Assert.False(row.CanCancel);
+    }
+
+    [Fact]
+    public void FailureReasonArrivingAfterStateFlip_UpdatesLabelLive()
+    {
+        var track = CreateTrackViewModel(CreateTrack("hash-fail-late", Guid.NewGuid()));
+        track.State = PlaylistTrackState.Failed;
+        using var row = new DownloadRowViewModel(track);
+        Assert.Equal("Failed", row.StatusLabel);
+
+        track.FailureEnum = DownloadFailureReason.DiskFull;
+
+        Assert.Equal("Disk full", row.StatusLabel);
+    }
+
+    [Fact]
+    public void StalledRow_IsWarningNotError()
+    {
+        var track = CreateTrackViewModel(CreateTrack("hash-stall", Guid.NewGuid()));
+        track.State = PlaylistTrackState.Stalled;
+
+        using var row = new DownloadRowViewModel(track);
+
+        Assert.Equal("Stalled", row.StatusLabel);
+        Assert.True(row.IsToneWarning);
+        Assert.Equal(DownloadRowPriority.Attention, row.Priority);
+    }
+
+    [Fact]
+    public void PausedRow_OffersResumeAndStartNow_NotPause()
+    {
+        var track = CreateTrackViewModel(CreateTrack("hash-paused", Guid.NewGuid()));
+        track.State = PlaylistTrackState.Paused;
+
+        using var row = new DownloadRowViewModel(track);
+
+        Assert.Equal("Paused", row.StatusLabel);
+        Assert.True(row.CanResume);
+        Assert.True(row.CanStartNow);
+        Assert.False(row.CanPause);
+        Assert.False(row.CanRemove); // no remove callback supplied
+    }
+
+    [Fact]
+    public void ShortLabels_AreCellSized_ForEveryFailureReason()
+    {
+        foreach (DownloadFailureReason reason in Enum.GetValues(typeof(DownloadFailureReason)))
+        {
+            var label = reason.ToShortLabel();
+            Assert.False(string.IsNullOrWhiteSpace(label));
+            Assert.True(label.Length <= 22, $"{reason} label '{label}' is too long for the status cell");
+        }
     }
 
     private static UnifiedTrackViewModel CreateTrackViewModel(PlaylistTrack model)

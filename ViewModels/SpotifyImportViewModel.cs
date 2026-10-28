@@ -15,7 +15,7 @@ using SLSKDONET.Views;
 
 namespace SLSKDONET.ViewModels;
 
-public class SpotifyImportViewModel : INotifyPropertyChanged
+public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly ILogger<SpotifyImportViewModel> _logger;
     private readonly SpotifyAuthService _authService;
@@ -177,6 +177,105 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
     public ICommand AddWebShortcutCommand { get; }
     public ICommand AddSelectedSubgenrePresetCommand { get; }
     public ICommand AddGenreShortcutCommand { get; }
+    public ICommand LoadRecentImportsCommand { get; }
+
+    private readonly ILibraryService? _libraryService;
+    private readonly IEventBus? _eventBus;
+
+    /// <summary>The last few imported playlists, newest first, shown on the Import page.</summary>
+    public ObservableCollection<RecentImportItemViewModel> RecentImports { get; } = new();
+    public bool HasRecentImports => RecentImports.Count > 0;
+
+    /// <summary>True when <see cref="StatusMessage"/> describes a problem (shown in the warning tone).</summary>
+    private bool _statusIsError;
+    public bool StatusIsError
+    {
+        get => _statusIsError;
+        set { _statusIsError = value; OnPropertyChanged(); }
+    }
+
+    private void OnAuthenticationChanged(object? sender, bool authenticated) => PostToUi(() =>
+    {
+        IsAuthenticated = authenticated;
+        if (authenticated) _ = RefreshPlaylistsAsync();
+    });
+
+    public void Dispose()
+    {
+        _authService.AuthenticationChanged -= OnAuthenticationChanged;
+    }
+
+    private static void PostToUi(Action action)
+    {
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess()) action();
+        else Avalonia.Threading.Dispatcher.UIThread.Post(action);
+    }
+
+    private const int RecentImportCount = 5;
+
+    /// <summary>Loads the most recent imported playlists (Spotify, CSV, tracklists) for the Import page.</summary>
+    public async Task LoadRecentImportsAsync()
+    {
+        if (_libraryService == null) return;
+        try
+        {
+            var jobs = await _libraryService.LoadAllPlaylistJobsAsync();
+            var recent = jobs
+                .Where(j => !j.IsDeleted && !j.IsSmartPlaylist && IsImportSource(j.SourceType))
+                .OrderByDescending(j => j.CreatedAt)
+                .Take(RecentImportCount)
+                .Select(j => new RecentImportItemViewModel(j, ResolveRefreshProvider(j),
+                    StartRecentImportRefreshAsync, OpenRecentImport))
+                .ToList();
+
+            PostToUi(() =>
+            {
+                RecentImports.Clear();
+                foreach (var item in recent) RecentImports.Add(item);
+                OnPropertyChanged(nameof(HasRecentImports));
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load recent imports for the Import page");
+        }
+    }
+
+    private static bool IsImportSource(string? sourceType) =>
+        !string.IsNullOrWhiteSpace(sourceType) &&
+        (sourceType.Contains("Spotify", StringComparison.OrdinalIgnoreCase) ||
+         sourceType.Contains("CSV", StringComparison.OrdinalIgnoreCase) ||
+         sourceType.Contains("Tracklist", StringComparison.OrdinalIgnoreCase) ||
+         sourceType.Contains("1001", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The provider that can fetch this playlist's source again, or null (pasted text).</summary>
+    private IImportProvider? ResolveRefreshProvider(PlaylistJob job)
+    {
+        var url = job.SourceUrl;
+        if (string.IsNullOrWhiteSpace(url)) return null;
+        if (_likedSongsProvider.CanHandle(url)) return _likedSongsProvider;
+        if (_spotifyProvider.CanHandle(url)) return _spotifyProvider;
+        if (url.EndsWith(".csv", StringComparison.OrdinalIgnoreCase) && System.IO.File.Exists(url)) return _csvProvider;
+        return null;
+    }
+
+    private async Task StartRecentImportRefreshAsync(RecentImportItemViewModel item)
+    {
+        if (item.RefreshProvider == null || string.IsNullOrWhiteSpace(item.Job.SourceUrl)) return;
+        _logger.LogInformation("Checking '{Title}' for new tracks", item.Job.SourceTitle);
+        // The preview recognises the earlier import and defaults to updating it.
+        await _importOrchestrator.StartImportWithPreviewAsync(item.RefreshProvider, item.Job.SourceUrl);
+    }
+
+    private void OpenRecentImport(RecentImportItemViewModel item)
+    {
+        if (_eventBus == null)
+        {
+            _navigationService.NavigateTo("Library");
+            return;
+        }
+        _eventBus.Publish(new OpenPlaylistInLibraryEvent(item.Job.Id));
+    }
 
     private string _pastedTracklist = "";
     public string PastedTracklist
@@ -219,7 +318,9 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
         IFileInteractionService fileInteractionService,
         IClipboardService clipboardService,
         ConfigManager configManager,
-        AppConfig appConfig)
+        AppConfig appConfig,
+        ILibraryService? libraryService = null,
+        IEventBus? eventBus = null)
     {
         _logger = logger;
         _downloadManager = downloadManager;
@@ -237,15 +338,30 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
         _configManager = configManager;
         _appConfig = appConfig;
         
-        // Subscribe to auth changes
-        _authService.AuthenticationChanged += (s, e) => 
-        {
-            IsAuthenticated = e;
-            if (e) _ = RefreshPlaylistsAsync();
-        };
+        _libraryService = libraryService;
+        _eventBus = eventBus;
+
+        // Subscribe to auth changes. Both callbacks can arrive off the UI thread (OAuth
+        // callback listener / Task.Run) and IsAuthenticated is bound in the view.
+        _authService.AuthenticationChanged += OnAuthenticationChanged;
 
         // Initial check
-        Task.Run(async () => IsAuthenticated = await _authService.IsAuthenticatedAsync());
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var authed = await _authService.IsAuthenticatedAsync();
+                PostToUi(() =>
+                {
+                    IsAuthenticated = authed;
+                    if (authed && UserPlaylists.Count == 0) _ = RefreshPlaylistsAsync();
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Spotify auth check failed on Import page start-up");
+            }
+        });
 
         LoadPlaylistCommand = new AsyncRelayCommand(LoadPlaylistAsync);
         SelectAllCommand = new RelayCommand(SelectAll);
@@ -270,6 +386,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
         AddWebShortcutCommand = new AsyncRelayCommand(ExecuteAddWebShortcutAsync);
         AddSelectedSubgenrePresetCommand = new AsyncRelayCommand(ExecuteAddSelectedSubgenrePresetAsync);
         AddGenreShortcutCommand = new AsyncRelayCommand(ExecuteAddGenreShortcutAsync);
+        LoadRecentImportsCommand = new AsyncRelayCommand(LoadRecentImportsAsync);
 
         LoadWebShortcuts();
         LoadSubgenrePresets();
@@ -293,7 +410,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to process dropped CSV");
-            StatusMessage = $"Error: {ex.Message}";
+            SetStatus($"Couldn't import the CSV: {ex.Message}", isError: true);
         }
     }
 
@@ -367,9 +484,10 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
     {
         if (string.IsNullOrWhiteSpace(PastedTracklist))
         {
-            StatusMessage = "Please paste a tracklist first";
+            SetStatus("Paste a tracklist first.", isError: true);
             return;
         }
+        SetStatus(string.Empty);
 
         try
         {
@@ -439,7 +557,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
         var text = await _clipboardService.GetTextAsync();
         if (string.IsNullOrWhiteSpace(text))
         {
-            StatusMessage = "Clipboard is empty. Copy a tracklist first.";
+            SetStatus("The clipboard is empty. Copy a tracklist first.", isError: true);
             return false;
         }
 
@@ -738,12 +856,19 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
     {
         if (string.IsNullOrWhiteSpace(PlaylistUrl))
         {
-            StatusMessage = "Please enter a Spotify playlist URL";
+            SetStatus("Paste a Spotify playlist or album link first.", isError: true);
             return;
         }
 
+        if (!_spotifyProvider.CanHandle(PlaylistUrl))
+        {
+            SetStatus("That doesn't look like a Spotify link (open.spotify.com/… or spotify:…).", isError: true);
+            return;
+        }
+
+        SetStatus(string.Empty);
         _logger.LogInformation("Starting unified Spotify import: {Url}", PlaylistUrl);
-        await _importOrchestrator.StartImportWithPreviewAsync(_spotifyProvider, PlaylistUrl);
+        await _importOrchestrator.StartImportWithPreviewAsync(_spotifyProvider, PlaylistUrl.Trim());
     }
 
     private void SelectAll()
@@ -794,6 +919,12 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    private void SetStatus(string message, bool isError = false)
+    {
+        StatusMessage = message;
+        StatusIsError = isError && !string.IsNullOrEmpty(message);
+    }
+
     protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
@@ -811,7 +942,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to connect to Spotify");
-            StatusMessage = "Connection failed: " + ex.Message;
+            SetStatus("Couldn't connect to Spotify: " + ex.Message, isError: true);
         }
         finally
         {
@@ -845,25 +976,14 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
                 });
             }
 
-            // Also try to get "My Library" (Liked Songs)
-            // Note: Liked songs is a separate endpoint "Library.GetTracks", not a playlist.
-            // We can add a fake "Liked Songs" entry if we want, handled by specific provider.
-            UserPlaylists.Insert(0, new SpotifyPlaylistViewModel
-            {
-                Id = "me/tracks",
-                Name = "Liked Songs",
-                ImageUrl = "https://t.scdn.co/images/3099b3803ad9496896c43f22fe9be8c4.png", // Generic heart icon
-                TrackCount = 0, // Hard to get total without a call
-                Owner = "You",
-                Url = "spotify:user:me:collection" // Special case handled by provider?
-            });
-
-            StatusMessage = $"Found {UserPlaylists.Count} playlists";
+            // Liked Songs has its own row above the playlist grid (ImportLikedSongsCommand); a
+            // fake tile here used to show it again as "0 tracks".
+            StatusMessage = string.Empty;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to fetch playlists");
-            StatusMessage = "Failed to load playlists";
+            SetStatus("Couldn't load your Spotify playlists. Use the refresh button to try again.", isError: true);
             
             // If it's an auth error, we might want to reset auth
             if (ex.Message.Contains("Unauthorized"))
@@ -887,9 +1007,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
             StatusMessage = $"Syncing {UserPlaylists.Count} playlists...";
             
              // Use the direct provider call check
-             var provider = (Services.ImportProviders.SpotifyImportProvider)_importOrchestrator.GetType()
-                .GetField("_spotifyProvider", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-                ?.GetValue(_importOrchestrator)!;
+             var provider = _spotifyProvider;
 
             foreach (var playlist in UserPlaylists.ToList())
             {
@@ -937,9 +1055,7 @@ private async Task ExecuteSyncFilteredPlaylistsAsync()
         StatusMessage = $"Syncing {filtered.Count} filtered playlists...";
         
          // Use the direct provider call check
-         var provider = (Services.ImportProviders.SpotifyImportProvider)_importOrchestrator.GetType()
-            .GetField("_spotifyProvider", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-            ?.GetValue(_importOrchestrator)!;
+         var provider = _spotifyProvider;
 
         foreach (var playlist in filtered)
         {
@@ -975,9 +1091,7 @@ private async Task ExecuteSyncFilteredPlaylistsAsync()
         else
         {
              // Use the provider from orchestrator
-             var provider = (Services.ImportProviders.SpotifyImportProvider)_importOrchestrator.GetType()
-                .GetField("_spotifyProvider", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-                ?.GetValue(_importOrchestrator)!;
+             var provider = _spotifyProvider;
                 
              await _importOrchestrator.StartImportWithPreviewAsync(provider, playlist.Url);
         }

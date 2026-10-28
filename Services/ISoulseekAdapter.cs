@@ -45,7 +45,8 @@ public interface ISoulseekAdapter
         IProgress<double>? progress = null,
         Action<TransferLifecycleUpdate>? lifecycleUpdate = null,
         CancellationToken ct = default,
-        long startOffset = 0);
+        long startOffset = 0,
+        bool suppressCompletionEventOnFailure = false);
 
     Task<IEnumerable<Track>> GetUserSharesAsync(
         string username,

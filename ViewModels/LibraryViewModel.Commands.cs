@@ -22,6 +22,7 @@ using SLSKDONET.Services.Playlist;
 using SLSKDONET.Services.Library;
 using SLSKDONET.Services.Similarity;
 using SLSKDONET.Models.Musical;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -34,6 +35,13 @@ public partial class LibraryViewModel
     public ICommand ViewHistoryCommand { get; set; } = null!;
     public ICommand OpenSourcesCommand { get; set; } = null!;
     public ICommand RemoveUnidentifiedTracksCommand { get; set; } = null!;
+    public ICommand RemoveDuplicateTracksCommand { get; set; } = null!;
+    public ICommand FixMissingFileFlagsCommand { get; set; } = null!;
+    public ICommand BackfillDurationsCommand { get; set; } = null!;
+    public ICommand MeasureMissingLoudnessCommand { get; set; } = null!;
+    public ICommand EnrichLibraryMetadataCommand { get; set; } = null!;
+    public ICommand AutoArrangePlaylistCommand { get; set; } = null!;
+    public ICommand CombineSelectedPlaylistsCommand { get; set; } = null!;
     public ICommand ToggleEditModeCommand { get; set; } = null!;
     public ICommand ToggleActiveDownloadsCommand { get; set; } = null!;
     public ICommand ToggleNavigationCommand { get; set; } = null!;
@@ -53,15 +61,18 @@ public partial class LibraryViewModel
     public ICommand AcquireMissingTracksCommand { get; set; } = null!;
     public ICommand RenameProjectCommand { get; set; } = null!;
     public ICommand DuplicateDetectionCommand { get; set; } = null!;
-    public ICommand AutoOrganizeCommand { get; set; } = null!;
     public ICommand LoadDeletedProjectsCommand { get; set; } = null!;
     public ICommand RestoreProjectCommand { get; set; } = null!;
     public ICommand CloseRemovalHistoryCommand { get; set; } = null!;
     public ICommand CloseImportHistoryCommand { get; set; } = null!;
+    public ICommand CloseOrphanedTracksCommand { get; set; } = null!;
+    public ICommand OpenLibraryHealthCommand { get; set; } = null!;
+    public ICommand CloseLibraryHealthCommand { get; set; } = null!;
     public ICommand SyncProjectCommand { get; set; } = null!;
     public ICommand OpenSourceUrlCommand { get; set; } = null!;
     public ICommand ExportPlaylistCommand { get; set; } = null!;
     public ICommand ExportPlaylistM3uCommand { get; set; } = null!;
+    public ICommand InitiateMp3SearchCommand { get; set; } = null!;
 
     public ICommand SwitchWorkspaceCommand { get; set; } = null!;
     public ICommand ToggleColumnCommand { get; set; } = null!;
@@ -94,6 +105,8 @@ public partial class LibraryViewModel
 
     // ── Batch Action FAB (Task 10.5) ────────────────────────────────────────
     public ICommand BatchTagEditCommand { get; set; } = null!;
+    public ICommand BulkRenameCommand { get; set; } = null!;
+    public ICommand BulkMoveOrCopyCommand { get; set; } = null!;
     public ICommand BatchQueueAnalysisCommand { get; set; } = null!;
     public ICommand BatchAddToPlaylistCommand { get; set; } = null!;
     public ICommand BatchExportRekordboxCommand { get; set; } = null!;
@@ -112,6 +125,13 @@ public partial class LibraryViewModel
             else IsSourcesOpen = true;
         });
         RemoveUnidentifiedTracksCommand = new AsyncRelayCommand(ExecuteRemoveUnidentifiedTracksAsync);
+        RemoveDuplicateTracksCommand = new AsyncRelayCommand(ExecuteRemoveDuplicateTracksAsync);
+        FixMissingFileFlagsCommand = new AsyncRelayCommand(ExecuteFixMissingFileFlagsAsync);
+        BackfillDurationsCommand = new AsyncRelayCommand(ExecuteBackfillDurationsAsync);
+        MeasureMissingLoudnessCommand = new RelayCommand(ExecuteMeasureMissingLoudness);
+        EnrichLibraryMetadataCommand = new AsyncRelayCommand(ExecuteEnrichLibraryMetadataAsync);
+        AutoArrangePlaylistCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteAutoArrangePlaylistAsync);
+        CombineSelectedPlaylistsCommand = new AsyncRelayCommand(ExecuteCombineSelectedPlaylistsAsync);
         ToggleEditModeCommand = new RelayCommand(() => IsEditMode = !IsEditMode);
         ToggleActiveDownloadsCommand = new RelayCommand(() => IsActiveDownloadsVisible = !IsActiveDownloadsVisible);
         ToggleNavigationCommand = new RelayCommand(ExecuteToggleNavigation);
@@ -135,8 +155,16 @@ public partial class LibraryViewModel
         LoadDeletedProjectsCommand = new AsyncRelayCommand(ExecuteLoadDeletedProjectsAsync);
         RestoreProjectCommand = new AsyncRelayCommand<object>(ExecuteRestoreProjectAsync);
         CloseRemovalHistoryCommand = new RelayCommand(() => IsRemovalHistoryVisible = false);
+        CloseOrphanedTracksCommand = new RelayCommand(() => IsOrphanedTracksVisible = false);
+        OpenLibraryHealthCommand = new RelayCommand(() =>
+        {
+            IsLibraryHealthVisible = true;
+            LibraryHealthViewModel.RefreshAll();
+        });
+        CloseLibraryHealthCommand = new RelayCommand(() => IsLibraryHealthVisible = false);
         CloseImportHistoryCommand = new RelayCommand(() => IsImportHistoryVisible = false);
         ExportPlaylistCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistAsync);
+        InitiateMp3SearchCommand = new AsyncRelayCommand<object>(ExecuteInitiateMp3SearchAsync);
         ExportPlaylistM3uCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistM3uAsync);
 
 
@@ -144,7 +172,6 @@ public partial class LibraryViewModel
         SwitchWorkspaceCommand = new RelayCommand<ActiveWorkspace>(ws => CurrentWorkspace = ws);
 
         DuplicateDetectionCommand = new AsyncRelayCommand(ExecuteDuplicateDetectionAsync);
-        AutoOrganizeCommand = new AsyncRelayCommand(ExecuteAutoOrganizeAsync);
         SyncPhysicalLibraryCommand = new AsyncRelayCommand(ExecuteSyncPhysicalLibraryAsync);
         CreateSmartPlaylistCommand = SmartPlaylists.CreateCrateCommand;
         OpenFlowBuilderCommand = new RelayCommand(ExecuteOpenFlowBuilder);
@@ -174,6 +201,8 @@ public partial class LibraryViewModel
 
         // Batch Action FAB
         BatchTagEditCommand = new AsyncRelayCommand(ExecuteBatchTagEditAsync);
+        BulkRenameCommand = new AsyncRelayCommand(ExecuteBulkRenameAsync);
+        BulkMoveOrCopyCommand = new AsyncRelayCommand(ExecuteBulkMoveOrCopyAsync);
         BatchQueueAnalysisCommand = new AsyncRelayCommand(ExecuteBatchQueueAnalysisAsync);
         BatchAddToPlaylistCommand = new AsyncRelayCommand(ExecuteBatchAddToPlaylistAsync);
         BatchExportRekordboxCommand = new AsyncRelayCommand(ExecuteBatchExportRekordboxAsync);
@@ -300,7 +329,7 @@ public partial class LibraryViewModel
 
         _notificationService.Show(
             "Smart Insert Preset",
-            $"{presetName} preset applied ({Intelligence.LibrarySmartInsertMinConfidence:F2}, {Intelligence.LibrarySmartInsertStructureSensitivity}%).",
+            NumFormat.Ui($"{presetName} preset applied ({Intelligence.LibrarySmartInsertMinConfidence:F2}, {Intelligence.LibrarySmartInsertStructureSensitivity}%)."),
             NotificationType.Information);
     }
 
@@ -439,10 +468,34 @@ public partial class LibraryViewModel
         if (param is PlaylistJob project)
         {
             var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
-            if (tracks.Any())
+
+            // Only tracks with a resolved local file can actually play — matches
+            // AlbumNode.PlayAlbum()'s own filter and PlayAlbumRequestEvent's subscriber
+            // (PlayerViewModel), which silently skips anything without ResolvedFilePath anyway.
+            var playable = tracks.Where(t => !string.IsNullOrEmpty(t.ResolvedFilePath)).ToList();
+
+            if (playable.Count == 0)
             {
-                 _notificationService.Show("Playing Album", project.SourceTitle, NotificationType.Information);
+                _notificationService.Show("Nothing to Play", $"{project.SourceTitle} has no downloaded tracks yet.", NotificationType.Warning);
+                return;
             }
+
+            // This used to stop at showing a "Playing Album" toast without ever actually queuing
+            // or starting playback — the playlist row's own Play button was a no-op. Publishing
+            // the same event AlbumNode.PlayAlbum() uses is what PlayerViewModel actually listens
+            // for to clear the queue, load every track, and start the first one.
+            // Start from the selected track when one is selected in this same playlist — the rest
+            // of the playlist is still queued (and mixed, with Mix on) from there onward.
+            var selected = Tracks.LeadSelectedTrack?.Model;
+            var startTrack = selected != null && selected.PlaylistId == project.Id
+                ? playable.FirstOrDefault(t => t.Id == selected.Id)
+                : null;
+
+            _eventBus.Publish(new PlayAlbumRequestEvent(playable, Tracks.IsMixModeEnabled, startTrack?.Id));
+            _notificationService.Show(
+                "Playing Album",
+                startTrack != null ? $"{project.SourceTitle} — from \"{startTrack.Title}\"" : project.SourceTitle,
+                NotificationType.Information);
         }
     }
 
@@ -506,11 +559,37 @@ public partial class LibraryViewModel
                 return;
             _downloadMissingLastRun[project.Id] = now;
 
+            // Shown before the DB round-trip below, not after: LoadPlaylistTracksAsync eager-loads
+            // TechnicalDetails/AudioFeatures for the whole playlist, which is not instant — without
+            // an immediate acknowledgement here the click reads as not having registered at all.
+            _notificationService.Show("Download Missing", $"Looking up missing tracks in {project.SourceTitle}...", NotificationType.Information);
+
             var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
             var missing = tracks.Where(t => t.Status != TrackStatus.Downloaded && t.Status != TrackStatus.OnHold).ToList();
+
+            // OnHold tracks (background search gave up after repeated attempts) are a deliberate
+            // dead end otherwise — normally the user has to find and click "Retry" on each one
+            // individually in Downloads > Attention. That's exactly what clicking "Download
+            // Missing" here is already asking for, so revive them into the same batch instead of
+            // silently excluding them: without this, the sidebar could show a playlist with real
+            // undownloaded tracks (visibly "Pending" in the track grid) while this command reports
+            // "already downloaded or queued" — true only in the narrow DB sense that OnHold isn't
+            // TrackStatus.Missing, misleading in the sense a user actually cares about.
+            var onHold = tracks.Where(t => t.Status == TrackStatus.OnHold).ToList();
+            if (onHold.Count > 0)
+            {
+                foreach (var t in onHold)
+                {
+                    t.Status = TrackStatus.Missing;
+                    t.SearchRetryCount = 0;
+                }
+                await _libraryService.SavePlaylistTracksAsync(onHold);
+                missing.AddRange(onHold);
+            }
+
             if (missing.Any())
             {
-                _notificationService.Show("Queueing Missing Tracks", $"{missing.Count} missing tracks from {project.SourceTitle}", NotificationType.Information);
+                _notificationService.Show("Queued", $"{missing.Count} missing tracks from {project.SourceTitle} added to queue.", NotificationType.Success);
 
                 foreach (var t in missing)
                 {
@@ -537,6 +616,11 @@ public partial class LibraryViewModel
             var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
             if (tracks.Any())
             {
+                bool confirm = await _dialogService.ConfirmAsync(
+                    "Force Redownload",
+                    $"This cancels any in-progress downloads and re-queues all {tracks.Count} track(s) in '{project.SourceTitle}' from scratch. Continue?");
+                if (!confirm) return;
+
                 _notificationService.Show("Force Downloading Playlist", $"Force queueing {tracks.Count} tracks from {project.SourceTitle}...", NotificationType.Information);
 
                 foreach (var t in tracks)
@@ -561,7 +645,11 @@ public partial class LibraryViewModel
         if (param is PlaylistJob project)
         {
             var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
-            var ghostTracks = tracks.Where(t => t.AvailabilityState == TrackAvailabilityState.Ghost).ToList();
+            // Status=Downloaded overrides a stale/drifted Ghost — see PlaylistTrackViewModel.IsGhost.
+            // Without this, a track already downloaded (file exists, plays fine) but stuck showing
+            // Ghost got its Status reset back to Missing here — an actively destructive side effect
+            // of the drift bug, not just a cosmetic badge issue.
+            var ghostTracks = tracks.Where(t => t.AvailabilityState == TrackAvailabilityState.Ghost && t.Status != TrackStatus.Downloaded).ToList();
             if (ghostTracks.Any())
             {
                 _notificationService.Show("Acquiring Missing Tracks", $"Starting acquisition for {ghostTracks.Count} tracks from {project.SourceTitle}...", NotificationType.Information);
@@ -805,72 +893,6 @@ public partial class LibraryViewModel
 
     }
 
-    private async Task ExecuteAutoOrganizeAsync()
-    {
-        try
-        {
-            IsLoading = true;
-            _notificationService.Show("Auto-Organizer", "Scanning library for organization...", NotificationType.Information);
-            
-            var entries = await _libraryService.LoadAllLibraryEntriesAsync();
-            int movedCount = 0;
-            int errorCount = 0;
-            
-            var targetRoot = _appConfig.DownloadDirectory;
-            if (string.IsNullOrEmpty(targetRoot) && _appConfig.LibraryRootPaths.Any())
-                targetRoot = _appConfig.LibraryRootPaths.First();
-                
-            if (string.IsNullOrEmpty(targetRoot))
-            {
-                _notificationService.Show("Organizer Error", "No target directory configured.", NotificationType.Error);
-                return;
-            }
-
-            foreach (var entry in entries)
-            {
-                if (string.IsNullOrEmpty(entry.FilePath) || !System.IO.File.Exists(entry.FilePath)) continue;
-                
-                var extension = System.IO.Path.GetExtension(entry.FilePath);
-                var safeArtist = Utils.FilenameNormalizer.GetSafeFilename(entry.Artist ?? "Unknown Artist");
-                var safeAlbum = Utils.FilenameNormalizer.GetSafeFilename(entry.Album ?? "Unknown Album");
-                var safeTitle = Utils.FilenameNormalizer.GetSafeFilename(entry.Title ?? "Unknown Title");
-                
-                var newDir = System.IO.Path.Combine(targetRoot, safeArtist, safeAlbum);
-                var newPath = System.IO.Path.Combine(newDir, $"{safeArtist} - {safeTitle}{extension}");
-                
-                if (entry.FilePath == newPath) continue;
-                
-                try 
-                {
-                    if (!System.IO.Directory.Exists(newDir))
-                        System.IO.Directory.CreateDirectory(newDir);
-                        
-                    System.IO.File.Move(entry.FilePath, newPath, true);
-                    entry.FilePath = newPath;
-                    await _libraryService.SaveOrUpdateLibraryEntryAsync(entry);
-                    movedCount++;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to move file: {Path}", entry.FilePath);
-                    errorCount++;
-                }
-            }
-            
-            _notificationService.Show("Organization Complete", $"Moved {movedCount} files.", movedCount > 0 ? NotificationType.Success : NotificationType.Information);
-            await ExecuteRefreshLibraryAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Organizaton process failed");
-            _notificationService.Show("Organizer Failed", ex.Message, NotificationType.Error);
-        }
-        finally
-        {
-            IsLoading = false;
-        }
-    }
-
     private async Task ExecuteSyncPhysicalLibraryAsync()
     {
         try
@@ -879,15 +901,22 @@ public partial class LibraryViewModel
             _notificationService.Show("Syncing Library", "Scanning for missing files...", NotificationType.Information);
 
             var entries = await _databaseService.GetAllLibraryEntriesAsync();
-            var orphans = new List<LibraryEntryEntity>();
 
-            foreach (var entry in entries)
+            // Thousands of synchronous File.Exists syscalls (worse yet on a slow/disconnected
+            // network share) — this command was unreachable dead code until the Orphaned Tracks
+            // panel got wired up, so this was never actually exercised on the UI thread before.
+            var orphans = await Task.Run(() =>
             {
-                if (!string.IsNullOrEmpty(entry.FilePath) && !System.IO.File.Exists(entry.FilePath))
+                var result = new List<LibraryEntryEntity>();
+                foreach (var entry in entries)
                 {
-                    orphans.Add(entry);
+                    if (!string.IsNullOrEmpty(entry.FilePath) && !System.IO.File.Exists(entry.FilePath))
+                    {
+                        result.Add(entry);
+                    }
                 }
-            }
+                return result;
+            });
 
             // Clear existing orphaned tracks
             OrphanedTracks.Clear();
@@ -1022,16 +1051,135 @@ public partial class LibraryViewModel
                 return;
             }
 
-            _navigationService.NavigateTo("Workstation");
+            _navigationService.NavigateTo("FlowBuilder");
             _notificationService.Show(
                 "Flow Builder",
-                "Opened Workstation Flow view.",
+                "Opened Flow Builder.",
                 NotificationType.Information);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to open flow builder");
             _notificationService.Show("Flow Builder Failed", ex.Message, NotificationType.Error);
+        }
+    }
+
+    /// <summary>
+    /// Combines the selected library playlists directly, without navigating away from the Library.
+    /// </summary>
+    private async Task ExecuteCombineSelectedPlaylistsAsync()
+    {
+        var selectedPlaylists = Projects.SelectedTreeNodes
+            .OfType<PlaylistTreeCardNodeViewModel>()
+            .Select(node => node.Card.Model)
+            .ToList();
+
+        if (selectedPlaylists.Count < 2)
+        {
+            _notificationService.Show(
+                "Combine Playlists",
+                "Select 2 or more playlists first (Ctrl/Shift-click in the sidebar).",
+                NotificationType.Warning);
+            return;
+        }
+
+        try
+        {
+            var availablePlaylists = await _libraryService.LoadAllPlaylistJobsAsync();
+            var availableIds = availablePlaylists.Select(playlist => playlist.Id).ToHashSet();
+            availablePlaylists.AddRange(
+                selectedPlaylists.Where(playlist => availableIds.Add(playlist.Id)));
+            var dialogResult = await _dialogService.ShowCombinePlaylistsDialogAsync(
+                availablePlaylists,
+                selectedPlaylists);
+            if (dialogResult == null || !dialogResult.IsConfirmed)
+                return;
+
+            if (dialogResult.SelectedPlaylists.Count < 2)
+            {
+                _notificationService.Show(
+                    "Combine Playlists",
+                    "Select at least two playlists to combine.",
+                    NotificationType.Warning);
+                return;
+            }
+
+            var sourcePlaylistTracks = new List<List<PlaylistTrack>>();
+            foreach (var playlist in dialogResult.SelectedPlaylists)
+            {
+                // Combining playlists must preserve their tracks even if they are not yet
+                // prepared for workstation playback.
+                sourcePlaylistTracks.Add(await _libraryService.LoadPlaylistTracksAsync(playlist.Id));
+            }
+            var combinedTracks = PlaylistCombinePersistence.CollectTracks(
+                sourcePlaylistTracks,
+                dialogResult.SkipDuplicateTracks);
+
+            if (combinedTracks.Count == 0)
+            {
+                _notificationService.Show(
+                    "Combine Playlists",
+                    "The selected playlists do not contain any tracks to combine.",
+                    NotificationType.Warning);
+                return;
+            }
+
+            var orderedTracks = combinedTracks;
+            string? optimizationWarning = null;
+            var hashes = combinedTracks
+                .Select(track => track.TrackUniqueHash ?? string.Empty)
+                .Where(hash => hash.Length > 0)
+                .ToList();
+            var optimizer = _serviceProvider?.GetService(typeof(Services.Playlist.PlaylistOptimizer))
+                as Services.Playlist.PlaylistOptimizer;
+            if (optimizer != null && hashes.Count > 0)
+            {
+                try
+                {
+                    var result = await optimizer.OptimizeAsync(hashes);
+                    orderedTracks = FlowBuilderViewModel.ExpandOrderedTracksWithDuplicates(
+                        result.OrderedHashes,
+                        combinedTracks);
+                    if (result.OrderedHashes.Count == 0)
+                        optimizationWarning = "No transition order was available; source order was preserved.";
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not optimize combined playlist; preserving source order");
+                    optimizationWarning = "Transition optimization was unavailable; source order was preserved.";
+                }
+            }
+            else
+            {
+                optimizationWarning = "Transition optimization was unavailable; source order was preserved.";
+            }
+
+            var newPlaylist = await PlaylistCombinePersistence.SaveAsync(
+                _libraryService,
+                dialogResult.NewPlaylistName,
+                orderedTracks);
+
+            await Projects.LoadProjectsAsync();
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                Projects.SelectedProject = Projects.AllProjects.FirstOrDefault(
+                    playlist => playlist.Id == newPlaylist.Id);
+            });
+
+            var message = $"Created \"{newPlaylist.SourceTitle}\" with {orderedTracks.Count} tracks.";
+            if (!string.IsNullOrEmpty(optimizationWarning))
+                message += $" {optimizationWarning}";
+            _notificationService.Show(
+                "Playlists Combined",
+                message,
+                string.IsNullOrEmpty(optimizationWarning)
+                    ? NotificationType.Success
+                    : NotificationType.Warning);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to combine selected playlists");
+            _notificationService.Show("Combine Playlists Failed", ex.Message, NotificationType.Error);
         }
     }
 
@@ -1670,7 +1818,7 @@ public partial class LibraryViewModel
 
         return new SmartInsertResult(
             true,
-            $"Inserted {entry.Artist} - {entry.Title} between tracks (fit {(best.Score * 100):F0}%, threshold {_appConfig.LibrarySmartInsertMinConfidence:F2}, structure {_appConfig.LibrarySmartInsertStructureSensitivity}%).{savedDoublePriorSuffix}",
+            NumFormat.Ui($"Inserted {entry.Artist} - {entry.Title} between tracks (fit {(best.Score * 100):F0}%, threshold {_appConfig.LibrarySmartInsertMinConfidence:F2}, structure {_appConfig.LibrarySmartInsertStructureSensitivity}%).{savedDoublePriorSuffix}"),
             NotificationType.Success);
     }
 
@@ -1714,26 +1862,27 @@ public partial class LibraryViewModel
 
         try
         {
-            // Ask user: copy files to USB/folder, or XML only?
-            bool copyFiles = await _dialogService.ConfirmAsync(
-                "Export Playlist",
-                $"How do you want to export \"{project.SourceTitle}\"?\n\n" +
-                "Yes — copy audio files + write Rekordbox XML (USB / folder export)\n" +
-                "No  — Rekordbox XML only (no file copy)",
-                confirmLabel: "Copy Files + XML",
-                cancelLabel: "XML Only");
+            // Ask user: copy files to USB/folder, XML only, or cancel entirely. Dismissing this
+            // dialog (X / Alt+F4 / Escape) returns null here, which is handled the same as an
+            // explicit Cancel below — unlike the old ConfirmAsync-based version, dismissing no
+            // longer silently falls through to an XML-only export the user never asked for.
+            var choice = await _dialogService.ShowExportPlaylistChoiceAsync(project.SourceTitle);
+            if (choice is null or Views.Avalonia.Dialogs.ExportPlaylistChoice.Cancelled)
+                return;
 
             IsLoading = true;
             var tracks = (await _libraryService.LoadPlaylistTracksAsync(project.Id)).ToList();
 
-            if (copyFiles)
+            if (choice == Views.Avalonia.Dialogs.ExportPlaylistChoice.CopyFilesAndXml)
             {
                 var folder = await _dialogService.OpenFolderDialogAsync("Choose export folder or USB drive root");
                 if (string.IsNullOrEmpty(folder)) return;
 
                 int total = tracks.Count;
+                Services.Export.ExportProgress? lastProgress = null;
                 var progressHandler = new Progress<Services.Export.ExportProgress>(p =>
                 {
+                    lastProgress = p;
                     if (!p.IsComplete)
                         _notificationService.Show("Exporting…",
                             $"[{p.Copied}/{total}] {p.CurrentFile}" +
@@ -1746,13 +1895,24 @@ public partial class LibraryViewModel
                     Services.Export.ExportMode.FilesAndXml,
                     progressHandler, folderId: project.FolderId);
 
-                int skipped = tracks.Count(t =>
-                    string.IsNullOrEmpty(t.ResolvedFilePath) || !System.IO.File.Exists(t.ResolvedFilePath));
+                // Use the orchestrator's own final tally rather than re-deriving "skipped" by
+                // re-checking File.Exists here — that only ever caught missing-file skips, silently
+                // missing every other reason a track can end up left out (copy verification
+                // failure, exceeding FAT32's 4GB single-file limit, disk-full mid-export). Those
+                // are exactly the failure modes a USB export needs to surface, not hide.
+                int skipped = lastProgress?.Skipped ?? 0;
                 var xmlPath = System.IO.Path.Combine(folder, "PIONEER", "rekordbox.xml");
+                // A drive with only files + rekordbox.xml is not yet CDJ-ready — CDJs read
+                // Rekordbox's own native device database (PDB+ANLZ), not this XML directly. The
+                // XML has to go through Rekordbox desktop first (Preferences → Advanced →
+                // rekordbox xml → import), and only Rekordbox's own device-export from there
+                // actually prepares the drive for CDJ hardware. Spelling this out here so it isn't
+                // discovered the hard way at a gig.
                 _notificationService.Show("Export Complete",
-                    $"rekordbox.xml written to {xmlPath}" +
-                    (skipped > 0 ? $" · {skipped} tracks skipped (not downloaded)" : ""),
-                    NotificationType.Success);
+                    $"{xmlPath}" +
+                    (skipped > 0 ? $" · {skipped} track(s) skipped — see logs for why" : "") +
+                    " · Next: import this XML into Rekordbox desktop, then use Rekordbox's own USB export to make this drive CDJ-ready.",
+                    skipped > 0 ? NotificationType.Warning : NotificationType.Success);
             }
             else
             {
@@ -1789,15 +1949,24 @@ public partial class LibraryViewModel
         try
         {
             var safeName = Utils.FilenameNormalizer.GetSafeFilename(project.SourceTitle);
-            var path = await _dialogService.SaveFileAsync("Export M3U Playlist", $"{safeName}.m3u8", "m3u8");
+            var path = await _dialogService.SaveFileAsync("Export Rekordbox M3U8 Playlist", $"{safeName}.m3u8", "m3u8");
             if (string.IsNullOrEmpty(path)) return;
 
             IsLoading = true;
             var tracks = (await _libraryService.LoadPlaylistTracksAsync(project.Id)).ToList();
-            await _exportService.ExportToM3uAsync(project.SourceTitle, tracks, path);
+            var result = await _exportService.ExportToM3uAsync(project.SourceTitle, tracks, path);
+            var details = result.SkippedTrackProblems.Count == 0
+                ? string.Empty
+                : " Unavailable tracks were omitted: "
+                    + string.Join("; ", result.SkippedTrackProblems.Take(3))
+                    + (result.SkippedTrackProblems.Count > 3 ? "; …" : "");
             _notificationService.Show("M3U Export Complete",
-                $"{tracks.Count} track(s) exported to {Path.GetFileName(path)}",
-                NotificationType.Success);
+                $"{result.Exported} track(s) exported to {Path.GetFileName(path)}" +
+                (result.SkippedDuplicates > 0 ? $" · {result.SkippedDuplicates} duplicate path(s) skipped" : "") +
+                (result.SkippedTrackProblems.Count > 0
+                    ? $" · {result.SkippedTrackProblems.Count} unavailable track(s) skipped.{details}"
+                    : ""),
+                result.Skipped > 0 ? NotificationType.Warning : NotificationType.Success);
         }
         catch (OperationCanceledException)
         {
@@ -1858,7 +2027,31 @@ public partial class LibraryViewModel
                 initialFileName = System.IO.Path.GetFileNameWithoutExtension(singlePath);
         }
 
-        var result = await _dialogService.ShowBatchTagEditDialogAsync(initialFileName);
+        // Prefill the dialog with the selection's actual current values instead of leaving every
+        // field blank — a field comes back null (shown as "multiple values") only when the
+        // selected tracks disagree on it, which is impossible for a single track.
+        string? CommonOrNull(Func<SLSKDONET.Models.PlaylistTrack, string?> selector)
+        {
+            var values = selected.Select(t => selector(t.Model) ?? string.Empty).Distinct().ToList();
+            return values.Count == 1 ? values[0] : null;
+        }
+
+        var seed = new BatchTagEditSeed
+        {
+            Artist = CommonOrNull(m => m.Artist),
+            Title = CommonOrNull(m => m.Title),
+            Album = CommonOrNull(m => m.Album),
+            Genre = CommonOrNull(m => m.PrimaryGenre),
+            Year = CommonOrNull(m => m.ReleaseDate?.Year.ToString()),
+            Bpm = CommonOrNull(m => m.BPM is > 0 ? m.BPM.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) : null),
+            Key = CommonOrNull(m => m.MusicalKey),
+            Comments = CommonOrNull(m => m.Comments),
+            Mood = CommonOrNull(m => m.MoodTag),
+            TrackNumber = CommonOrNull(m => m.TrackNumber > 0 ? m.TrackNumber.ToString() : null),
+            Rating = CommonOrNull(m => m.Rating > 0 ? m.Rating.ToString() : null),
+        };
+
+        var result = await _dialogService.ShowBatchTagEditDialogAsync(initialFileName, seed);
         if (result == null || !result.IsConfirmed) return;
 
         _logger.LogInformation("Batch tag edit for {Count} tracks starting.", selected.Count);
@@ -1870,14 +2063,28 @@ public partial class LibraryViewModel
         }
 
         double? bpm = null;
-        if (!string.IsNullOrWhiteSpace(result.Bpm) && double.TryParse(result.Bpm, out var parsedBpm) && parsedBpm > 0)
+        if (!string.IsNullOrWhiteSpace(result.Bpm) && SLSKDONET.Utils.NumFormat.TryParse(result.Bpm, out var parsedBpm) && parsedBpm > 0)
         {
             bpm = parsedBpm;
+        }
+
+        int? trackNumber = null;
+        if (!string.IsNullOrWhiteSpace(result.TrackNumber) && int.TryParse(result.TrackNumber, out var parsedTrackNumber) && parsedTrackNumber > 0)
+        {
+            trackNumber = parsedTrackNumber;
+        }
+
+        int? rating = null;
+        if (!string.IsNullOrWhiteSpace(result.Rating) && int.TryParse(result.Rating, out var parsedRating) && parsedRating is >= 0 and <= 5)
+        {
+            rating = parsedRating;
         }
 
         int tagUpdateSuccessCount = 0;
         int dbUpdateSuccessCount = 0;
         int renameFailedCount = 0;
+        var failedTagWriteTracks = new List<string>();
+        var failedRenameTracks = new List<string>();
 
         await Task.Run(async () =>
         {
@@ -1900,56 +2107,47 @@ public partial class LibraryViewModel
                 var track = trackVm.Model;
                 bool fileUpdated = false;
 
-                // 1. Update physical file tags
+                // 1. Update physical file tags — routed through the atomic, verified ITaggerService
+                // (temp-file write + post-write format check) instead of writing TagLib directly in
+                // place, so a bad write can't leave a half-tagged or corrupted file on disk. As a
+                // bonus this also writes Key/TrackNumber, which the old inline path explicitly
+                // skipped (neither has a slot in TagLib's plain Tag API, but ITaggerService writes
+                // Key via InitialKey and TrackNumber via the Metadata dictionary).
                 if (track.Status == TrackStatus.Downloaded && !string.IsNullOrEmpty(track.ResolvedFilePath) && System.IO.File.Exists(track.ResolvedFilePath))
                 {
                     try
                     {
-                        using (var tagFile = TagLib.File.Create(track.ResolvedFilePath))
+                        var taggerTrack = new Track
                         {
-                            if (tagFile.Tag != null)
-                            {
-                                if (!string.IsNullOrWhiteSpace(result.Artist))
-                                {
-                                    tagFile.Tag.Artists = new[] { result.Artist };
-                                    tagFile.Tag.Performers = new[] { result.Artist };
-                                }
-                                if (!string.IsNullOrWhiteSpace(result.Title))
-                                {
-                                    tagFile.Tag.Title = result.Title;
-                                }
-                                if (!string.IsNullOrWhiteSpace(result.Album))
-                                {
-                                    tagFile.Tag.Album = result.Album;
-                                }
-                                if (!string.IsNullOrWhiteSpace(result.Genre))
-                                {
-                                    tagFile.Tag.Genres = new[] { result.Genre };
-                                }
-                                if (!string.IsNullOrWhiteSpace(result.Year) && uint.TryParse(result.Year, out var y))
-                                {
-                                    tagFile.Tag.Year = y;
-                                }
-                                if (bpm.HasValue)
-                                {
-                                    tagFile.Tag.BeatsPerMinute = (uint)Math.Round(bpm.Value);
-                                }
-                                if (!string.IsNullOrWhiteSpace(result.Comments))
-                                {
-                                    tagFile.Tag.Comment = result.Comments;
-                                }
-                                // Key/Mood are intentionally not written to the physical file — neither
-                                // has a standard, widely-supported ID3/tag slot via TagLib's high-level
-                                // Tag API, so they stay database-only (same treatment MoodTag already got).
-                                tagFile.Save();
-                                fileUpdated = true;
-                                tagUpdateSuccessCount++;
-                            }
+                            Title = result.Title,
+                            Artist = result.Artist,
+                            Album = result.Album,
+                            Metadata = new Dictionary<string, object>(),
+                        };
+                        if (!string.IsNullOrWhiteSpace(result.Genre)) taggerTrack.Metadata["Genre"] = result.Genre;
+                        if (!string.IsNullOrWhiteSpace(result.Year)) taggerTrack.Metadata["Year"] = result.Year;
+                        if (bpm.HasValue) taggerTrack.Metadata["BPM"] = bpm.Value;
+                        if (!string.IsNullOrWhiteSpace(result.Key)) taggerTrack.Metadata["MusicalKey"] = result.Key;
+                        if (!string.IsNullOrWhiteSpace(result.Comments)) taggerTrack.Metadata["Comment"] = result.Comments;
+                        if (!string.IsNullOrWhiteSpace(result.TrackNumber)) taggerTrack.Metadata["TrackNumber"] = result.TrackNumber;
+                        // Mood is intentionally not written to the physical file — it has no
+                        // standard, widely-supported ID3/tag slot via TagLib's high-level Tag API,
+                        // so it stays database-only.
+
+                        fileUpdated = await _taggerService.TagFileAsync(taggerTrack, track.ResolvedFilePath);
+                        if (fileUpdated)
+                        {
+                            tagUpdateSuccessCount++;
+                        }
+                        else
+                        {
+                            failedTagWriteTracks.Add($"{track.Artist} - {track.Title}");
                         }
                     }
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Failed to write tag to physical file: {Path}", track.ResolvedFilePath);
+                        failedTagWriteTracks.Add($"{track.Artist} - {track.Title}");
                     }
                 }
 
@@ -1972,8 +2170,17 @@ public partial class LibraryViewModel
                         if (!string.IsNullOrWhiteSpace(result.Key)) dbTrack.MusicalKey = result.Key;
                         if (!string.IsNullOrWhiteSpace(result.Comments)) dbTrack.Comments = result.Comments;
                         if (!string.IsNullOrWhiteSpace(result.Mood)) dbTrack.MoodTag = result.Mood;
+                        if (trackNumber.HasValue) dbTrack.TrackNumber = trackNumber.Value;
 
                         context.PlaylistTracks.Update(dbTrack);
+                    }
+
+                    // 2b. Rating is global-by-hash (shared across every row for this track), so it
+                    // goes through the existing single-track rating path instead of the two entity
+                    // updates above.
+                    if (rating.HasValue && !string.IsNullOrEmpty(track.TrackUniqueHash))
+                    {
+                        await _libraryService.UpdateRatingAsync(track.TrackUniqueHash, rating.Value);
                     }
 
                     // 3. Update Library Entry if exists
@@ -2046,6 +2253,7 @@ public partial class LibraryViewModel
                                     {
                                         _logger.LogError(ex, "Failed to rename file: {Path}", sourcePath);
                                         renameFailedCount++;
+                                        failedRenameTracks.Add($"{track.Artist} - {track.Title}");
                                     }
                                 }
                                 else
@@ -2106,6 +2314,17 @@ public partial class LibraryViewModel
                     {
                         trackVm.Model.MoodTag = result.Mood;
                     }
+                    if (trackNumber.HasValue)
+                    {
+                        trackVm.Model.TrackNumber = trackNumber.Value;
+                    }
+                    if (rating.HasValue)
+                    {
+                        // Set the model directly rather than trackVm.Rating — that setter fires its
+                        // own UpdateRatingAsync call, which would double-write the DB update already
+                        // done above.
+                        trackVm.Model.Rating = rating.Value;
+                    }
                     trackVm.NotifyMetadataChanged();
                 });
             }
@@ -2113,17 +2332,319 @@ public partial class LibraryViewModel
             await context.SaveChangesAsync();
         });
 
+        await MarkUserEditedForEnrichmentAsync(selected.Select(t => t.Model.TrackUniqueHash), result.Artist, result.Title,
+            result.Album, result.Genre, releaseDate.HasValue);
+
         var failedCount = selected.Count - dbUpdateSuccessCount;
         var message = $"Successfully edited metadata tags for {dbUpdateSuccessCount} track(s) in DB (and {tagUpdateSuccessCount} physical files).";
         if (failedCount > 0)
             message += $" {failedCount} track(s) failed and were not changed — see logs for details.";
+        if (failedTagWriteTracks.Count > 0)
+            message += $" File tag write failed for: {FormatFailedTrackList(failedTagWriteTracks)} — the DB was still updated, so it may no longer match the file's tags.";
         if (renameFailedCount > 0)
-            message += $" File rename failed for {renameFailedCount} track(s) — tags were still updated, but the file on disk keeps its old name. See logs for details.";
+            message += $" File rename failed for: {FormatFailedTrackList(failedRenameTracks)} — tags were still updated, but the file(s) on disk keep their old name.";
 
         _notificationService.Show(
             "Tags Updated",
             message,
-            failedCount > 0 || renameFailedCount > 0 ? NotificationType.Warning : NotificationType.Success);
+            failedCount > 0 || renameFailedCount > 0 || failedTagWriteTracks.Count > 0 ? NotificationType.Warning : NotificationType.Success);
+    }
+
+    /// <summary>Renders up to 5 failed-track names for a notification, collapsing the rest into a count.</summary>
+    private static string FormatFailedTrackList(List<string> names)
+    {
+        const int max = 5;
+        var shown = string.Join(", ", names.Take(max));
+        return names.Count > max ? $"{shown} (+{names.Count - max} more)" : shown;
+    }
+
+    /// <summary>
+    /// Renames every selected track's physical file according to a user-supplied pattern (e.g.
+    /// "{artist} - {title}") — unlike the single-track exact-filename rename in the tag-edit
+    /// dialog, this applies across the whole selection. Same collision rule as that rename: skip +
+    /// report rather than overwrite.
+    /// </summary>
+    /// <summary>
+    /// Records the fields the user just edited as user-owned (MetadataProvenance source "user"), so
+    /// library enrichment never overwrites them. A failure is logged and surfaced; the edit itself
+    /// already succeeded.
+    /// </summary>
+    private async Task MarkUserEditedForEnrichmentAsync(IEnumerable<string?> hashes, string? artist, string? title, string? album, string? genre, bool year)
+    {
+        var fields = new List<string>();
+        if (!string.IsNullOrWhiteSpace(artist)) fields.Add(Services.Enrichment.MetadataMerger.Fields.Artist);
+        if (!string.IsNullOrWhiteSpace(title)) fields.Add(Services.Enrichment.MetadataMerger.Fields.Title);
+        if (!string.IsNullOrWhiteSpace(album)) fields.Add(Services.Enrichment.MetadataMerger.Fields.Album);
+        if (!string.IsNullOrWhiteSpace(genre)) fields.Add(Services.Enrichment.MetadataMerger.Fields.Genre);
+        if (year) fields.Add(Services.Enrichment.MetadataMerger.Fields.ReleaseDate);
+        var list = hashes.Where(h => !string.IsNullOrEmpty(h)).Select(h => h!).Distinct().ToList();
+        if (fields.Count == 0 || list.Count == 0) return;
+        if (_serviceProvider?.GetService(typeof(Services.Enrichment.EnrichmentStore)) is not Services.Enrichment.EnrichmentStore store) return;
+        try
+        {
+            await store.MarkUserEditedAsync(list, fields);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not record user-edited fields for {Count} tracks", list.Count);
+            _notificationService.Show("Metadata edit", "Your edit was saved, but enrichment may refill these fields later: " + ex.Message, NotificationType.Warning);
+        }
+    }
+
+    private async Task ExecuteBulkRenameAsync()
+    {
+        var selected = Tracks.SelectedTracks.ToList();
+        if (selected.Count == 0) return;
+
+        var previewTracks = selected.Take(3).Select(t => new BulkRenamePreviewTrack
+        {
+            Artist = t.Model.Artist ?? "",
+            Title = t.Model.Title ?? "",
+            Album = t.Model.Album ?? "",
+            TrackNumber = t.Model.TrackNumber > 0 ? t.Model.TrackNumber.ToString() : "",
+            Year = t.Model.ReleaseDate?.Year.ToString() ?? "",
+            Genre = t.Model.Genres ?? "",
+            Extension = string.IsNullOrEmpty(t.Model.ResolvedFilePath) ? "" : System.IO.Path.GetExtension(t.Model.ResolvedFilePath),
+        }).ToList();
+
+        var result = await _dialogService.ShowBulkRenameDialogAsync(selected.Count, previewTracks);
+        if (result == null || !result.IsConfirmed || string.IsNullOrWhiteSpace(result.Pattern)) return;
+
+        _logger.LogInformation("Bulk rename for {Count} tracks starting with pattern '{Pattern}'.", selected.Count, result.Pattern);
+
+        int renamedCount = 0;
+        var skippedTracks = new List<string>();
+        var touchedHashes = new HashSet<string>();
+
+        await Task.Run(async () =>
+        {
+            await using var context = _dbFactory.CreateDbContext();
+            var trackHashes = selected.Select(t => t.Model.TrackUniqueHash).Where(h => !string.IsNullOrEmpty(h)).ToList();
+
+            // Keyed by TrackUniqueHash, not PlaylistTrack.Id — the same physical file can be
+            // referenced by rows in multiple playlists, and every one of them denormalizes its
+            // own ResolvedFilePath (read back verbatim by LibraryService.EntityToPlaylistTrack,
+            // never re-resolved from LibraryEntries). Scoping this to only the selected rows'
+            // Ids left every other playlist's copy pointing at the old, now-moved path — same
+            // class of bug already fixed once for cue points (see UpdateTrackCuePointsAsync).
+            var dbTracksByHash = (await context.PlaylistTracks
+                .Where(t => trackHashes.Contains(t.TrackUniqueHash))
+                .ToListAsync())
+                .Where(t => !string.IsNullOrEmpty(t.TrackUniqueHash))
+                .GroupBy(t => t.TrackUniqueHash!)
+                .ToDictionary(g => g.Key, g => g.ToList());
+            var dbEntriesByHash = await context.LibraryEntries
+                .Where(e => trackHashes.Contains(e.UniqueHash))
+                .ToDictionaryAsync(e => e.UniqueHash);
+
+            foreach (var trackVm in selected)
+            {
+                var track = trackVm.Model;
+                if (string.IsNullOrEmpty(track.ResolvedFilePath) || !System.IO.File.Exists(track.ResolvedFilePath))
+                    continue;
+
+                var resolvedBase = BulkRenameViewModel.Resolve(
+                    result.Pattern,
+                    track.Artist ?? "", track.Title ?? "", track.Album ?? "",
+                    track.TrackNumber > 0 ? track.TrackNumber.ToString() : "",
+                    track.ReleaseDate?.Year.ToString() ?? "",
+                    track.Genres ?? "");
+
+                var safeName = resolvedBase.Replace('/', '_').Replace('\\', '_').Replace(':', '_').Trim();
+                if (string.IsNullOrWhiteSpace(safeName))
+                {
+                    skippedTracks.Add($"{track.Artist} - {track.Title}");
+                    continue;
+                }
+
+                var dir = System.IO.Path.GetDirectoryName(track.ResolvedFilePath)!;
+                var ext = System.IO.Path.GetExtension(track.ResolvedFilePath);
+                var destPath = System.IO.Path.Combine(dir, safeName + ext);
+
+                if (string.Equals(destPath, track.ResolvedFilePath, StringComparison.OrdinalIgnoreCase))
+                    continue; // already matches the pattern — nothing to do
+
+                if (System.IO.File.Exists(destPath))
+                {
+                    _logger.LogWarning("Bulk rename skipped: target file already exists: {Path}", destPath);
+                    skippedTracks.Add($"{track.Artist} - {track.Title}");
+                    continue;
+                }
+
+                try
+                {
+                    System.IO.File.Move(track.ResolvedFilePath, destPath);
+                    track.ResolvedFilePath = destPath;
+
+                    if (!string.IsNullOrEmpty(track.TrackUniqueHash))
+                    {
+                        if (dbTracksByHash.TryGetValue(track.TrackUniqueHash, out var dbTracks))
+                        {
+                            foreach (var dbTrack in dbTracks)
+                            {
+                                dbTrack.ResolvedFilePath = destPath;
+                                context.PlaylistTracks.Update(dbTrack);
+                            }
+                        }
+                        if (dbEntriesByHash.TryGetValue(track.TrackUniqueHash, out var dbEntry))
+                        {
+                            dbEntry.FilePath = destPath;
+                            context.LibraryEntries.Update(dbEntry);
+                        }
+                        touchedHashes.Add(track.TrackUniqueHash);
+                    }
+
+                    renamedCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Bulk rename failed for {Path}", track.ResolvedFilePath);
+                    skippedTracks.Add($"{track.Artist} - {track.Title}");
+                }
+            }
+
+            await context.SaveChangesAsync();
+        });
+
+        // Other open playlists may hold PlaylistTrackViewModel instances for the same hash with
+        // the now-stale ResolvedFilePath baked in — a full refresh re-reads from the DB rows we
+        // just updated above rather than leaving them silently pointing at a moved-away file.
+        if (touchedHashes.Count > 0)
+            await ExecuteRefreshLibraryAsync();
+
+        var message = $"Renamed {renamedCount} file(s).";
+        if (skippedTracks.Count > 0)
+            message += $" Skipped: {FormatFailedTrackList(skippedTracks)} — destination already existed or the rename failed. See logs for details.";
+
+        _notificationService.Show(
+            "Bulk Rename",
+            message,
+            skippedTracks.Count > 0 ? NotificationType.Warning : NotificationType.Success);
+    }
+
+    /// <summary>
+    /// Moves or copies every selected track's physical file into a chosen destination folder.
+    /// Move relocates the file and updates ORBIT's stored path (the reorganization case); Copy
+    /// duplicates the file for external use (e.g. staging a USB stick) and leaves the DB untouched
+    /// — a linked-library "copy" has no single unambiguous meaning otherwise, so this deliberately
+    /// doesn't create a second tracked library entry for the copy.
+    /// </summary>
+    private async Task ExecuteBulkMoveOrCopyAsync()
+    {
+        var selected = Tracks.SelectedTracks.ToList();
+        if (selected.Count == 0) return;
+
+        var modeResult = await _dialogService.ShowBulkMoveOrCopyDialogAsync(selected.Count);
+        if (modeResult == null || !modeResult.IsConfirmed) return;
+
+        var destinationFolder = await _dialogService.OpenFolderDialogAsync(
+            modeResult.IsCopy ? "Copy Selected Tracks To…" : "Move Selected Tracks To…");
+        if (string.IsNullOrWhiteSpace(destinationFolder)) return;
+
+        _logger.LogInformation(
+            "Bulk {Mode} for {Count} tracks to '{Destination}' starting.",
+            modeResult.IsCopy ? "copy" : "move", selected.Count, destinationFolder);
+
+        int processedCount = 0;
+        var skippedTracks = new List<string>();
+        var touchedHashes = new HashSet<string>();
+
+        await Task.Run(async () =>
+        {
+            await using var context = _dbFactory.CreateDbContext();
+            var trackHashes = selected.Select(t => t.Model.TrackUniqueHash).Where(h => !string.IsNullOrEmpty(h)).ToList();
+
+            // Keyed by TrackUniqueHash, not PlaylistTrack.Id — see ExecuteBulkRenameAsync for why:
+            // the same physical file can be referenced by rows in multiple playlists, each with
+            // its own denormalized ResolvedFilePath that must all move together.
+            var dbTracksByHash = modeResult.IsCopy ? null : (await context.PlaylistTracks
+                .Where(t => trackHashes.Contains(t.TrackUniqueHash))
+                .ToListAsync())
+                .Where(t => !string.IsNullOrEmpty(t.TrackUniqueHash))
+                .GroupBy(t => t.TrackUniqueHash!)
+                .ToDictionary(g => g.Key, g => g.ToList());
+            var dbEntriesByHash = modeResult.IsCopy ? null : await context.LibraryEntries
+                .Where(e => trackHashes.Contains(e.UniqueHash))
+                .ToDictionaryAsync(e => e.UniqueHash);
+
+            foreach (var trackVm in selected)
+            {
+                var track = trackVm.Model;
+                if (string.IsNullOrEmpty(track.ResolvedFilePath) || !System.IO.File.Exists(track.ResolvedFilePath))
+                    continue;
+
+                var fileName = System.IO.Path.GetFileName(track.ResolvedFilePath);
+                var destPath = System.IO.Path.Combine(destinationFolder, fileName);
+
+                if (string.Equals(System.IO.Path.GetFullPath(destPath), System.IO.Path.GetFullPath(track.ResolvedFilePath), StringComparison.OrdinalIgnoreCase))
+                    continue; // already there
+
+                if (System.IO.File.Exists(destPath))
+                {
+                    _logger.LogWarning("Bulk {Mode} skipped: target file already exists: {Path}", modeResult.IsCopy ? "copy" : "move", destPath);
+                    skippedTracks.Add($"{track.Artist} - {track.Title}");
+                    continue;
+                }
+
+                try
+                {
+                    if (modeResult.IsCopy)
+                    {
+                        System.IO.File.Copy(track.ResolvedFilePath, destPath);
+                    }
+                    else
+                    {
+                        System.IO.File.Move(track.ResolvedFilePath, destPath);
+                        track.ResolvedFilePath = destPath;
+
+                        if (!string.IsNullOrEmpty(track.TrackUniqueHash))
+                        {
+                            if (dbTracksByHash != null && dbTracksByHash.TryGetValue(track.TrackUniqueHash, out var dbTracks))
+                            {
+                                foreach (var dbTrack in dbTracks)
+                                {
+                                    dbTrack.ResolvedFilePath = destPath;
+                                    context.PlaylistTracks.Update(dbTrack);
+                                }
+                            }
+                            if (dbEntriesByHash != null && dbEntriesByHash.TryGetValue(track.TrackUniqueHash, out var dbEntry))
+                            {
+                                dbEntry.FilePath = destPath;
+                                context.LibraryEntries.Update(dbEntry);
+                            }
+                            touchedHashes.Add(track.TrackUniqueHash);
+                        }
+                    }
+
+                    processedCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Bulk {Mode} failed for {Path}", modeResult.IsCopy ? "copy" : "move", track.ResolvedFilePath);
+                    skippedTracks.Add($"{track.Artist} - {track.Title}");
+                }
+            }
+
+            if (!modeResult.IsCopy)
+                await context.SaveChangesAsync();
+        });
+
+        // Other open playlists may hold PlaylistTrackViewModel instances for the same hash with
+        // the now-stale ResolvedFilePath baked in — refresh so they re-read the updated DB rows
+        // rather than silently pointing at a moved-away file. Copy never touches the DB, so
+        // touchedHashes stays empty and this is a no-op for that mode.
+        if (touchedHashes.Count > 0)
+            await ExecuteRefreshLibraryAsync();
+
+        var verb = modeResult.IsCopy ? "Copied" : "Moved";
+        var message = $"{verb} {processedCount} file(s) to {destinationFolder}.";
+        if (skippedTracks.Count > 0)
+            message += $" Skipped: {FormatFailedTrackList(skippedTracks)} — destination already existed or the operation failed. See logs for details.";
+
+        _notificationService.Show(
+            $"Bulk {verb}",
+            message,
+            skippedTracks.Count > 0 ? NotificationType.Warning : NotificationType.Success);
     }
 
     /// <summary>
@@ -2164,6 +2685,274 @@ public partial class LibraryViewModel
         {
             _logger.LogError(ex, "Failed to remove unidentified tracks");
             _notificationService.Show("Remove Unidentified Tracks", $"Failed: {ex.Message}", NotificationType.Error);
+        }
+    }
+
+    /// <summary>
+    /// Cleans up two confirmed duplicate-data bugs: the same track inserted multiple times into
+    /// the same playlist, and the same file registered twice in the library under two different
+    /// hash formats (legacy vs. current). See <see cref="Services.DuplicateTrackCleanupService"/>.
+    /// Fresh imports and AddTracksToProjectAsync no longer create new duplicates going forward —
+    /// this is the one-off correction for rows already affected.
+    /// </summary>
+    private async Task ExecuteRemoveDuplicateTracksAsync()
+    {
+        var cleanupService = _serviceProvider?.GetService(typeof(Services.DuplicateTrackCleanupService))
+            as Services.DuplicateTrackCleanupService;
+        if (cleanupService == null)
+        {
+            _notificationService.Show("Remove Duplicate Tracks", "Cleanup service unavailable.", NotificationType.Error);
+            return;
+        }
+
+        bool confirm = await _dialogService.ConfirmAsync(
+            "Remove Duplicate Tracks",
+            "This merges duplicate library entries and removes duplicate track rows within playlists (keeping the downloaded/earliest copy of each). A safety backup of the database is taken first. This cannot be undone otherwise. Continue?");
+        if (!confirm) return;
+
+        try
+        {
+            var result = await cleanupService.RunAsync();
+            var noneFound = !result.Aborted && result.LibraryEntriesMerged == 0 && result.PlaylistRowsRemoved == 0;
+            _notificationService.Show(
+                "Remove Duplicate Tracks",
+                noneFound ? "No duplicate tracks found." : result.Summary,
+                result.Aborted || result.HasErrors ? NotificationType.Warning : NotificationType.Success);
+
+            if (result.PlaylistRowsRemoved > 0 || result.LibraryEntriesMerged > 0)
+            {
+                await ExecuteRefreshLibraryAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to remove duplicate tracks");
+            _notificationService.Show("Remove Duplicate Tracks", $"Failed: {ex.Message}", NotificationType.Error);
+        }
+    }
+
+    /// <summary>
+    /// Fixes tracks stuck showing "FILE MISSING" in the Track Inspector even though the file
+    /// genuinely exists on disk (and is often already fully analyzed — waveform, BPM, etc. all
+    /// present) — reported directly by the user from a screenshot. Root cause: some "file already
+    /// exists, skip the actual download" fast paths in DownloadManager didn't always advance
+    /// AvailabilityState past Ghost the way a full download completion does, leaving existing rows
+    /// stuck (now fixed going forward — this is the one-off correction for rows already affected).
+    /// </summary>
+    private async Task ExecuteFixMissingFileFlagsAsync()
+    {
+        var reconcileService = _serviceProvider?.GetService(typeof(Services.AvailabilityStateReconciliationService))
+            as Services.AvailabilityStateReconciliationService;
+        if (reconcileService == null)
+        {
+            _notificationService.Show("Fix Missing-File Flags", "Reconciliation service unavailable.", NotificationType.Error);
+            return;
+        }
+
+        try
+        {
+            var result = await reconcileService.ReconcileAsync();
+            _notificationService.Show(
+                "Fix Missing-File Flags",
+                result.Summary,
+                result.TotalFixed > 0 ? NotificationType.Success : NotificationType.Information);
+
+            if (result.TotalFixed > 0)
+            {
+                await ExecuteRefreshLibraryAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to reconcile missing-file flags");
+            _notificationService.Show("Fix Missing-File Flags", $"Failed: {ex.Message}", NotificationType.Error);
+        }
+    }
+
+    /// <summary>
+    /// One-time sweep fixing two stacked gaps behind the Inspector's TRACK DETAILS section showing
+    /// "—"/"UNKNOWN" even on already-analysed tracks: (1) a TagLib duration probe for tracks that
+    /// predate PostDownloadDurationCaptureService — most Soulseek downloads never had their real
+    /// duration read, only Bitrate/Format; (2) Bitrate/Format on PlaylistTracks rows that never
+    /// inherited them from the matching LibraryEntries row (DatabaseService.SavePlaylistJobWithTracksAsync
+    /// was missing that field entirely). Reported directly by the user via screenshot.
+    /// </summary>
+    /// <summary>
+    /// Starts the shared loudness backfill (the same job as the Analysis page's "Measure loudness"
+    /// card) and opens the Analysis page, where its progress and Cancel live.
+    /// </summary>
+    private void ExecuteMeasureMissingLoudness()
+    {
+        if (_serviceProvider?.GetService(typeof(LoudnessBackfillViewModel)) is not LoudnessBackfillViewModel backfill)
+        {
+            _notificationService.Show("Measure loudness", "The loudness backfill is unavailable.", NotificationType.Error);
+            return;
+        }
+
+        backfill.Start();
+        _navigationService.NavigateTo("Analysis");
+    }
+
+    /// <summary>
+    /// Starts library metadata enrichment (the Analysis page's Enrichment card) and opens the
+    /// Analysis page, where its progress, per-source status and Pause/Cancel live.
+    /// </summary>
+    private async Task ExecuteEnrichLibraryMetadataAsync()
+    {
+        if (_serviceProvider?.GetService(typeof(EnrichmentViewModel)) is not EnrichmentViewModel enrichment)
+        {
+            _notificationService.Show("Enrich library", "Library enrichment is unavailable.", NotificationType.Error);
+            return;
+        }
+        try
+        {
+            await enrichment.StartAsync();
+            _navigationService.NavigateTo("Analysis");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not start library enrichment");
+            _notificationService.Show("Enrich library", "Could not start: " + ex.Message, NotificationType.Error);
+        }
+    }
+
+    private async Task ExecuteBackfillDurationsAsync()
+    {
+        var backfillService = _serviceProvider?.GetService(typeof(Services.DurationBackfillService))
+            as Services.DurationBackfillService;
+        if (backfillService == null)
+        {
+            _notificationService.Show("Backfill Missing Durations", "Backfill service unavailable.", NotificationType.Error);
+            return;
+        }
+
+        try
+        {
+            var result = await backfillService.BackfillAsync();
+            _notificationService.Show(
+                "Backfill Missing Track Metadata",
+                result.Summary,
+                result.TotalFixed > 0 ? NotificationType.Success : NotificationType.Information);
+
+            if (result.TotalFixed > 0)
+            {
+                await ExecuteRefreshLibraryAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to backfill missing track metadata");
+            _notificationService.Show("Backfill Missing Track Metadata", $"Failed: {ex.Message}", NotificationType.Error);
+        }
+    }
+
+    /// <summary>
+    /// Reorders every downloaded track in a playlist by similarity and "double drop" DJ-mix
+    /// compatibility (close BPM + harmonically compatible key + similar drop-section sonics),
+    /// then persists the new order. Reuses PlaylistIntelligenceService.ReorderAsync — the same
+    /// engine Flow Builder's "Suggest Flow" already uses — with the new optional double-drop
+    /// weighting so this one-click entry point, unlike Flow Builder's multi-step review UI,
+    /// favors beatmatchable neighbor pairs rather than just general similarity.
+    /// </summary>
+    private async Task ExecuteAutoArrangePlaylistAsync(PlaylistJob? job)
+    {
+        if (job == null) return;
+
+        try
+        {
+            var tracks = await _libraryService.LoadPlaylistTracksAsync(job.Id);
+            // Not-yet-downloaded tracks have no file to derive fingerprint/BPM data from, so they
+            // can't take part in similarity scoring — excluded here, left untouched in the saved
+            // order below (Set Plan / manual placement for wanted-but-missing tracks is unaffected).
+            var eligible = tracks
+                .Where(t => !string.IsNullOrEmpty(t.ResolvedFilePath) && File.Exists(t.ResolvedFilePath))
+                .ToList();
+            var skippedNotDownloaded = tracks.Count - eligible.Count;
+
+            // The same physical track can legitimately appear more than once in a set (an
+            // intentional replay/reprise) — dedupe by hash for the reorder computation itself
+            // (ReorderAsync also dedupes internally, but building lookups keyed by hash from a
+            // list containing duplicates throws), then apply the resulting position to every
+            // instance sharing that hash so repeats move together rather than being dropped.
+            var distinctEligible = eligible
+                .GroupBy(t => t.TrackUniqueHash, StringComparer.Ordinal)
+                .Select(g => g.First())
+                .ToList();
+
+            if (distinctEligible.Count < 3)
+            {
+                _notificationService.Show("Auto-Arrange",
+                    "Need at least 3 distinct downloaded tracks in this playlist to arrange.",
+                    NotificationType.Warning);
+                return;
+            }
+            if (distinctEligible.Count > PlaylistIntelligenceService.MaxReorderTracks)
+            {
+                _notificationService.Show("Auto-Arrange",
+                    $"Playlist has {distinctEligible.Count} distinct tracks — auto-arrange supports up to {PlaylistIntelligenceService.MaxReorderTracks}.",
+                    NotificationType.Warning);
+                return;
+            }
+
+            bool confirm = await _dialogService.ConfirmAsync(
+                "Auto-Arrange Playlist",
+                $"Reorder {distinctEligible.Count} downloaded tracks in '{job.SourceTitle}' by similarity and double-drop compatibility?" +
+                (skippedNotDownloaded > 0 ? $" {skippedNotDownloaded} not-yet-downloaded track(s) will be left in place." : "") +
+                " This replaces the current track order.");
+            if (!confirm) return;
+
+            var intelligenceService = _serviceProvider?.GetService(typeof(PlaylistIntelligenceService))
+                as PlaylistIntelligenceService;
+            if (intelligenceService == null)
+            {
+                _notificationService.Show("Auto-Arrange", "Reorder service unavailable.", NotificationType.Error);
+                return;
+            }
+
+            var bpmByHash = distinctEligible
+                .Where(t => t.BPM is > 0)
+                .ToDictionary(t => t.TrackUniqueHash, t => (float)t.BPM!.Value, StringComparer.Ordinal);
+
+            var metadataByHash = distinctEligible
+                .ToDictionary(t => t.TrackUniqueHash, t => new ReorderTrackMetadata(t.Artist, t.DetectedSubGenre), StringComparer.Ordinal);
+
+            var result = await intelligenceService.ReorderAsync(
+                distinctEligible.Select(t => t.TrackUniqueHash),
+                energyCurve: EnergyCurvePattern.Rising,
+                doubleDropWeight: 0.35,
+                bpmByHash: bpmByHash,
+                metadataByHash: metadataByHash);
+
+            if (result.OrderedTrackHashes.Count == 0)
+            {
+                _notificationService.Show("Auto-Arrange", "Could not compute an order (missing analysis data).", NotificationType.Warning);
+                return;
+            }
+
+            var newIndexByHash = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (int i = 0; i < result.OrderedTrackHashes.Count; i++)
+                newIndexByHash[result.OrderedTrackHashes[i]] = i;
+
+            foreach (var track in eligible)
+            {
+                if (newIndexByHash.TryGetValue(track.TrackUniqueHash, out var newIndex))
+                {
+                    track.SortOrder = newIndex;
+                    track.TrackNumber = newIndex + 1;
+                }
+            }
+
+            await _libraryService.SaveTrackOrderAsync(job.Id, eligible);
+            await ExecuteRefreshLibraryAsync();
+            _notificationService.Show("Auto-Arrange",
+                NumFormat.Ui($"Rearranged {result.OrderedTrackHashes.Count} tracks in '{job.SourceTitle}' (avg transition score {result.AverageTransitionScore:P0}).") +
+                (skippedNotDownloaded > 0 ? $" {skippedNotDownloaded} not-yet-downloaded track(s) left in place." : ""),
+                NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Auto-arrange failed for playlist {Id}", job.Id);
+            _notificationService.Show("Auto-Arrange Failed", ex.Message, NotificationType.Error);
         }
     }
 
@@ -2239,7 +3028,8 @@ public partial class LibraryViewModel
                 ResolvedFilePath = t.Model.ResolvedFilePath ?? string.Empty,
                 BPM              = t.BPM > 0 ? t.BPM : null,
                 MusicalKey       = t.MusicalKey,
-            });
+            }).ToList();
+            await Services.Export.TrackExportPreflight.ValidateAsync(tracks);
             await _exportService.ExportToRekordboxXmlAsync("ORBIT Batch Export", tracks, outputPath);
             _notificationService.Show(
                 "Rekordbox Export Complete",
@@ -2271,11 +3061,20 @@ public partial class LibraryViewModel
                 BPM              = t.BPM > 0 ? t.BPM : null,
                 MusicalKey       = t.MusicalKey,
             });
-            await _exportService.ExportToM3uAsync("ORBIT Batch Export", tracks, outputPath);
+            var result = await _exportService.ExportToM3uAsync("ORBIT Batch Export", tracks, outputPath);
+            var details = result.SkippedTrackProblems.Count == 0
+                ? string.Empty
+                : " Unavailable tracks were omitted: "
+                    + string.Join("; ", result.SkippedTrackProblems.Take(3))
+                    + (result.SkippedTrackProblems.Count > 3 ? "; …" : "");
             _notificationService.Show(
                 "M3U Export Complete",
-                $"{selected.Count} track(s) exported to {outputPath}",
-                NotificationType.Success);
+                $"{result.Exported} track(s) exported to {outputPath}" +
+                (result.SkippedDuplicates > 0 ? $" · {result.SkippedDuplicates} duplicate path(s) skipped" : "") +
+                (result.SkippedTrackProblems.Count > 0
+                    ? $" · {result.SkippedTrackProblems.Count} unavailable track(s) skipped.{details}"
+                    : ""),
+                result.Skipped > 0 ? NotificationType.Warning : NotificationType.Success);
         }
         catch (Exception ex)
         {

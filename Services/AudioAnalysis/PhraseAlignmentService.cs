@@ -99,17 +99,29 @@ public sealed class PhraseAlignmentService : IPhraseAlignmentService
         new Dictionary<string, GenreStructurePreset>(StringComparer.OrdinalIgnoreCase)
         {
             ["EDM"] = new("EDM", 32, 16, 32, 16, 16, 32, 32, 0.20d),
-            ["TechHouse"] = new("TechHouse", 32, 16, 64, 16, 16, 64, 32, 0.18d),
+            // Four-on-the-floor family: 16-bar micro-phrases are treated as more rigid/dominant
+            // here than DnB's looser structure (per genre-family analysis), so tolerance is
+            // tightened from the old shared 0.18-0.20 down to ~0.13-0.15.
+            ["TechHouse"] = new("TechHouse", 32, 16, 64, 16, 16, 64, 32, 0.13d),
             ["MelodicTechno"] = new("MelodicTechno", 32, 32, 64, 32, 16, 64, 32, 0.18d),
             // Plain/peak-time house — shorter builds (8 bars) than EDM's, matching the quicker
             // filter-sweep/snare-roll convention common in house. Starting point, tune by ear.
-            ["House"] = new("House", 32, 8, 32, 16, 8, 32, 32, 0.20d),
+            ["House"] = new("House", 32, 8, 32, 16, 8, 32, 32, 0.14d),
             // Plain/driving techno, distinct from MelodicTechno — MelodicTechno's 64-bar drop and
             // 32-bar build suit its longer, more atmospheric arcs; peak-time techno's sections are
             // typically a bit tighter. Starting point, tune by ear.
-            ["Techno"] = new("Techno", 32, 16, 48, 16, 16, 48, 32, 0.20d),
+            ["Techno"] = new("Techno", 32, 16, 48, 16, 16, 48, 32, 0.13d),
+            // Trance/uplifting EDM — previously fell through to the generic EDM default. Longer,
+            // more atmospheric arcs than plain house/techno (closer to MelodicTechno's shape) but
+            // still a tightened four-on-the-floor tolerance. Starting point, tune by ear.
+            ["Trance"] = new("Trance", 32, 16, 32, 16, 16, 32, 32, 0.15d),
             ["Pop"] = new("Pop", 8, 8, 16, 8, 8, 16, 8, 0.25d),
-            ["DnB"] = new("DnB", 32, 16, 32, 16, 16, 32, 32, 0.20d),
+            // Breakbeat family (DnB/Jungle) — previously a byte-for-byte copy of the EDM preset.
+            // Real DnB arrangement convention: breakdowns/half-time sections routinely run longer
+            // than EDM's (widened 16->32 bars here), and the looser, less rigidly 4/4-locked
+            // phrasing gets a slightly wider tolerance than the tightened four-on-the-floor
+            // presets above. Starting point, tune by ear.
+            ["DnB"] = new("DnB", 32, 16, 32, 32, 16, 32, 32, 0.22d),
             ["Trap"] = new("Trap", 16, 16, 32, 8, 16, 32, 16, 0.22d)
         };
 
@@ -332,6 +344,12 @@ public sealed class PhraseAlignmentService : IPhraseAlignmentService
         if (normalized.Contains("melodic", StringComparison.OrdinalIgnoreCase))
         {
             return Presets["MelodicTechno"];
+        }
+
+        if (normalized.Contains("trance", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("uplifting", StringComparison.OrdinalIgnoreCase))
+        {
+            return Presets["Trance"];
         }
 
         // Any other techno variant (peak-time, driving, industrial, etc.) — distinct from

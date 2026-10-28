@@ -3,8 +3,6 @@ using System.Linq;
 using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives; // Added for TreeDataGridRow
-using Avalonia.Controls.Selection; // Added for ITreeDataGridRowSelectionModel
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
@@ -34,31 +32,10 @@ public partial class LibraryPage : UserControl
         DataContext = viewModel; // CRITICAL: Set DataContext from DI
         InitializeComponent();
         AttachLibraryViewModel(viewModel);
-        
-        // Enable drag-drop on playlist ListBox
+
+        // Drag-drop onto the playlist tree (tracks into a playlist, playlists/folders into a folder)
         AddHandler(DragDrop.DragOverEvent, OnPlaylistDragOver);
         AddHandler(DragDrop.DropEvent, OnPlaylistDrop);
-
-        // DataGrid Professionalization
-        var dataGrid = this.FindControl<DataGrid>("ProDataGrid");
-        if (dataGrid != null)
-        {
-            dataGrid.ColumnReordered += OnDataGridColumnReordered;
-            // dataGrid.ColumnResized += OnDataGridColumnResized;
-            dataGrid.SelectionChanged += OnDataGridSelectionChanged;
-            
-            // Context menu for headers
-            SetupColumnContextMenu(dataGrid);
-        }
-
-        // Sidebar Navigation Drag-Drop
-        var navListBox = this.FindControl<ListBox>("SidebarNavListBox");
-        if (navListBox != null)
-        {
-            DragDrop.SetAllowDrop(navListBox, true);
-            navListBox.AddHandler(DragDrop.DragOverEvent, OnSidebarNavDragOver);
-            navListBox.AddHandler(DragDrop.DropEvent, OnSidebarNavDrop);
-        }
 
         // Playlist Folder Tree: drag-initiation for reorganizing playlists/folders
         var playlistTreeView = this.FindControl<TreeView>("PlaylistTreeView");
@@ -71,91 +48,27 @@ public partial class LibraryPage : UserControl
         }
     }
 
-    private void OnDataGridColumnReordered(object? sender, DataGridColumnEventArgs e)
+    protected override void OnSizeChanged(SizeChangedEventArgs e)
     {
-        if (DataContext is LibraryViewModel vm && sender is DataGrid dg)
-        {
-            // Update DisplayOrder in AvailableColumns
-            foreach (var col in dg.Columns)
-            {
-                var def = vm.AvailableColumns.FirstOrDefault(c => c.Header?.ToString() == col.Header?.ToString());
-                if (def != null)
-                {
-                    def.DisplayOrder = col.DisplayIndex;
-                }
-            }
-            vm.OnColumnLayoutChanged();
-        }
+        base.OnSizeChanged(e);
+        // The playlist panel's max width is a share of the page (LibraryViewModel.FitNavPanelMaxWidth).
+        (DataContext as LibraryViewModel)?.OnLibraryPageResized(e.NewSize.Width);
     }
 
-    private void OnDataGridColumnResized(object? sender, DataGridColumnEventArgs e)
+    /// <summary>Below this width the playlist header drops its action labels (icon buttons with
+    /// tooltips remain), so the title and counts keep room to trim instead of being overlapped.</summary>
+    internal const double NarrowPlaylistHeaderWidth = 560;
+
+    private void OnPlaylistHeaderSizeChanged(object? sender, SizeChangedEventArgs e)
     {
-        if (DataContext is LibraryViewModel vm)
-        {
-            var def = vm.AvailableColumns.FirstOrDefault(c => c.Header?.ToString() == e.Column.Header?.ToString());
-            if (def != null)
-            {
-                def.Width = (int)e.Column.ActualWidth;
-                vm.OnColumnLayoutChanged();
-            }
-        }
+        if (sender is Control header)
+            header.Classes.Set("narrow", e.NewSize.Width < NarrowPlaylistHeaderWidth);
     }
 
-    private void OnDataGridSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    private void OpenDiscover_Click(object? sender, RoutedEventArgs e)
     {
-        if (DataContext is LibraryViewModel vm && sender is DataGrid dg && dg.IsVisible)
-        {
-            // Sync DataGrid selection to Tracks.SelectedTracks
-            // FilteredTracks are PlaylistTrackViewModels
-            var selected = dg.SelectedItems.Cast<PlaylistTrackViewModel>().ToList();
-            
-            // Update VM selection logic (calling internal method if possible or using Commands)
-            // For now, we assume simple sync is needed
-             vm.Tracks.UpdateSelection(selected);
-        }
-    }
-
-    private void SetupColumnContextMenu(DataGrid dg)
-    {
-        // Headers are tricky to catch in Avalonia DataGrid without styles, 
-        // but we can add a context menu to the whole grid and filter for header area or just have it everywhere.
-        // Professional approach: Context menu on the grid itself that lists columns.
-        
-        var menu = new ContextMenu();
-        
-        if (DataContext is LibraryViewModel vm)
-        {
-            foreach (var colDef in vm.AvailableColumns)
-            {
-                var item = new MenuItem 
-                { 
-                    Header = colDef.Header, 
-                    Icon = colDef.IsVisible ? "✓" : "",
-                    Command = vm.ToggleColumnCommand,
-                    CommandParameter = colDef
-                };
-                
-                // Add binding for Icon would be better but let's keep it simple for now
-                menu.Items.Add(item);
-            }
-            
-            menu.Items.Add(new Separator());
-            menu.Items.Add(new MenuItem 
-            { 
-                Header = "Reset to Studio Default", 
-                Command = vm.ResetViewCommand 
-            });
-        }
-        
-        dg.ContextMenu = menu;
-    }
-
-    private void CloseRemovalHistory_Click(object? sender, RoutedEventArgs e)
-    {
-        if (DataContext is LibraryViewModel vm)
-        {
-            vm.IsRemovalHistoryVisible = false;
-        }
+        if (DataContext is LibraryViewModel { SelectedProject: { } project } && project.Id != Guid.Empty)
+            ReactiveUI.MessageBus.Current.SendMessage(new SLSKDONET.Events.OpenPlaylistDiscoverEvent(project.Id, project.SourceTitle));
     }
 
     protected override async void OnLoaded(RoutedEventArgs e)
@@ -208,13 +121,8 @@ public partial class LibraryPage : UserControl
             _logger?.LogWarning("[PERF] LibraryPage.OnLoaded: DataContext is NOT LibraryViewModel!");
         }
         
-        stepSw.Restart();
-        _logger?.LogInformation("[PERF] FindControl/DragDrop took {Ms}ms", stepSw.ElapsedMilliseconds);
-        
         totalSw.Stop();
         _logger?.LogInformation("[PERF] TOTAL LibraryPage.OnLoaded took {Ms}ms", totalSw.ElapsedMilliseconds);
-        
-        // TODO: Restore Drag and Drop for the new Track ListBox
     }
 
     protected override void OnUnloaded(RoutedEventArgs e)
@@ -372,35 +280,6 @@ public partial class LibraryPage : UserControl
     private void OnPlaylistTreeItemPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
         _playlistDragStartPoint = null;
-    }
-
-    private void OnSidebarNavDragOver(object? sender, DragEventArgs e)
-    {
-        if (e.Data.Contains(DragContext.LibraryTrackFormat) || e.Data.Contains(DragContext.QueueTrackFormat))
-        {
-            var listBoxItem = (e.Source as Control)?.FindAncestorOfType<ListBoxItem>();
-            if (listBoxItem != null)
-            {
-                e.DragEffects = DragDropEffects.Link;
-            }
-            else
-            {
-                e.DragEffects = DragDropEffects.None;
-            }
-        }
-    }
-
-    private void OnSidebarNavDrop(object? sender, DragEventArgs e)
-    {
-        // Dropping to sidebar navigation is disabled
-    }
-    
-    private void ToggleHelpPanel(object? sender, RoutedEventArgs e)
-    {
-        if (DataContext is LibraryViewModel vm)
-        {
-            vm.IsHelpPanelOpen = !vm.IsHelpPanelOpen;
-        }
     }
 
     protected override void OnDataContextChanged(EventArgs e)

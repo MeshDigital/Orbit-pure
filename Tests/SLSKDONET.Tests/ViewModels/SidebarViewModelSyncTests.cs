@@ -20,7 +20,7 @@ public class SidebarViewModelSyncTests
         var rightPanel = new RightPanelService();
         var playerVm = CreateUninitializedPlayerVm();
         var similarVm = CreateSimilarTracksVm();
-        using var sut = new SidebarViewModel(rightPanel, playerVm, similarVm, CreateUninitializedNotificationCenter());
+        using var sut = new SidebarViewModel(rightPanel, playerVm, similarVm, CreateUninitializedNotificationCenter(), CreateUninitializedMixTransitionVm(), CreateUninitializedDiscoveryVm());
 
         rightPanel.OpenPanel(playerVm, "NOW PLAYING", "🎵");
 
@@ -29,12 +29,55 @@ public class SidebarViewModelSyncTests
     }
 
     [Fact]
+    public void RightPanelNotificationContent_SetsActiveTabToNotifications_NotInspector()
+    {
+        // Regression test: NotificationCenterService previously matched none of the explicit
+        // vm-type checks in SidebarViewModel's CurrentPanelVm subscription, so it fell into the
+        // generic "anything else" branch and set ActiveTab to Inspector — rendering the
+        // notification list inside the Inspector tab (and its ContentControl's DataTemplates)
+        // instead of a dedicated Notifications tab.
+        var rightPanel = new RightPanelService();
+        var playerVm = CreateUninitializedPlayerVm();
+        var similarVm = CreateSimilarTracksVm();
+        var notificationCenter = CreateUninitializedNotificationCenter();
+        using var sut = new SidebarViewModel(rightPanel, playerVm, similarVm, notificationCenter, CreateUninitializedMixTransitionVm(), CreateUninitializedDiscoveryVm());
+
+        rightPanel.OpenPanel(notificationCenter, "NOTIFICATIONS", "🔔");
+
+        Assert.Equal(SidebarTab.Notifications, sut.ActiveTab);
+        Assert.True(sut.IsNotificationsTab);
+        Assert.False(sut.IsInspectorTab);
+        Assert.Equal(3, sut.ActiveTabIndex);
+    }
+
+    [Fact]
+    public void ActiveTabIndex_RoundTripsThroughAllTabs()
+    {
+        var rightPanel = new RightPanelService();
+        var playerVm = CreateUninitializedPlayerVm();
+        var similarVm = CreateSimilarTracksVm();
+        using var sut = new SidebarViewModel(rightPanel, playerVm, similarVm, CreateUninitializedNotificationCenter(), CreateUninitializedMixTransitionVm(), CreateUninitializedDiscoveryVm());
+
+        foreach (var (index, tab) in new[]
+                 {
+                     (0, SidebarTab.Inspector), (1, SidebarTab.Similarity),
+                     (2, SidebarTab.Player), (3, SidebarTab.Notifications),
+                     (4, SidebarTab.Mix),
+                 })
+        {
+            sut.ActiveTabIndex = index;
+            Assert.Equal(tab, sut.ActiveTab);
+            Assert.Equal(index, sut.ActiveTabIndex);
+        }
+    }
+
+    [Fact]
     public void InspectorContext_PrimesSimilarityAndCanBeRestored()
     {
         var rightPanel = new RightPanelService();
         var playerVm = CreateUninitializedPlayerVm();
         var similarVm = CreateSimilarTracksVm();
-        using var sut = new SidebarViewModel(rightPanel, playerVm, similarVm, CreateUninitializedNotificationCenter());
+        using var sut = new SidebarViewModel(rightPanel, playerVm, similarVm, CreateUninitializedNotificationCenter(), CreateUninitializedMixTransitionVm(), CreateUninitializedDiscoveryVm());
 
         var inspectorTrack = new PlaylistTrackViewModel(new PlaylistTrack
         {
@@ -128,7 +171,7 @@ public class SidebarViewModelSyncTests
         var rightPanel = new RightPanelService();
         var playerVm = CreateUninitializedPlayerVm();
         var similarVm = CreateSimilarTracksVm();
-        using var sut = new SidebarViewModel(rightPanel, playerVm, similarVm, CreateUninitializedNotificationCenter());
+        using var sut = new SidebarViewModel(rightPanel, playerVm, similarVm, CreateUninitializedNotificationCenter(), CreateUninitializedMixTransitionVm(), CreateUninitializedDiscoveryVm());
 
         var selected = CreateTrack("wrapper-selected-hash", "Wrapper Artist", "Wrapper Track");
         var libraryVm = CreateLibraryVmWithTracks(selected: selected);
@@ -151,6 +194,32 @@ public class SidebarViewModelSyncTests
 
     private static NotificationCenterService CreateUninitializedNotificationCenter()
         => (NotificationCenterService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(NotificationCenterService));
+
+    private static PlaylistDiscoveryViewModel CreateUninitializedDiscoveryVm()
+        => (PlaylistDiscoveryViewModel)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(PlaylistDiscoveryViewModel));
+
+    [Fact]
+    public void DiscoverContent_SetsDiscoverTab_AndStaysWhenATrackIsInspected()
+    {
+        var rightPanel = new RightPanelService();
+        var discover = CreateUninitializedDiscoveryVm();
+        using var sut = new SidebarViewModel(rightPanel, CreateUninitializedPlayerVm(), CreateSimilarTracksVm(), CreateUninitializedNotificationCenter(), CreateUninitializedMixTransitionVm(), discover);
+
+        rightPanel.OpenPanel(discover, "DISCOVER", "✨");
+        Assert.Equal(SidebarTab.Discover, sut.ActiveTab);
+        Assert.Equal(5, sut.ActiveTabIndex);
+        Assert.True(discover.IsActive);
+
+        // Clicking tracks while browsing suggestions must not bounce the panel to Inspector.
+        rightPanel.OpenPanel(new object(), "TRACK INSPECTOR", "🔬");
+        Assert.Equal(SidebarTab.Discover, sut.ActiveTab);
+
+        sut.ActiveTabIndex = 0;
+        Assert.False(discover.IsActive);
+    }
+
+    private static MixTransitionViewModel CreateUninitializedMixTransitionVm()
+        => (MixTransitionViewModel)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(MixTransitionViewModel));
 
     private static LibraryViewModel CreateUninitializedLibraryVm()
         => (LibraryViewModel)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(LibraryViewModel));

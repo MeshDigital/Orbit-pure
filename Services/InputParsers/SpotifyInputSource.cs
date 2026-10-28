@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Configuration;
 using SLSKDONET.Models;
+using SLSKDONET.Utils;
 using SpotifyAPI.Web;
 
 namespace SLSKDONET.Services.InputParsers;
@@ -105,6 +106,7 @@ public class SpotifyInputSource : IInputSource
 
             var fullAlbum = await client.Albums.Get(albumId);
             var albumName = fullAlbum.Name ?? "Spotify Album";
+            var albumArtist = fullAlbum.Artists?.FirstOrDefault()?.Name;
             var total = fullAlbum.Tracks.Total ?? 0;
             
             // Note: Albums.GetTracks returns SimpleTrack (no album object inside)
@@ -115,7 +117,9 @@ public class SpotifyInputSource : IInputSource
 
             await foreach (var simpleTrack in client.Paginate(items))
             {
-                batch.Add(MapSimpleTrackToSearchQuery(simpleTrack, fullAlbum, total));
+                var mapped = MapSimpleTrackToSearchQuery(simpleTrack, fullAlbum, total);
+                mapped.SourceOwner = albumArtist;
+                batch.Add(mapped);
 
                 if (batch.Count >= 50)
                 {
@@ -134,6 +138,7 @@ public class SpotifyInputSource : IInputSource
             // ... Playlist Logic (Unchanged) ...
             var playlist = await client.Playlists.Get(playlistId);
             var playlistName = playlist.Name ?? "Spotify Playlist";
+            var playlistOwner = playlist.Owner?.DisplayName;
             
             var request = new PlaylistGetItemsRequest { Limit = 100 };
             var items = await client.Playlists.GetItems(playlistId, request);
@@ -144,7 +149,9 @@ public class SpotifyInputSource : IInputSource
                 {
                     if (item.Track is FullTrack track)
                     {
-                        batch.Add(MapToSearchQuery(track, playlistName, total));
+                        var mapped = MapToSearchQuery(track, playlistName, total, playlistId);
+                        mapped.SourceOwner = playlistOwner;
+                        batch.Add(mapped);
                         if (batch.Count >= 50)
                         {
                              yield return new List<SearchQuery>(batch);
@@ -214,7 +221,7 @@ public class SpotifyInputSource : IInputSource
 	{
 		var artist = track.Artists?.FirstOrDefault()?.Name ?? "Unknown Artist";
 		var title = track.Name ?? "Unknown Track";
-		
+
 		return new SearchQuery
 		{
 			Artist = artist,
@@ -233,7 +240,18 @@ public class SpotifyInputSource : IInputSource
             ISRC = track.ExternalIds != null && track.ExternalIds.ContainsKey("isrc") ? track.ExternalIds["isrc"] : null,
             SpotifyPlaylistId = playlistId,
             SpotifyUri = track.Uri,
-            IsEnriched = false 
+            IsEnriched = false,
+            // TrackHashUtil.Compute is the same formula Models.Track.UniqueHash uses — confirmed,
+            // by sampling real downloaded tracks, to be the dominant hash format already used
+            // across almost this entire library. Without a hash at all here, ImportOrchestrator's
+            // sync-merge dedup (keyed on TrackUniqueHash) could never match an incoming track
+            // against one already in the playlist, so every re-sync re-added every track as a
+            // brand-new row instead of recognizing it as already present. This path (the real
+            // Spotify API, via SpotifyInputSource) went untested for a long time because
+            // IsAuthenticated was never restored at startup — see App.axaml.cs — so imports almost
+            // always fell back to SpotifyScraperInputSource, which sets a DIFFERENT ("artist|title"
+            // with a pipe) hash — don't copy that format, it's the inconsistent one.
+            TrackHash = TrackHashUtil.Compute(artist, title)
 		};
 	}
 
@@ -260,7 +278,8 @@ public class SpotifyInputSource : IInputSource
             SpotifyPlaylistId = playlistId,
             SpotifyUri = track.Uri,
             // SimpleTrack doesn't provide ExternalIds usually, so ISRC might be missing here without fetch
-            IsEnriched = false
+            IsEnriched = false,
+            TrackHash = TrackHashUtil.Compute(artist, title)
         };
     }
 

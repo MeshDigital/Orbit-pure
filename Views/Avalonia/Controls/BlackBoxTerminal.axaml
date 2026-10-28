@@ -2,106 +2,59 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             xmlns:entities="clr-namespace:SLSKDONET.Data.Entities"
+             xmlns:vmDiag="clr-namespace:SLSKDONET.ViewModels.Diagnostics"
+             xmlns:avConverters="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="300"
              x:Class="SLSKDONET.Views.Avalonia.Controls.BlackBoxTerminal">
 
-    <Border Background="#0A0A0A" BorderBrush="#333" BorderThickness="1" CornerRadius="4">
+    <!-- Black-box telemetry log (context panel, DataContext: BlackBoxTerminalViewModel).
+         Sunken well with mono rows; level colour is semantic status only. -->
+    <Border Classes="inset" Padding="0">
         <Grid RowDefinitions="Auto,*">
-            <!-- Terminal Header -->
-            <Border Grid.Row="0" Background="#1A1A1A" Padding="12,6" CornerRadius="4,4,0,0">
-                <Grid ColumnDefinitions="Auto,*,Auto">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text=">_" Foreground="#4EC9B0" FontWeight="Bold" FontFamily="{StaticResource CodeFont}"/>
-                        <TextBlock Text="BLACK BOX TELEMETRY" FontSize="10" FontWeight="Bold" Foreground="#888" VerticalAlignment="Center" LetterSpacing="1"/>
-                    </StackPanel>
-                    
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12">
-                         <TextBlock Text="LIVE" Foreground="#FF5252" FontSize="10" FontWeight="Bold" VerticalAlignment="Center">
-                            <TextBlock.Styles>
-                                <Style Selector="TextBlock">
-                                    <Style.Animations>
-                                        <Animation Duration="0:0:1" IterationCount="Infinite">
-                                            <KeyFrame KeyTime="0:0:0">
-                                                <Setter Property="Opacity" Value="1"/>
-                                            </KeyFrame>
-                                            <KeyFrame KeyTime="0:0:0.5">
-                                                <Setter Property="Opacity" Value="0.3"/>
-                                            </KeyFrame>
-                                            <KeyFrame KeyTime="0:0:1">
-                                                <Setter Property="Opacity" Value="1"/>
-                                            </KeyFrame>
-                                        </Animation>
-                                    </Style.Animations>
-                                </Style>
-                            </TextBlock.Styles>
-                         </TextBlock>
+            <!-- Header -->
+            <Border Grid.Row="0" Classes="panel-header" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="section" Text="BLACK BOX TELEMETRY" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"
+                                ToolTip.Tip="Streaming live pipeline events">
+                        <Ellipse Classes="status-dot error" VerticalAlignment="Center"/>
+                        <TextBlock Classes="caption pulsing" Text="Live" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Grid>
             </Border>
 
-            <!-- Terminal Content with Flicker -->
-            <Border Grid.Row="1">
-                <Border.Styles>
-                    <Style Selector="ItemsControl TextBlock">
-                        <Style.Animations>
-                            <Animation Duration="0:0:8" IterationCount="Infinite">
-                                <KeyFrame KeyTime="0:0:0"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
-                                <KeyFrame KeyTime="0:0:2"><Setter Property="Opacity" Value="0.95"/></KeyFrame>
-                                <KeyFrame KeyTime="0:0:2.1"><Setter Property="Opacity" Value="0.7"/></KeyFrame>
-                                <KeyFrame KeyTime="0:0:2.15"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
-                                <KeyFrame KeyTime="0:0:5"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
-                                <KeyFrame KeyTime="0:0:5.05"><Setter Property="Opacity" Value="0.8"/></KeyFrame>
-                                <KeyFrame KeyTime="0:0:5.1"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
-                                <KeyFrame KeyTime="0:0:8"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
-                            </Animation>
-                        </Style.Animations>
-                    </Style>
-                </Border.Styles>
-                <ScrollViewer HorizontalScrollBarVisibility="Auto">
+            <!-- Empty state -->
+            <StackPanel Grid.Row="1" Classes="empty-state"
+                        IsVisible="{Binding TerminalLogs.Count, Converter={x:Static avConverters:NumericConverters.IsZero}}">
+                <PathIcon Data="{StaticResource icon_history}"/>
+                <TextBlock Classes="h3" Text="No telemetry yet"/>
+                <TextBlock Classes="caption" Text="Search, download and analysis events appear here as they happen."/>
+            </StackPanel>
 
-                <ItemsControl ItemsSource="{Binding TerminalLogs}">
+            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding TerminalLogs}" Margin="0,4">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Grid ColumnDefinitions="Auto,Auto,Auto,*" Margin="12,2" VerticalAlignment="Center">
-                                <!-- Timestamp -->
-                                <TextBlock Text="{Binding Timestamp, StringFormat='{}{0:HH:mm:ss.ff}'}" 
-                                           Foreground="#555" 
-                                           FontFamily="{StaticResource CodeFont}" 
-                                           FontSize="11" 
-                                           Margin="0,0,12,0"/>
-                                
-                                <!-- Stage -->
-                                <Border Background="#151515" BorderBrush="#333" BorderThickness="1" CornerRadius="2" Padding="4,1" Margin="0,0,8,0">
-                                    <TextBlock Text="{Binding Stage}" 
-                                               Foreground="#888" 
-                                               FontSize="9" 
-                                               FontWeight="Bold" 
-                                               FontFamily="{StaticResource CodeFont}"/>
+                                <TextBlock Classes="mono" Foreground="{StaticResource BrushText3}" Margin="0,0,12,0"
+                                           Text="{Binding Timestamp, StringFormat='{}{0:HH:mm:ss.ff}'}"/>
+
+                                <Border Grid.Column="1" Classes="fact" Margin="0,0,8,0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Stage}"/>
                                 </Border>
 
-                                <!-- Level -->
-                                <TextBlock Text="{Binding Level}" 
-                                           Foreground="{Binding Level, Converter={StaticResource ForensicLevelToColorConverter}}" 
-                                           FontFamily="{StaticResource CodeFont}" 
-                                           FontSize="11" 
-                                           FontWeight="Bold"
-                                           Width="60"
-                                           Margin="0,0,8,0"/>
+                                <TextBlock Grid.Column="2" Classes="mono" FontWeight="SemiBold" Width="64" Margin="0,0,8,0"
+                                           Foreground="{Binding Level, Converter={StaticResource ForensicLevelToColorConverter}}"
+                                           Text="{Binding Level}"/>
 
-                                <!-- Message -->
-                                <TextBlock Grid.Column="3" 
-                                           Text="{Binding Message}" 
-                                           Foreground="#DDD" 
-                                           FontFamily="{StaticResource CodeFont}" 
-                                           FontSize="11" 
-                                           TextWrapping="NoWrap"/>
+                                <TextBlock Grid.Column="3" Classes="mono" Foreground="{StaticResource BrushText0}"
+                                           TextWrapping="NoWrap"
+                                           Text="{Binding Message}"/>
                             </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
-                </ScrollViewer>
-            </Border>
+            </ScrollViewer>
         </Grid>
     </Border>
 </UserControl>

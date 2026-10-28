@@ -35,8 +35,6 @@ public class DashboardSnapshot : IEquatable<DashboardSnapshot>
     public long AvailableFreeSpaceBytes { get; init; }
     public bool IsSpotifyAuthenticated { get; init; }
 
-    // Forensic Telemetry
-    public bool IsForensicLockdownActive { get; init; }
     public double CurrentCpuLoad { get; init; }
     public Services.SystemInfoHelper.CpuTopology Topology { get; init; }
 
@@ -61,7 +59,6 @@ public class DashboardSnapshot : IEquatable<DashboardSnapshot>
         hash.Add(DeadLetterCount);
         hash.Add(RecoveredFileCount);
         hash.Add(ZombieProcessCount);
-        hash.Add(IsForensicLockdownActive);
         hash.Add(AvailableFreeSpaceBytes);
         hash.Add(IsSpotifyAuthenticated);
         

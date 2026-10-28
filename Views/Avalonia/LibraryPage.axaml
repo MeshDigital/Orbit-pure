@@ -2,581 +2,532 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             xmlns:ds="clr-namespace:DraggingService;assembly=Simple-Avalonia-DragnDrop-Service"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:liblib="clr-namespace:SLSKDONET.ViewModels.Library"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
-             xmlns:conv="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
-             xmlns:dg="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.DataGrid"
              xmlns:rootConv="clr-namespace:SLSKDONET.Converters"
              xmlns:models="clr-namespace:SLSKDONET.Models"
-             xmlns:helpers="clr-namespace:SLSKDONET.Helpers"
              xmlns:interactivity="clr-namespace:Avalonia.Xaml.Interactivity;assembly=Avalonia.Xaml.Interactivity"
              xmlns:ia="clr-namespace:Avalonia.Xaml.Interactions.Core;assembly=Avalonia.Xaml.Interactions"
+             mc:Ignorable="d"
              x:Class="SLSKDONET.Views.Avalonia.LibraryPage"
-             x:DataType="vm:LibraryViewModel"
-             Background="#1E1E1E" Foreground="White">
-
+             x:DataType="vm:LibraryViewModel" x:CompileBindings="True"
+             Background="{StaticResource BrushBg1}" Foreground="{StaticResource BrushText0}">
 
     <UserControl.Resources>
-        <conv:BitmapValueConverter x:Key="BitmapValueConverter"/>
-        <conv:RankColorConverter x:Key="RankColorConverter"/>
-        <rootConv:BoolOpacityConverter x:Key="BoolOpacityConverter"/>
-        <conv:BoolBlurConverter x:Key="BoolBlurConverter"/>
-        <conv:EnumToBooleanConverter x:Key="EnumToBoolConverter"/>
         <rootConv:BoolToWidthConverter x:Key="BoolToWidthConverter"/>
-        <rootConv:BoolToTextConverter x:Key="BoolToTextConverter"/>
-        <x:Double x:Key="NonDownloadedOpacity">0.3</x:Double>
     </UserControl.Resources>
 
     <UserControl.Styles>
-        <Style Selector="Border.savedDoubleRow">
-            <Setter Property="Background" Value="#20242A"/>
-            <Setter Property="BorderBrush" Value="#2E343D"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="Padding" Value="8,6"/>
-            <Setter Property="Margin" Value="0,0,0,6"/>
-            <Setter Property="Transitions">
-                <Transitions>
-                    <BrushTransition Property="Background" Duration="0:0:0.12"/>
-                    <BrushTransition Property="BorderBrush" Duration="0:0:0.12"/>
-                </Transitions>
-            </Setter>
+        <!-- Playlist tree rows: theme hover/selected states, 4px-grid spacing. The 2px left edge
+             marks the open playlist so it stays visible next to the hover state. -->
+        <Style Selector="TreeView#PlaylistTreeView TreeViewItem">
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Margin" Value="4,1"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="2,0,0,0"/>
+        </Style>
+        <Style Selector="TreeView#PlaylistTreeView TreeViewItem:pointerover /template/ Border#PART_LayoutRoot">
+            <Setter Property="Background" Value="{StaticResource BrushHover}"/>
+        </Style>
+        <Style Selector="TreeView#PlaylistTreeView TreeViewItem:selected /template/ Border#PART_LayoutRoot">
+            <Setter Property="Background" Value="{StaticResource BrushSelected}"/>
+        </Style>
+        <Style Selector="TreeView#PlaylistTreeView TreeViewItem:selected">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
         </Style>
 
-        <Style Selector="Border.savedDoubleRow:pointerover">
-            <Setter Property="Background" Value="#28313B"/>
-            <Setter Property="BorderBrush" Value="#435363"/>
+        <!-- Saved-double rows: the remove button only appears on hover. -->
+        <Style Selector="Border.saved-double">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
+            <Setter Property="Padding" Value="8,4"/>
         </Style>
-
-        <Style Selector="Button.removeSavedDouble">
-            <Setter Property="Opacity" Value="0.55"/>
-            <Setter Property="Transitions">
-                <Transitions>
-                    <DoubleTransition Property="Opacity" Duration="0:0:0.12"/>
-                </Transitions>
-            </Setter>
+        <Style Selector="Border.saved-double:pointerover">
+            <Setter Property="Background" Value="{StaticResource BrushHover}"/>
         </Style>
-
-        <Style Selector="Border.savedDoubleRow:pointerover Button.removeSavedDouble">
+        <Style Selector="Border.saved-double Button.remove">
+            <Setter Property="Opacity" Value="0"/>
+        </Style>
+        <Style Selector="Border.saved-double:pointerover Button.remove">
             <Setter Property="Opacity" Value="1"/>
+        </Style>
+
+        <!-- Overlay list rows (deleted playlists, import history, orphaned tracks). -->
+        <Style Selector="Border.overlay-row">
+            <Setter Property="Background" Value="{StaticResource BrushBg3}"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
         </Style>
     </UserControl.Styles>
 
     <UserControl.KeyBindings>
-        <!-- Workspace Switching (Ctrl + 1-5) - These are safe as they use Ctrl -->
         <KeyBinding Gesture="Ctrl+D1" Command="{Binding SwitchWorkspaceCommand}" CommandParameter="{x:Static vm:ActiveWorkspace.Selector}"/>
-
         <KeyBinding Gesture="Escape" Command="{Binding SmartEscapeCommand}"/>
-        
-        <!-- Ctrl+Alt+N: Toggle Library Navigation -->
         <KeyBinding Gesture="Ctrl+Alt+N" Command="{Binding ToggleNavigationCommand}"/>
-
-        <!-- Tools menu shortcuts — these must match the InputGesture text shown on each MenuItem below -->
+        <!-- These must match the InputGesture text on the Library menu items below -->
         <KeyBinding Gesture="Ctrl+H" Command="{Binding ViewHistoryCommand}"/>
         <KeyBinding Gesture="Ctrl+OemComma" Command="{Binding OpenSourcesCommand}"/>
         <KeyBinding Gesture="Ctrl+Shift+N" Command="{Binding SmartPlaylists.CreateCustomSmartPlaylistCommand}"/>
         <KeyBinding Gesture="Ctrl+E" Command="{Binding ExportMonthlyDropCommand}"/>
     </UserControl.KeyBindings>
 
-    <Panel>
-    <Grid ColumnDefinitions="Auto,4,*">
-        <!-- LEFT PANE: Collapsible, user-drag-resizable Playlist Navigation -->
-        <Border Grid.Column="0"
-                Width="{Binding LibraryNavPanelWidth, Mode=TwoWay}"
-                MinWidth="60" MaxWidth="560"
-                Background="#1A1A1D" BorderBrush="#2A2A2E" BorderThickness="0,0,1,0">
-                <interactivity:Interaction.Behaviors>
-                    <ia:EventTriggerBehavior EventName="PointerEntered">
-                        <ia:InvokeCommandAction Command="{Binding ExpandNavigationCommand}"/>
-                    </ia:EventTriggerBehavior>
-                    <ia:EventTriggerBehavior EventName="PointerExited">
-                        <ia:InvokeCommandAction Command="{Binding CollapseNavigationCommand}"/>
-                    </ia:EventTriggerBehavior>
-                </interactivity:Interaction.Behaviors>
-                <Grid RowDefinitions="Auto,*,Auto">
-                    
-                    <!-- Header / Tools -->
-                    <Grid Grid.Row="0" Margin="12,16,12,8" ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto,Auto">
-                        <Button Grid.Column="0" Command="{Binding ToggleNavigationCommand}"
-                                Classes="icon-button" ToolTip.Tip="Toggle Library Navigation (Ctrl+Alt+N)" Margin="0,0,8,0">
-                            <TextBlock Text="{Binding IsNavigationCollapsed, Converter={StaticResource BoolToTextConverter}, ConverterParameter='▶,◀'}" FontSize="16" Opacity="0.8"/>
-                        </Button>
-                        <TextBlock Grid.Column="1" Text="LIBRARY" FontSize="12" FontWeight="Bold" Foreground="#888" VerticalAlignment="Center" IsVisible="{Binding !IsNavigationCollapsed}" Margin="0,0,8,0"/>
+    <Panel x:Name="RootPanel">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <!-- The width binds to the column itself (not a child's Width) so the GridSplitter drag
+                 round-trips into LibraryNavPanelWidth. MinWidth 260 keeps every playlist row fully
+                 readable (art, name, stats, actions); it drops to 60 when the rail is collapsed so
+                 collapsing actually hands the space back to the track list. MaxWidth follows the page
+                 width (LibraryViewModel.FitNavPanelMaxWidth, at most a third of the page) so a wide
+                 panel plus the context panel can't squeeze the track list below a readable title. -->
+            <ColumnDefinition Width="{Binding LibraryNavPanelWidth, Mode=TwoWay, Converter={StaticResource GridLengthPixelConverter}}"
+                              MinWidth="{Binding IsNavigationCollapsed, Converter={StaticResource BoolToWidthConverter}, ConverterParameter='60,260'}"
+                              MaxWidth="{Binding LibraryNavPanelMaxWidth}"/>
+            <ColumnDefinition Width="4"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
 
-                        <!-- Spacer to push actions to the right -->
-                        <Panel Grid.Column="2" IsVisible="{Binding !IsNavigationCollapsed}"/>
+        <!-- ═══ LEFT PANE: playlist navigation ═══ -->
+        <Border Grid.Column="0" Classes="panel" BorderThickness="0,0,1,0" HorizontalAlignment="Stretch">
+            <interactivity:Interaction.Behaviors>
+                <ia:EventTriggerBehavior EventName="PointerEntered">
+                    <ia:InvokeCommandAction Command="{Binding ExpandNavigationCommand}"/>
+                </ia:EventTriggerBehavior>
+                <ia:EventTriggerBehavior EventName="PointerExited">
+                    <ia:InvokeCommandAction Command="{Binding CollapseNavigationCommand}"/>
+                </ia:EventTriggerBehavior>
+            </interactivity:Interaction.Behaviors>
+            <Grid RowDefinitions="Auto,*">
 
-                        <Button Grid.Column="3" Command="{Binding Projects.AddPlaylistCommand}"
-                                Classes="icon-button" ToolTip.Tip="New Playlist" Padding="6,4"
-                                IsVisible="{Binding !IsNavigationCollapsed}">
-                            <TextBlock Text="➕" FontSize="14"/>
-                        </Button>
-                        <Button Grid.Column="4" Command="{Binding SyncPhysicalLibraryCommand}"
-                                Classes="icon-button" ToolTip.Tip="Sync Physical Library (Ctrl+L)" Padding="6,4"
-                                IsVisible="{Binding !IsNavigationCollapsed}">
-                            <TextBlock Text="🔗" FontSize="14"/>
-                        </Button>
-                        <Button Grid.Column="5" Command="{Binding Operations.RetryOfflineTracksCommand}"
-                                Classes="icon-button" ToolTip.Tip="Retry Offline Tracks" Padding="6,4"
-                                IsVisible="{Binding !IsNavigationCollapsed}">
-                            <TextBlock Text="🔄" FontSize="14"/>
-                        </Button>
-                        <DropDownButton Content="Tools" Classes="tool" CornerRadius="4" Padding="8,4" FontSize="12" Grid.Column="6" IsVisible="{Binding !IsNavigationCollapsed}">
-                            <DropDownButton.Flyout>
-                                <MenuFlyout>
-                                     <MenuItem Header="Import History" Command="{Binding ViewHistoryCommand}" InputGesture="Ctrl+H">
-                                         <MenuItem.Icon><TextBlock Text="📜"/></MenuItem.Icon>
-                                     </MenuItem>
- 
-                                     <Separator/>
-                                     <MenuItem Header="Manage Sources" Command="{Binding OpenSourcesCommand}" InputGesture="Ctrl+,">
-                                         <MenuItem.Icon><TextBlock Text="📁"/></MenuItem.Icon>
-                                     </MenuItem>
-                                     <MenuItem Header="Recently Deleted Playlists" Command="{Binding LoadDeletedProjectsCommand}"
-                                               ToolTip.Tip="Restore a playlist you removed from the list">
-                                         <MenuItem.Icon><TextBlock Text="🗑️"/></MenuItem.Icon>
-                                     </MenuItem>
-                                     <MenuItem Header="Remove Unidentified (&quot;ID&quot;) Tracks" Command="{Binding RemoveUnidentifiedTracksCommand}"
-                                               ToolTip.Tip="Permanently deletes tracklist placeholder tracks like &quot;Artist - ID&quot; — leftovers from before imports filtered these out">
-                                         <MenuItem.Icon><TextBlock Text="❓"/></MenuItem.Icon>
-                                     </MenuItem>
-                                     <MenuItem Header="New Smart Crate (Genre/Mood)" Command="{Binding CreateSmartPlaylistCommand}"
-                                               ToolTip.Tip="Rule-based playlist: sub-genre, mood, BPM/energy range">
-                                         <MenuItem.Icon><TextBlock Text="⚡"/></MenuItem.Icon>
-                                     </MenuItem>
-                                     <MenuItem Header="New Smart Playlist (Custom Criteria)" Command="{Binding SmartPlaylists.CreateCustomSmartPlaylistCommand}" InputGesture="Ctrl+Shift+N"
-                                               ToolTip.Tip="Filter by BPM, Energy, Valence, Danceability, Rating, or Liked status">
-                                         <MenuItem.Icon><TextBlock Text="🧠"/></MenuItem.Icon>
-                                     </MenuItem>
-                                     <Separator/>
-                                     <MenuItem Header="🌊 Flow Builder" Command="{Binding OpenFlowBuilderCommand}"
-                                               ToolTip.Tip="Build your DJ set timeline">
-                                         <MenuItem.Icon><TextBlock Text="🌊"/></MenuItem.Icon>
-                                     </MenuItem>
-                                     <MenuItem Header="🔗 Find Bridge Between Selected" Command="{Binding FindBridgeBetweenSelectedCommand}"
-                                               ToolTip.Tip="Use the first two selected tracks to find bridge candidates">
-                                         <MenuItem.Icon><TextBlock Text="🔗"/></MenuItem.Icon>
-                                     </MenuItem>
-                                     <MenuItem Header="✨ Smart Insert Between Selected" Command="{Binding SmartInsertBetweenSelectedCommand}"
-                                               ToolTip.Tip="Insert a best-fit track between the two selected tracks">
-                                         <MenuItem.Icon><TextBlock Text="✨"/></MenuItem.Icon>
-                                     </MenuItem>
-                                     <Separator/>
-                                     <MenuItem Header="Export Monthly Drop" Command="{Binding ExportMonthlyDropCommand}" InputGesture="Ctrl+E">
-                                         <MenuItem.Icon><TextBlock Text="📂"/></MenuItem.Icon>
-                                     </MenuItem>
-                                 </MenuFlyout>
-                             </DropDownButton.Flyout>
-                          </DropDownButton>
-                    </Grid>
+                <!-- Header: collapse toggle · LIBRARY · new playlist · new folder · library menu -->
+                <Grid Grid.Row="0" Height="{StaticResource ToolbarHeight}" Margin="8,0" ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+                    <Button Grid.Column="0" Classes="icon small" Command="{Binding ToggleNavigationCommand}"
+                            ToolTip.Tip="Collapse or expand the playlist panel (Ctrl+Alt+N)">
+                        <Panel>
+                            <PathIcon Data="{StaticResource icon_chevron_left}" Width="16" Height="16" IsVisible="{Binding !IsNavigationCollapsed}"/>
+                            <PathIcon Data="{StaticResource icon_chevron_right}" Width="16" Height="16" IsVisible="{Binding IsNavigationCollapsed}"/>
+                        </Panel>
+                    </Button>
+                    <TextBlock Grid.Column="1" Classes="section" Text="LIBRARY" Margin="8,0,0,0" VerticalAlignment="Center"
+                               IsVisible="{Binding !IsNavigationCollapsed}"/>
 
-                    <!-- Unified Navigation Content -->
-                    <ScrollViewer Grid.Row="1" IsVisible="{Binding !IsNavigationCollapsed}">
-                        <StackPanel Spacing="2">
-                            <Border Background="#20242A" BorderBrush="#2E343D" BorderThickness="1" CornerRadius="8" Margin="8,8,8,6" Padding="10,8">
-                                <StackPanel Spacing="4">
-                                    <TextBlock Text="Lifecycle" FontSize="10" FontWeight="SemiBold" Foreground="#8FA7C0"/>
-                                    <TextBlock Text="{Binding LibraryCountDifferentiationSummary}" FontSize="11" Foreground="#D8E5F2" TextWrapping="Wrap"/>
-                                    <TextBlock Text="{Binding LibraryLifecycleStatusMessage}" FontSize="10" Foreground="#93C7B8" TextWrapping="Wrap" IsVisible="{Binding !!LibraryLifecycleStatusMessage}"/>
-                                </StackPanel>
-                            </Border>
+                    <Button Grid.Column="2" Classes="icon small" Command="{Binding Projects.AddPlaylistCommand}"
+                            ToolTip.Tip="New playlist" IsVisible="{Binding !IsNavigationCollapsed}">
+                        <PathIcon Data="{StaticResource icon_playlist_add}" Width="16" Height="16"/>
+                    </Button>
+                    <Button Grid.Column="3" Classes="icon small" Command="{Binding Projects.CreateFolderCommand}"
+                            ToolTip.Tip="New folder" IsVisible="{Binding !IsNavigationCollapsed}">
+                        <PathIcon Data="{StaticResource icon_folder_add}" Width="16" Height="16"/>
+                    </Button>
 
-                            <!-- Section: Library Management -->
-                            <TextBlock Text="LIBRARY" FontSize="10" FontWeight="Bold" Foreground="#555" Margin="16,12,16,4"/>
-
-                            <Button Command="{Binding Projects.LoadAllTracksCommand}" Classes="nav-item" Margin="8,0">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <Border Width="24" Height="24" CornerRadius="4" Background="#111128" VerticalAlignment="Center">
-                                        <TextBlock Text="📚" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <TextBlock Text="All Tracks" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-
-                            <Button Command="{Binding Projects.ImportLikedSongsCommand}" Classes="nav-item" Margin="8,0">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <Border Width="24" Height="24" CornerRadius="4" Background="#281111" VerticalAlignment="Center">
-                                        <TextBlock Text="❤️" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <TextBlock Text="Liked Songs" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-
-                            <Button Command="{Binding OpenSourcesCommand}" Classes="nav-item" Margin="8,0">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <Border Width="24" Height="24" CornerRadius="4" Background="#112811" VerticalAlignment="Center">
-                                        <TextBlock Text="📁" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <TextBlock Text="Folders" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-
-                            <!-- Section: Project Workspace -->
-                            <Separator Height="1" Background="#2A2A2A" Margin="12,12"/>
-                            <Grid ColumnDefinitions="*,Auto" Margin="16,4,12,4">
-                                <TextBlock Grid.Column="0" Text="PROJECTS" FontSize="10" FontWeight="Bold" Foreground="#555" VerticalAlignment="Center"/>
-                                <Button Grid.Column="1" Command="{Binding Projects.CreateFolderCommand}"
-                                        Classes="icon-button" ToolTip.Tip="New Folder" Padding="4">
-                                    <TextBlock Text="📁➕" FontSize="11"/>
-                                </Button>
-                            </Grid>
-
-                            <!-- Project Filter -->
-                            <Border Background="#2D2D2D" BorderBrush="#333" BorderThickness="1" CornerRadius="8" Margin="8,4,8,8" Padding="10,2">
-                                <Grid ColumnDefinitions="Auto,*">
-                                    <TextBlock Grid.Column="0" Text="🔍" FontSize="12" VerticalAlignment="Center" Foreground="#666"/>
-                                    <TextBox Grid.Column="1" Text="{Binding Projects.SearchText, Mode=TwoWay}" Watermark="Filter projects..." Background="Transparent" BorderThickness="0" FontSize="12" Padding="8,6" Foreground="White"/>
-                                </Grid>
-                            </Border>
-
-                            <TreeView x:Name="PlaylistTreeView"
-                                      ItemsSource="{Binding Projects.RootTreeNodes}"
-                                      SelectedItem="{Binding Projects.SelectedTreeNode, Mode=TwoWay}"
-                                      Background="Transparent" BorderThickness="0" Padding="0,4">
-                                <TreeView.Styles>
-                                    <Style Selector="TreeViewItem">
-                                        <Setter Property="Padding" Value="4"/>
-                                        <Setter Property="Margin" Value="4,2"/>
-                                        <Setter Property="CornerRadius" Value="8"/>
-                                        <Setter Property="Background" Value="Transparent"/>
-                                        <Setter Property="BorderBrush" Value="Transparent"/>
-                                        <Setter Property="BorderThickness" Value="2,0,0,0"/>
-                                        <Setter Property="Transitions">
-                                            <Transitions>
-                                                <BrushTransition Property="Background" Duration="0:0:0.2"/>
-                                                <BrushTransition Property="BorderBrush" Duration="0:0:0.2"/>
-                                            </Transitions>
-                                        </Setter>
-                                    </Style>
-                                    <Style Selector="TreeViewItem:pointerover">
-                                        <Setter Property="Background" Value="{StaticResource GlassBrush}"/>
-                                        <Setter Property="BorderBrush" Value="{StaticResource GlassHeavyBrush}"/>
-                                    </Style>
-                                    <Style Selector="TreeViewItem:selected">
-                                        <Setter Property="Background" Value="{StaticResource AccentGlowBrush}"/>
-                                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
-                                    </Style>
-                                </TreeView.Styles>
-                                <TreeView.ItemTemplate>
-                                    <TreeDataTemplate ItemsSource="{ReflectionBinding Children}">
-                                        <ContentControl Content="{ReflectionBinding}">
-                                            <ContentControl.DataTemplates>
-
-                                                <!-- Folder node: name + rename/delete/new-subfolder context menu -->
-                                                <DataTemplate DataType="liblib:PlaylistTreeFolderNodeViewModel">
-                                                    <Border Background="Transparent" Padding="4,2">
-                                                        <Border.ContextMenu>
-                                                            <ContextMenu>
-                                                                <MenuItem Header="New Subfolder"
-                                                                          Command="{Binding $parent[UserControl].DataContext.Projects.CreateSubfolderCommand}"
-                                                                          CommandParameter="{ReflectionBinding}">
-                                                                    <MenuItem.Icon><TextBlock Text="📁"/></MenuItem.Icon>
-                                                                </MenuItem>
-                                                                <MenuItem Header="Rename Folder"
-                                                                          Command="{Binding $parent[UserControl].DataContext.Projects.RenameFolderCommand}"
-                                                                          CommandParameter="{ReflectionBinding}">
-                                                                    <MenuItem.Icon><TextBlock Text="✏️"/></MenuItem.Icon>
-                                                                </MenuItem>
-                                                                <Separator/>
-                                                                <MenuItem Header="Delete Folder"
-                                                                          Command="{Binding $parent[UserControl].DataContext.Projects.DeleteFolderCommand}"
-                                                                          CommandParameter="{ReflectionBinding}">
-                                                                    <MenuItem.Icon><TextBlock Text="🗑️"/></MenuItem.Icon>
-                                                                </MenuItem>
-                                                            </ContextMenu>
-                                                        </Border.ContextMenu>
-                                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                                            <TextBlock Text="{ReflectionBinding Icon}" VerticalAlignment="Center"/>
-                                                            <TextBlock Text="{ReflectionBinding DisplayName}" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                                                        </StackPanel>
-                                                    </Border>
-                                                </DataTemplate>
-
-                                                <!-- Playlist card node: unchanged rich card template, bindings routed through Card.* -->
-                                                <DataTemplate DataType="liblib:PlaylistTreeCardNodeViewModel">
-                                                    <Border Background="Transparent">
-                                                        <Border.ContextMenu>
-                                                            <ContextMenu>
-                                                                <MenuItem Header="Download Missing Tracks">
-                                                                    <MenuItem.Icon><TextBlock Text="⬇️"/></MenuItem.Icon>
-                                                                    <MenuItem Header="Normal — join queue"
-                                                                              Command="{Binding $parent[UserControl].DataContext.DownloadPlaylistNormalCommand}"
-                                                                              CommandParameter="{Binding Card.Model}">
-                                                                        <MenuItem.Icon><TextBlock Text="🟢"/></MenuItem.Icon>
-                                                                    </MenuItem>
-                                                                    <MenuItem Header="High — ahead of Normal"
-                                                                              Command="{Binding $parent[UserControl].DataContext.DownloadPlaylistHighCommand}"
-                                                                              CommandParameter="{Binding Card.Model}">
-                                                                        <MenuItem.Icon><TextBlock Text="🟡"/></MenuItem.Icon>
-                                                                    </MenuItem>
-                                                                    <MenuItem Header="Critical — jump to front"
-                                                                              Command="{Binding $parent[UserControl].DataContext.DownloadPlaylistCriticalCommand}"
-                                                                              CommandParameter="{Binding Card.Model}">
-                                                                        <MenuItem.Icon><TextBlock Text="🔴"/></MenuItem.Icon>
-                                                                    </MenuItem>
-                                                                </MenuItem>
-                                                                <Separator/>
-                                                                <MenuItem Header="Generate Auto-Cues"
-                                                                          Command="{Binding $parent[UserControl].DataContext.Projects.GenerateCuesCommand}"
-                                                                          CommandParameter="{Binding Card.Model}">
-                                                                    <MenuItem.Icon><TextBlock Text="🎯"/></MenuItem.Icon>
-                                                                </MenuItem>
-                                                                <MenuItem Header="Export Playlist">
-                                                                    <MenuItem.Icon><TextBlock Text="📤"/></MenuItem.Icon>
-                                                                    <MenuItem Header="Rekordbox XML"
-                                                                              Command="{Binding $parent[UserControl].DataContext.ExportPlaylistCommand}"
-                                                                              CommandParameter="{Binding Card.Model}">
-                                                                        <MenuItem.Icon><TextBlock Text="📀"/></MenuItem.Icon>
-                                                                    </MenuItem>
-                                                                    <MenuItem Header="M3U Playlist (.m3u8)"
-                                                                              Command="{Binding $parent[UserControl].DataContext.ExportPlaylistM3uCommand}"
-                                                                              CommandParameter="{Binding Card.Model}">
-                                                                        <MenuItem.Icon><TextBlock Text="🎵"/></MenuItem.Icon>
-                                                                    </MenuItem>
-                                                                </MenuItem>
-                                                                <Separator/>
-                                                                <MenuItem Header="Rename Playlist"
-                                                                          Command="{Binding $parent[UserControl].DataContext.RenameProjectCommand}"
-                                                                          CommandParameter="{Binding Card.Model}">
-                                                                    <MenuItem.Icon><TextBlock Text="✏️"/></MenuItem.Icon>
-                                                                </MenuItem>
-                                                                <MenuItem Header="Remove Playlist From List"
-                                                                          Command="{Binding $parent[UserControl].DataContext.DeleteProjectCommand}"
-                                                                          CommandParameter="{Binding Card.Model}"
-                                                                          InputGesture="Delete">
-                                                                    <MenuItem.Icon><TextBlock Text="🗑️"/></MenuItem.Icon>
-                                                                </MenuItem>
-                                                            </ContextMenu>
-                                                        </Border.ContextMenu>
-                                                        <controls:CompactPlaylistTemplate DataContext="{Binding Card}"/>
-                                                    </Border>
-                                                </DataTemplate>
-
-                                            </ContentControl.DataTemplates>
-                                        </ContentControl>
-                                    </TreeDataTemplate>
-                                </TreeView.ItemTemplate>
-                            </TreeView>
-                        </StackPanel>
-                    </ScrollViewer>
-
-                    <!-- Bottom Actions / Compact Icon Bar -->
-                    <Grid Grid.Row="2" Margin="12,12">
-                        <!-- Full Actions (when expanded) -->
-                        <StackPanel Spacing="8" IsVisible="{Binding !IsNavigationCollapsed}">
-                            <Button Command="{Binding Projects.AddPlaylistCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <TextBlock Text="➕"/>
-                                    <TextBlock Text="New Playlist"/>
-                                </StackPanel>
-                            </Button>
-                            <Button Command="{Binding DeleteProjectCommand}" CommandParameter="{Binding SelectedProject}" Classes="danger" IsVisible="{Binding !!SelectedProject}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
-                                 <TextBlock Text="Delete Project"/>
-                            </Button>
-                        </StackPanel>
-
-                        <!-- Compact Icon Bar (when collapsed) -->
-                        <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" IsVisible="{Binding IsNavigationCollapsed}">
-                            <Button Command="{Binding Projects.LoadAllTracksCommand}" Classes="icon-button" ToolTip.Tip="All Tracks">
-                                <TextBlock Text="📚" FontSize="16"/>
-                            </Button>
-                            <Button Command="{Binding Projects.ImportLikedSongsCommand}" Classes="icon-button" ToolTip.Tip="Liked Songs">
-                                <TextBlock Text="❤️" FontSize="16"/>
-                            </Button>
-                            <Button Command="{Binding OpenSourcesCommand}" Classes="icon-button" ToolTip.Tip="Folders">
-                                <TextBlock Text="📁" FontSize="16"/>
-                            </Button>
-                            <Separator Background="#444" Width="1" Height="20" Margin="4,0"/>
-                            <Button Command="{Binding Projects.AddPlaylistCommand}" Classes="icon-button" ToolTip.Tip="New Playlist">
-                                <TextBlock Text="➕" FontSize="16"/>
-                            </Button>
-                        </StackPanel>
-                    </Grid>
-                </Grid>
-            </Border>
-
-        <GridSplitter Grid.Column="1"
-                      Background="#2A2A2E"
-                      HorizontalAlignment="Stretch"
-                      ResizeDirection="Columns"
-                      ShowsPreview="True"
-                      ToolTip.Tip="Drag to resize the playlist panel"/>
-
-        <!-- MAIN CONTENT AREA -->
-        <ContentControl Grid.Column="2" Content="{Binding Tracks}">
-            <ContentControl.DataTemplates>
-                <DataTemplate DataType="vm:Library.TrackListViewModel">
-                    <Grid>
-                        <views:TrackListView IsVisible="{Binding !$parent[views:LibraryPage].DataContext.UseNewPlaylistSurface}"/>
-                        <controls:LibraryPlaylistTrackSurface IsVisible="{Binding $parent[views:LibraryPage].DataContext.UseNewPlaylistSurface}"/>
-                    </Grid>
-                </DataTemplate>
-            </ContentControl.DataTemplates>
-        </ContentControl>
-
-    </Grid>
-
-    <!-- ═══ BATCH ACTION FAB ════════════════════════════════════════════════
-         Floats above the library grid. Visible only when ≥1 track selected.
-         Uses Tracks.HasSelectedTracks because LibraryViewModel.Tracks is
-         the TrackListViewModel which owns the selection state.
-    ════════════════════════════════════════════════════════════════════════ -->
-    <Border IsVisible="{Binding Tracks.HasSelectedTracks}"
-            VerticalAlignment="Bottom" HorizontalAlignment="Center"
-            Background="#FF0B0B12" CornerRadius="32"
-            BorderBrush="#904EC9B0" BorderThickness="1.5"
-            BoxShadow="0 12 40 8 #FF000000"
-            Padding="22,14" Margin="0,0,0,24"
-            ZIndex="100">
-        <StackPanel Orientation="Horizontal" Spacing="10">
-
-            <!-- Selection count badge -->
-            <Border Background="#304EC9B0" CornerRadius="16" Padding="10,4">
-                <TextBlock Text="{Binding Tracks.SelectedTracks.Count, StringFormat='{}{0} selected'}"
-                           FontSize="12" FontWeight="SemiBold" Foreground="#4EC9B0"
-                           VerticalAlignment="Center"/>
-            </Border>
-
-            <!-- Separator -->
-            <Border Width="1" Background="#33FFFFFF" Margin="2,4"/>
-
-            <!-- Play Selected -->
-            <Button Command="{Binding Tracks.Operations.PlayTrackCommand}"
-                    ToolTip.Tip="Clear queue and play selected tracks"
-                    Padding="10,6" CornerRadius="18" FontSize="11"
-                    Background="#1A4EC9B0" Foreground="#4EC9B0">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock Text="▶️" FontSize="13"/>
-                    <TextBlock Text="Play" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-
-            <!-- Add to Queue -->
-            <Button Command="{Binding Tracks.Operations.AddSelectedToQueueCommand}"
-                    ToolTip.Tip="Add selected tracks to play queue"
-                    Padding="10,6" CornerRadius="18" FontSize="11"
-                    Background="#1AFFFFFF" Foreground="#DDD">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock Text="⊕" FontSize="13"/>
-                    <TextBlock Text="Add to Queue" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-
-            <!-- Separator -->
-            <Border Width="1" Background="#33FFFFFF" Margin="2,4"/>
-
-            <!-- Batch Tag Edit -->
-            <Button Command="{Binding BatchTagEditCommand}"
-                    ToolTip.Tip="Edit tags for selected tracks"
-                    Padding="10,6" CornerRadius="18" FontSize="11"
-                    Background="#1AFFFFFF" Foreground="#DDD">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock Text="✏️" FontSize="13"/>
-                    <TextBlock Text="Tag Edit" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-
-            <!-- Queue Analysis -->
-            <Button Command="{Binding BatchQueueAnalysisCommand}"
-                    ToolTip.Tip="Queue selected tracks for audio analysis"
-                    Padding="10,6" CornerRadius="18" FontSize="11"
-                    Background="#1A4EC9B0" Foreground="#4EC9B0">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock Text="🔬" FontSize="13"/>
-                    <TextBlock Text="Analyse" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-
-            <!-- Add to Playlist -->
-            <Button Command="{Binding BatchAddToPlaylistCommand}"
-                    ToolTip.Tip="Add selected tracks to a playlist"
-                    Padding="10,6" CornerRadius="18" FontSize="11"
-                    Background="#1AFFFFFF" Foreground="#DDD">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock Text="➕" FontSize="13"/>
-                    <TextBlock Text="Add to Playlist" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-
-            <!-- Export Rekordbox -->
-            <Button Command="{Binding BatchExportRekordboxCommand}"
-                    ToolTip.Tip="Export to Rekordbox XML"
-                    Padding="10,6" CornerRadius="18" FontSize="11"
-                    Background="#1AFFFFFF" Foreground="#DDD">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock Text="📤" FontSize="13"/>
-                    <TextBlock Text="Rekordbox" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-
-            <!-- Export M3U -->
-            <Button Command="{Binding BatchExportM3uCommand}"
-                    ToolTip.Tip="Export to M3U playlist (Rekordbox, VDJ, Serato, any player)"
-                    Padding="10,6" CornerRadius="18" FontSize="11"
-                    Background="#1AFFFFFF" Foreground="#DDD">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock Text="🎵" FontSize="13"/>
-                    <TextBlock Text="M3U" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-
-            <!-- Separator -->
-            <Border Width="1" Background="#33FFFFFF" Margin="2,4"/>
-
-            <!-- Clear selection -->
-            <Button Command="{Binding BatchClearSelectionCommand}"
-                    ToolTip.Tip="Deselect all"
-                    Padding="8,6" CornerRadius="18" FontSize="11"
-                    Background="Transparent" Foreground="#888">
-                <TextBlock Text="✕" FontSize="14"/>
-            </Button>
-
-        </StackPanel>
-    </Border>
-
-    <!-- Recently Deleted Playlists overlay -->
-    <Border IsVisible="{Binding IsRemovalHistoryVisible}" Background="#CC000000">
-        <Border Width="480" MaxHeight="560" HorizontalAlignment="Center" VerticalAlignment="Center"
-                Background="#252526" CornerRadius="10" BorderBrush="#3E3E42" BorderThickness="1">
-            <Grid RowDefinitions="Auto,Auto,*">
-                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="20,16,12,12">
-                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="🗑️" FontSize="18"/>
-                        <TextBlock Text="Recently Deleted Playlists" FontSize="15" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
-                    </StackPanel>
-                    <Button Grid.Column="1" Command="{Binding CloseRemovalHistoryCommand}" Background="Transparent" BorderThickness="0" Padding="8,4">
-                        <TextBlock Text="✕" FontSize="14" Foreground="#AAA"/>
+                    <!-- Everything that isn't navigation lives in one menu: maintenance, smart
+                         playlists, set-building tools and exports. -->
+                    <Button Grid.Column="4" Classes="icon small" ToolTip.Tip="Library tools"
+                            IsVisible="{Binding !IsNavigationCollapsed}">
+                        <PathIcon Data="{StaticResource icon_more}" Width="16" Height="16"/>
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                <MenuItem Header="New smart playlist (custom criteria)…" Command="{Binding SmartPlaylists.CreateCustomSmartPlaylistCommand}" InputGesture="Ctrl+Shift+N"
+                                          ToolTip.Tip="Filter by BPM, energy, valence, danceability, rating or liked status"/>
+                                <MenuItem Header="New smart crate (genre / mood)…" Command="{Binding CreateSmartPlaylistCommand}"
+                                          ToolTip.Tip="Rule-based playlist: sub-genre, mood, BPM / energy range"/>
+                                <Separator/>
+                                <MenuItem Header="Library folders…" Command="{Binding OpenSourcesCommand}" InputGesture="Ctrl+,"/>
+                                <MenuItem Header="Sync physical library" Command="{Binding SyncPhysicalLibraryCommand}"
+                                          ToolTip.Tip="Re-check every library file on disk and list entries whose file has gone missing"/>
+                                <MenuItem Header="Retry offline tracks" Command="{Binding Operations.RetryOfflineTracksCommand}"/>
+                                <MenuItem Header="Library health" Command="{Binding OpenLibraryHealthCommand}"
+                                          ToolTip.Tip="Disk usage, unplayed tracks, and files on disk ORBIT doesn't know about"/>
+                                <MenuItem Header="Import history" Command="{Binding ViewHistoryCommand}" InputGesture="Ctrl+H"/>
+                                <MenuItem Header="Recently deleted playlists" Command="{Binding LoadDeletedProjectsCommand}"/>
+                                <Separator/>
+                                <MenuItem Header="Clean up">
+                                    <MenuItem Header="Find duplicates (review only)" Command="{Binding DuplicateDetectionCommand}"
+                                              ToolTip.Tip="Filters the track list to duplicates (exact + fuzzy) for review. Nothing is deleted."/>
+                                    <MenuItem Header="Remove duplicate tracks…" Command="{Binding RemoveDuplicateTracksCommand}"
+                                              ToolTip.Tip="Merges duplicate library files and removes repeated playlist entries. Backs up the database first."/>
+                                    <MenuItem Header="Remove unidentified (&quot;ID&quot;) tracks…" Command="{Binding RemoveUnidentifiedTracksCommand}"
+                                              ToolTip.Tip="Permanently deletes tracklist placeholders like &quot;Artist - ID&quot;"/>
+                                    <MenuItem Header="Fix &quot;file missing&quot; flags" Command="{Binding FixMissingFileFlagsCommand}"
+                                              ToolTip.Tip="Corrects tracks flagged as missing although the file exists on disk"/>
+                                    <MenuItem Header="Backfill missing metadata" Command="{Binding BackfillDurationsCommand}"
+                                              ToolTip.Tip="Reads real duration, bitrate and format for tracks that show '—' despite having a file"/>
+                                    <MenuItem Header="Measure missing loudness" Command="{Binding MeasureMissingLoudnessCommand}"
+                                              ToolTip.Tip="Measures integrated loudness (LUFS) for tracks analysed before real metering, without a full re-analysis. Opens the Analysis page to show progress."/>
+                                    <MenuItem Header="Enrich library metadata" Command="{Binding EnrichLibraryMetadataCommand}"
+                                              ToolTip.Tip="Looks up cover art, album, label, year and genre for tracks missing them (file tags, Deezer, MusicBrainz, and the sources in Settings). Opens the Analysis page to show progress."/>
+                                </MenuItem>
+                                <MenuItem Header="Set building">
+                                    <MenuItem Header="Flow Builder" Command="{Binding OpenFlowBuilderCommand}"/>
+                                    <MenuItem Header="Find bridge between selected" Command="{Binding FindBridgeBetweenSelectedCommand}"
+                                              ToolTip.Tip="Uses the first two selected tracks to find bridge candidates"/>
+                                    <MenuItem Header="Smart insert between selected" Command="{Binding SmartInsertBetweenSelectedCommand}"
+                                              ToolTip.Tip="Inserts a best-fit track between the two selected tracks"/>
+                                </MenuItem>
+                                <Separator/>
+                                <MenuItem Header="Export monthly drop…" Command="{Binding ExportMonthlyDropCommand}" InputGesture="Ctrl+E"/>
+                            </MenuFlyout>
+                        </Button.Flyout>
                     </Button>
                 </Grid>
 
-                <Border Grid.Row="1" Height="1" Background="#3E3E42"/>
+                <ScrollViewer Grid.Row="1" IsVisible="{Binding !IsNavigationCollapsed}">
+                    <StackPanel Spacing="4" Margin="0,0,0,12">
+                        <!-- Quick navigation -->
+                        <StackPanel Spacing="2" Margin="4,0">
+                            <Button Classes="nav" Command="{Binding Projects.LoadAllTracksCommand}" ToolTip.Tip="Every track in the library">
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <PathIcon Data="{StaticResource icon_library}"/>
+                                    <TextBlock Text="All tracks"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Classes="nav" Command="{Binding Projects.ImportLikedSongsCommand}" ToolTip.Tip="Tracks you liked">
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <PathIcon Data="{StaticResource icon_heart}"/>
+                                    <TextBlock Text="Liked songs"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Classes="nav" Command="{Binding OpenSourcesCommand}" ToolTip.Tip="Manage the folders the library scanner watches">
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <PathIcon Data="{StaticResource icon_folder}"/>
+                                    <TextBlock Text="Library folders"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
 
-                <StackPanel Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" Margin="20,40"
-                            IsVisible="{Binding !DeletedProjects.Count}">
-                    <TextBlock Text="Nothing here" FontSize="13" Foreground="#888" HorizontalAlignment="Center"/>
-                    <TextBlock Text="Playlists you remove from the list show up here for restoring." FontSize="11" Foreground="#666"
+                        <Border Classes="divider" Margin="12,8"/>
+
+                        <TextBlock Classes="section" Text="PLAYLISTS" Margin="16,0,12,4"/>
+                        <TextBox Classes="search small" Margin="8,0,8,4"
+                                 Text="{Binding Projects.SearchText, Mode=TwoWay}" Watermark="Filter playlists"/>
+
+                        <!-- HorizontalScrollBarVisibility="Disabled" makes rows measure against the
+                             real pane width, so long titles trim instead of pushing the row's action
+                             icons out of view. The non-virtualizing StackPanel re-measures rows when
+                             the splitter changes the pane width (the list is at most a few dozen). -->
+                        <TreeView x:Name="PlaylistTreeView"
+                                  ItemsSource="{Binding Projects.RootTreeNodes}"
+                                  SelectedItem="{Binding Projects.SelectedTreeNode, Mode=TwoWay}"
+                                  SelectionMode="Multiple"
+                                  SelectedItems="{Binding Projects.SelectedTreeNodes}"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                  Background="Transparent" BorderThickness="0">
+                            <TreeView.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel/>
+                                </ItemsPanelTemplate>
+                            </TreeView.ItemsPanel>
+                            <TreeView.ItemTemplate>
+                                <TreeDataTemplate ItemsSource="{ReflectionBinding Children}">
+                                    <ContentControl Content="{ReflectionBinding}">
+                                        <ContentControl.DataTemplates>
+
+                                            <!-- Folder node -->
+                                            <DataTemplate DataType="liblib:PlaylistTreeFolderNodeViewModel">
+                                                <Border Background="Transparent" Padding="4,0" MinHeight="28">
+                                                    <Border.ContextMenu>
+                                                        <ContextMenu>
+                                                            <MenuItem Header="New subfolder"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.Projects.CreateSubfolderCommand}"
+                                                                      CommandParameter="{ReflectionBinding}"/>
+                                                            <MenuItem Header="Rename folder"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.Projects.RenameFolderCommand}"
+                                                                      CommandParameter="{ReflectionBinding}"/>
+                                                            <Separator/>
+                                                            <MenuItem Header="Delete folder"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.Projects.DeleteFolderCommand}"
+                                                                      CommandParameter="{ReflectionBinding}"/>
+                                                        </ContextMenu>
+                                                    </Border.ContextMenu>
+                                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                        <PathIcon Data="{StaticResource icon_folder}" Width="14" Height="14" Foreground="{StaticResource BrushText2}"/>
+                                                        <TextBlock Text="{ReflectionBinding DisplayName}" Classes="body" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+
+                                            <!-- Playlist node -->
+                                            <DataTemplate DataType="liblib:PlaylistTreeCardNodeViewModel">
+                                                <Border Background="Transparent" HorizontalAlignment="Stretch">
+                                                    <Border.ContextMenu>
+                                                        <ContextMenu>
+                                                            <MenuItem Header="Download missing tracks">
+                                                                <MenuItem Header="Normal: join the queue"
+                                                                          Command="{ReflectionBinding $parent[UserControl].DataContext.DownloadPlaylistNormalCommand}"
+                                                                          CommandParameter="{Binding Card.Model}"/>
+                                                                <MenuItem Header="High: ahead of normal"
+                                                                          Command="{ReflectionBinding $parent[UserControl].DataContext.DownloadPlaylistHighCommand}"
+                                                                          CommandParameter="{Binding Card.Model}"/>
+                                                                <MenuItem Header="Critical: jump to the front"
+                                                                          Command="{ReflectionBinding $parent[UserControl].DataContext.DownloadPlaylistCriticalCommand}"
+                                                                          CommandParameter="{Binding Card.Model}"/>
+                                                            </MenuItem>
+                                                            <MenuItem Header="Check for new tracks"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.SyncProjectCommand}"
+                                                                      CommandParameter="{Binding Card.Model}"
+                                                                      IsVisible="{Binding Card.Model.SourceUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                                      ToolTip.Tip="Spotify playlists re-fetch automatically. Pasted tracklists open their source page so you can re-paste the current list."/>
+                                                            <Separator/>
+                                                            <MenuItem Header="Regenerate cues"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.Projects.GenerateCuesCommand}"
+                                                                      CommandParameter="{Binding Card.Model}"
+                                                                      ToolTip.Tip="Re-maps cue points from this playlist's analysed tracks. Fast, no re-analysis."/>
+                                                            <MenuItem Header="Regenerate cues (selected playlists)"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.Projects.GenerateCuesForSelectedPlaylistsCommand}"
+                                                                      IsVisible="{ReflectionBinding $parent[UserControl].DataContext.Projects.HasMultiplePlaylistsSelected}"/>
+                                                            <MenuItem Header="Auto-arrange by similarity"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.AutoArrangePlaylistCommand}"
+                                                                      CommandParameter="{Binding Card.Model}"
+                                                                      ToolTip.Tip="Reorders tracks by similarity and double-drop compatibility (harmonic + tempo)"/>
+                                                            <MenuItem Header="Combine into new playlist…"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.CombineSelectedPlaylistsCommand}"
+                                                                      IsEnabled="{ReflectionBinding $parent[UserControl].DataContext.Projects.HasMultiplePlaylistsSelected}"
+                                                                      ToolTip.Tip="Select 2+ playlists (Ctrl/Shift-click) to combine their tracks into a new, auto-arranged playlist"/>
+                                                            <MenuItem Header="Export">
+                                                                <MenuItem Header="Rekordbox XML…"
+                                                                          Command="{ReflectionBinding $parent[UserControl].DataContext.ExportPlaylistCommand}"
+                                                                          CommandParameter="{Binding Card.Model}"/>
+                                                                <MenuItem Header="M3U8 playlist…"
+                                                                          Command="{ReflectionBinding $parent[UserControl].DataContext.ExportPlaylistM3uCommand}"
+                                                                          CommandParameter="{Binding Card.Model}"
+                                                                          ToolTip.Tip="Track order and file paths only (no cues or beatgrid). Opens in Rekordbox and most players."/>
+                                                            </MenuItem>
+                                                            <Separator/>
+                                                            <MenuItem Header="Rename playlist"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.RenameProjectCommand}"
+                                                                      CommandParameter="{Binding Card.Model}"/>
+                                                            <MenuItem Header="Remove playlist from list"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.DeleteProjectCommand}"
+                                                                      CommandParameter="{Binding Card.Model}"
+                                                                      ToolTip.Tip="Restorable from Library tools → Recently deleted playlists"/>
+                                                        </ContextMenu>
+                                                    </Border.ContextMenu>
+                                                    <controls:CompactPlaylistTemplate DataContext="{Binding Card}" HorizontalAlignment="Stretch"/>
+                                                </Border>
+                                            </DataTemplate>
+
+                                        </ContentControl.DataTemplates>
+                                    </ContentControl>
+                                </TreeDataTemplate>
+                            </TreeView.ItemTemplate>
+                        </TreeView>
+
+                        <!-- Empty playlist list -->
+                        <StackPanel Classes="empty-state" Margin="16,24" IsVisible="{Binding !Projects.RootTreeNodes.Count}">
+                            <PathIcon Data="{StaticResource icon_playlist_add}"/>
+                            <TextBlock Classes="h3" Text="No playlists yet"/>
+                            <TextBlock Classes="caption" Text="Create one, or import a Spotify playlist or tracklist from Search." TextWrapping="Wrap" TextAlignment="Center"/>
+                            <Button Classes="primary small" Content="New playlist" Command="{Binding Projects.AddPlaylistCommand}"/>
+                        </StackPanel>
+
+                        <!-- Saved doubles: favourite pairs (from the Double Inspector) whose tracks
+                             are both in the open playlist. Click selects both; × removes the pair.
+                             "View all" links scroll here via SavedDoublesSidebarFocusRequestVersion. -->
+                        <StackPanel x:Name="SavedDoublesSidebarSection" IsVisible="{Binding HasSavedDoubles}" Spacing="2">
+                            <Border Classes="divider" Margin="12,8"/>
+                            <Grid ColumnDefinitions="*,Auto" Margin="16,0,16,4">
+                                <TextBlock Grid.Column="0" Classes="section" Text="SAVED DOUBLES"
+                                           ToolTip.Tip="Favourite pairs saved from the Double Inspector, for tracks in this playlist"/>
+                                <TextBlock Grid.Column="1" Classes="mono muted" Text="{Binding SavedDoubles.Count}" VerticalAlignment="Center"/>
+                            </Grid>
+                            <ItemsControl ItemsSource="{Binding SavedDoubles}" Margin="4,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="liblib:SavedDoubleViewModel">
+                                        <Border Classes="saved-double">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <Button Grid.Column="0" Classes="ghost"
+                                                        Command="{ReflectionBinding $parent[UserControl].DataContext.ActivateSavedDoubleCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                                        ToolTip.Tip="Select both tracks">
+                                                    <StackPanel Spacing="0">
+                                                        <TextBlock Text="{Binding PairTitle}" Classes="body-sm" FontWeight="SemiBold" Foreground="{StaticResource BrushText0}" TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Text="{Binding PairSubtitle}" Classes="caption" TextTrimming="CharacterEllipsis"/>
+                                                    </StackPanel>
+                                                </Button>
+                                                <Button Grid.Column="1" Classes="icon small remove"
+                                                        Command="{ReflectionBinding $parent[UserControl].DataContext.RemoveSavedDoubleCommand}"
+                                                        CommandParameter="{Binding}" VerticalAlignment="Center"
+                                                        ToolTip.Tip="Remove this saved pair">
+                                                    <PathIcon Data="{StaticResource icon_close}" Width="12" Height="12"/>
+                                                </Button>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <!-- ShowsPreview defers the column resize until mouse-up, so rows don't reflow mid-drag. -->
+        <GridSplitter Grid.Column="1" Classes="shell-splitter"
+                      HorizontalAlignment="Stretch"
+                      ResizeDirection="Columns"
+                      ToolTip.Tip="Drag to resize the playlist panel"/>
+
+        <!-- ═══ MAIN CONTENT ═══ -->
+        <Grid Grid.Column="2" RowDefinitions="Auto,*">
+
+            <!-- Playlist header: one 56px row. Title and counts left; Discover, Shuffle and the one
+                 primary action (Play) right. Lives above the ContentControl's re-scoped Tracks
+                 DataContext so it binds straight against LibraryViewModel. -->
+            <!-- The counts line is one trimming TextBlock (it used to be a horizontal StackPanel that
+                 measured at full width and ran under the Discover button when the pane was narrow).
+                 Below NarrowPlaylistHeaderWidth the header gets the "narrow" class and the action
+                 labels hide, leaving icon buttons with tooltips. -->
+            <Border Grid.Row="0" Classes="playlist-header" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1" Padding="16,8"
+                    SizeChanged="OnPlaylistHeaderSizeChanged"
+                    IsVisible="{Binding SelectedProject, Converter={x:Static ObjectConverters.IsNotNull}}">
+                <Border.Styles>
+                    <Style Selector="Border.playlist-header.narrow TextBlock.action-label">
+                        <Setter Property="IsVisible" Value="False"/>
+                    </Style>
+                </Border.Styles>
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Border Grid.Column="0" Width="40" Height="40" CornerRadius="{StaticResource RadiusMd}"
+                            Background="{Binding SelectedProject.SourceTitle, Converter={StaticResource UsernameToColorConverter}}">
+                        <PathIcon Data="{StaticResource icon_music}" Width="18" Height="18" Foreground="{StaticResource BrushText0}" Opacity="0.85"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="0" Margin="12,0">
+                        <TextBlock Text="{Binding SelectedProject.SourceTitle}" Classes="h2" TextTrimming="CharacterEllipsis" MaxLines="1"
+                                   ToolTip.Tip="{Binding SelectedProject.SourceTitle}"/>
+                        <!-- Runs on one line: whitespace between them would render as extra spaces. -->
+                        <TextBlock Classes="mono" TextTrimming="CharacterEllipsis" MaxLines="1"><Run Text="{Binding SelectedProject.TotalTracks, StringFormat='{}{0} tracks'}"/><Run Text=" · " Foreground="{StaticResource BrushText2}"/><Run Text="{Binding SelectedProject.SuccessfulCount, StringFormat='{}{0} downloaded'}" Foreground="{StaticResource BrushSuccess}"/><Run Text="{Binding SelectedProject.FailedCountSuffix}" Foreground="{StaticResource BrushError}"/></TextBlock>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Button Classes="ghost" Click="OpenDiscover_Click"
+                                IsVisible="{Binding IsLibraryIntelligencePanelVisible}"
+                                ToolTip.Tip="Discover: suggest tracks to add to this playlist (Beatport + Deezer), downloadable via Soulseek">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource icon_wand}" Width="14" Height="14"/>
+                                <TextBlock Classes="action-label" Text="Discover"/>
+                            </StackPanel>
+                        </Button>
+                        <ToggleButton Classes="chip" IsChecked="{Binding PlayerViewModel.IsShuffling, Mode=TwoWay}"
+                                      Command="{Binding PlayerViewModel.ToggleShuffleCommand}"
+                                      ToolTip.Tip="Shuffle">
+                            <PathIcon Data="{StaticResource icon_shuffle}" Width="14" Height="14"/>
+                        </ToggleButton>
+                        <Button Classes="primary" Command="{Binding PlayAlbumCommand}" CommandParameter="{Binding SelectedProject}"
+                                ToolTip.Tip="Play this playlist">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource icon_play}" Width="14" Height="14"/>
+                                <TextBlock Classes="action-label" Text="Play"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <ContentControl Grid.Row="1" Content="{Binding Tracks}">
+                <ContentControl.DataTemplates>
+                    <DataTemplate DataType="vm:Library.TrackListViewModel">
+                        <Grid>
+                            <views:TrackListView IsVisible="{ReflectionBinding !$parent[views:LibraryPage].DataContext.UseNewPlaylistSurface}"/>
+                            <controls:LibraryPlaylistTrackSurface IsVisible="{ReflectionBinding $parent[views:LibraryPage].DataContext.UseNewPlaylistSurface}"/>
+                        </Grid>
+                    </DataTemplate>
+                </ContentControl.DataTemplates>
+            </ContentControl>
+
+            <!-- ═══ SELECTION BAR ═══
+                 Appears only while tracks are selected: count, the three most common actions,
+                 everything else under "More". It lives in the track-list pane (it used to be centred
+                 on the whole page, so with a narrow list it floated over the playlist panel). The
+                 pane's width bounds it; the ScrollViewer is the fallback for a very narrow pane. -->
+            <Border Grid.Row="1" IsVisible="{Binding Tracks.HasSelectedTracks}"
+                    VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                    Background="{StaticResource BrushBg3}" BorderBrush="{StaticResource BrushBorder1}" BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusLg}" BoxShadow="{StaticResource ShadowLg}"
+                    Padding="12,8" Margin="16,0,16,24" ZIndex="100">
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Classes="mono" Foreground="{StaticResource BrushText0}" VerticalAlignment="Center" Margin="4,0,8,0"
+                                   Text="{Binding Tracks.SelectedTrackCount, StringFormat='{}{0} selected'}"/>
+                        <Border Classes="divider vertical" Height="20"/>
+                        <Button Classes="primary small" Command="{Binding Tracks.Operations.PlayTrackCommand}"
+                                ToolTip.Tip="Clear the queue and play the selected tracks">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource icon_play}" Width="12" Height="12"/>
+                                <TextBlock Text="Play"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Classes="secondary small" Content="Add to queue" Command="{Binding Tracks.Operations.AddSelectedToQueueCommand}"/>
+                        <Button Classes="secondary small" Content="Add to playlist…" Command="{Binding BatchAddToPlaylistCommand}"/>
+                        <Button Classes="ghost small" ToolTip.Tip="More actions for the selection">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="More"/>
+                                <PathIcon Data="{StaticResource icon_chevron_down}" Width="12" Height="12"/>
+                            </StackPanel>
+                            <Button.Flyout>
+                                <MenuFlyout Placement="TopEdgeAlignedRight">
+                                    <MenuItem Header="Edit tags…" Command="{Binding BatchTagEditCommand}"/>
+                                    <MenuItem Header="Analyse" Command="{Binding BatchQueueAnalysisCommand}"
+                                              ToolTip.Tip="Queue the selected tracks for audio analysis"/>
+                                    <MenuItem Header="Download next" Command="{Binding Operations.DownloadNextCommand}"
+                                              ToolTip.Tip="Move the selected tracks that are still waiting to the front of the download queue"/>
+                                    <Separator/>
+                                    <MenuItem Header="Rename files…" Command="{Binding BulkRenameCommand}"
+                                              ToolTip.Tip="Rename the selected tracks' files by pattern"/>
+                                    <MenuItem Header="Move or copy files…" Command="{Binding BulkMoveOrCopyCommand}"/>
+                                    <Separator/>
+                                    <MenuItem Header="Export to Rekordbox XML…" Command="{Binding BatchExportRekordboxCommand}"/>
+                                    <MenuItem Header="Export to M3U…" Command="{Binding BatchExportM3uCommand}"
+                                              ToolTip.Tip="Rekordbox, VirtualDJ, Serato, any player"/>
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                        <Border Classes="divider vertical" Height="20"/>
+                        <Button Classes="icon small" Command="{Binding BatchClearSelectionCommand}" ToolTip.Tip="Clear selection (Esc)">
+                            <PathIcon Data="{StaticResource icon_close}" Width="14" Height="14"/>
+                        </Button>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </Grid>
+
+    <!-- ═══ OVERLAYS ═══ -->
+
+    <!-- Recently deleted playlists -->
+    <Border IsVisible="{Binding IsRemovalHistoryVisible}" Background="{StaticResource BrushScrim}">
+        <Border Classes="dialog" Width="480" MaxHeight="560" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Grid RowDefinitions="Auto,*">
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,16">
+                    <TextBlock Grid.Column="0" Classes="h2" Text="Recently deleted playlists" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Classes="icon small" Command="{Binding CloseRemovalHistoryCommand}" ToolTip.Tip="Close">
+                        <PathIcon Data="{StaticResource icon_close}" Width="14" Height="14"/>
+                    </Button>
+                </Grid>
+                <StackPanel Grid.Row="1" Classes="empty-state" IsVisible="{Binding !DeletedProjects.Count}">
+                    <PathIcon Data="{StaticResource icon_delete}"/>
+                    <TextBlock Classes="h3" Text="Nothing here"/>
+                    <TextBlock Classes="caption" Text="Playlists you remove from the list show up here so you can restore them."
                                TextWrapping="Wrap" TextAlignment="Center" MaxWidth="320"/>
                 </StackPanel>
-
-                <ScrollViewer Grid.Row="2" MaxHeight="440" IsVisible="{Binding DeletedProjects.Count}">
-                    <ItemsControl ItemsSource="{Binding DeletedProjects}" Margin="12,8">
+                <ScrollViewer Grid.Row="1" MaxHeight="440" IsVisible="{Binding DeletedProjects.Count}">
+                    <ItemsControl ItemsSource="{Binding DeletedProjects}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="models:PlaylistJob">
-                                <Border Background="#2D2D30" CornerRadius="6" Padding="12,10" Margin="0,4">
-                                    <Grid ColumnDefinitions="Auto,*,Auto">
-                                        <TextBlock Grid.Column="0" Text="{Binding SourceIcon}" FontSize="16" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding SourceTitle}" FontWeight="SemiBold" Foreground="White" TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock FontSize="11" Foreground="#888">
+                                <Border Classes="overlay-row">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <StackPanel Grid.Column="0" Spacing="0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding SourceTitle}" Classes="body" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Classes="caption">
                                                 <Run Text="{Binding TotalTracks}"/><Run Text=" tracks · deleted "/><Run Text="{Binding DeletedAt, StringFormat='{}{0:yyyy-MM-dd}'}"/>
                                             </TextBlock>
                                         </StackPanel>
-                                        <Button Grid.Column="2" Content="Restore" Padding="10,5" FontSize="11" CornerRadius="6"
-                                                Background="#1AFFFFFF" Foreground="#2DB5FF" BorderThickness="0"
-                                                Command="{Binding $parent[UserControl].DataContext.RestoreProjectCommand}"
+                                        <Button Grid.Column="1" Classes="secondary small" Content="Restore"
+                                                Command="{ReflectionBinding $parent[UserControl].DataContext.RestoreProjectCommand}"
                                                 CommandParameter="{Binding}"/>
                                     </Grid>
                                 </Border>
@@ -588,60 +539,99 @@
         </Border>
     </Border>
 
-    <!-- Manage Library Sources overlay -->
-    <Border IsVisible="{Binding IsSourcesOpen}" Background="#CC000000">
-        <Grid HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="600">
+    <!-- Library folders -->
+    <Border IsVisible="{Binding IsSourcesOpen}" Background="{StaticResource BrushScrim}">
+        <Grid HorizontalAlignment="Center" VerticalAlignment="Center" Width="600">
             <views:LibrarySourcesView DataContext="{Binding LibrarySourcesViewModel}"/>
-            <Button HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,8,0"
-                    Command="{Binding OpenSourcesCommand}" CommandParameter="Close"
-                    Background="Transparent" BorderThickness="0" Padding="8,4">
-                <TextBlock Text="✕" FontSize="14" Foreground="#AAA"/>
+            <Button HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,16,16,0" Classes="icon small"
+                    Command="{Binding OpenSourcesCommand}" CommandParameter="Close" ToolTip.Tip="Close">
+                <PathIcon Data="{StaticResource icon_close}" Width="14" Height="14"/>
             </Button>
         </Grid>
     </Border>
 
-    <!-- Import History overlay -->
-    <Border IsVisible="{Binding IsImportHistoryVisible}" Background="#CC000000">
-        <Border Width="520" MaxHeight="560" HorizontalAlignment="Center" VerticalAlignment="Center"
-                Background="#252526" CornerRadius="10" BorderBrush="#3E3E42" BorderThickness="1">
+    <!-- Orphaned tracks: LibraryEntries whose file no longer exists, filled by "Sync physical library". -->
+    <Border IsVisible="{Binding IsOrphanedTracksVisible}" Background="{StaticResource BrushScrim}">
+        <Border Classes="dialog" Width="560" MaxHeight="560" HorizontalAlignment="Center" VerticalAlignment="Center">
             <Grid RowDefinitions="Auto,Auto,*">
-                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="20,16,12,12">
-                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="📜" FontSize="18"/>
-                        <TextBlock Text="Import History" FontSize="15" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
-                    </StackPanel>
-                    <Button Grid.Column="1" Command="{Binding CloseImportHistoryCommand}" Background="Transparent" BorderThickness="0" Padding="8,4">
-                        <TextBlock Text="✕" FontSize="14" Foreground="#AAA"/>
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,4">
+                    <TextBlock Grid.Column="0" Classes="h2" Text="Orphaned tracks" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Classes="icon small" Command="{Binding CloseOrphanedTracksCommand}" ToolTip.Tip="Close">
+                        <PathIcon Data="{StaticResource icon_close}" Width="14" Height="14"/>
                     </Button>
                 </Grid>
+                <TextBlock Grid.Row="1" Classes="caption" TextWrapping="Wrap" Margin="0,0,0,16"
+                           Text="These library entries point at a file that no longer exists. Repoint each to the file's new location, or remove the entry."/>
+                <StackPanel Grid.Row="2" Classes="empty-state" IsVisible="{Binding !OrphanedTracks.Count}">
+                    <PathIcon Data="{StaticResource icon_check}"/>
+                    <TextBlock Classes="h3" Text="No orphaned tracks"/>
+                </StackPanel>
+                <ScrollViewer Grid.Row="2" MaxHeight="440" IsVisible="{Binding OrphanedTracks.Count}">
+                    <ItemsControl ItemsSource="{Binding OrphanedTracks}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:OrphanedTrackViewModel">
+                                <Border Classes="overlay-row">
+                                    <Grid ColumnDefinitions="*,Auto,Auto">
+                                        <StackPanel Grid.Column="0" Spacing="0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Title}" Classes="body" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding Artist}" Classes="caption" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding FilePath}" Classes="mono muted" FontSize="{StaticResource TextSizeCaption}" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Classes="secondary small" Content="Repoint…" Command="{Binding RepointCommand}" Margin="8,0"/>
+                                        <Button Grid.Column="2" Classes="danger small" Content="Remove" Command="{Binding RemoveCommand}"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+    </Border>
 
-                <Border Grid.Row="1" Height="1" Background="#3E3E42"/>
+    <!-- Library health -->
+    <Border IsVisible="{Binding IsLibraryHealthVisible}" Background="{StaticResource BrushScrim}">
+        <Grid HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="720">
+            <views:LibraryHealthView DataContext="{Binding LibraryHealthViewModel}"/>
+            <Button HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,16,16,0" Classes="icon small"
+                    Command="{Binding CloseLibraryHealthCommand}" ToolTip.Tip="Close">
+                <PathIcon Data="{StaticResource icon_close}" Width="14" Height="14"/>
+            </Button>
+        </Grid>
+    </Border>
 
-                <StackPanel Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" Margin="20,40"
-                            IsVisible="{Binding !ImportHistoryViewModel.ImportHistory.Count}">
-                    <TextBlock Text="Nothing here yet" FontSize="13" Foreground="#888" HorizontalAlignment="Center"/>
-                    <TextBlock Text="Playlists you've imported show up here so you can re-run a download pass on them." FontSize="11" Foreground="#666"
+    <!-- Import history -->
+    <Border IsVisible="{Binding IsImportHistoryVisible}" Background="{StaticResource BrushScrim}">
+        <Border Classes="dialog" Width="520" MaxHeight="560" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Grid RowDefinitions="Auto,*">
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,16">
+                    <TextBlock Grid.Column="0" Classes="h2" Text="Import history" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Classes="icon small" Command="{Binding CloseImportHistoryCommand}" ToolTip.Tip="Close">
+                        <PathIcon Data="{StaticResource icon_close}" Width="14" Height="14"/>
+                    </Button>
+                </Grid>
+                <StackPanel Grid.Row="1" Classes="empty-state" IsVisible="{Binding !ImportHistoryViewModel.ImportHistory.Count}">
+                    <PathIcon Data="{StaticResource icon_history}"/>
+                    <TextBlock Classes="h3" Text="Nothing here yet"/>
+                    <TextBlock Classes="caption" Text="Playlists you've imported show up here so you can re-run a download pass on them."
                                TextWrapping="Wrap" TextAlignment="Center" MaxWidth="340"/>
                 </StackPanel>
-
-                <ScrollViewer Grid.Row="2" MaxHeight="440" IsVisible="{Binding ImportHistoryViewModel.ImportHistory.Count}">
-                    <ItemsControl ItemsSource="{Binding ImportHistoryViewModel.ImportHistory}" Margin="12,8">
+                <ScrollViewer Grid.Row="1" MaxHeight="440" IsVisible="{Binding ImportHistoryViewModel.ImportHistory.Count}">
+                    <ItemsControl ItemsSource="{Binding ImportHistoryViewModel.ImportHistory}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="models:PlaylistJob">
-                                <Border Background="#2D2D30" CornerRadius="6" Padding="12,10" Margin="0,4">
-                                    <Grid ColumnDefinitions="Auto,*,Auto">
-                                        <TextBlock Grid.Column="0" Text="{Binding SourceIcon}" FontSize="16" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding SourceTitle}" FontWeight="SemiBold" Foreground="White" TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock FontSize="11" Foreground="#888">
-                                                <Run Text="{Binding TotalTracks}"/><Run Text=" tracks · imported "/><Run Text="{Binding CreatedAt, StringFormat='{}{0:yyyy-MM-dd}'}"/>
+                                <Border Classes="overlay-row">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <StackPanel Grid.Column="0" Spacing="0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding SourceTitle}" Classes="body" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Classes="caption">
+                                                <Run Text="{Binding SourceType}"/><Run Text=" · "/><Run Text="{Binding TotalTracks}"/><Run Text=" tracks · imported "/><Run Text="{Binding CreatedAt, StringFormat='{}{0:yyyy-MM-dd}'}"/>
                                             </TextBlock>
                                         </StackPanel>
-                                        <Button Grid.Column="2" Content="Re-Import" Padding="10,5" FontSize="11" CornerRadius="6"
-                                                Background="#1AFFFFFF" Foreground="#2DB5FF" BorderThickness="0"
-                                                Command="{Binding $parent[UserControl].DataContext.ImportHistoryViewModel.ReImportCommand}"
+                                        <Button Grid.Column="1" Classes="secondary small" Content="Re-import"
+                                                Command="{ReflectionBinding $parent[UserControl].DataContext.ImportHistoryViewModel.ReImportCommand}"
                                                 CommandParameter="{Binding}"
-                                                ToolTip.Tip="Re-queue missing/failed tracks from this playlist"/>
+                                                ToolTip.Tip="Re-queue missing and failed tracks from this playlist"/>
                                     </Grid>
                                 </Border>
                             </DataTemplate>

@@ -7,6 +7,7 @@ using SLSKDONET.Services;
 using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -58,11 +59,11 @@ public class LibraryPlaylistCardViewModel : ReactiveObject, IDisposable
 
     public double PrimaryRatio => HasForensicCoverage ? LosslessRatio : DownloadedRatio;
 
-    public string PrimaryRatioText => $"{PrimaryRatio:P0}";
+    public string PrimaryRatioText => NumFormat.Ui($"{PrimaryRatio:P0}");
 
     public string PrimaryBadgeText => HasForensicCoverage
-        ? $"Lossless {LosslessRatio:P0}"
-        : $"Downloaded {DownloadedRatio:P0}";
+        ? NumFormat.Ui($"Lossless {LosslessRatio:P0}")
+        : NumFormat.Ui($"Downloaded {DownloadedRatio:P0}");
 
     public string SecondaryBadgeText => $"{DownloadedCount}/{TrackCount} downloaded";
 
@@ -144,7 +145,7 @@ public class LibraryPlaylistCardViewModel : ReactiveObject, IDisposable
             var avgCutoff = analyzed.Average(t => t.FrequencyCutoff!.Value) / 1000.0;
             var transcoded = _playlist.PlaylistTracks.Count(t => t.IsTranscoded);
 
-            return $"{HealthStatusText}\nAvg spectral cutoff: {avgCutoff:F1} kHz\nFlagged transcodes: {transcoded}";
+            return NumFormat.Ui($"{HealthStatusText}\nAvg spectral cutoff: {avgCutoff:F1} kHz\nFlagged transcodes: {transcoded}");
         }
     }
 

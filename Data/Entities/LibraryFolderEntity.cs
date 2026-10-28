@@ -33,4 +33,10 @@ public class LibraryFolderEntity
     /// Total tracks found during last scan
     /// </summary>
     public int TracksFound { get; set; }
+
+    /// <summary>
+    /// When true, LibraryFolderWatchService keeps a live FileSystemWatcher on this folder and
+    /// auto-imports new files shortly after they appear, instead of requiring a manual scan.
+    /// </summary>
+    public bool IsWatched { get; set; }
 }

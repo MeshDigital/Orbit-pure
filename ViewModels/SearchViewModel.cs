@@ -22,24 +22,26 @@ using SLSKDONET.Events;
 using DynamicData;
 using DynamicData.Binding;
 using ReactiveUI;
+using System.Reactive;
 using System.Reactive.Concurrency;
 using System.Reactive.Subjects;
 using System.Reactive.Linq;
 using SLSKDONET.Configuration;
 using System.Reactive.Disposables;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
 public partial class SearchViewModel : ReactiveObject, IDisposable
 {
-    private sealed record SearchPresetDefinition(string Id, string DisplayName, string Subtitle, string Icon);
+    private sealed record SearchPresetDefinition(string Id, string DisplayName, string Subtitle);
 
     private static readonly SearchPresetDefinition[] SearchPresetScale =
     {
-        new("Quick Grab", "Fast", "Prioritize reliable, fast-to-download results.", "⚡"),
-        new("Balanced", "Balanced", "Best default mix of quality, trust, and match strength.", "⚖️"),
-        new("Deep Dive", "Deep Search", "Search wider and lean harder on title/metadata matching.", "🌊"),
-        new("High Fidelity", "Lossless", "Strict quality-first mode with FLAC preference.", "💎")
+        new("Quick Grab", "Fast", "Prioritize reliable, fast-to-download results."),
+        new("Balanced", "Balanced", "Best default mix of quality, trust, and match strength."),
+        new("Deep Dive", "Deep search", "Lean harder on title/metadata matching."),
+        new("High Fidelity", "Lossless", "Quality-first: FLAC/WAV only, quality weighted highest.")
     };
 
     private readonly ILogger<SearchViewModel> _logger;
@@ -61,6 +63,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     
     // Cleanup
     private readonly CompositeDisposable _disposables = new();
+    private readonly Subject<Unit> _rankingRefreshRequests = new();
     private readonly SerialDisposable _searchSubscription = new();
     private readonly SerialDisposable _searchIdleMonitor = new();
     private readonly object _searchSessionGate = new();
@@ -69,7 +72,12 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     private CancellationTokenSource? _activeSearchCts;
     private Guid? _currentSearchSessionId;
 
-    public IEnumerable<string> PreferredFormats => new[] { "mp3", "flac", "m4a", "wav" }; // TODO: Load from config
+    // Was a hardcoded ["mp3","flac","m4a","wav"] regardless of the IsFlacEnabled/IsMp3Enabled/
+    // IsWavEnabled toggles — those only affected local re-ranking (GetActiveFormats, used for
+    // display/sort) while the actual network query always requested every format anyway,
+    // defeating SearchOrchestrationService.BuildNetworkQuery's lossless-only negative-token
+    // injection (which inspects this exact list). Now derives from the same toggle state.
+    public IEnumerable<string> PreferredFormats => GetActiveFormats();
 
     // Child ViewModels
     public ImportPreviewViewModel ImportPreviewViewModel { get; }
@@ -156,7 +164,13 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     public bool IsSearching
     {
         get => _isSearching;
-        set => SetProperty(ref _isSearching, value);
+        set
+        {
+            if (SetProperty(ref _isSearching, value))
+            {
+                RaiseResultStateChanged();
+            }
+        }
     }
 
     private bool _isListening;
@@ -184,6 +198,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             if (SetProperty(ref _totalResultsReceived, value))
             {
                 this.RaisePropertyChanged(nameof(AllResultsFilteredByRules));
+                RaiseResultStateChanged();
             }
         }
     }
@@ -230,11 +245,13 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
 
 
     // Search Parameters (Pre-Search)
-    private int _minBitrate = 320;
-    public int MinBitrate 
+    /// <summary>Minimum bitrate (kbps, 0 = any). One value drives both the network request and
+    /// the client-side filter — they used to be two separate 320 defaults with two separate
+    /// controls, so lowering one silently did nothing.</summary>
+    public int MinBitrate
     {
-        get => _minBitrate;
-        set => this.RaiseAndSetIfChanged(ref _minBitrate, value);
+        get => FilterViewModel.MinBitrate;
+        set => FilterViewModel.MinBitrate = value;
     }
     
     private int _maxBitrate = 3000;
@@ -262,7 +279,6 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
 
     public string SelectedQualityPresetName => SearchPresetScale[_qualityPresetIndex].DisplayName;
     public string SelectedQualityPresetSubtitle => SearchPresetScale[_qualityPresetIndex].Subtitle;
-    public string SelectedQualityPresetIcon => SearchPresetScale[_qualityPresetIndex].Icon;
 
     // Phase 5: Ranking Weights (Control Surface)
     public double BitrateWeight
@@ -275,7 +291,6 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             if (!_isApplyingPreset)
             {
                 OnRankingWeightsChanged();
-                _configManager.Save(_config);
                 SyncQualityPresetFromCurrentSettings();
             }
         }
@@ -284,14 +299,13 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     public double ReliabilityWeight
     {
         get => _config.CustomWeights.AvailabilityWeight;
-        set 
-        { 
+        set
+        {
             _config.CustomWeights.AvailabilityWeight = value;
             this.RaisePropertyChanged(); // Notify UI
             if (!_isApplyingPreset)
             {
                 OnRankingWeightsChanged();
-                _configManager.Save(_config);
                 SyncQualityPresetFromCurrentSettings();
             }
         }
@@ -310,7 +324,6 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             if (!_isApplyingPreset)
             {
                 OnRankingWeightsChanged();
-                _configManager.Save(_config);
                 SyncQualityPresetFromCurrentSettings();
             }
         }
@@ -347,6 +360,21 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         }
     }
 
+    public bool IsAiffEnabled
+    {
+        get => FilterViewModel.FilterAiff;
+        set
+        {
+            FilterViewModel.FilterAiff = value;
+            this.RaisePropertyChanged();
+            if (!_isApplyingPreset)
+            {
+                OnRankingWeightsChanged();
+                SyncQualityPresetFromCurrentSettings();
+            }
+        }
+    }
+
     public bool IsWavEnabled
     {
         get => FilterViewModel.FilterWav;
@@ -362,6 +390,11 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         }
     }
 
+
+    /// <summary>Raised when Ctrl+F/"Focus Search" navigates here so SearchPage's code-behind can
+    /// put keyboard focus in the search box — the ViewModel has no direct handle on the Avalonia
+    /// control, so the View subscribes to this rather than the reverse.</summary>
+    public event Action? FocusRequested;
 
     // Commands
     public ICommand UnifiedSearchCommand { get; }
@@ -419,8 +452,9 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             .Subscribe(OnTrackStateChanged)
             .DisposeWith(_disposables);
             
-        eventBus.GetEvent<TrackAddedEvent>()
-            .Subscribe(OnTrackAdded)
+        eventBus.GetEvent<FocusSearchBoxRequestedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(_ => FocusRequested?.Invoke())
             .DisposeWith(_disposables);
 
         eventBus.GetEvent<ExcludedSearchPhrasesUpdatedEvent>()
@@ -432,6 +466,42 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         // --- Reactive Pipeline Setup ---
         _searchSubscription.DisposeWith(_disposables);
         _searchIdleMonitor.DisposeWith(_disposables);
+
+        // Format toggles (IsFlacEnabled/IsMp3Enabled/IsWavEnabled) and the quality preset slider
+        // each used to trigger RecalculateScores() (a full synchronous re-rank of every buffered
+        // search result) plus a synchronous config save directly, with no debounce — dragging the
+        // slider or flipping toggles back-to-back re-ran the whole re-rank/save once per change.
+        // Coalesce into one recompute per change-burst instead. Throttle on the default (thread-
+        // pool) scheduler and marshal to the UI thread via Dispatcher.UIThread.Post rather than
+        // .ObserveOn(RxApp.MainThreadScheduler) — matches LibraryViewModel's established debounce
+        // pattern, which avoids relying on RxApp.MainThreadScheduler's own delayed-scheduling
+        // (that scheduler can be torn down independently of this ViewModel, e.g. across test runs,
+        // which crashed the process when a pending Throttle timer fired after teardown).
+        _rankingRefreshRequests
+            .Throttle(TimeSpan.FromMilliseconds(200))
+            .Subscribe(_ =>
+            {
+                try
+                {
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        try
+                        {
+                            RecalculateScores();
+                            _configManager.Save(_config);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Ranking refresh failed");
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to schedule ranking refresh");
+                }
+            })
+            .DisposeWith(_disposables);
 
         _searchResults.Connect()
             .ObserveOn(RxApp.MainThreadScheduler)
@@ -467,7 +537,9 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
 
         _searchResults.Connect()
             .Filter(visibilityPredicate)
-            .Sort(SortExpressionComparer<AnalyzedSearchResultViewModel>.Descending(t => t.MatchConfidence))
+            // Column-header sorting: the comparer is swapped by SortByCommand, and a resort is
+            // requested after re-ranking (CurrentRank changes in place, which Sort can't see).
+            .Sort(_sortComparerChanges, resort: _resortRequests)
             .ObserveOn(RxApp.MainThreadScheduler)
             .Bind(out _searchResultsView)
             .DisposeMany()
@@ -476,6 +548,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                 HiddenResultsCount = _publicSearchResults.Count(vm => vm.IsFilteredOut);
                 this.RaisePropertyChanged(nameof(DisplayedResultsCount));
                 this.RaisePropertyChanged(nameof(HasDisplayedResults));
+                RaiseResultStateChanged();
             })
             .DisposeWith(_disposables);
 
@@ -483,12 +556,19 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
 
 
         // Commands
-        var canSearch = this.WhenAnyValue(x => x.SearchQuery, query => !string.IsNullOrWhiteSpace(query));
+        var canSearch = this.WhenAnyValue(
+            x => x.SearchQuery, x => x.IsPeerScope, x => x.PeerUsername,
+            (query, peer, user) => !string.IsNullOrWhiteSpace(query) && (!peer || !string.IsNullOrWhiteSpace(user)));
         
         var searchCmd = ReactiveCommand.CreateFromTask(ExecuteUnifiedSearchAsync, canSearch);
         searchCmd.ThrownExceptions
             .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(ex => { IsSearching = false; IsListening = false; StatusText = $"⚠️ {ex.InnerException?.Message ?? ex.Message}"; })
+            .Subscribe(ex =>
+            {
+                IsSearching = false;
+                IsListening = false;
+                ReportSearchError(ex.InnerException?.Message ?? ex.Message);
+            })
             .DisposeWith(_disposables);
         UnifiedSearchCommand = searchCmd;
 
@@ -497,52 +577,61 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             ExecuteCancelSearch();
             SearchQuery = "";
             _searchResults.Clear();
+            // SelectedResults is a separate collection holding direct VM references, not a live
+            // view derived from _searchResults — clearing the results grid left stale selections
+            // pointing at VMs that no longer existed anywhere, so "X selected" / Download Selected
+            // kept showing/acting on results that had just been cleared. SessionDownloads is
+            // deliberately NOT cleared here — it's the "SESSION QUEUE" strip tracking downloads
+            // across the whole session, not scoped to the current search's results.
+            SelectedResults.Clear();
             ResetTelemetry();
+            HasSearched = false;
+            SearchErrorText = null;
+            StatusText = "";
+            RaiseResultStateChanged();
         });
 
         var csvCmd = ReactiveCommand.CreateFromTask(ExecuteBrowseCsvAsync);
         csvCmd.ThrownExceptions.ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(ex => StatusText = $"⚠️ {ex.Message}").DisposeWith(_disposables);
+            .Subscribe(ReportCommandFailure).DisposeWith(_disposables);
         BrowseCsvCommand = csvCmd;
 
         var pasteCmd = ReactiveCommand.CreateFromTask(ExecutePasteTracklistAsync);
         pasteCmd.ThrownExceptions.ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(ex => StatusText = $"⚠️ {ex.Message}").DisposeWith(_disposables);
+            .Subscribe(ReportCommandFailure).DisposeWith(_disposables);
         PasteTracklistCommand = pasteCmd;
 
         CancelSearchCommand = ReactiveCommand.Create(ExecuteCancelSearch);
 
         var addToDownloadsCmd = ReactiveCommand.CreateFromTask(ExecuteAddToDownloadsAsync);
         addToDownloadsCmd.ThrownExceptions.ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(ex => StatusText = $"⚠️ {ex.Message}").DisposeWith(_disposables);
+            .Subscribe(ReportCommandFailure).DisposeWith(_disposables);
         AddToDownloadsCommand = addToDownloadsCmd;
 
         var addToPlaylistCmd = ReactiveCommand.CreateFromTask(ExecuteAddSelectedToPlaylistAsync);
         addToPlaylistCmd.ThrownExceptions.ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(ex => StatusText = $"⚠️ {ex.Message}").DisposeWith(_disposables);
+            .Subscribe(ReportCommandFailure).DisposeWith(_disposables);
         AddToPlaylistCommand = addToPlaylistCmd;
 
         DownloadSelectedCommand = ReactiveCommand.CreateFromTask<object?>(ExecuteDownloadSelectedAsync);
         DownloadSelectedCommand.ThrownExceptions.ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(ex => StatusText = $"⚠️ {ex.Message}").DisposeWith(_disposables);
+            .Subscribe(ReportCommandFailure).DisposeWith(_disposables);
 
         CopyMetadataCommand = ReactiveCommand.CreateFromTask(ExecuteCopyMetadataAsync);
         CopyMetadataCommand.ThrownExceptions.ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(ex => StatusText = $"⚠️ {ex.Message}").DisposeWith(_disposables);
+            .Subscribe(ReportCommandFailure).DisposeWith(_disposables);
 
         ApplyPresetCommand = ReactiveCommand.Create<string>(ExecuteApplyPreset);
 
-        var browseSharesCmd = ReactiveCommand.CreateFromTask<AnalyzedSearchResultViewModel>(ExecuteBrowseUserSharesAsync);
+        var browseSharesCmd = ReactiveCommand.CreateFromTask<object?>(ExecuteBrowseUserSharesAsync);
         browseSharesCmd.ThrownExceptions.ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(ex => StatusText = $"⚠️ {ex.Message}").DisposeWith(_disposables);
+            .Subscribe(ReportCommandFailure).DisposeWith(_disposables);
         BrowseUserSharesCommand = browseSharesCmd;
 
         CloseUserCollectionBrowserCommand = ReactiveCommand.Create(() => IsUserCollectionBrowserOpen = false);
         ToggleHiddenResultsCommand = ReactiveCommand.Create(ToggleHiddenResults);
         RelaxFiltersCommand = ReactiveCommand.Create(RelaxFilters);
         
-        FilterViewModel.OnTokenSyncRequested = HandleTokenSync;
-
         // Contextual Sidebar: Update Right Panel when selection changes
         SelectedResults.CollectionChanged += (_, _) =>
         {
@@ -562,103 +651,54 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             })
             .DisposeWith(_disposables);
 
-        _sessionDownloads.CollectionChanged += (_, _) => HasSessionDownloads = _sessionDownloads.Count > 0;
+        _sessionDownloads.CollectionChanged += (_, _) =>
+        {
+            HasSessionDownloads = _sessionDownloads.Count > 0;
+            RefreshSessionSummary();
+        };
 
-        // Live download status updates: reflect DownloadManager events back onto search results
-        _eventBus.GetEvent<TrackStatusChangedEvent>()
-            .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(e =>
-            {
-                if (e.NewStatus == null) return;
-                foreach (var result in _publicSearchResults.Where(r => r.RawResult.Model.UniqueHash == e.TrackUniqueHash))
-                    result.RawResult.Status = e.NewStatus.Value;
-            })
-            .DisposeWith(_disposables);
+        InitializePresentation();
 
         SyncQualityPresetFromCurrentSettings();
-    }
-
-    private void HandleTokenSync(string token, bool shouldAdd)
-    {
-        if (shouldAdd)
-            InjectToken(token);
-        else
-            RemoveToken(token);
-    }
-
-    private void InjectToken(string token)
-    {
-        if (token.EndsWith("+") || token.StartsWith(">"))
-        {
-            RemoveBitrateTokens();
-        }
-        
-        var pattern = $@"\b{System.Text.RegularExpressions.Regex.Escape(token)}\b";
-        if (System.Text.RegularExpressions.Regex.IsMatch(SearchQuery ?? "", pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-            return;
-        
-        SearchQuery = $"{SearchQuery} {token}".Trim();
-    }
-
-    private void RemoveToken(string token)
-    {
-        var pattern = $@"\b{System.Text.RegularExpressions.Regex.Escape(token)}\b";
-        var clean = System.Text.RegularExpressions.Regex.Replace(SearchQuery ?? "", pattern, "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        SearchQuery = System.Text.RegularExpressions.Regex.Replace(clean, @"\s+", " ").Trim();
-    }
-
-    private void RemoveBitrateTokens()
-    {
-        var pattern = @"\b(\d{2,4}\+?|>\d{2,4})\b";
-        var clean = System.Text.RegularExpressions.Regex.Replace(SearchQuery ?? "", pattern, "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        SearchQuery = System.Text.RegularExpressions.Regex.Replace(clean, @"\s+", " ").Trim();
     }
 
     private async Task ExecuteUnifiedSearchAsync()
     {
         if (string.IsNullOrWhiteSpace(SearchQuery)) return;
 
-        var processedQuery = new List<string>();
-        bool filtersModified = false;
-        
-        FilterViewModel.SetFromQueryParsing(() =>
+        // Import sources (CSV paths, playlist URLs) are routed before any filter/token handling.
+        var provider = _importProviders.FirstOrDefault(p => p.CanHandle(SearchQuery));
+        if (provider != null)
         {
-            FilterViewModel.Reset();
+            ExecuteCancelSearch();
+            StatusText = $"Importing via {provider.Name}...";
+            await _importOrchestrator.StartImportWithPreviewAsync(provider, SearchQuery);
+            StatusText = "Import opened in preview";
+            return;
+        }
 
-            var tokens = SearchQuery.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        // Query tokens ("flac", "mp3", "wav", ">256", "320+") become filters and are stripped
+        // from the network query. Filters the user set on the strip are only overridden by
+        // tokens actually present — searching no longer resets the strip to defaults.
+        var parsed = SearchQueryTokenParser.Parse(SearchQuery);
+        if (parsed.Formats != null)
+        {
+            FilterViewModel.FilterFlac = parsed.Formats.Contains("FLAC");
+            FilterViewModel.FilterMp3 = parsed.Formats.Contains("MP3");
+            FilterViewModel.FilterWav = parsed.Formats.Contains("WAV");
+            FilterViewModel.FilterAiff = parsed.Formats.Contains("AIFF");
+        }
+        if (parsed.MinBitrate.HasValue)
+        {
+            FilterViewModel.MinBitrate = parsed.MinBitrate.Value;
+        }
 
-            foreach (var token in tokens)
-            {
-                var lower = token.ToLowerInvariant();
-                
-                if (lower == "flac") { FilterViewModel.FilterFlac = true; FilterViewModel.FilterMp3 = false; FilterViewModel.FilterWav = false; filtersModified = true; continue; }
-                if (lower == "wav") { FilterViewModel.FilterWav = true; FilterViewModel.FilterMp3 = false; FilterViewModel.FilterFlac = false; filtersModified = true; continue; }
-                if (lower == "mp3") { FilterViewModel.FilterMp3 = true; FilterViewModel.FilterFlac = false; FilterViewModel.FilterWav = false; filtersModified = true; continue; }
-                
-                if (lower.StartsWith(">") && int.TryParse(lower.TrimStart('>'), out int minQ))
-                {
-                    FilterViewModel.MinBitrate = minQ; 
-                    filtersModified = true;
-                    continue;
-                }
-                if (lower.EndsWith("+") && int.TryParse(lower.TrimEnd('+'), out int minQ2))
-                {
-                    FilterViewModel.MinBitrate = minQ2;
-                    filtersModified = true;
-                    continue;
-                }
-
-                processedQuery.Add(token);
-            }
-        });
-
-        string effectiveQuery = filtersModified ? string.Join(" ", processedQuery) : SearchQuery;
-        if (string.IsNullOrWhiteSpace(effectiveQuery)) effectiveQuery = SearchQuery; 
+        string effectiveQuery = string.IsNullOrWhiteSpace(parsed.Query) ? SearchQuery : parsed.Query;
 
         effectiveQuery = StripExcludedPhrases(effectiveQuery);
         if (string.IsNullOrWhiteSpace(effectiveQuery))
         {
-            StatusText = "Search blocked: query only contains server-excluded phrases.";
+            ReportSearchError("The query only contains phrases the server excludes.");
             return;
         }
 
@@ -667,13 +707,25 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             SearchQuery = effectiveQuery;
         }
 
+        var peer = IsPeerScope ? PeerUsername?.Trim() : null;
+        if (IsPeerScope && string.IsNullOrWhiteSpace(peer))
+        {
+            ReportSearchError("Enter a username to search one peer's shares.");
+            return;
+        }
+
+        AddRecentSearch(effectiveQuery);
+
         var cts = BeginNewSearchSession();
         var sessionId = _currentSearchSessionId;
 
         IsSearching = true;
         IsListening = true;
-        StatusText = "Searching...";
+        HasSearched = true;
+        SearchErrorText = null;
+        StatusText = peer != null ? $"Searching {peer}'s shares…" : "Searching the network…";
         _searchResults.Clear();
+        SelectedResults.Clear();
         HiddenResultsCount = 0;
         ShowFilteredOutResults = false;
         ResetTelemetry();
@@ -696,6 +748,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                 foreach (var item in batch)
                 {
                     ApplyActiveDownloadStatus(item.RawResult);
+                    _respondedPeers.Add(item.User);
                 }
 
                 _searchResults.AddRange(batch);
@@ -707,11 +760,12 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                 }
 
                 TotalResultsReceived += batch.Count;
+                PeersResponded = _respondedPeers.Count;
                 LastResultAtUtc = DateTime.UtcNow;
                 var elapsedMs = Math.Max(1.0, (LastResultAtUtc.Value - windowStartAt).TotalMilliseconds);
                 ResultsPerSecond = Math.Round(batch.Count * 1000.0 / elapsedMs, 1);
                 windowStartAt = LastResultAtUtc.Value;
-                StatusText = $"Found {TotalResultsReceived} files (streaming at {ResultsPerSecond:0.#} results/sec)";
+                StatusText = NumFormat.Ui($"Found {TotalResultsReceived} files from {PeersResponded} peers (streaming at {ResultsPerSecond:0.#} results/sec)");
             },
             ex => streamDrainTcs.TrySetException(ex),
             () => streamDrainTcs.TrySetResult());
@@ -725,43 +779,49 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                 if (DateTime.UtcNow - LastResultAtUtc.Value >= TimeSpan.FromSeconds(5))
                 {
                     ResultsPerSecond = 0;
-                    StatusText = $"Found {TotalResultsReceived} files (stream idle)";
+                    StatusText = $"Found {TotalResultsReceived} files from {PeersResponded} peers (stream idle)";
                 }
             });
 
         try
         {
-            var provider = _importProviders.FirstOrDefault(p => p.CanHandle(SearchQuery));
-            if (provider != null)
-            {
-                StatusText = $"Importing via {provider.Name}...";
-                EndActiveSearchSession(cancelNetwork: true);
-                IsSearching = false;
-                await _importOrchestrator.StartImportWithPreviewAsync(provider, SearchQuery);
-                StatusText = "Ready";
-                return;
-            }
-
-            StatusText = $"Listening for vibes: {effectiveQuery}...";
-
             try
             {
-                await foreach (var track in _searchOrchestration.SearchAsync(
-                    query: effectiveQuery,
-                    preferredFormats: string.Join(",", PreferredFormats),
-                    minBitrate: MinBitrate,
-                    maxBitrate: MaxBitrate,
-                    isAlbumSearch: IsAlbumSearch,
-                    maxResultsPerLane: 200,
-                    progressiveYield: true,
-                    cancellationToken: cts.Token))
+                if (peer != null)
                 {
-                    if (_currentSearchSessionId != sessionId)
+                    // SearchScope.User: one targeted search of a single peer's shares.
+                    var tracks = await _searchOrchestration.SearchUserForTrackAsync(
+                        peer,
+                        effectiveQuery,
+                        PreferredFormats,
+                        (MinBitrate > 0 ? MinBitrate : null, MaxBitrate > 0 ? MaxBitrate : null),
+                        PeerSearchTimeoutMs,
+                        cts.Token);
+                    foreach (var track in tracks)
                     {
-                        break;
+                        if (_currentSearchSessionId != sessionId) break;
+                        incomingTrackStream.OnNext(track);
                     }
+                }
+                else
+                {
+                    await foreach (var track in _searchOrchestration.SearchAsync(
+                        query: effectiveQuery,
+                        preferredFormats: string.Join(",", PreferredFormats),
+                        minBitrate: MinBitrate,
+                        maxBitrate: MaxBitrate,
+                        isAlbumSearch: IsAlbumSearch,
+                        maxResultsPerLane: 200,
+                        progressiveYield: true,
+                        cancellationToken: cts.Token))
+                    {
+                        if (_currentSearchSessionId != sessionId)
+                        {
+                            break;
+                        }
 
-                    incomingTrackStream.OnNext(track);
+                        incomingTrackStream.OnNext(track);
+                    }
                 }
 
                 incomingTrackStream.OnCompleted();
@@ -774,21 +834,22 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                     StatusText = "Stopped listening";
                 }
             }
+            catch (SearchLimitExceededException)
+            {
+                incomingTrackStream.OnCompleted();
+                throw;
+            }
             catch (Exception ex)
             {
                 // Any other exception ending the stream must still complete it — otherwise
-                // streamDrainTcs (only ever completed by the stream's own OnCompleted/OnError
-                // callback) never resolves, and the `await streamDrainTcs.Task` below hangs
-                // forever: IsSearching/IsListening stay true, and even Cancel can't recover
-                // since it doesn't observe this specific await. Previously only
-                // OperationCanceledException was handled here, so any other failure (a real
-                // SoulseekException, a ranking bug, a DB error) froze the Search page until
-                // app restart.
+                // streamDrainTcs never resolves and the await below hangs forever (IsSearching
+                // stuck true, Cancel can't recover).
                 incomingTrackStream.OnCompleted();
                 _logger.LogError(ex, "Search stream failed");
                 if (_currentSearchSessionId == sessionId)
                 {
-                    StatusText = $"Error: {ex.Message}";
+                    SearchErrorText = ex.Message;
+                    StatusText = $"Search failed: {ex.Message}";
                 }
             }
             finally
@@ -802,26 +863,32 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
 
                     if (TotalResultsReceived > 0)
                     {
+                        if (peer != null)
+                        {
+                            // Peer results don't pass through the network ranking pipeline.
+                            RecalculateScores();
+                        }
+
                         ApplyPercentileScoring();
                         ResultsPerSecond = 0;
 
                         if (DisplayedResultsCount == 0 && HiddenResultsCount > 0)
                         {
-                            // If everything was filtered out, auto-reveal so streaming doesn't look broken.
                             ShowFilteredOutResults = true;
-                            StatusText = $"Found {TotalResultsReceived} files (all filtered by current rules; showing filtered-out)";
+                            StatusText = $"Found {TotalResultsReceived} files (all hidden by filters; showing them dimmed)";
                         }
                         else
                         {
-                            StatusText = $"Found {TotalResultsReceived} files (stream idle)";
+                            StatusText = $"Found {TotalResultsReceived} files from {PeersResponded} peers (stream idle)";
                         }
                     }
-                    else
+                    else if (SearchErrorText == null && StatusText != "Stopped listening")
                     {
                         StatusText = "No results found";
                     }
 
                     EndActiveSearchSession(cancelNetwork: false, disposeSubscription: false);
+                    RaiseResultStateChanged();
                 }
             }
         }
@@ -831,15 +898,16 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             IsListening = false;
             ResultsPerSecond = 0;
             EndActiveSearchSession(cancelNetwork: true);
-            StatusText = $"⚠️ Showing first {ex.HardResultCap:N0} results. Please use a more specific search.";
+            StatusText = $"Showing the first {SLSKDONET.Utils.CountFormat.N(ex.HardResultCap)} results. Use a more specific search.";
+            RaiseResultStateChanged();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Search failed");
-            StatusText = $"Error: {ex.Message}";
             IsSearching = false;
             IsListening = false;
             EndActiveSearchSession(cancelNetwork: true);
+            ReportSearchError(ex.Message);
         }
     }
 
@@ -909,9 +977,16 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         }
     }
 
-    private async Task ExecuteBrowseUserSharesAsync(AnalyzedSearchResultViewModel? vm)
+    private async Task ExecuteBrowseUserSharesAsync(object? parameter)
     {
-        if (vm == null) return;
+        // The context menu can't bind VirtualGrid.SelectedItem (a plain CLR property, read once
+        // at bind time = null), so fall back to the current selection.
+        var vm = parameter as AnalyzedSearchResultViewModel ?? SelectedResults.FirstOrDefault();
+        if (vm == null)
+        {
+            StatusText = "Select a result first.";
+            return;
+        }
 
         StatusText = $"Opening {vm.User}'s collection...";
         await UserCollectionBrowser.LoadUserAsync(vm.User);
@@ -1054,8 +1129,9 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                 cts.Cancel();
             }
         }
-        catch (ObjectDisposedException)
+        catch (ObjectDisposedException ex)
         {
+            _logger.LogDebug(ex, "Search session token was already disposed");
         }
         finally
         {
@@ -1079,12 +1155,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         if (existing == null)
             return;
 
-        result.Status = existing.State switch
-        {
-            PlaylistTrackState.Completed => TrackStatus.Downloaded,
-            PlaylistTrackState.Failed => TrackStatus.Failed,
-            _ => TrackStatus.Missing
-        };
+        // Was Completed/Failed only — a queued or in-flight download showed as "not downloaded".
+        result.Status = MapDownloadState(existing.State);
     }
 
     private async Task ExecuteAddToDownloadsAsync()
@@ -1095,7 +1167,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     private async Task ExecuteDownloadSelectedAsync(object? parameter)
     {
         var toDownload = new List<AnalyzedSearchResultViewModel>();
-        
+
         if (parameter is AnalyzedSearchResultViewModel single)
         {
             toDownload.Add(single);
@@ -1105,24 +1177,46 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             toDownload.AddRange(SelectedResults);
         }
 
-        if (!toDownload.Any()) return;
+        if (!toDownload.Any())
+        {
+            StatusText = "Select one or more results to download.";
+            return;
+        }
 
-        if (_bulkCoordinator.IsRunning) return;
+        if (_bulkCoordinator.IsRunning)
+        {
+            StatusText = "Another bulk operation is running. Try again when it finishes.";
+            return;
+        }
 
-        await _bulkCoordinator.RunOperationAsync(
+        var result = await _bulkCoordinator.RunOperationAsync(
             toDownload,
-            async (vm, ct) =>
+            (vm, ct) =>
             {
                 var queued = _downloadManager.EnqueueTrack(vm.RawResult.Model, priority: 0);
                 vm.RawResult.Status = queued ? TrackStatus.Pending : TrackStatus.Failed;
                 if (queued && !_sessionDownloads.Contains(vm))
                     _sessionDownloads.Add(vm);
-                return queued;
+                return Task.FromResult(queued);
             },
             "Batch Download"
         );
 
-        StatusText = $"Queued {toDownload.Count} downloads";
+        RefreshSessionSummary();
+        var queuedCount = result?.SuccessCount ?? toDownload.Count(vm => vm.IsQueued);
+        var failedCount = toDownload.Count - queuedCount;
+        StatusText = failedCount == 0
+            ? $"Queued {queuedCount} download{(queuedCount == 1 ? "" : "s")}"
+            : $"Queued {queuedCount} of {toDownload.Count} downloads; {failedCount} rejected";
+
+        if (failedCount > 0)
+        {
+            // Never report success when part of the batch was rejected (format/bitrate rules).
+            _eventBus.Publish(new NotificationEvent(
+                "Some downloads were rejected",
+                $"{failedCount} of {toDownload.Count} selected results did not pass the download rules (format or bitrate). See the status banner for the reason.",
+                NotificationType.Warning));
+        }
     }
 
     public void ResetState()
@@ -1132,8 +1226,12 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         IsSearching = false;
         IsUserCollectionBrowserOpen = false;
         _searchResults.Clear();
+        SelectedResults.Clear();
         ResetTelemetry();
+        HasSearched = false;
+        SearchErrorText = null;
         StatusText = "Ready";
+        RaiseResultStateChanged();
     }
 
     private void ExecuteApplyPreset(string presetName)
@@ -1171,6 +1269,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                     FilterViewModel.FilterFlac = false;
                     FilterViewModel.FilterMp3 = true;
                     FilterViewModel.FilterWav = true;
+                    FilterViewModel.FilterAiff = true;
                     break;
                 case "Quick Grab":
                     _config.CustomWeights.QualityWeight = 1.5;
@@ -1181,6 +1280,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                     FilterViewModel.FilterFlac = true;
                     FilterViewModel.FilterMp3 = true;
                     FilterViewModel.FilterWav = true;
+                    FilterViewModel.FilterAiff = true;
                     break;
                 case "High Fidelity":
                     _config.CustomWeights.QualityWeight = 2.0;
@@ -1191,6 +1291,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                     FilterViewModel.FilterFlac = true;
                     FilterViewModel.FilterMp3 = false;
                     FilterViewModel.FilterWav = true;
+                    FilterViewModel.FilterAiff = true;
                     break;
                 case "Balanced":
                 default:
@@ -1202,6 +1303,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                     FilterViewModel.FilterFlac = true;
                     FilterViewModel.FilterMp3 = true;
                     FilterViewModel.FilterWav = true;
+                    FilterViewModel.FilterAiff = true;
                     break;
             }
         }
@@ -1216,9 +1318,9 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(IsFlacEnabled));
         this.RaisePropertyChanged(nameof(IsMp3Enabled));
         this.RaisePropertyChanged(nameof(IsWavEnabled));
+        this.RaisePropertyChanged(nameof(IsAiffEnabled));
 
         OnRankingWeightsChanged();
-        _configManager.Save(_config);
     }
 
     private void SyncQualityPresetFromCurrentSettings()
@@ -1238,7 +1340,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             Math.Abs(MatchWeight - 1.0) < 0.001 &&
             IsFlacEnabled &&
             IsMp3Enabled &&
-            IsWavEnabled)
+            IsWavEnabled &&
+            IsAiffEnabled)
         {
             return 0;
         }
@@ -1248,7 +1351,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             Math.Abs(MatchWeight - 1.0) < 0.001 &&
             IsFlacEnabled &&
             IsMp3Enabled &&
-            IsWavEnabled)
+            IsWavEnabled &&
+            IsAiffEnabled)
         {
             return 1;
         }
@@ -1258,7 +1362,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             Math.Abs(MatchWeight - 2.0) < 0.001 &&
             !IsFlacEnabled &&
             IsMp3Enabled &&
-            IsWavEnabled)
+            IsWavEnabled &&
+            IsAiffEnabled)
         {
             return 2;
         }
@@ -1268,7 +1373,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             Math.Abs(MatchWeight - 1.0) < 0.001 &&
             IsFlacEnabled &&
             !IsMp3Enabled &&
-            IsWavEnabled)
+            IsWavEnabled &&
+            IsAiffEnabled)
         {
             return 3;
         }
@@ -1281,7 +1387,6 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(QualityPresetSliderValue));
         this.RaisePropertyChanged(nameof(SelectedQualityPresetName));
         this.RaisePropertyChanged(nameof(SelectedQualityPresetSubtitle));
-        this.RaisePropertyChanged(nameof(SelectedQualityPresetIcon));
     }
 
     private void ToggleHiddenResults()
@@ -1306,6 +1411,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             FilterViewModel.FilterMp3 = true;
             FilterViewModel.FilterFlac = true;
             FilterViewModel.FilterWav = true;
+            FilterViewModel.FilterAiff = true;
         });
 
         StatusText = "Relaxed filters for the cached result set. Hidden matches are now visible without a new network search.";
@@ -1313,37 +1419,38 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
 
     private void OnTrackStateChanged(TrackStateChangedEvent evt)
     {
-        if (_searchResults.Count == 0) return;
-
-        Dispatcher.UIThread.InvokeAsync(() =>
-        {
-            var status = evt.State switch
-            {
-                PlaylistTrackState.Completed => TrackStatus.Downloaded,
-                PlaylistTrackState.Failed => TrackStatus.Failed,
-                PlaylistTrackState.Downloading => TrackStatus.Pending,
-                PlaylistTrackState.Searching => TrackStatus.Pending,
-                PlaylistTrackState.Pending => TrackStatus.Pending,
-                _ => TrackStatus.Missing
-            };
-
-            foreach (var result in _publicSearchResults)
-            {
-                if (result.RawResult.Model.UniqueHash == evt.TrackGlobalId)
-                {
-                    result.RawResult.Status = status;
-                }
-            }
-        });
+        if (_searchResults.Count == 0 && _sessionDownloads.Count == 0) return;
+        Dispatcher.UIThread.Post(() => ApplyDownloadState(evt.TrackGlobalId, evt.State));
     }
 
-    private void OnTrackAdded(TrackAddedEvent evt)
+    /// <summary>
+    /// Reflects a DownloadManager state change onto matching search results and the session
+    /// queue. DownloadContext.GlobalId is the queued PlaylistTrack's TrackUniqueHash, which
+    /// EnqueueTrack copies from the search result's Track.UniqueHash.
+    /// </summary>
+    public void ApplyDownloadState(string trackGlobalId, PlaylistTrackState state)
     {
-         Dispatcher.UIThread.InvokeAsync(() =>
+        if (string.IsNullOrEmpty(trackGlobalId)) return;
+        var status = MapDownloadState(state);
+
+        foreach (var result in _searchResults.Items.Concat(_sessionDownloads).Distinct())
         {
-            // Placeholder for future use
-        });
+            if (result.RawResult.Model.UniqueHash == trackGlobalId)
+            {
+                result.RawResult.Status = status;
+            }
+        }
+
+        RefreshSessionSummary();
     }
+
+    public static TrackStatus MapDownloadState(PlaylistTrackState state) => state switch
+    {
+        PlaylistTrackState.Completed => TrackStatus.Downloaded,
+        PlaylistTrackState.Failed => TrackStatus.Failed,
+        PlaylistTrackState.Cancelled => TrackStatus.Missing,
+        _ => TrackStatus.Pending // Pending, Searching, Queued, Downloading, Converting, Paused, Stalled...
+    };
 
     private void OnExcludedSearchPhrasesUpdated(ExcludedSearchPhrasesUpdatedEvent evt)
     {
@@ -1381,6 +1488,15 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     }
 
 
+    /// <summary>Routes a command's failures to the status bar + a toast, tied to this VM's lifetime.</summary>
+    private void ObserveCommandFailures(IObservable<Exception> thrownExceptions)
+    {
+        thrownExceptions
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(ReportCommandFailure)
+            .DisposeWith(_disposables);
+    }
+
     public void Dispose()
     {
         Dispose(true);
@@ -1412,7 +1528,9 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     {
         var weights = _config.CustomWeights;
         ResultSorter.SetWeights(weights);
-        RecalculateScores();
+        // RecalculateScores() + the config save both run debounced — see the
+        // _rankingRefreshRequests subscription wired up in the constructor.
+        _rankingRefreshRequests.OnNext(Unit.Default);
     }
 
     private void RecalculateScores()
@@ -1454,8 +1572,10 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         foreach (var item in items)
         {
              ResultSorter.CalculateRank(item.RawResult.Model, searchTrack, evaluator);
-             item.RawResult.RefreshRank(); 
+             item.RawResult.RefreshRank();
         }
+
+        _resortRequests.OnNext(Unit.Default);
     }
     
     private List<string> GetActiveFormats()
@@ -1464,7 +1584,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         if (IsFlacEnabled) list.Add("flac");
         if (IsMp3Enabled) list.Add("mp3");
         if (IsWavEnabled) list.Add("wav");
-        if (list.Count == 0) list.AddRange(new[] { "mp3", "flac", "wav" }); 
+        if (IsAiffEnabled) { list.Add("aiff"); list.Add("aif"); }
+        if (list.Count == 0) list.AddRange(new[] { "mp3", "flac", "wav", "aiff", "aif" });
         return list;
     }
 

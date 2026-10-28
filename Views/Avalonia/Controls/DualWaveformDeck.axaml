@@ -18,7 +18,7 @@
         <!-- MACRO VIEW (The Map) -->
         <!-- Locked to ZoomLevel=1, Shows full track structure -->
         <Grid Grid.Row="0" Height="64" Margin="0,0,0,4">
-            <Border Background="#111" CornerRadius="4" ClipToBounds="True">
+            <Border Background="{StaticResource BrushBg0}" CornerRadius="4" ClipToBounds="True">
                 <Grid>
                     <!-- Macro Waveform -->
                     <controls:WaveformControl Name="MacroWaveform"
@@ -27,6 +27,10 @@
                                             MidBand="{Binding MidBandForWaveform}"
                                             HighBand="{Binding HighBandForWaveform}"
                                             FrequencyColorMode="True"
+                                            UseNeonPalette="{Binding UseNeonPalette, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            Gain="{Binding Gain, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            ShowEnergyCurve="{Binding ShowEnergyCurve, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            ShowPhraseSections="{Binding ShowPhraseSections, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                             Cues="{Binding Cues}"
                                             PhraseSegments="{Binding PhraseSegments}"
                                             EnergyCurve="{Binding EnergyCurve}"
@@ -35,16 +39,16 @@
                                             IsRolling="False"
                                             ZoomLevel="1.0"
                                             ViewOffset="0.0"
-                                            Foreground="#333"
-                                            PlayheadBrush="#80FFFFFF"/>
+                                            Foreground="{StaticResource BrushText3}"
+                                            PlayheadBrush="{StaticResource BrushText1}"/>
 
                     <!-- Viewport Overlay (The Lens Indicator) -->
                     <!-- Positioned via Code-behind based on MicroView's Offset/Zoom -->
                     <Canvas Name="ViewportCanvas" IsHitTestVisible="False">
                         <Border Name="ViewportRect"
-                                BorderBrush="#00FFD1"
+                                BorderBrush="{StaticResource BrushAccent}"
                                 BorderThickness="1"
-                                Background="#2000FFD1"
+                                Background="{StaticResource BrushAccentSubtle}"
                                 Height="64"/>
                     </Canvas>
                     
@@ -58,7 +62,7 @@
         <!-- MICRO VIEW (The Lens) -->
         <!-- Zoomable, High-FPS, Interactive -->
         <Grid Grid.Row="2">
-            <Border Background="#080808" CornerRadius="6" ClipToBounds="True" BorderBrush="#222" BorderThickness="1">
+            <Border Background="{StaticResource BrushBg0}" CornerRadius="6" ClipToBounds="True" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="1">
                 <Grid>
                     <!-- Main Micro Waveform with Integrated Ghost Layer -->
                     <controls:WaveformControl Name="MicroWaveform"
@@ -67,6 +71,10 @@
                                             MidBand="{Binding MidBandForWaveform}"
                                             HighBand="{Binding HighBandForWaveform}"
                                             FrequencyColorMode="True"
+                                            UseNeonPalette="{Binding UseNeonPalette, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            Gain="{Binding Gain, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            ShowEnergyCurve="{Binding ShowEnergyCurve, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            ShowPhraseSections="{Binding ShowPhraseSections, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                             Cues="{Binding Cues}"
                                             PhraseSegments="{Binding PhraseSegments}"
                                             EnergyCurve="{Binding EnergyCurve}"
@@ -83,8 +91,8 @@
                                             CueUpdatedCommand="{Binding CueUpdatedCommand}"
                                             SeekCommand="{Binding SeekCommand}"
 
-                                            PlayheadBrush="#FF4081"
-                                            Foreground="#4EC9B0"
+                                            PlayheadBrush="{StaticResource BrushAccent}"
+                                            Foreground="{StaticResource BrushAccent}"
 
                                             PointerWheelChanged="OnMicroWaveformScroll"/>
 
@@ -93,16 +101,16 @@
                     
                     <!-- Zoom/Time Info Overlay -->
                     <StackPanel VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8" Orientation="Horizontal" Spacing="8">
-                         <Border Background="#80000000" CornerRadius="4" Padding="4,2">
-                             <TextBlock Name="ZoomLabel" Text="1x" FontSize="10" Foreground="#666"/>
+                         <Border Background="{StaticResource BrushScrim}" CornerRadius="4" Padding="4,2">
+                             <TextBlock Name="ZoomLabel" Text="1x" FontSize="10" Foreground="{StaticResource BrushText2}"/>
                          </Border>
                          <!-- Snap to Grid toggle -->
                          <ToggleButton IsChecked="{Binding SnapToGridEnabled, RelativeSource={RelativeSource AncestorType=UserControl}, Mode=TwoWay}"
                                        Padding="4,2"
                                        FontSize="10"
                                        CornerRadius="4"
-                                       Background="#80000000"
-                                       Foreground="#00CFFF"
+                                       Background="{StaticResource BrushScrim}"
+                                       Foreground="{StaticResource BrushAccent}"
                                        ToolTip.Tip="Toggle beat-grid magnetic snapping"
                                        Content="⊞ Snap"/>
                     </StackPanel>

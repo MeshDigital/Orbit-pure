@@ -17,6 +17,9 @@ using SLSKDONET.Models.Stem;
 using SLSKDONET.Services;
 using SLSKDONET.Services.Audio;
 using SLSKDONET.Services.Audio.Separation;
+using SLSKDONET.Services.Similarity;
+using SLSKDONET.Views;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels.Workstation;
 
@@ -266,8 +269,8 @@ public sealed class FlowPhraseRegion
         Provenance = provenance;
         CanvasLeft = StartSeconds;
         CanvasWidth = Math.Max(0.0, EndSeconds - StartSeconds);
-        SpanLabel = $"{StartSeconds:F1}s–{EndSeconds:F1}s";
-        Tooltip = $"{SpanLabel} • {Provenance} • {Confidence:P0}";
+        SpanLabel = NumFormat.Ui($"{StartSeconds:F1}s–{EndSeconds:F1}s");
+        Tooltip = NumFormat.Ui($"{SpanLabel} • {Provenance} • {Confidence:P0}");
     }
 
     public string TransitionKey { get; }
@@ -348,6 +351,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly ILogger<WorkstationViewModel>? _logger;
     private readonly SLSKDONET.Services.Library.PlaylistExportService? _playlistExporter;
+    private readonly IDialogService? _dialogService;
+    private readonly INotificationService? _notificationService;
     private readonly BpmSyncService           _bpmSync = new();
     private readonly Dictionary<string, double> _flowTransitionLengthOverrides = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _flowTransitionPhraseMarkerOverrides = new(StringComparer.Ordinal);
@@ -519,7 +524,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         }
     }
 
-    public string MasterBpmDisplay => MasterBpm > 0 ? $"{MasterBpm:F1}" : "—";
+    public string MasterBpmDisplay => MasterBpm > 0 ? NumFormat.Ui($"{MasterBpm:F1}") : "—";
     public string DeckStatusSummary => BuildDeckStatusSummary(Decks.Count(d => d.IsLoaded), Decks.Count, FocusedDeck?.DeckLabel, MasterBpm);
     public string DeckFocusSummary => BuildDeckFocusSummary(Decks.Select(d => d.DeckLabel), Decks.Where(d => d.IsLoaded).Select(d => d.DeckLabel), FocusedDeck?.DeckLabel);
     public string ActivePlaylistFlowSummary => BuildPlaylistFlowSummary(ActivePlaylist?.SourceTitle, PlaylistTracks.Count, Decks.Count(d => d.IsLoaded), ActiveMode);
@@ -718,17 +723,6 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         }
     }
 
-    private bool _isMetronomeEnabled;
-    public bool IsMetronomeEnabled
-    {
-        get => _isMetronomeEnabled;
-        set
-        {
-            this.RaiseAndSetIfChanged(ref _isMetronomeEnabled, value);
-            RaiseHeaderProperties();
-        }
-    }
-
     // ── Tap Tempo ─────────────────────────────────────────────────────────────
 
     private readonly System.Collections.Generic.List<DateTime> _tapTimes = new();
@@ -756,9 +750,9 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     // ── Inline Export panel (shown in Export mode) ────────────────────────────
 
     /// <summary>
-    /// Shared Export configuration shown in the inline Export mode panel.
-    /// The same instance also populates the popup Export dialog when
-    /// <see cref="ExportMixCommand"/> is invoked from the toolbar.
+    /// Export configuration used to gate header actions (e.g. <see cref="CanUseExportLaneActions"/>).
+    /// <see cref="ExportMixCommand"/> constructs its own separate <c>ExportDialogViewModel</c> for
+    /// the popup dialog rather than reusing this instance.
     /// </summary>
     public ExportDialogViewModel ExportPanel { get; }
 
@@ -813,7 +807,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit>          Loop8Command          { get; }
     /// <summary>Exit the active loop on the focused deck.</summary>
     public ReactiveCommand<Unit, Unit>          ExitLoopFocusedCommand { get; }
-    /// <summary>Switch to a Workstation mode (Waveform / Flow / Stems / Export).</summary>
+    /// <summary>Switch to a Workstation mode (Waveform / Flow).</summary>
     public ReactiveCommand<WorkstationMode, Unit> SetModeCommand      { get; }
     public ReactiveCommand<FlowTransitionOverlayViewModel, Unit> SelectFlowTransitionCommand { get; }
     public ReactiveCommand<Unit, Unit>          ClearFlowTransitionSelectionCommand { get; }
@@ -871,6 +865,9 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     /// <summary>Queue all hidden tracks with incomplete analysis data for full reanalysis.</summary>
     public ReactiveCommand<Unit, Unit> ReanalyzeAllIncompleteCommand { get; }
 
+    /// <summary>Whether another deck can be added (max 4, mirrors AddDeckCommand's own guard).</summary>
+    public bool CanAddDeck => Decks.Count < 4;
+
     private CancellationTokenSource? _analysisCts;
 
     // ── Constructor ───────────────────────────────────────────────────────────
@@ -884,10 +881,14 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         AppConfig appConfig, ConfigManager configManager,
         IDbContextFactory<AppDbContext> dbFactory,
         ILogger<WorkstationViewModel>? logger = null,
-        SLSKDONET.Services.Library.PlaylistExportService? playlistExporter = null)
+        SLSKDONET.Services.Library.PlaylistExportService? playlistExporter = null,
+        IDialogService? dialogService = null,
+        INotificationService? notificationService = null)
     {
         _logger = logger;
         _playlistExporter = playlistExporter;
+        _dialogService = dialogService;
+        _notificationService = notificationService;
         _library           = library;
         _deckPair          = deckPair;
         _stemSeparator     = stemSeparator;
@@ -915,10 +916,10 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             .DisposeWith(_disposables);
 
         // Wrap existing DeckA / DeckB
-        var deckA = new WorkstationDeckViewModel("A", deckPair.DeckA, stemSeparator, cueService, stemPrefService, _dbFactory);
-        var deckB = new WorkstationDeckViewModel("B", deckPair.DeckB, stemSeparator, cueService, stemPrefService, _dbFactory);
-        deckA.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); await SaveSessionAsync(); };
-        deckB.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); await SaveSessionAsync(); };
+        var deckA = new WorkstationDeckViewModel("A", deckPair.DeckA, stemSeparator, cueService, stemPrefService, _dbFactory, _dialogService, _notificationService);
+        var deckB = new WorkstationDeckViewModel("B", deckPair.DeckB, stemSeparator, cueService, stemPrefService, _dbFactory, _dialogService, _notificationService);
+        deckA.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); RaiseHeaderProperties(); await SaveSessionAsync(); };
+        deckB.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); RaiseHeaderProperties(); await SaveSessionAsync(); };
         deckA.OnDeckStateChanged = RefreshDeckTransitionGuidance;
         deckB.OnDeckStateChanged = RefreshDeckTransitionGuidance;
         Decks.Add(deckA);
@@ -981,24 +982,40 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             string label = Decks.Count switch { 2 => "C", 3 => "D", _ => "?" };
             var engine = new DeckEngine();
             var slot   = new DeckSlotViewModel(label, engine);
-            var newDeck = new WorkstationDeckViewModel(label, slot, _stemSeparator, _cueService, _stemPrefService);
-            newDeck.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); await SaveSessionAsync(); };
+            var newDeck = new WorkstationDeckViewModel(label, slot, _stemSeparator, _cueService, _stemPrefService, _dbFactory, _dialogService, _notificationService);
+            newDeck.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); RaiseHeaderProperties(); await SaveSessionAsync(); };
             newDeck.OnDeckStateChanged = RefreshDeckTransitionGuidance;
             Decks.Add(newDeck);
             newDeck.UpdateWaveformViewport(TimelineWindowSeconds, TimelineOffsetSeconds);
             RefreshDeckTransitionGuidance();
             this.RaisePropertyChanged(nameof(MaxTimelineOffsetSeconds));
+            this.RaisePropertyChanged(nameof(CanAddDeck));
             RaiseHeaderProperties();
         });
 
-        RemoveDeckCommand = ReactiveCommand.Create<WorkstationDeckViewModel>(deck =>
+        RemoveDeckCommand = ReactiveCommand.CreateFromTask<WorkstationDeckViewModel>(async deck =>
         {
             if (Decks.Count <= 1) return;
+
+            // Only nag when there's actually something to lose — an empty/unused deck slot is
+            // safe to remove instantly, matching how other destructive confirms in this codebase
+            // (e.g. Force Redownload) only gate on there being real state at stake.
+            if (deck.IsLoaded && _dialogService != null)
+            {
+                var confirmed = await _dialogService.ConfirmAsync(
+                    "Remove Deck",
+                    $"Deck {deck.DeckLabel} has a loaded track with its cues/loop state. Removing it discards that state — this can't be undone. Continue?",
+                    confirmLabel: "Remove Deck",
+                    cancelLabel: "Cancel");
+                if (!confirmed) return;
+            }
+
             Decks.Remove(deck);
             deck.Dispose();
             FocusedDeck = Decks.FirstOrDefault();
             RefreshDeckTransitionGuidance();
             this.RaisePropertyChanged(nameof(MaxTimelineOffsetSeconds));
+            this.RaisePropertyChanged(nameof(CanAddDeck));
             TimelineOffsetSeconds = TimelineOffsetSeconds;
             RaiseHeaderProperties();
         });
@@ -1818,8 +1835,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             var beatDiff = Math.Abs(source.DisplayBpm - target.DisplayBpm);
             var beatAligned = source.DisplayBpm > 0 && target.DisplayBpm > 0 && beatDiff <= 1.0;
             var phraseAligned = sourceCue != null && targetCue != null;
-            var sourceEnergy = EstimateNormalizedEnergyFromBpm(source.DisplayBpm);
-            var targetEnergy = EstimateNormalizedEnergyFromBpm(target.DisplayBpm);
+            var sourceEnergy = source.Energy ?? EstimateNormalizedEnergyFromBpm(source.DisplayBpm);
+            var targetEnergy = target.Energy ?? EstimateNormalizedEnergyFromBpm(target.DisplayBpm);
             var harmonicScore = ComputeFlowHarmonicCompatibility(source.TrackKey, target.TrackKey, semitoneShift: 0);
             var energyScore = ComputeFlowEnergyCompatibility(sourceEnergy, targetEnergy, transitionLength);
             var combinedScore = ComputeCombinedFlowCompatibilityScore(harmonicScore.Score, energyScore.Score);
@@ -2100,24 +2117,25 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         };
     }
 
+    /// <summary>
+    /// Delegates to the shared, tested harmony formula (<see cref="Similarity.TrackMatchScorer.ComputeHarmony"/>)
+    /// instead of an independently hand-rolled Camelot-distance bucket — this Flow overlay previously
+    /// computed its own harmony score in parallel with the documented library-wide compatibility system
+    /// (see DOCS/TRACK_COMPATIBILITY_SCORING.md), diverging from it for no real reason.
+    /// Label thresholds are DJ-convention: same/adjacent key (Camelot distance 0-1) is a "lock",
+    /// which the shared formula's 1-(distance/6) scale places at ~83-100, not the >=90 the old
+    /// independent bucket formula used — retuned here rather than carried over unchanged.
+    /// </summary>
     public static FlowCompatibilityScore ComputeFlowHarmonicCompatibility(string? sourceCamelotKey, string? targetCamelotKey, int semitoneShift)
     {
-        var distance = CamelotDistance(sourceCamelotKey, targetCamelotKey);
-        var baseline = distance switch
-        {
-            <= 1d => 96d - (distance * 6d),
-            <= 2d => 82d - ((distance - 1d) * 12d),
-            <= 4d => 62d - ((distance - 2d) * 8d),
-            _ => 44d - ((distance - 4d) * 8d)
-        };
-
+        var harmony01 = TrackMatchScorer.ComputeHarmony(sourceCamelotKey, targetCamelotKey, out _);
         var shiftPenalty = Math.Min(18d, Math.Abs(semitoneShift) * 3d);
-        var finalScore = Math.Clamp(baseline - shiftPenalty, 0d, 100d);
+        var finalScore = Math.Clamp((harmony01 * 100d) - shiftPenalty, 0d, 100d);
         var label = finalScore switch
         {
-            >= 90d => "lock",
-            >= 70d => "safe",
-            >= 45d => "stretch",
+            >= 80d => "lock",
+            >= 60d => "safe",
+            >= 40d => "stretch",
             _ => "risky"
         };
 
@@ -3280,7 +3298,13 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
                                ?? Decks.FirstOrDefault();
                     if (deck == null) continue;
 
-                    // Use raw path load; cue points load via hash when available
+                    // Use raw path load; cue points load via hash when available.
+                    // AvailabilityState/Status must be set explicitly — the default (Ghost/Missing)
+                    // is wrong here since File.Exists(deckState.FilePath) was just confirmed above.
+                    // Leaving them at their zero-value defaults made LoadPlaylistTrackCommand treat
+                    // a genuinely-local file as a "cloud/ghost" track on every single app restart,
+                    // showing a bogus "queuing for download" toast and firing a real (if harmless)
+                    // QueueTracks call for it each time.
                     var track = new Models.PlaylistTrack
                     {
                         Title            = deckState.TrackTitle ?? string.Empty,
@@ -3289,11 +3313,17 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
                         TrackUniqueHash  = deckState.TrackUniqueHash ?? string.Empty,
                         BPM              = deckState.Bpm > 0 ? deckState.Bpm : null,
                         MusicalKey       = deckState.Key,
+                        Status           = Models.TrackStatus.Downloaded,
+                        AvailabilityState = Models.TrackAvailabilityState.LocalUnanalyzed,
                     };
                     await deck.LoadPlaylistTrackCommand.Execute(track).FirstAsync();
                 }
             }
-            catch { /* Corrupt session — proceed with blank workstation */ }
+            catch (Exception ex)
+            {
+                // Corrupt session — proceed with a blank workstation, but leave a trace.
+                _logger?.LogWarning(ex, "Failed to restore workstation session; starting blank");
+            }
         });
     }
 
@@ -3568,6 +3598,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             // the handoff to DJ software should carry the whole crate.
             var tracks = await _library.LoadPlaylistTracksAsync(playlist.Id);
             var ordered = tracks.OrderBy(t => t.SortOrder).ThenBy(t => t.TrackNumber).ToList();
+            await SLSKDONET.Services.Export.TrackExportPreflight.ValidateAsync(ordered);
 
             var safeName = string.Join("_", playlist.SourceTitle.Split(System.IO.Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries)).Trim();
             if (safeName.Length == 0) safeName = "orbit-playlist";

@@ -27,20 +27,7 @@ public static class FileFormattingUtils
     /// <summary>
     /// Formats a file size in bytes to a human-readable string.
     /// </summary>
-    public static string FormatBytes(long bytes)
-    {
-        const long kb = 1024;
-        const long mb = kb * 1024;
-        const long gb = mb * 1024;
-
-        return bytes switch
-        {
-            >= gb => $"{bytes / (double)gb:F2} GB",
-            >= mb => $"{bytes / (double)mb:F2} MB",
-            >= kb => $"{bytes / (double)kb:F2} KB",
-            _ => $"{bytes} B"
-        };
-    }
+    public static string FormatBytes(long bytes) => NumFormat.Size(bytes);
 
     /// <summary>
     /// Formats a duration in seconds to HH:MM:SS.

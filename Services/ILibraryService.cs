@@ -70,6 +70,16 @@ public interface ILibraryService
     Task RemoveTrackFromLibraryAsync(string trackHash);
 
     /// <summary>
+    /// Deletes the PlaylistTrack row(s) for this hash out of every playlist that contains it.
+    /// For a genuine permanent delete — contrast with marking a track TrackStatus.Missing, which
+    /// means "not yet downloaded, queue it for search": using that status for a deliberate delete
+    /// made the track both stay visible in every playlist (a Missing row is still a real row) and
+    /// get auto re-acquired by GhostAcquisitionOrchestrator's Missing/Failed/OnHold sweep — the
+    /// app searching Soulseek for a file the user just told it to get rid of.
+    /// </summary>
+    Task RemoveTrackFromAllPlaylistsAsync(string trackHash);
+
+    /// <summary>
     /// Deletes a library entry by its ID (for orphaned entries).
     /// </summary>
     Task DeleteLibraryEntryAsync(Guid id);
@@ -193,6 +203,17 @@ public interface ILibraryService
     Task<List<PlaylistTrack>> LoadPlaylistTracksAsync(Guid playlistId);
 
     /// <summary>
+    /// Lean whole-library rows (or only liked tracks) for the Playlist Intelligence overview of
+    /// "All Tracks" / "Liked Songs", which have no PlaylistTracks rows of their own.
+    /// </summary>
+    Task<List<PlaylistTrack>> LoadLibraryOverviewTracksAsync(bool likedOnly = false) =>
+        Task.FromResult(new List<PlaylistTrack>());
+
+    /// <summary>Field → source ("artwork" → "deezer") recorded by library enrichment for a track.</summary>
+    Task<Dictionary<string, string>> GetMetadataProvenanceAsync(string trackHash) =>
+        Task.FromResult(new Dictionary<string, string>());
+
+    /// <summary>
     /// Loads ALL tracks from all active playlists.
     /// Used for "All Tracks" view.
     /// </summary>
@@ -201,12 +222,20 @@ public interface ILibraryService
     /// <summary>
     /// Gets the count of tracks in a playlist, optionally filtered.
     /// </summary>
-    Task<int> GetTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null);
+    Task<int> GetTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, string? qualityTier = null);
 
     /// <summary>
     /// Loads a page of tracks for a specific playlist.
     /// </summary>
-    Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false);
+    Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null);
+
+    /// <summary>
+    /// The error of the most recent <see cref="GetTrackCountAsync"/> /
+    /// <see cref="GetPagedPlaylistTracksAsync"/> call, or null when it succeeded. Those two return
+    /// 0 / an empty page on failure (many callers rely on that), so the track grid reads this to
+    /// tell "the query failed" apart from "nothing here" instead of showing endless loading rows.
+    /// </summary>
+    string? LastTrackQueryError { get; }
 
     /// <summary>
     /// Loads a specific track from a playlist by its unique hash.
@@ -273,6 +302,12 @@ public interface ILibraryService
     /// Updates the cue points for all instances of a track (Library and Playlist entries).
     /// </summary>
     Task UpdateTrackCuePointsAsync(string trackHash, string cuePointsJson);
+
+    /// <summary>
+    /// Updates the resolved file path for all instances of a track (Library and every Playlist
+    /// entry sharing the same hash), keeping them in sync after a rename/move/repoint.
+    /// </summary>
+    Task UpdateTrackFilePathAsync(string trackHash, string newFilePath);
 
     /// <summary>
     /// Phase 2: Updates the surgical structural features for a track.

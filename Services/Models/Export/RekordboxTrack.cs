@@ -14,9 +14,11 @@ public class RekordboxTrack
     public string Genre { get; set; } = string.Empty;
     
     /// <summary>
-    /// File Type: "1" for File.
+    /// Rekordbox's file-type label, e.g. "MP3 File", "FLAC File", "WAV File" — derived from the
+    /// source file's extension, not a numeric code (Rekordbox's real XML schema uses these exact
+    /// strings, confirmed against real rekordbox-exported XML).
     /// </summary>
-    public string Kind { get; set; } = "1";
+    public string Kind { get; set; } = "Unknown File Type";
     
     /// <summary>
     /// File Size in Bytes.
@@ -40,6 +42,12 @@ public class RekordboxTrack
     public double AverageBpm { get; set; }
     public string Tonality { get; set; } = string.Empty; // Key (Camelot)
     public string Label { get; set; } = string.Empty;
+
+    /// <summary>Album track number. 0 (unknown) omits the attribute entirely.</summary>
+    public int TrackNumber { get; set; }
+
+    /// <summary>Release year. 0 (unknown) omits the attribute entirely.</summary>
+    public int Year { get; set; }
     
     /// <summary>
     /// Absolute path URI: file://localhost/C:/Music/Track.mp3

@@ -1,0 +1,36 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SLSKDONET.Views.Avalonia.Dialogs.ExportPlaylistChoiceDialog"
+        Title="Export playlist" Width="460" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="{StaticResource BrushBg2}" TransparencyLevelHint="AcrylicBlur"
+        ExtendClientAreaToDecorationsHint="True">
+
+    <StackPanel Margin="24" Spacing="16">
+        <StackPanel Spacing="4">
+            <TextBlock Classes="h2" Text="Export playlist"/>
+            <TextBlock x:Name="SubtitleText" Classes="body-sm muted" TextWrapping="Wrap"
+                       Text="How do you want to export this playlist?"/>
+        </StackPanel>
+
+        <StackPanel Spacing="12">
+            <StackPanel Spacing="2">
+                <TextBlock Classes="h3" Text="Copy files + XML"/>
+                <TextBlock Classes="caption" TextWrapping="Wrap"
+                           Text="Copies the audio files to a USB drive or folder and writes a Rekordbox XML next to them."/>
+            </StackPanel>
+            <StackPanel Spacing="2">
+                <TextBlock Classes="h3" Text="XML only"/>
+                <TextBlock Classes="caption" TextWrapping="Wrap"
+                           Text="Writes just the Rekordbox XML. No audio files are copied."/>
+            </StackPanel>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Classes="ghost" Content="Cancel" Click="Cancel_Click"/>
+            <Button Classes="secondary" Content="XML only" Click="XmlOnly_Click"/>
+            <Button Classes="primary" Content="Copy files + XML" Click="CopyFilesAndXml_Click"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

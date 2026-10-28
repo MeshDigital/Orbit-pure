@@ -2,7 +2,9 @@ param(
     [string]$Runtime = "win-x64",
     [string]$Configuration = "Release",
     [string]$Version = "",
-    [switch]$Lite
+    [switch]$Lite,
+    [switch]$SkipInstaller,
+    [switch]$SkipSmokeTest
 )
 
 $ErrorActionPreference = "Stop"
@@ -67,6 +69,27 @@ try {
         }
     }
 
+    if (-not $SkipSmokeTest) {
+        # Launch the published build in a throwaway profile and fail the release if it dies on
+        # startup. 0.10.0-alpha was packaged with a crash in App.Initialize that no unit test hit.
+        $smokeExe = Join-Path $publishRoot "ORBIT.exe"
+        $smoke = Start-Process -FilePath $smokeExe -ArgumentList "--setup-preview" -WorkingDirectory $publishRoot -PassThru
+        $sawWindow = $false
+        for ($i = 0; $i -lt 24 -and -not $smoke.HasExited; $i++) {
+            Start-Sleep -Seconds 5
+            $smoke.Refresh()
+            if ($smoke.MainWindowHandle -ne 0) { $sawWindow = $true; Start-Sleep -Seconds 10; $smoke.Refresh(); break }
+        }
+        if ($smoke.HasExited) {
+            throw "Smoke test failed: the published ORBIT.exe exited on startup (code $($smoke.ExitCode)). Check the Windows Application event log."
+        }
+        $smoke.CloseMainWindow() | Out-Null
+        Start-Sleep -Seconds 4
+        if (-not $smoke.HasExited) { Stop-Process -Id $smoke.Id -Force }
+        if (-not $sawWindow) { throw "Smoke test failed: no ORBIT window appeared within 2 minutes." }
+        Write-Host "Smoke test passed: the published build starts and stays up." -ForegroundColor Green
+    }
+
     @(
         "ORBIT alpha package"
         "Version: $Version"
@@ -86,6 +109,34 @@ try {
     Write-Host "  Publish folder: $publishRoot"
     Write-Host "  Zip package:    $zipPath"
     Write-Host "  Manifest:       $manifestPath"
+
+    if (-not $SkipInstaller -and -not $Lite) {
+        $isccPath = $null
+        $isccCommand = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
+        if ($isccCommand) { $isccPath = $isccCommand.Source }
+
+        if (-not $isccPath) {
+            $candidatePaths = @(
+                "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+                "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+                "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+            )
+            $isccPath = $candidatePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+        }
+
+        if (-not $isccPath) {
+            Write-Host "Inno Setup (ISCC.exe) not found — skipping installer build. Install via 'winget install JRSoftware.InnoSetup' to enable it." -ForegroundColor Yellow
+        }
+        else {
+            $issScript = Join-Path $PSScriptRoot "ORBIT.iss"
+            & $isccPath $issScript "/DMyAppVersion=$Version"
+            if ($LASTEXITCODE -ne 0) {
+                throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
+            }
+            $setupPath = Join-Path $artifactsRoot ("ORBIT-Setup-{0}-win-x64.exe" -f $Version)
+            Write-Host "  Installer:      $setupPath" -ForegroundColor Green
+        }
+    }
 }
 finally {
     Pop-Location

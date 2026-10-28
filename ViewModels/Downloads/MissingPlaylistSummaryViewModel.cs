@@ -43,6 +43,20 @@ public sealed class MissingPlaylistSummaryViewModel : ReactiveObject
         set => this.RaiseAndSetIfChanged(ref _isQueued, value);
     }
 
+    private bool _isStarting;
+    /// <summary>
+    /// True from the instant Start/Priority Start is clicked until QueueTracks actually runs.
+    /// Set synchronously before any await in the click handler so the row gives immediate visual
+    /// feedback — the handler does two sequential DB round-trips (SetJobPriorityAsync,
+    /// LoadPlaylistTracksAsync) before anything else changes, which otherwise reads as the click
+    /// not having registered at all.
+    /// </summary>
+    public bool IsStarting
+    {
+        get => _isStarting;
+        set => this.RaiseAndSetIfChanged(ref _isStarting, value);
+    }
+
     public ICommand StartCommand { get; }
     public ICommand StartHighPriorityCommand { get; }
 }

@@ -18,6 +18,9 @@ public sealed class StemChannelViewModel : ReactiveObject
 
     public string DisplayName { get; }
 
+    /// <summary>Which stem this strip controls (drives the strip's data colour).</summary>
+    public StemType StemType => _stemType;
+
     // ── Gain ─────────────────────────────────────────────────────────────────
 
     private float _gainDb;
@@ -45,6 +48,18 @@ public sealed class StemChannelViewModel : ReactiveObject
             float clamped = Math.Clamp(value, -1f, 1f);
             this.RaiseAndSetIfChanged(ref _pan, clamped);
             _mixer.SetPan(_stemType, clamped);
+            this.RaisePropertyChanged(nameof(PanDisplay));
+        }
+    }
+
+    /// <summary>Pan as a console-style label: "C", "L 50", "R 25".</summary>
+    public string PanDisplay
+    {
+        get
+        {
+            int pct = (int)Math.Round(Math.Abs(_pan) * 100);
+            if (pct == 0) return "C";
+            return _pan < 0 ? $"L {pct}" : $"R {pct}";
         }
     }
 

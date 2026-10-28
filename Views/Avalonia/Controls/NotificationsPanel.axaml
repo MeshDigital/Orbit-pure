@@ -4,65 +4,83 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:models="clr-namespace:SLSKDONET.Models"
              xmlns:svc="clr-namespace:SLSKDONET.Services"
+             xmlns:conv="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
              mc:Ignorable="d" d:DesignWidth="320" d:DesignHeight="600"
              x:Class="SLSKDONET.Views.Avalonia.Controls.NotificationsPanel"
-             x:DataType="svc:NotificationCenterService">
+             x:DataType="svc:NotificationCenterService"
+             x:CompileBindings="True">
+
+    <!-- Notification history (bell panel). Rows are whole-row buttons: clicking marks the item read
+         and, for chat/room items, opens that thread. Unread rows carry an accent dot. -->
 
     <UserControl.Styles>
-        <Style Selector="Border.notif">
-            <Setter Property="Background" Value="{DynamicResource BrushBg2}"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="Padding" Value="10,8"/>
-            <Setter Property="Margin" Value="0,2"/>
+        <Style Selector="Button.notif">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
         </Style>
-        <Style Selector="Border.notif.unread">
-            <Setter Property="BorderBrush" Value="{DynamicResource BrushAccent}"/>
-            <Setter Property="BorderThickness" Value="1"/>
+        <Style Selector="Button.notif:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource BrushHover}"/>
         </Style>
-        <Style Selector="Border.notif:pointerover">
-            <Setter Property="Background" Value="{DynamicResource BrushBg3}"/>
+        <Style Selector="Button.notif:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource BrushPressed}"/>
+        </Style>
+        <Style Selector="PathIcon.kind">
+            <Setter Property="Width" Value="{StaticResource IconSizeMd}"/>
+            <Setter Property="Height" Value="{StaticResource IconSizeMd}"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText2}"/>
         </Style>
     </UserControl.Styles>
 
     <DockPanel Margin="12">
-        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
-            <TextBlock Grid.Column="0" Text="Notifications" FontSize="15" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
-            <Button Grid.Column="1" Classes="secondary" Content="Mark all read" FontSize="10" Padding="8,4" Margin="0,0,6,0"
-                    Command="{Binding MarkAllReadCommand}"/>
-            <Button Grid.Column="2" Classes="secondary" Content="Clear" FontSize="10" Padding="8,4"
-                    Command="{Binding ClearCommand}"/>
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,12">
+            <TextBlock Grid.Column="0" Classes="h3" Text="Notifications" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" Classes="ghost small" Content="Mark all read" Margin="0,0,4,0"
+                    Command="{Binding MarkAllReadCommand}"
+                    IsVisible="{Binding UnreadCount, Converter={x:Static conv:NumericConverters.IsNotZero}}"/>
+            <Button Grid.Column="2" Classes="ghost small" Content="Clear"
+                    Command="{Binding ClearCommand}"
+                    IsVisible="{Binding Notifications.Count, Converter={x:Static conv:NumericConverters.IsNotZero}}"
+                    ToolTip.Tip="Remove every notification from this list"/>
         </Grid>
 
-        <Border DockPanel.Dock="Top" Padding="24,32" IsVisible="{Binding !Notifications.Count}">
-            <StackPanel HorizontalAlignment="Center" Spacing="8">
-                <TextBlock Text="🔔" FontSize="28" HorizontalAlignment="Center" Opacity="0.4"/>
-                <TextBlock Text="Nothing yet" FontSize="12" Foreground="{DynamicResource BrushText2}" HorizontalAlignment="Center"/>
-                <TextBlock Text="Completed downloads, chat messages, and room replies will show up here."
-                           FontSize="10" Foreground="{DynamicResource BrushTextDisabled}" TextWrapping="Wrap"
-                           HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="220"/>
-            </StackPanel>
-        </Border>
+        <StackPanel DockPanel.Dock="Top" Classes="empty-state"
+                    IsVisible="{Binding Notifications.Count, Converter={x:Static conv:NumericConverters.IsZero}}">
+            <PathIcon Data="{StaticResource icon_bell}"/>
+            <TextBlock Classes="h3" Text="Nothing yet"/>
+            <TextBlock Classes="caption" Text="Completed downloads, chat messages and room replies show up here."
+                       TextWrapping="Wrap" TextAlignment="Center" MaxWidth="240"/>
+        </StackPanel>
 
-        <ScrollViewer IsVisible="{Binding Notifications.Count}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      IsVisible="{Binding Notifications.Count, Converter={x:Static conv:NumericConverters.IsNotZero}}">
             <ItemsControl ItemsSource="{Binding Notifications}">
                 <ItemsControl.ItemTemplate>
-                    <DataTemplate DataType="models:NotificationItem">
-                        <Border Classes="notif" Classes.unread="{Binding !IsRead}">
-                            <Button Background="Transparent" BorderThickness="0" Padding="0" HorizontalContentAlignment="Stretch"
-                                    Command="{Binding $parent[UserControl].DataContext.OpenCommand}"
-                                    CommandParameter="{Binding}"
-                                    ToolTip.Tip="{Binding NavigationUsername, StringFormat='Open conversation with {0}', TargetNullValue=''}">
-                                <Grid ColumnDefinitions="Auto,*">
-                                    <TextBlock Grid.Column="0" Text="{Binding KindIcon}" FontSize="16" Margin="0,0,8,0" VerticalAlignment="Top"/>
-                                    <StackPanel Grid.Column="1" Spacing="2">
-                                        <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" Foreground="White" TextWrapping="Wrap"/>
-                                        <TextBlock Text="{Binding Detail}" FontSize="11" Foreground="{DynamicResource BrushText1}"
-                                                   TextWrapping="Wrap" IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                                        <TextBlock Text="{Binding TimestampUtc, StringFormat='{}{0:HH:mm}'}" FontSize="9" Foreground="{DynamicResource BrushText2}"/>
-                                    </StackPanel>
-                                </Grid>
-                            </Button>
-                        </Border>
+                    <DataTemplate x:DataType="models:NotificationItem">
+                        <Button Classes="notif"
+                                Command="{ReflectionBinding $parent[UserControl].DataContext.OpenCommand}"
+                                CommandParameter="{Binding}"
+                                ToolTip.Tip="{Binding OpenHint}">
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                <Panel Grid.Column="0" Width="{StaticResource IconSizeMd}" Margin="0,2,12,0" VerticalAlignment="Top">
+                                    <PathIcon Classes="kind" Data="{StaticResource icon_download}" IsVisible="{Binding IsDownload}"/>
+                                    <PathIcon Classes="kind" Data="{StaticResource icon_chat}" IsVisible="{Binding IsPrivateMessage}"/>
+                                    <PathIcon Classes="kind" Data="{StaticResource icon_users}" IsVisible="{Binding IsRoomMessage}"/>
+                                </Panel>
+                                <StackPanel Grid.Column="1" Spacing="2">
+                                    <TextBlock Classes="body-sm" FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap"
+                                               Foreground="{StaticResource BrushText0}"/>
+                                    <TextBlock Classes="caption" Text="{Binding Detail}" TextWrapping="Wrap"
+                                               IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                    <TextBlock Classes="caption muted" FontFamily="{StaticResource FontMono}" Text="{Binding TimeDisplay}"/>
+                                </StackPanel>
+                                <Ellipse Grid.Column="2" Classes="status-dot accent" Margin="8,4,0,0" VerticalAlignment="Top"
+                                         IsVisible="{Binding !IsRead}" ToolTip.Tip="Unread"/>
+                            </Grid>
+                        </Button>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>

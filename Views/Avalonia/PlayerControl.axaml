@@ -4,53 +4,70 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
-
+             xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
              mc:Ignorable="d" d:DesignWidth="300" d:DesignHeight="800"
              x:Class="SLSKDONET.Views.Avalonia.PlayerControl"
              x:DataType="vm:PlayerViewModel"
              Background="{DynamicResource BrushBg1}">
 
-    <!-- Vertical now-playing card for the right sidebar. Rebuilt on the shared design-token
-         system (Themes/DesignTokens.axaml) instead of ad-hoc hex values, so it reads as part of
-         the same app as Dashboard/Users/Library rather than a leftover Spotify-green skin.
-         The queue used to live in a permanently-reserved grid column (2*,*), which stayed at
-         its full width even while closed — that's what pushed the art/title off true-center.
-         It's now an overlay pane instead, so the main content always centers in the full card. -->
+    <!-- Vertical now-playing card for the right sidebar. The queue is an overlay pane so the
+         main content always centres in the full card. Icons are PathIcons from Themes/Icons.axaml;
+         toggled state is Button.icon.active (accent glyph). -->
     <UserControl.Styles>
-        <Style Selector="Button.iconGhost">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Transitions">
-                <Transitions>
-                    <BrushTransition Property="Background" Duration="0:0:0.12"/>
-                </Transitions>
-            </Setter>
+        <Style Selector="PathIcon">
+            <Setter Property="Width" Value="{StaticResource IconSizeMd}"/>
+            <Setter Property="Height" Value="{StaticResource IconSizeMd}"/>
         </Style>
-        <Style Selector="Button.iconGhost:pointerover">
-            <Setter Property="Background" Value="{StaticResource BrushGlass}"/>
-        </Style>
-
-        <Style Selector="Button.transport">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-        </Style>
-        <Style Selector="Button.transport:pointerover">
-            <Setter Property="Background" Value="{StaticResource BrushGlass}"/>
-        </Style>
-
         <Style Selector="Button.phraseTab">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}"/>
             <Setter Property="Padding" Value="0,6"/>
-            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
         </Style>
-        <Style Selector="Button.phraseTab:pointerover">
-            <Setter Property="Background" Value="{StaticResource BrushGlass}"/>
+        <Style Selector="Button.phraseTab:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource BrushHover}"/>
+        </Style>
+        <Style Selector="Border.mix-module">
+            <Setter Property="Background" Value="{StaticResource BrushBg2}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder1}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusLg}"/>
+            <Setter Property="ClipToBounds" Value="True"/>
+        </Style>
+        <Style Selector="Border.mix-module.mixing">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccentBorder}"/>
+        </Style>
+        <Style Selector="Button.mixHeader">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="{StaticResource PaddingMd}"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        </Style>
+        <Style Selector="Button.mixHeader:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource BrushHover}"/>
+        </Style>
+        <!-- Queue rows: playing / already played (PlaylistTrackViewModel.IsQueueCurrent / IsQueuePlayed) -->
+        <Style Selector="Border.qcard.current">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccentBorder}"/>
+            <Setter Property="Background" Value="{StaticResource BrushSelected}"/>
+        </Style>
+        <Style Selector="Border.qcard.played">
+            <Setter Property="Opacity" Value="0.5"/>
+        </Style>
+        <Style Selector="Slider /template/ Thumb">
+            <Setter Property="Background" Value="{StaticResource BrushAccent}"/>
+            <Setter Property="Width" Value="12"/>
+            <Setter Property="Height" Value="12"/>
+            <Setter Property="CornerRadius" Value="6"/>
+        </Style>
+        <Style Selector="TextBlock.stat">
+            <Setter Property="FontFamily" Value="{StaticResource FontMono}"/>
+            <Setter Property="FontSize" Value="{StaticResource TextSizeH3}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
         </Style>
     </UserControl.Styles>
 
@@ -65,84 +82,80 @@
                     BorderBrush="{StaticResource BrushBorder1}"
                     BorderThickness="1,0,0,0"
                     BoxShadow="{StaticResource ShadowLg}">
-                <Grid RowDefinitions="Auto,Auto,*" Margin="16">
-                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
-                        <TextBlock Grid.Column="0" Text="UP NEXT" Classes="caption" VerticalAlignment="Center"/>
-                        <Button Grid.Column="1" Classes="iconGhost" Width="26" Height="26"
+                <Grid RowDefinitions="Auto,*" Margin="12">
+                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,8">
+                        <TextBlock Classes="section" Text="UP NEXT" VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Classes="ghost small" Content="Clear"
+                                Command="{Binding ClearQueueCommand}"
+                                IsVisible="{Binding !IsQueueEmpty}"/>
+                        <Button Grid.Column="2" Classes="icon small" Margin="4,0,0,0"
                                 Command="{Binding ToggleQueueCommand}" ToolTip.Tip="Close queue">
-                            <TextBlock Text="✕" FontSize="12" Foreground="{StaticResource BrushText1}" HorizontalAlignment="Center"/>
+                            <PathIcon Data="{StaticResource icon_close}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
                         </Button>
                     </Grid>
 
-                    <Button Grid.Row="1"
-                            Classes="iconGhost"
-                            Command="{Binding ClearQueueCommand}"
-                            HorizontalAlignment="Right"
-                            Margin="0,8,0,8"
-                            Padding="8,3"
-                            IsVisible="{Binding IsQueueEmpty, Converter={StaticResource BoolInverseConverter}}"
-                            ToolTip.Tip="Clear queue">
-                        <TextBlock Text="Clear all" FontSize="11" Foreground="{StaticResource BrushText1}"/>
-                    </Button>
+                    <StackPanel Grid.Row="1" Classes="empty-state" IsVisible="{Binding IsQueueEmpty}">
+                        <PathIcon Data="{StaticResource icon_queue}"/>
+                        <TextBlock Classes="h3" Text="Queue is empty"/>
+                        <TextBlock Classes="caption" Text="Drop a track on the card or use Add to queue in the library."/>
+                    </StackPanel>
 
-                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel Spacing="{StaticResource SpaceSm}">
-                            <Border IsVisible="{Binding IsQueueEmpty}" Classes="card" Padding="16">
-                                <TextBlock Text="Queue is empty" FontSize="11" Foreground="{StaticResource BrushText2}" TextAlignment="Center"/>
-                            </Border>
-
-                            <ItemsControl ItemsSource="{Binding Queue}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <VirtualizingStackPanel/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                                        <Border Classes="card" Margin="0,0,0,6" Padding="8">
-                                            <Grid ColumnDefinitions="*,Auto,Auto">
-                                                <Button Grid.Column="0"
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                  IsVisible="{Binding !IsQueueEmpty}">
+                        <ItemsControl ItemsSource="{Binding Queue}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="vm:PlaylistTrackViewModel">
+                                    <Border Classes="card qcard" Classes.current="{Binding IsQueueCurrent}" Classes.played="{Binding IsQueuePlayed}"
+                                            Margin="0,0,0,4" Padding="8,4">
+                                        <StackPanel Spacing="2">
+                                            <Grid ColumnDefinitions="20,*,Auto">
+                                                <Panel VerticalAlignment="Center">
+                                                    <TextBlock Classes="caption mono" Text="{Binding QueueNumber}"
+                                                               HorizontalAlignment="Center" IsVisible="{Binding !IsQueueCurrent}"/>
+                                                    <PathIcon Data="{StaticResource icon_music}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"
+                                                              Foreground="{StaticResource BrushAccent}" IsVisible="{Binding IsQueueCurrent}"/>
+                                                </Panel>
+                                                <Button Grid.Column="1"
                                                         Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
                                                         CommandParameter="{Binding}"
-                                                        Background="Transparent"
-                                                        BorderThickness="0"
+                                                        Classes="ghost" Padding="4,2"
+                                                        HorizontalAlignment="Stretch"
                                                         HorizontalContentAlignment="Stretch"
                                                         ToolTip.Tip="Play this queued track now">
-                                                    <StackPanel Spacing="2">
-                                                        <TextBlock Text="{Binding TrackTitle}"
-                                                                   FontSize="11"
-                                                                   Foreground="{StaticResource BrushText0}"
-                                                                   TextTrimming="CharacterEllipsis"
-                                                                   MaxWidth="130"/>
-                                                        <TextBlock Text="{Binding ArtistName}"
-                                                                   FontSize="10"
-                                                                   Foreground="{StaticResource BrushText1}"
-                                                                   TextTrimming="CharacterEllipsis"
-                                                                   MaxWidth="130"/>
+                                                    <StackPanel Spacing="0">
+                                                        <TextBlock Classes="body-sm" Text="{Binding TrackTitle}" TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Classes="caption" Text="{Binding ArtistName}" TextTrimming="CharacterEllipsis"/>
                                                     </StackPanel>
                                                 </Button>
-                                                <Button Grid.Column="1"
-                                                        Classes="iconGhost"
-                                                        Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
-                                                        CommandParameter="{Binding}"
-                                                        Width="24" Height="24"
-                                                        ToolTip.Tip="Play queued track">
-                                                    <TextBlock Text="▶" FontSize="9" Foreground="{StaticResource BrushAccent}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                </Button>
-                                                <Button Grid.Column="2"
-                                                        Classes="iconGhost"
+                                                <Button Grid.Column="2" Classes="icon small danger"
                                                         Command="{Binding $parent[UserControl].DataContext.RemoveFromQueueCommand}"
                                                         CommandParameter="{Binding}"
-                                                        Width="24" Height="24"
                                                         ToolTip.Tip="Remove from queue">
-                                                    <TextBlock Text="✕" FontSize="10" Foreground="{StaticResource BrushError}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    <PathIcon Data="{StaticResource icon_close}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
                                                 </Button>
                                             </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
+                                            <!-- This row's transition into the next one; click to edit it on the Mix tab. -->
+                                            <Button IsVisible="{Binding ShowMixTransitionBadge}"
+                                                    Command="{Binding $parent[UserControl].DataContext.OpenMixTransitionCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Classes="ghost small" Margin="20,0,0,0"
+                                                    HorizontalAlignment="Left"
+                                                    ToolTip.Tip="Edit transition into the next track">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <PathIcon Data="{StaticResource icon_mix}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                    <TextBlock Classes="caption" Text="{Binding TransitionPresetLabel}"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </ScrollViewer>
                 </Grid>
             </Border>
@@ -151,110 +164,68 @@
         <!-- ============================= MAIN CARD ============================= -->
         <Grid RowDefinitions="Auto,*">
 
-            <!-- Header: title + a single row of icon-only meta actions (was 3 separate
-                 text-labeled button rows before) -->
-            <Border Grid.Row="0"
+            <!-- Header: title + one row of icon-only actions -->
+            <Border Grid.Row="0" Classes="panel-header"
                     Background="{StaticResource BrushBg2}"
-                    BorderBrush="{StaticResource BrushBorder1}"
-                    BorderThickness="0,0,0,1"
-                    Padding="{StaticResource PaddingLg}">
+                    BorderBrush="{StaticResource BrushBorder0}"
+                    BorderThickness="0,0,0,1">
                 <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Grid.Column="0" Text="NOW PLAYING" Classes="caption" VerticalAlignment="Center"/>
+                    <TextBlock Classes="section" Text="NOW PLAYING" VerticalAlignment="Center"/>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2">
-                        <Button Classes="iconGhost" Width="28" Height="28"
-                                Command="{Binding ToggleQueueCommand}"
-                                ToolTip.Tip="Queue">
-                            <TextBlock Text="☰" FontSize="13"
-                                       Foreground="{Binding IsQueueOpen, Converter={StaticResource BoolToColorConverter}}"
-                                       HorizontalAlignment="Center"/>
+                        <Button Classes="icon small" Classes.active="{Binding IsQueueOpen}"
+                                Command="{Binding ToggleQueueCommand}" ToolTip.Tip="Queue">
+                            <PathIcon Data="{StaticResource icon_queue}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
                         </Button>
-                        <Button Classes="iconGhost" Width="28" Height="28"
-                                Command="{Binding ToggleExpandedPlayerCommand}"
-                                ToolTip.Tip="Open now playing overlay">
-                            <TextBlock Text="⤢" FontSize="13" Foreground="{StaticResource BrushText1}" HorizontalAlignment="Center"/>
+                        <Button Classes="icon small"
+                                Command="{Binding ToggleExpandedPlayerCommand}" ToolTip.Tip="Open now playing overlay">
+                            <PathIcon Data="{StaticResource icon_expand}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
                         </Button>
-                        <Button Classes="iconGhost" Width="28" Height="28"
-                                Command="{Binding OpenPlayerViewCommand}"
-                                ToolTip.Tip="Open full now playing view">
-                            <TextBlock Text="⛶" FontSize="12" Foreground="{StaticResource BrushText1}" HorizontalAlignment="Center"/>
-                        </Button>
-                        <Button Classes="iconGhost" Width="28" Height="28"
-                                Command="{Binding $parent[Window].DataContext.TogglePlayerLocationCommand}"
-                                ToolTip.Tip="Move now playing between the sidebar and bottom dock">
-                            <TextBlock Text="{Binding $parent[Window].DataContext.IsPlayerAtBottom, Converter={StaticResource BoolToTextConverter}, ConverterParameter='⬒|▤'}"
-                                       FontSize="13" Foreground="{StaticResource BrushText1}" HorizontalAlignment="Center"/>
-                        </Button>
-                        <DropDownButton Classes="iconGhost"
-                                        Width="28" Height="28"
-                                        IsEnabled="{Binding HasCurrentTrack}"
-                                        ToolTip.Tip="More actions">
-                            <TextBlock Text="⋮" FontSize="15" Foreground="{StaticResource BrushText1}" HorizontalAlignment="Center"/>
-                            <DropDownButton.Flyout>
-                                <MenuFlyout>
-                                    <MenuItem Header="Analyze Track" Command="{Binding AnalyzeCurrentTrackCommand}">
-                                        <MenuItem.Icon><TextBlock Text="📊"/></MenuItem.Icon>
-                                    </MenuItem>
-                                    <MenuItem Header="Extract Stems" Command="{Binding SeparateCurrentTrackStemsCommand}">
-                                        <MenuItem.Icon><TextBlock Text="🎵"/></MenuItem.Icon>
-                                    </MenuItem>
-                                    <MenuItem Header="Open Inspector" Command="{Binding OpenCurrentTrackInspectorCommand}">
-                                        <MenuItem.Icon><TextBlock Text="🔍"/></MenuItem.Icon>
-                                    </MenuItem>
+                        <Button Classes="icon small" IsEnabled="{Binding HasCurrentTrack}" ToolTip.Tip="More actions">
+                            <PathIcon Data="{StaticResource icon_more}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                            <Button.Flyout>
+                                <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                    <MenuItem Header="Open full now playing view" Command="{Binding OpenPlayerViewCommand}"/>
+                                    <MenuItem Header="Move player to the other dock"
+                                              Command="{Binding $parent[Window].DataContext.TogglePlayerLocationCommand}"/>
                                     <Separator/>
-                                    <MenuItem Header="Send To Workstation" Command="{Binding OpenCurrentTrackWorkstationCommand}">
-                                        <MenuItem.Icon><TextBlock Text="🎛"/></MenuItem.Icon>
-                                    </MenuItem>
-                                    <MenuItem Header="Open In Flow" Command="{Binding OpenCurrentTrackFlowCommand}">
-                                        <MenuItem.Icon><TextBlock Text="🌊"/></MenuItem.Icon>
-                                    </MenuItem>
+                                    <MenuItem Header="Analyze track" Command="{Binding AnalyzeCurrentTrackCommand}"/>
+                                    <MenuItem Header="Extract stems" Command="{Binding SeparateCurrentTrackStemsCommand}"/>
+                                    <MenuItem Header="Open in inspector" Command="{Binding OpenCurrentTrackInspectorCommand}"/>
                                     <Separator/>
-                                    <MenuItem Header="Load To Deck A" Command="{Binding LoadCurrentTrackToDeckACommand}">
-                                        <MenuItem.Icon><TextBlock Text="A"/></MenuItem.Icon>
-                                    </MenuItem>
-                                    <MenuItem Header="Load To Deck B" Command="{Binding LoadCurrentTrackToDeckBCommand}">
-                                        <MenuItem.Icon><TextBlock Text="B"/></MenuItem.Icon>
-                                    </MenuItem>
+                                    <MenuItem Header="Send to Workstation" Command="{Binding OpenCurrentTrackWorkstationCommand}"/>
+                                    <MenuItem Header="Open in Flow" Command="{Binding OpenCurrentTrackFlowCommand}"/>
+                                    <MenuItem Header="Load to deck A" Command="{Binding LoadCurrentTrackToDeckACommand}"/>
+                                    <MenuItem Header="Load to deck B" Command="{Binding LoadCurrentTrackToDeckBCommand}"/>
                                     <Separator/>
-                                    <MenuItem Header="Add To Mix" Command="{Binding AddCurrentTrackToProjectCommand}">
-                                        <MenuItem.Icon><TextBlock Text="➕"/></MenuItem.Icon>
-                                    </MenuItem>
-                                    <MenuItem Header="Reveal In Explorer" Command="{Binding RevealCurrentTrackCommand}">
-                                        <MenuItem.Icon><TextBlock Text="📂"/></MenuItem.Icon>
-                                    </MenuItem>
+                                    <MenuItem Header="Add to mix" Command="{Binding AddCurrentTrackToProjectCommand}"/>
+                                    <MenuItem Header="Reveal in Explorer" Command="{Binding RevealCurrentTrackCommand}"/>
                                 </MenuFlyout>
-                            </DropDownButton.Flyout>
-                        </DropDownButton>
+                            </Button.Flyout>
+                        </Button>
                     </StackPanel>
                 </Grid>
             </Border>
 
-            <!-- Scrollable body: nothing here can silently clip anymore — the old fixed
-                 Auto/Auto/*/Auto row layout had no scroll fallback if the sidebar got short. -->
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel x:Name="QueueZone"
                             DragDrop.AllowDrop="True"
                             Margin="16"
                             Spacing="{StaticResource SpaceLg}">
 
-                    <!-- Album art + live visualizer stage. Safe now that OrbitVisualizerCanvas's
-                         render-thread StyledProperty bug is fixed (see
-                         feedback_avalonia_render_thread_styledproperty_crash memory) — it snapshots
-                         Energy/Bpm/Vu/BeatPulse/AlbumHue on the UI thread before handing off to the
-                         render thread instead of reading them live from the wrong thread. -->
-                    <Grid HorizontalAlignment="Center" ColumnDefinitions="10,Auto,10">
-                        <Border Grid.Column="0" VerticalAlignment="Bottom" CornerRadius="2"
+                    <!-- Album art + live visualizer stage (OrbitVisualizerCanvas snapshots its
+                         properties on the UI thread; see the render-thread pitfall in CLAUDE.md). -->
+                    <Grid HorizontalAlignment="Center" ColumnDefinitions="8,Auto,8">
+                        <Border Grid.Column="0" VerticalAlignment="Bottom" CornerRadius="{StaticResource RadiusXs}"
                                 Background="{StaticResource BrushAccent}"
                                 Height="{Binding VuLeft, Converter={StaticResource VuHeightConverter}, ConverterParameter=220}"/>
 
                         <Border x:Name="PlayNowZone"
                                 Grid.Column="1"
-                                Width="220" Height="220"
-                                Background="{StaticResource BrushBg2}"
-                                BorderBrush="{StaticResource BrushBorder1}"
-                                BorderThickness="1"
+                                Width="220" Height="220" Margin="4,0"
+                                Classes="inset"
+                                Padding="0"
                                 CornerRadius="{StaticResource RadiusLg}"
                                 ClipToBounds="True"
-                                BoxShadow="{StaticResource ShadowMd}"
                                 DragDrop.AllowDrop="True">
                             <Panel>
                                 <controls:OrbitVisualizerCanvas
@@ -277,140 +248,155 @@
                                         HorizontalAlignment="Center"
                                         VerticalAlignment="Center"
                                         ClipToBounds="True"
-                                        BoxShadow="0 0 20 0 #60000000">
+                                        Background="{StaticResource BrushBg3}">
                                     <Panel>
                                         <Image Source="{Binding CurrentTrack.ArtworkBitmap}"
                                                Stretch="UniformToFill"
                                                IsVisible="{Binding CurrentTrack.ArtworkBitmap, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-
-                                        <Border Background="{StaticResource BrushGlass}"
-                                                IsVisible="{Binding CurrentTrack.ArtworkBitmap, Converter={x:Static ObjectConverters.IsNull}}">
-                                            <Polygon Points="-9,-14 -9,14 14,0" Fill="{StaticResource BrushText1}"
-                                                     HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                     RenderTransform="translate(4px,0)"/>
-                                        </Border>
+                                        <PathIcon Data="{StaticResource icon_music}"
+                                                  Width="{StaticResource IconSizeXl}" Height="{StaticResource IconSizeXl}"
+                                                  Foreground="{StaticResource BrushText3}"
+                                                  IsVisible="{Binding CurrentTrack.ArtworkBitmap, Converter={x:Static ObjectConverters.IsNull}}"/>
                                     </Panel>
                                 </Border>
 
-                                <!-- Preset name + cycle button — bottom overlay strip, only shown
-                                     once there's actually something drawing behind the art. -->
+                                <!-- Preset name + cycle button, only while something draws behind the art -->
                                 <Border VerticalAlignment="Bottom"
-                                        Background="#99000000"
-                                        Padding="8,4"
+                                        Background="{StaticResource BrushScrim}"
+                                        Padding="8,2"
                                         IsVisible="{Binding IsPlaying}">
                                     <Grid ColumnDefinitions="*,Auto">
-                                        <TextBlock Grid.Column="0" Text="{Binding CurrentVisualizerPreset}"
-                                                   FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource BrushText1}"
+                                        <TextBlock Classes="caption" Text="{Binding CurrentVisualizerPreset}"
                                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                        <Button Grid.Column="1" Classes="iconGhost" Width="20" Height="20"
+                                        <Button Grid.Column="1" Classes="icon small"
                                                 Command="{Binding CycleVisualizerPresetCommand}"
-                                                ToolTip.Tip="Cycle visualizer style">
-                                            <TextBlock Text="✦" FontSize="11" Foreground="{StaticResource BrushAccent}" HorizontalAlignment="Center"/>
+                                                ToolTip.Tip="Next visualizer style">
+                                            <PathIcon Data="{StaticResource icon_wand}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
                                         </Button>
                                     </Grid>
                                 </Border>
                             </Panel>
                         </Border>
 
-                        <Border Grid.Column="2" VerticalAlignment="Bottom" CornerRadius="2"
+                        <Border Grid.Column="2" VerticalAlignment="Bottom" CornerRadius="{StaticResource RadiusXs}"
                                 Background="{StaticResource BrushAccent}"
                                 Height="{Binding VuRight, Converter={StaticResource VuHeightConverter}, ConverterParameter=220}"/>
                     </Grid>
 
                     <!-- Loading state -->
-                    <Border IsVisible="{Binding IsLoading}" Classes="card" HorizontalAlignment="Center">
-                        <StackPanel Spacing="{StaticResource SpaceSm}" HorizontalAlignment="Center">
-                            <ProgressBar IsIndeterminate="True" Width="120" Height="3" Foreground="{StaticResource BrushAccent}"/>
-                            <TextBlock Text="Loading track…" Classes="body-sm" HorizontalAlignment="Center"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Error banner -->
-                    <Border IsVisible="{Binding HasPlaybackError}"
-                            Background="{StaticResource BrushError}" Opacity="0.9"
-                            CornerRadius="{StaticResource RadiusMd}"
-                            Padding="12">
-                        <StackPanel Spacing="{StaticResource SpaceXs}">
-                            <TextBlock Text="Playback error" FontSize="12" FontWeight="SemiBold" Foreground="White"/>
-                            <TextBlock Text="{Binding PlaybackError}" FontSize="11" Foreground="White" TextWrapping="Wrap" Opacity="0.9"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Identity -->
-                    <StackPanel Spacing="{StaticResource SpaceXs}" IsVisible="{Binding IsLoading, Converter={StaticResource BoolInverseConverter}}">
-                        <TextBlock Text="{Binding TrackTitle}"
-                                   Classes="h3"
-                                   TextTrimming="CharacterEllipsis"
-                                   TextWrapping="Wrap"
-                                   MaxLines="2"
-                                   TextAlignment="Center"
-                                   HorizontalAlignment="Center"/>
-                        <TextBlock Text="{Binding TrackArtist}"
-                                   Classes="body-sm"
-                                   TextTrimming="CharacterEllipsis"
-                                   TextAlignment="Center"
-                                   HorizontalAlignment="Center"/>
-                        <TextBlock Text="{Binding CurrentTrackContextSummary}"
-                                   FontSize="10"
-                                   Foreground="{StaticResource BrushText2}"
-                                   TextWrapping="Wrap"
-                                   TextAlignment="Center"
-                                   HorizontalAlignment="Center"
-                                   Margin="0,2,0,0"/>
+                    <StackPanel IsVisible="{Binding IsLoading}" Spacing="{StaticResource SpaceSm}" HorizontalAlignment="Center">
+                        <ProgressBar Classes="meter" IsIndeterminate="True" Width="120"/>
+                        <TextBlock Classes="caption" Text="Loading track…" HorizontalAlignment="Center"/>
                     </StackPanel>
 
-                    <!-- Stat strip: Key / Tempo / Energy — single source of truth (the old layout
-                         showed this same information twice: once as text pills near the title,
-                         again as a separate "compact info footer" at the very bottom). -->
-                    <Border Classes="card">
-                        <Grid ColumnDefinitions="*,*,*">
-                            <StackPanel Grid.Column="0" Spacing="2" HorizontalAlignment="Center">
-                                <TextBlock Text="KEY" Classes="caption" HorizontalAlignment="Center"/>
-                                <TextBlock Text="{Binding CurrentTrack.CamelotDisplay, TargetNullValue='—', FallbackValue='—'}"
-                                           FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource BrushAccent}"
-                                           HorizontalAlignment="Center"/>
-                            </StackPanel>
-                            <Border Grid.Column="1" Classes="divider" Width="1" Height="26" HorizontalAlignment="Center" Margin="0"/>
-                            <StackPanel Grid.Column="1" Spacing="2" HorizontalAlignment="Center">
-                                <TextBlock Text="TEMPO" Classes="caption" HorizontalAlignment="Center"/>
-                                <TextBlock Text="{Binding CurrentTrack.BpmDisplay, TargetNullValue='—', FallbackValue='—'}"
-                                           FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource BrushText0}"
-                                           HorizontalAlignment="Center"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="2" Spacing="2" HorizontalAlignment="Center">
-                                <TextBlock Text="ENERGY" Classes="caption" HorizontalAlignment="Center"/>
-                                <TextBlock Text="{Binding CurrentTrack.EnergyRating, TargetNullValue='—', FallbackValue='—'}"
-                                           FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource BrushWarning}"
-                                           HorizontalAlignment="Center"/>
+                    <!-- Error state -->
+                    <Border IsVisible="{Binding HasPlaybackError}"
+                            Background="{StaticResource BrushErrorSubtle}"
+                            BorderBrush="{StaticResource BrushErrorBorder}" BorderThickness="1"
+                            CornerRadius="{StaticResource RadiusMd}"
+                            Padding="12,8">
+                        <Grid ColumnDefinitions="Auto,*">
+                            <PathIcon Data="{StaticResource icon_alert}" Foreground="{StaticResource BrushError}"
+                                      VerticalAlignment="Top" Margin="0,0,8,0"/>
+                            <StackPanel Grid.Column="1" Spacing="2">
+                                <TextBlock Classes="body-sm error" Text="Playback error" FontWeight="SemiBold"/>
+                                <TextBlock Classes="caption" Text="{Binding PlaybackError}" TextWrapping="Wrap"/>
                             </StackPanel>
                         </Grid>
                     </Border>
 
-                    <!-- Status + cue readiness — de-emphasized, one line -->
-                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSm}" HorizontalAlignment="Center">
-                        <TextBlock Text="{Binding CurrentTrackStatusBadge}" FontSize="10" Foreground="{StaticResource BrushText2}"/>
-                        <TextBlock Text="•" FontSize="10" Foreground="{StaticResource BrushText2}"/>
-                        <TextBlock Text="{Binding CurrentTrackCueBadge}" FontSize="10" Foreground="{StaticResource BrushText2}"/>
+                    <!-- Identity -->
+                    <StackPanel Spacing="{StaticResource SpaceXs}" IsVisible="{Binding !IsLoading}">
+                        <TextBlock Classes="h3" Text="{Binding TrackTitle}"
+                                   TextTrimming="CharacterEllipsis" TextWrapping="Wrap" MaxLines="2"
+                                   TextAlignment="Center" HorizontalAlignment="Center"/>
+                        <TextBlock Classes="body-sm" Text="{Binding TrackArtist}"
+                                   TextTrimming="CharacterEllipsis"
+                                   TextAlignment="Center" HorizontalAlignment="Center"/>
+                        <TextBlock Classes="caption" Text="{Binding CurrentTrackContextSummary}"
+                                   TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center"/>
                     </StackPanel>
 
-                    <!-- Workflow/routing detail — collapsed by default -->
-                    <Expander Header="Track Details" IsExpanded="False" Padding="0" Margin="0"
-                              HorizontalAlignment="Stretch"
-                              IsVisible="{Binding IsLoading, Converter={StaticResource BoolInverseConverter}}">
-                        <Border Classes="card" Margin="0,6,0,0">
-                            <StackPanel Spacing="{StaticResource SpaceXs}">
-                                <TextBlock Text="{Binding CurrentTrackWorkflowHint}" FontSize="10" Foreground="{StaticResource BrushSuccess}" TextWrapping="Wrap"/>
-                                <TextBlock Text="{Binding CurrentTrackWorkstationPrepSummary}" FontSize="10" Foreground="{StaticResource BrushAccent}" TextWrapping="Wrap"/>
-                                <TextBlock Text="{Binding CurrentTrackRoutingSummary}" FontSize="10" Foreground="{StaticResource BrushSuccess}" TextWrapping="Wrap"/>
-                                <TextBlock Text="{Binding CurrentTrackTransitionPlanSummary}" FontSize="10" Foreground="{StaticResource BrushWarning}" TextWrapping="Wrap"/>
-                                <TextBlock Text="{Binding AnalysisLaneSummary}" FontSize="10" Foreground="{StaticResource BrushInfo}" TextWrapping="Wrap"/>
+                    <!-- Stat strip: key / tempo / energy -->
+                    <Border Classes="card">
+                        <Grid ColumnDefinitions="*,*,*">
+                            <StackPanel Grid.Column="0" Spacing="2" HorizontalAlignment="Center">
+                                <TextBlock Classes="section" Text="KEY" HorizontalAlignment="Center"/>
+                                <TextBlock Classes="stat accent" Text="{Binding CurrentTrack.CamelotDisplay, TargetNullValue='—', FallbackValue='—'}"/>
                             </StackPanel>
-                        </Border>
+                            <StackPanel Grid.Column="1" Spacing="2" HorizontalAlignment="Center">
+                                <TextBlock Classes="section" Text="BPM" HorizontalAlignment="Center"/>
+                                <TextBlock Classes="stat" Text="{Binding CurrentTrack.BpmDisplay, TargetNullValue='—', FallbackValue='—'}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Spacing="2" HorizontalAlignment="Center">
+                                <TextBlock Classes="section" Text="ENERGY" HorizontalAlignment="Center"/>
+                                <TextBlock Classes="stat" Text="{Binding CurrentTrack.EnergyRating, TargetNullValue='—', FallbackValue='—'}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- Status + cue readiness, one muted line -->
+                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSm}" HorizontalAlignment="Center">
+                        <TextBlock Classes="caption" Text="{Binding CurrentTrackStatusBadge}"/>
+                        <TextBlock Classes="caption" Text="·"/>
+                        <TextBlock Classes="caption" Text="{Binding CurrentTrackCueBadge}"/>
+                    </StackPanel>
+
+                    <!-- Mix module: collapsed status row that expands into the transition editor
+                         (same shared MixTransitionVm as the context panel's Mix tab). -->
+                    <Border Classes="mix-module" Classes.mixing="{Binding IsCrossfading}" IsVisible="{Binding HasUpNext}">
+                        <StackPanel Spacing="0">
+                            <Button Classes="mixHeader" Command="{Binding ToggleMixPanelCommand}">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <PathIcon Grid.Column="0" Data="{StaticResource icon_mix}" Margin="0,0,12,0"
+                                              Foreground="{StaticResource BrushText2}"/>
+
+                                    <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                                        <StackPanel IsVisible="{Binding IsCrossfading}" Spacing="4">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Classes="section accent" Text="MIXING"/>
+                                                <TextBlock Classes="body-sm" Text="{Binding ActiveCrossfadePresetName}"/>
+                                            </StackPanel>
+                                            <ProgressBar Classes="meter" Value="{Binding CrossfadeProgressPercent}" Maximum="100"/>
+                                        </StackPanel>
+                                        <StackPanel IsVisible="{Binding !IsCrossfading}" Spacing="0">
+                                            <TextBlock Classes="section" Text="NEXT TRANSITION"/>
+                                            <TextBlock Classes="body-sm" Text="{Binding UpcomingTransitionPresetName, FallbackValue='Auto', TargetNullValue='Auto'}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+
+                                    <Panel Grid.Column="2" VerticalAlignment="Center">
+                                        <PathIcon Data="{StaticResource icon_chevron_down}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"
+                                                  Foreground="{StaticResource BrushText2}" IsVisible="{Binding !IsMixPanelExpanded}"/>
+                                        <PathIcon Data="{StaticResource icon_chevron_up}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"
+                                                  Foreground="{StaticResource BrushText2}" IsVisible="{Binding IsMixPanelExpanded}"/>
+                                    </Panel>
+                                </Grid>
+                            </Button>
+
+                            <Border IsVisible="{Binding IsMixPanelExpanded}"
+                                    BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,1,0,0">
+                                <views:MixTransitionPanel DataContext="{Binding MixTransitionVm}" Height="440" Background="Transparent"/>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Workflow / routing detail, collapsed by default -->
+                    <Expander Header="Track details" IsExpanded="False" Padding="0" Margin="0"
+                              HorizontalAlignment="Stretch"
+                              IsVisible="{Binding !IsLoading}">
+                        <StackPanel Spacing="{StaticResource SpaceXs}" Margin="0,8,0,0">
+                            <TextBlock Classes="caption" Text="{Binding CurrentTrackWorkflowHint}"/>
+                            <TextBlock Classes="caption" Text="{Binding CurrentTrackWorkstationPrepSummary}"/>
+                            <TextBlock Classes="caption" Text="{Binding CurrentTrackRoutingSummary}"/>
+                            <TextBlock Classes="caption" Text="{Binding CurrentTrackTransitionPlanSummary}"/>
+                            <TextBlock Classes="caption" Text="{Binding AnalysisLaneSummary}"/>
+                        </StackPanel>
                     </Expander>
 
-                    <!-- Waveform — the centerpiece -->
+                    <!-- Waveform -->
                     <StackPanel Spacing="{StaticResource SpaceSm}">
-                        <Border Classes="card" Padding="1">
+                        <Border Classes="inset" Padding="1">
                             <Panel Height="64">
                                 <controls:WaveformControl WaveformData="{Binding CurrentTrack.WaveformData}"
                                                            LowBand="{Binding CurrentTrack.LowData}"
@@ -422,194 +408,180 @@
                                                            Background="Transparent"
                                                            PlayheadBrush="{StaticResource BrushAccent}"
                                                            SeekCommand="{Binding SeekCommand}"
+                                                           UseNeonPalette="{Binding WaveformUseNeonPalette}"
+                                                           Gain="{Binding WaveformGain}"
+                                                           ShowEnergyCurve="{Binding WaveformShowEnergyCurve}"
+                                                           ShowVocalGhost="{Binding WaveformShowVocalGhost}"
+                                                           ShowPhraseSections="{Binding WaveformShowPhraseSections}"
                                                            VerticalAlignment="Stretch"
                                                            HorizontalAlignment="Stretch"/>
                             </Panel>
                         </Border>
 
                         <Grid ColumnDefinitions="*,*">
-                            <TextBlock Grid.Column="0" Text="{Binding CurrentTimeStr}" Classes="mono" FontSize="10"/>
-                            <TextBlock Grid.Column="1" Text="{Binding TotalTimeStr}" Classes="mono" FontSize="10" HorizontalAlignment="Right"/>
+                            <TextBlock Grid.Column="0" Classes="mono muted" Text="{Binding CurrentTimeStr}"/>
+                            <TextBlock Grid.Column="1" Classes="mono muted" Text="{Binding TotalTimeStr}" HorizontalAlignment="Right"/>
                         </Grid>
 
-                        <!-- Phrase navigation as a single segmented control instead of 4 separate boxed buttons -->
-                        <Border Classes="card" Padding="2">
+                        <!-- Phrase navigation as one segmented strip -->
+                        <Border Classes="segmented">
                             <Grid ColumnDefinitions="*,*,*,*">
                                 <Button Grid.Column="0" Classes="phraseTab" Command="{Binding JumpToIntroCommand}" IsEnabled="{Binding HasCurrentTrack}" ToolTip.Tip="Jump to intro">
-                                    <TextBlock Text="INTRO" FontSize="9" FontWeight="SemiBold" LetterSpacing="0.5" Foreground="{StaticResource BrushText1}" HorizontalAlignment="Center"/>
+                                    <TextBlock Classes="section" Text="INTRO"/>
                                 </Button>
-                                <Border Grid.Column="0" Classes="divider" Width="1" Height="14" HorizontalAlignment="Right"/>
                                 <Button Grid.Column="1" Classes="phraseTab" Command="{Binding JumpToBuildCommand}" IsEnabled="{Binding HasCurrentTrack}" ToolTip.Tip="Jump to build">
-                                    <TextBlock Text="BUILD" FontSize="9" FontWeight="SemiBold" LetterSpacing="0.5" Foreground="{StaticResource BrushText1}" HorizontalAlignment="Center"/>
+                                    <TextBlock Classes="section" Text="BUILD"/>
                                 </Button>
-                                <Border Grid.Column="1" Classes="divider" Width="1" Height="14" HorizontalAlignment="Right"/>
                                 <Button Grid.Column="2" Classes="phraseTab" Command="{Binding JumpToDropCommand}" IsEnabled="{Binding HasCurrentTrack}" ToolTip.Tip="Jump to drop">
-                                    <TextBlock Text="DROP" FontSize="9" FontWeight="SemiBold" LetterSpacing="0.5" Foreground="{StaticResource BrushAccent}" HorizontalAlignment="Center"/>
+                                    <TextBlock Classes="section" Text="DROP"/>
                                 </Button>
-                                <Border Grid.Column="2" Classes="divider" Width="1" Height="14" HorizontalAlignment="Right"/>
                                 <Button Grid.Column="3" Classes="phraseTab" Command="{Binding JumpToOutroCommand}" IsEnabled="{Binding HasCurrentTrack}" ToolTip.Tip="Jump to outro">
-                                    <TextBlock Text="OUTRO" FontSize="9" FontWeight="SemiBold" LetterSpacing="0.5" Foreground="{StaticResource BrushText1}" HorizontalAlignment="Center"/>
+                                    <TextBlock Classes="section" Text="OUTRO"/>
                                 </Button>
                             </Grid>
                         </Border>
                     </StackPanel>
 
                     <!-- Transport -->
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="{StaticResource SpaceXl}">
-                        <Button Classes="transport" Command="{Binding PreviousTrackCommand}" Width="40" Height="40" CornerRadius="20" ToolTip.Tip="Previous">
-                            <Canvas Width="18" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <Rectangle Canvas.Left="0" Canvas.Top="0" Width="2.5" Height="16" Fill="{StaticResource BrushText0}"/>
-                                <Polygon Points="18,0 18,16 4,8" Fill="{StaticResource BrushText0}"/>
-                            </Canvas>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="{StaticResource SpaceLg}">
+                        <Button Classes="icon" Command="{Binding PreviousTrackCommand}" ToolTip.Tip="Previous">
+                            <PathIcon Data="{StaticResource icon_skip_previous}" Width="{StaticResource IconSizeLg}" Height="{StaticResource IconSizeLg}"/>
                         </Button>
-
-                        <Border Width="52" Height="52" CornerRadius="26" BoxShadow="{StaticResource ShadowAccent}">
                         <Button Command="{Binding TogglePlayPauseCommand}"
-                                Background="{StaticResource BrushAccent}"
-                                Width="52" Height="52"
-                                CornerRadius="26"
-                                BorderThickness="0"
-                                Cursor="Hand">
+                                Classes="primary"
+                                Width="48" Height="48" Padding="0"
+                                CornerRadius="24"
+                                HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                ToolTip.Tip="Play / pause">
                             <Panel>
-                                <Polygon IsVisible="{Binding IsPlaying, Converter={StaticResource BoolInverseConverter}}"
-                                         Points="-8,-11 -8,11 11,0" Fill="{StaticResource ColorBase0}"
-                                         RenderTransform="translate(3px,0)"/>
-                                <Canvas IsVisible="{Binding IsPlaying}" Width="16" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                    <Rectangle Canvas.Left="0" Canvas.Top="0" Width="5" Height="18" RadiusX="1.5" RadiusY="1.5" Fill="{StaticResource ColorBase0}"/>
-                                    <Rectangle Canvas.Left="11" Canvas.Top="0" Width="5" Height="18" RadiusX="1.5" RadiusY="1.5" Fill="{StaticResource ColorBase0}"/>
-                                </Canvas>
+                                <PathIcon Data="{StaticResource icon_play}" Width="{StaticResource IconSizeLg}" Height="{StaticResource IconSizeLg}"
+                                          IsVisible="{Binding !IsPlaying}"/>
+                                <PathIcon Data="{StaticResource icon_pause}" Width="{StaticResource IconSizeLg}" Height="{StaticResource IconSizeLg}"
+                                          IsVisible="{Binding IsPlaying}"/>
                             </Panel>
                         </Button>
-                        </Border>
-
-                        <Button Classes="transport" Command="{Binding NextTrackCommand}" Width="40" Height="40" CornerRadius="20" ToolTip.Tip="Next">
-                            <Canvas Width="18" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <Polygon Points="0,0 0,16 14,8" Fill="{StaticResource BrushText0}"/>
-                                <Rectangle Canvas.Left="15.5" Canvas.Top="0" Width="2.5" Height="16" Fill="{StaticResource BrushText0}"/>
-                            </Canvas>
+                        <Button Classes="icon" Command="{Binding NextTrackCommand}" ToolTip.Tip="Next">
+                            <PathIcon Data="{StaticResource icon_skip_next}" Width="{StaticResource IconSizeLg}" Height="{StaticResource IconSizeLg}"/>
                         </Button>
                     </StackPanel>
 
-                    <!-- Secondary controls: shuffle / repeat / crossfade / like — one compact row
-                         (was two separate rows before) -->
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="{StaticResource SpaceMd}">
-                        <Button Classes="iconGhost" Width="32" Height="32" Command="{Binding ToggleShuffleCommand}" ToolTip.Tip="Shuffle">
-                            <TextBlock Text="⇌" FontSize="15" Foreground="{Binding IsShuffling, Converter={StaticResource BoolToColorConverter}}" HorizontalAlignment="Center"/>
+                    <!-- Secondary: shuffle / repeat / crossfade / like -->
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="{StaticResource SpaceSm}">
+                        <Button Classes="icon" Classes.active="{Binding IsShuffling}"
+                                Command="{Binding ToggleShuffleCommand}" ToolTip.Tip="Shuffle">
+                            <PathIcon Data="{StaticResource icon_shuffle}"/>
                         </Button>
-                        <Button Classes="iconGhost" Width="32" Height="32" Command="{Binding ToggleRepeatCommand}" ToolTip.Tip="{Binding RepeatMode}">
-                            <TextBlock Text="↻" FontSize="15" Foreground="{Binding RepeatMode, Converter={StaticResource RepeatModeColorConverter}}" HorizontalAlignment="Center"/>
+                        <Button Classes="icon"
+                                Classes.active="{Binding RepeatMode, Converter={x:Static ObjectConverters.NotEqual}, ConverterParameter={x:Static vm:RepeatMode.Off}}"
+                                Command="{Binding ToggleRepeatCommand}"
+                                ToolTip.Tip="{Binding RepeatMode, StringFormat='Repeat: {0}'}">
+                            <PathIcon Data="{StaticResource icon_repeat}"/>
                         </Button>
-                        <Button Classes="iconGhost" Width="32" Height="32" Command="{Binding ToggleCrossfadeCommand}" ToolTip.Tip="Crossfade tracks (overlap and blend transitions instead of a hard cut)">
-                            <TextBlock Text="⇄" FontSize="15" Foreground="{Binding IsCrossfadeEnabled, Converter={StaticResource BoolToColorConverter}}" HorizontalAlignment="Center"/>
+                        <Button Classes="icon" Classes.active="{Binding IsCrossfadeEnabled}"
+                                Command="{Binding ToggleCrossfadeCommand}"
+                                ToolTip.Tip="Crossfade: overlap and blend tracks instead of a hard cut">
+                            <PathIcon Data="{StaticResource icon_mix}"/>
                         </Button>
-                        <Button Classes="iconGhost" Width="32" Height="32" Command="{Binding ToggleLikeCommand}" ToolTip.Tip="Like" Classes.liked="{Binding IsCurrentTrackLiked}">
-                            <Button.Styles>
-                                <Style Selector="Button.liked TextBlock">
-                                    <Style.Animations>
-                                        <Animation Duration="0:0:0.5" Easing="BackEaseOut" IterationCount="1">
-                                            <KeyFrame KeyTime="0:0:0.0">
-                                                <Setter Property="ScaleTransform.ScaleX" Value="1.0"/>
-                                                <Setter Property="ScaleTransform.ScaleY" Value="1.0"/>
-                                            </KeyFrame>
-                                            <KeyFrame KeyTime="0:0:0.25">
-                                                <Setter Property="ScaleTransform.ScaleX" Value="1.4"/>
-                                                <Setter Property="ScaleTransform.ScaleY" Value="1.4"/>
-                                            </KeyFrame>
-                                            <KeyFrame KeyTime="0:0:0.5">
-                                                <Setter Property="ScaleTransform.ScaleX" Value="1.0"/>
-                                                <Setter Property="ScaleTransform.ScaleY" Value="1.0"/>
-                                            </KeyFrame>
-                                        </Animation>
-                                    </Style.Animations>
-                                </Style>
-                            </Button.Styles>
-                            <TextBlock Text="{Binding IsCurrentTrackLiked, Converter={StaticResource BoolToHeartConverter}}"
-                                       FontSize="16"
-                                       Foreground="{Binding IsCurrentTrackLiked, Converter={StaticResource BoolToHeartColorConverter}}"
-                                       HorizontalAlignment="Center"
-                                       RenderTransformOrigin="50%,50%">
-                                <TextBlock.RenderTransform>
-                                    <ScaleTransform ScaleX="1.0" ScaleY="1.0"/>
-                                </TextBlock.RenderTransform>
-                            </TextBlock>
+                        <Button Classes="icon" Classes.active="{Binding IsCurrentTrackLiked}"
+                                Command="{Binding ToggleLikeCommand}" ToolTip.Tip="Like">
+                            <Panel>
+                                <PathIcon Data="{StaticResource icon_heart}" IsVisible="{Binding IsCurrentTrackLiked}"/>
+                                <PathIcon Data="{StaticResource icon_heart_outline}" IsVisible="{Binding !IsCurrentTrackLiked}"/>
+                            </Panel>
                         </Button>
                     </StackPanel>
 
-                    <!-- Volume + pitch -->
+                    <!-- Volume, pitch, crossfade length -->
                     <Border Classes="card">
-                        <StackPanel Spacing="{StaticResource SpaceMd}">
-                            <Grid ColumnDefinitions="Auto,*">
-                                <Button Grid.Column="0" Classes="iconGhost" Command="{Binding ToggleMuteCommand}" Width="24" Height="24" Margin="0,0,8,0" ToolTip.Tip="Toggle mute">
-                                    <TextBlock Text="{Binding VolumeIcon}" FontSize="13" HorizontalAlignment="Center"/>
+                        <StackPanel Spacing="{StaticResource SpaceSm}">
+                            <Grid ColumnDefinitions="Auto,*,40">
+                                <Button Grid.Column="0" Classes="icon small" Command="{Binding ToggleMuteCommand}"
+                                        Margin="0,0,8,0" ToolTip.Tip="Mute">
+                                    <Panel>
+                                        <PathIcon Data="{StaticResource icon_volume}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}" IsVisible="{Binding !IsMuted}"/>
+                                        <PathIcon Data="{StaticResource icon_volume_off}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}" IsVisible="{Binding IsMuted}"/>
+                                    </Panel>
                                 </Button>
-                                <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding Volume, Mode=TwoWay}" Height="20">
-                                    <Slider.Styles>
-                                        <Style Selector="Slider /template/ Thumb">
-                                            <Setter Property="Background" Value="{StaticResource BrushAccent}"/>
-                                            <Setter Property="Width" Value="12"/>
-                                            <Setter Property="Height" Value="12"/>
-                                            <Setter Property="CornerRadius" Value="6"/>
-                                        </Style>
-                                    </Slider.Styles>
-                                </Slider>
+                                <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding Volume, Mode=TwoWay}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" Classes="caption mono" Text="{Binding Volume, StringFormat={}{0:0}}"
+                                           HorizontalAlignment="Right" VerticalAlignment="Center"/>
                             </Grid>
 
-                            <Grid ColumnDefinitions="Auto,*,Auto">
-                                <TextBlock Grid.Column="0" Text="PITCH" Classes="caption" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <Grid ColumnDefinitions="Auto,*,40">
+                                <TextBlock Grid.Column="0" Classes="section" Text="PITCH" Width="34" VerticalAlignment="Center"/>
                                 <Slider x:Name="PitchSlider"
                                         Grid.Column="1"
                                         Minimum="0.9" Maximum="1.1"
                                         Value="{Binding Pitch, Mode=TwoWay}"
-                                        Height="20"
-                                        ToolTip.Tip="Pitch / Tempo (double-click to reset)">
-                                    <Slider.Styles>
-                                        <Style Selector="Slider /template/ Thumb">
-                                            <Setter Property="Background" Value="{StaticResource BrushAccent}"/>
-                                            <Setter Property="Width" Value="12"/>
-                                            <Setter Property="Height" Value="12"/>
-                                            <Setter Property="CornerRadius" Value="6"/>
-                                        </Style>
-                                    </Slider.Styles>
-                                </Slider>
-                                <TextBlock Grid.Column="2" Text="{Binding Pitch, StringFormat={}{0:P0}}" FontSize="10" Foreground="{StaticResource BrushText2}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                        VerticalAlignment="Center"
+                                        ToolTip.Tip="Pitch / tempo (double-click to reset)"/>
+                                <TextBlock Grid.Column="2" Classes="caption mono" Text="{Binding Pitch, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"
+                                           HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <Grid ColumnDefinitions="Auto,*,40" IsVisible="{Binding IsCrossfadeEnabled}">
+                                <TextBlock Grid.Column="0" Classes="section" Text="FADE" Width="34" VerticalAlignment="Center"/>
+                                <Slider Grid.Column="1"
+                                        Minimum="1" Maximum="15"
+                                        Value="{Binding CrossfadeSeconds, Mode=TwoWay}"
+                                        VerticalAlignment="Center"
+                                        ToolTip.Tip="Crossfade overlap length in seconds"/>
+                                <TextBlock Grid.Column="2" Classes="caption mono" Text="{Binding CrossfadeSeconds, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:0.0}s'}"
+                                           HorizontalAlignment="Right" VerticalAlignment="Center"/>
                             </Grid>
                         </StackPanel>
                     </Border>
 
-                    <!-- Up next — a glanceable preview so you don't have to open the full queue
-                         panel just to see what's coming. The full list (with reorder/remove) is
-                         still one click away via the ☰ queue toggle in the header. -->
+                    <!-- Up next: glanceable preview; the full queue is one click away -->
                     <Border Classes="card" IsVisible="{Binding HasUpNext}">
                         <StackPanel Spacing="{StaticResource SpaceSm}">
                             <Grid ColumnDefinitions="*,Auto">
-                                <TextBlock Grid.Column="0" Text="UP NEXT" Classes="caption" VerticalAlignment="Center"/>
-                                <Button Grid.Column="1" Classes="iconGhost" Padding="6,2" Command="{Binding ToggleQueueCommand}" ToolTip.Tip="Open full queue">
-                                    <TextBlock Text="See all" FontSize="10" Foreground="{StaticResource BrushAccent}"/>
-                                </Button>
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <TextBlock Classes="section" Text="UP NEXT"/>
+                                    <TextBlock Classes="caption accent"
+                                               Text="{Binding UpcomingTransitionPresetName, StringFormat='via {0}'}"
+                                               IsVisible="{Binding UpcomingTransitionPresetName, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                               ToolTip.Tip="Preset that will drive the crossfade into the next track"/>
+                                </StackPanel>
+                                <Button Grid.Column="1" Classes="ghost small" Content="See all" Command="{Binding ToggleQueueCommand}"/>
                             </Grid>
                             <ItemsControl ItemsSource="{Binding UpNextPreview}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
-                                        <StackPanel Spacing="6"/>
+                                        <StackPanel Spacing="4"/>
                                     </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                                        <Button Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
-                                                CommandParameter="{Binding}"
-                                                Background="Transparent"
-                                                BorderThickness="0"
-                                                Padding="0"
-                                                HorizontalContentAlignment="Stretch"
-                                                ToolTip.Tip="Play this track now">
-                                            <Grid ColumnDefinitions="Auto,*">
-                                                <TextBlock Grid.Column="0" Text="▶" FontSize="9" Foreground="{StaticResource BrushText2}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                                <StackPanel Grid.Column="1" Spacing="1">
-                                                    <TextBlock Text="{Binding TrackTitle}" FontSize="11" Foreground="{StaticResource BrushText0}" TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Text="{Binding ArtistName}" FontSize="10" Foreground="{StaticResource BrushText1}" TextTrimming="CharacterEllipsis"/>
+                                        <StackPanel Spacing="2">
+                                            <Button Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Classes="ghost" Padding="4,2"
+                                                    HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Stretch"
+                                                    ToolTip.Tip="Play this track now">
+                                                <Grid ColumnDefinitions="Auto,*">
+                                                    <PathIcon Grid.Column="0" Data="{StaticResource icon_play}"
+                                                              Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"
+                                                              Foreground="{StaticResource BrushText2}" Margin="0,0,8,0"/>
+                                                    <StackPanel Grid.Column="1" Spacing="0">
+                                                        <TextBlock Classes="body-sm" Text="{Binding TrackTitle}" TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Classes="caption" Text="{Binding ArtistName}" TextTrimming="CharacterEllipsis"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Button>
+                                            <Button IsVisible="{Binding ShowMixTransitionBadge}"
+                                                    Command="{Binding $parent[UserControl].DataContext.OpenMixTransitionCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Classes="ghost small" Margin="20,0,0,0"
+                                                    HorizontalAlignment="Left"
+                                                    ToolTip.Tip="Edit transition into the next track">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <PathIcon Data="{StaticResource icon_mix}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                    <TextBlock Classes="caption" Text="{Binding TransitionPresetLabel}"/>
                                                 </StackPanel>
-                                            </Grid>
-                                        </Button>
+                                            </Button>
+                                        </StackPanel>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>

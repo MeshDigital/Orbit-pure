@@ -10,17 +10,11 @@
     <!-- Shared Context Menu for entire card -->
     <UserControl.ContextMenu>
         <ContextMenu>
-            <MenuItem Header="Analyze Album">
+            <!-- The "Analyze Album" tier submenu bound AnalyzeAlbumT1/T2/T3Command, which AlbumNode
+                 never had (dead items). There is no album-level analysis path, so it was removed. -->
+            <MenuItem Header="Download missing tracks" Command="{Binding DownloadAlbumCommand}">
                 <MenuItem.Icon>
-                    <TextBlock Text="🔬"/>
-                </MenuItem.Icon>
-                <MenuItem Header="Tier 1: Basic (Fast)" Command="{Binding AnalyzeAlbumT1Command}" />
-                <MenuItem Header="Tier 2: Detailed" Command="{Binding AnalyzeAlbumT2Command}" />
-                <MenuItem Header="Tier 3: Specialized (Deep)" Command="{Binding AnalyzeAlbumT3Command}" />
-            </MenuItem>
-            <MenuItem Header="Download Missing Tracks" Command="{Binding DownloadAlbumCommand}">
-                <MenuItem.Icon>
-                    <TextBlock Text="⬇️"/>
+                    <PathIcon Data="{StaticResource icon_download}" Width="14" Height="14"/>
                 </MenuItem.Icon>
             </MenuItem>
         </ContextMenu>
@@ -29,7 +23,7 @@
     <Border Width="180" Background="Transparent">
         <StackPanel Spacing="8">
             <!-- Cover Art Container -->
-            <Border Width="180" Height="180" CornerRadius="8" ClipToBounds="True" Background="#1A1A1A">
+            <Border Width="180" Height="180" CornerRadius="8" ClipToBounds="True" Background="{StaticResource BrushBg2}">
                 <Grid>
                     <!-- Fallback Layer (Visible if no artwork) -->
                     <Panel Background="{Binding FallbackBrush}" 
@@ -46,17 +40,17 @@
                     <!-- Hover Play Overlay -->
                     <Grid Name="HoverOverlay" 
                           IsVisible="{Binding IsPointerOver, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                          Background="#66000000">
+                          Background="{StaticResource BrushScrim}">
                         <Button Command="{Binding PlayAlbumCommand}"
                                 HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Width="48" Height="48" CornerRadius="24"
-                                Background="#1DB954" BorderThickness="0" Padding="0">
-                            <PathIcon Data="{StaticResource icons_play_filled}" Width="20" Height="20" Foreground="White"/>
+                                Background="{StaticResource BrushSuccess}" BorderThickness="0" Padding="0">
+                            <PathIcon Data="{StaticResource play_regular}" Width="20" Height="20" Foreground="White"/>
                         </Button>
                     </Grid>
                     
                     <!-- Loading Skeleton -->
-                    <Border Background="#2A2A2A" IsVisible="{Binding IsLoading}">
+                    <Border Background="{StaticResource BrushBg3}" IsVisible="{Binding IsLoading}">
                         <Border.Styles>
                             <Style Selector="Border">
                                 <Style.Animations>
@@ -85,13 +79,13 @@
                            TextTrimming="CharacterEllipsis"/>
                            
                 <TextBlock Text="{Binding Artist}" 
-                           FontSize="12" Foreground="#A0A0A0"
+                           FontSize="12" Foreground="{StaticResource BrushText1}"
                            TextTrimming="CharacterEllipsis"/>
                            
                 <StackPanel Orientation="Horizontal" Spacing="4" Opacity="0.6">
-                    <TextBlock Text="{Binding TrackCount, StringFormat='{}{0} Tracks'}" FontSize="11" Foreground="#808080"/>
-                    <TextBlock Text="•" FontSize="11" Foreground="#808080"/>
-                    <TextBlock Text="{Binding Progress, StringFormat='{}{0:0}%'}" FontSize="11" Foreground="#808080" IsVisible="{Binding Progress, Converter={x:Static ObjectConverters.NotEqual}, ConverterParameter=0}"/>
+                    <TextBlock Text="{Binding TrackCount, StringFormat='{}{0} Tracks'}" FontSize="11" Foreground="{StaticResource BrushText2}"/>
+                    <TextBlock Text="•" FontSize="11" Foreground="{StaticResource BrushText2}"/>
+                    <TextBlock Text="{Binding Progress, StringFormat='{}{0:0}%'}" FontSize="11" Foreground="{StaticResource BrushText2}" IsVisible="{Binding Progress, Converter={x:Static ObjectConverters.NotEqual}, ConverterParameter=0}"/>
                 </StackPanel>
             </StackPanel>
         </StackPanel>

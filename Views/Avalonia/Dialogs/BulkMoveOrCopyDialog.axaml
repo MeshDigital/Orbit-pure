@@ -1,0 +1,38 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SLSKDONET.ViewModels.Library"
+        x:Class="SLSKDONET.Views.Avalonia.Dialogs.BulkMoveOrCopyDialog"
+        x:DataType="vm:BulkMoveOrCopyViewModel"
+        x:CompileBindings="True"
+        Title="Move or copy files" Width="420" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="{StaticResource BrushBg2}" TransparencyLevelHint="AcrylicBlur"
+        ExtendClientAreaToDecorationsHint="True">
+
+    <StackPanel Margin="24" Spacing="16">
+        <StackPanel Spacing="4">
+            <TextBlock Classes="h2" Text="Move or copy files"/>
+            <TextBlock Classes="body-sm muted" TextWrapping="Wrap"
+                       Text="{Binding TrackCount, StringFormat='Applies to {0} selected track(s). You choose the destination folder next.'}"/>
+        </StackPanel>
+
+        <StackPanel Spacing="12">
+            <StackPanel Spacing="2">
+                <RadioButton GroupName="MoveCopy" Content="Move" IsChecked="{Binding !IsCopy}" FontWeight="SemiBold"/>
+                <TextBlock Classes="caption" TextWrapping="Wrap" Margin="28,0,0,0"
+                           Text="Relocates the file on disk and updates ORBIT's library path. Use this to reorganise your collection."/>
+            </StackPanel>
+            <StackPanel Spacing="2">
+                <RadioButton GroupName="MoveCopy" Content="Copy" IsChecked="{Binding IsCopy}" FontWeight="SemiBold"/>
+                <TextBlock Classes="caption" TextWrapping="Wrap" Margin="28,0,0,0"
+                           Text="Duplicates the file to the destination for external use, e.g. staging a USB stick. The library keeps pointing at the original."/>
+            </StackPanel>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Classes="ghost" Content="Cancel" Click="Cancel_Click"/>
+            <Button Classes="primary" Content="Choose folder…" Click="Continue_Click"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

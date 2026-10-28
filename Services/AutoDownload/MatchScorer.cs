@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using SLSKDONET.Models;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services.AutoDownload;
 
@@ -16,7 +17,7 @@ namespace SLSKDONET.Services.AutoDownload;
 /// - Format/Extension (20%): preferred format bonus, no MP3 penalty if lossless-only
 /// - Bitrate/Size (15%): bitrate premium for lossless, size reasonability check
 /// - Peer Reliability (10%): repeated source preference, queue length penalty
-/// - Response Time (5%): prefer faster peers (lower latency bonus)
+/// - Peer Speed (5%): prefer peers reporting higher upload speed (Track.UploadSpeed)
 /// 
 /// All weights are tunable via scoring constants.
 /// </summary>
@@ -215,14 +216,35 @@ public class MatchScorer
     }
 
     /// <summary>
-    /// Scores response time (0.0-1.0).
-    /// Prefer faster peers (lower latency).
+    /// Scores peer transfer speed (0.0-1.0) using the reported upload speed from the search
+    /// response. Prefer faster peers.
     /// </summary>
     private static double ScoreResponseTime(Track candidate)
     {
-        // Skeleton: we don't currently track response time per candidate
-        // In a full implementation, would use candidate.ResponseTimeMs or similar
-        return 1.0; // Neutral score
+        // Was a permanent no-op stub ("we don't currently track response time per candidate") —
+        // Track.UploadSpeed (bytes/sec) IS populated from the real Soulseek search response
+        // (see SoulseekAdapter's response mapping) and is a reasonable proxy for the same intent
+        // ("prefer faster peers"), so use it instead of leaving this a constant. A candidate that
+        // didn't report a speed (0 or unset) gets the same neutral full score this always
+        // returned before, so existing candidates with no speed data are scored identically.
+        if (candidate.UploadSpeed <= 0)
+        {
+            return 1.0;
+        }
+
+        const int SlowThresholdBytesPerSec = 50 * 1024;
+        const int FastThresholdBytesPerSec = 200 * 1024;
+
+        if (candidate.UploadSpeed < SlowThresholdBytesPerSec)
+        {
+            return 0.3; // Reported, but slow — likely a long transfer
+        }
+        if (candidate.UploadSpeed < FastThresholdBytesPerSec)
+        {
+            return 0.7; // Moderate
+        }
+
+        return 1.0; // Fast peer
     }
 
     private static string NormalizeFormat(string? format)
@@ -308,23 +330,18 @@ public class MatchScorer
     }
 
     /// <summary>
-    /// Calculates similarity ratio between two strings (0.0-1.0).
-    /// Uses simple character overlap metric (skeleton).
-    /// Full implementation would use Levenshtein or similar.
+    /// Calculates similarity ratio between two strings (0.0-1.0) via Levenshtein edit distance.
+    /// Reuses the same metric already trusted elsewhere in this codebase (file-path recovery,
+    /// search-result matching) rather than the character-set-overlap this used to do, which
+    /// scored anagrams (and any two strings sharing a character set regardless of order/count,
+    /// e.g. "aaa" vs "a") as a perfect 1.0 match.
     /// </summary>
     private static double CalculateSimilarity(string a, string b)
     {
         if (a == b) return 1.0;
         if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return 0.0;
 
-        // Simple metric: overlap of characters
-        var aChars = new HashSet<char>(a);
-        var bChars = new HashSet<char>(b);
-
-        var overlap = aChars.Count(c => bChars.Contains(c));
-        var total = Math.Max(aChars.Count, bChars.Count);
-
-        return (double)overlap / total;
+        return StringDistanceUtils.GetNormalizedMatchScore(a, b);
     }
 }
 

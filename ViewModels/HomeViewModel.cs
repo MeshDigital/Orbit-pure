@@ -15,6 +15,7 @@ using Avalonia.Threading;
 using SLSKDONET.Views;
 using System.Reactive.Linq;
 using System.Collections.Generic;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -36,6 +37,8 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     private readonly SearchViewModel _searchViewModel;
     private readonly ArtworkCacheService _artworkCacheService;
     private readonly PlaylistMosaicService _mosaicService;
+    private readonly AnalysisPageViewModel _analysisPageViewModel;
+    private readonly PeerReliabilityService _peerReliabilityService;
     private IDisposable? _eventSubscription;
     private PropertyChangedEventHandler? _connectionChangedHandler;
     private bool _isDisposed;
@@ -53,6 +56,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
             {
                 OnPropertyChanged(nameof(PurityPercent));
                 OnPropertyChanged(nameof(PurityStatus));
+                OnPropertyChanged(nameof(LibraryFooterText));
             }
         }
     }
@@ -78,6 +82,20 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     public ObservableCollection<RecentDownloadedTrackCardViewModel> RecentDownloads { get; } = new();
     public ObservableCollection<SpotifyTrackViewModel> SpotifyRecommendations { get; } = new();
 
+    /// <summary>
+    /// Top peers by reliability score — data PeerReliabilityService already aggregates
+    /// swarm-wide, but which previously only ever reached the Users page's per-user detail.
+    /// </summary>
+    public ObservableCollection<PeerLeaderboardEntry> TopPeers { get; } = new();
+    public bool HasTopPeers => TopPeers.Count > 0;
+
+    private DownloadTrendSummary _downloadTrend = new(7, 0, 0, 0.0);
+    public DownloadTrendSummary DownloadTrend
+    {
+        get => _downloadTrend;
+        private set => SetProperty(ref _downloadTrend, value);
+    }
+
     // --- Library Intelligence ---
     private int _intelligenceTotalTracks;
     private int _intelligenceAnalyzedTracks;
@@ -87,7 +105,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
 
     public double IntelligenceAnalyzedPercent => _intelligenceTotalTracks > 0
         ? Math.Round((double)_intelligenceAnalyzedTracks / _intelligenceTotalTracks * 100, 1) : 0;
-    public string IntelligenceAnalyzedText => $"{_intelligenceAnalyzedTracks:N0} of {_intelligenceTotalTracks:N0} tracks";
+    public string IntelligenceAnalyzedText => $"{SLSKDONET.Utils.CountFormat.N(_intelligenceAnalyzedTracks)} of {SLSKDONET.Utils.CountFormat.N(_intelligenceTotalTracks)} tracks";
     public double IntelligenceFlacPercent => _intelligenceTotalTracks > 0
         ? (double)_intelligenceFlacCount / _intelligenceTotalTracks * 100 : 0;
     public double IntelligenceMp3Percent => _intelligenceTotalTracks > 0
@@ -113,10 +131,18 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateToSearchCommand { get; }
     public ICommand NavigateToAnalysisCommand { get; }
     public ICommand QuickSearchCommand { get; }
-    public ICommand ClearDeadLettersCommand { get; }
+    /// <summary>System Status → "Show failed downloads": Download Center with the Failed filter on.</summary>
+    public ICommand ShowFailedDownloadsCommand { get; }
+
+    /// <summary>
+    /// Real failed downloads: the Download Center's own Failed/Cancelled/Stalled count (what its
+    /// Failed filter shows). The card used to show the crash journal's dead-letter rows, which
+    /// were mostly downloads interrupted by closing ORBIT and already re-queued (358 on the
+    /// owner's machine), not failures.
+    /// </summary>
+    public int FailedDownloadCount => _downloadCenter?.TotalFailedCount ?? 0;
     public ICommand NavigateLibraryCommand { get; }
     public ICommand ViewPlaylistCommand { get; }
-    public ICommand UpgradeBronzeCommand { get; }
     public ICommand RunMissionCommand { get; }
     public ICommand SelectGenreCommand { get; }
     public ICommand SelectDiscoverTabCommand { get; }
@@ -160,14 +186,53 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     public bool IsLoadingRecent
     {
         get => _isLoadingRecent;
-        set => SetProperty(ref _isLoadingRecent, value);
+        set
+        {
+            if (SetProperty(ref _isLoadingRecent, value))
+                OnPropertyChanged(nameof(ShowRecentPlaylistsEmptyState));
+        }
     }
 
     private bool _isLoadingRecentDownloads;
     public bool IsLoadingRecentDownloads
     {
         get => _isLoadingRecentDownloads;
-        set => SetProperty(ref _isLoadingRecentDownloads, value);
+        set
+        {
+            if (SetProperty(ref _isLoadingRecentDownloads, value))
+                OnPropertyChanged(nameof(ShowRecentDownloadsEmptyState));
+        }
+    }
+
+    // Both empty-state borders used to show purely off RecentPlaylists/RecentDownloads.Count,
+    // with no regard for whether the async load was still in flight — on every app launch, the
+    // brief window before that first load resolves showed "No recent playlists"/"No completed
+    // downloads yet" as if the library were genuinely empty, when it just hadn't loaded yet.
+    public bool ShowRecentPlaylistsEmptyState => !IsLoadingRecent && RecentPlaylists.Count == 0;
+    public bool ShowRecentDownloadsEmptyState => !IsLoadingRecentDownloads && RecentDownloads.Count == 0;
+
+    // Only Recent Playlists/Downloads (above) had a loading story — every other dashboard section
+    // (Library Health, System Status, Analysis Coverage, Format Split, Key Distribution, Energy
+    // Profile, Genre Galaxy, ...) has no concept of "still loading" at all, so on launch each one
+    // just sat at its zero/default value until RefreshDashboardCoreAsync's six parallel loaders
+    // happened to land — all around the same moment, right as the window becomes visible — which
+    // reads as "blank, then everything pops in at once." One shared flag (rather than a dozen
+    // per-section ones) is enough since these all come from the same Task.WhenAll batch: gate the
+    // whole stats grid behind it, so every refresh shows one clean loading state and then one
+    // coordinated reveal instead of a scattered pop-in.
+    //
+    // This used to be gated to only the *first-ever* load (a "_hasLoadedDashboardOnce" flag), on
+    // the theory that re-hiding the whole dashboard on every later refresh would be worse UX than
+    // a one-time launch flash. In practice that meant every refresh AFTER the first — the Refresh
+    // button, the dead-letter-retry flow, and simply navigating away and back — got zero loading-
+    // state coverage, so the exact scattered-pop-in bug this flag exists to prevent came right
+    // back on the second (and every later) visit. Toggling it on every refresh, not just the
+    // first, is what actually keeps the "one clean reveal" promise.
+    private bool _isLoadingDashboard = true;
+    public bool IsLoadingDashboard
+    {
+        get => _isLoadingDashboard;
+        set => SetProperty(ref _isLoadingDashboard, value);
     }
 
     private bool _isLoadingSpotify;
@@ -216,7 +281,9 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         LibraryViewModel libraryViewModel,
         SearchViewModel searchViewModel,
         ArtworkCacheService artworkCacheService,
-        PlaylistMosaicService mosaicService)
+        PlaylistMosaicService mosaicService,
+        AnalysisPageViewModel analysisPageViewModel,
+        PeerReliabilityService peerReliabilityService)
     {
         _logger = logger;
         _dashboardService = dashboardService;
@@ -234,6 +301,11 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         _eventBus = eventBus;
         _libraryViewModel = libraryViewModel;
         _searchViewModel = searchViewModel;
+        _analysisPageViewModel = analysisPageViewModel;
+        _peerReliabilityService = peerReliabilityService;
+
+        RecentPlaylists.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowRecentPlaylistsEmptyState));
+        RecentDownloads.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowRecentDownloadsEmptyState));
 
         // Subscribe to Mission Control Updates (Smart Throttled & IEquatable)
         _eventSubscription = _eventBus.GetEvent<DashboardSnapshot>().Subscribe(snapshot =>
@@ -261,8 +333,14 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
                 OnPropertyChanged(nameof(PurityPercent));
                 OnPropertyChanged(nameof(PurityStatus));
                 OnPropertyChanged(nameof(CurrentCpuLoad));
-                OnPropertyChanged(nameof(IsLockdownActive));
-                OnPropertyChanged(nameof(LockdownStatusText));
+                OnPropertyChanged(nameof(HealthColor));
+                OnPropertyChanged(nameof(EngineStatusText));
+                OnPropertyChanged(nameof(LibraryFooterText));
+                // DownloadSpeed was computed but never bound anywhere in the XAML, and had no
+                // change notification wired up at all — refresh it on the same tick as the rest
+                // of this snapshot-driven block now that it's actually displayed.
+                OnPropertyChanged(nameof(DownloadSpeed));
+                OnPropertyChanged(nameof(FailedDownloadCount));
             });
         });
 
@@ -270,11 +348,28 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         RefreshDashboardCommand = new AsyncRelayCommand(RefreshDashboardAsync);
         NavigateToSearchCommand = new RelayCommand(() => _navigationService.NavigateTo("Search"));
         NavigateToAnalysisCommand = new RelayCommand(() => _navigationService.NavigateTo("Analysis"));
-        NavigateLibraryCommand = new RelayCommand(() => _navigationService.NavigateTo("Library"));
+        // Accepts an optional "Gold"/"Silver"/"Bronze" CommandParameter — sets the Library's
+        // quality-tier filter (and clears any selected playlist, to force the "All Tracks" view)
+        // before navigating, so each badge actually lands on a correctly-filtered view instead of
+        // the same generic unfiltered Library for all three.
+        NavigateLibraryCommand = new RelayCommand<string>(tier =>
+        {
+            _libraryViewModel.Tracks.QualityTierFilter = string.IsNullOrEmpty(tier) ? null : tier;
+            if (!string.IsNullOrEmpty(tier))
+            {
+                // SelectedProject = null does NOT mean "All Tracks" in this codebase — it means
+                // "nothing selected yet", which LibraryPage.OnLoaded interprets as "pick something"
+                // and eagerly auto-selects the first project (a deliberate perf optimization),
+                // silently stomping the tier filter's intended scope. LoadAllTracksCommand is the
+                // real "All Tracks" mechanism (sets SelectedProject to the dedicated sentinel job).
+                if (_libraryViewModel.Projects.LoadAllTracksCommand.CanExecute(null))
+                    _libraryViewModel.Projects.LoadAllTracksCommand.Execute(null);
+            }
+            _navigationService.NavigateTo("Library");
+        });
         ViewPlaylistCommand = new RelayCommand<PlaylistCardViewModel>(ExecuteViewPlaylist);
         QuickSearchCommand = new AsyncRelayCommand<SpotifyTrackViewModel>(ExecuteQuickSearchAsync);
-        ClearDeadLettersCommand = new AsyncRelayCommand(ClearDeadLettersAsync);
-        UpgradeBronzeCommand = new RelayCommand(() => _navigationService.NavigateTo("Library"));
+        ShowFailedDownloadsCommand = new RelayCommand(ShowFailedDownloads);
         RunMissionCommand = new AsyncRelayCommand<MissionOperation>(ExecuteRunMissionAsync);
         SelectGenreCommand = new RelayCommand<GenrePlanetViewModel>(ExecuteSelectGenre);
         SelectDiscoverTabCommand = new RelayCommand<string>(tab =>
@@ -294,7 +389,8 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         };
         _connectionViewModel.PropertyChanged += _connectionChangedHandler;
 
-        // Initial load
+        // Initial load — see RefreshDashboardAsync's doc comment for why this is safe to fire
+        // directly from the constructor (which itself runs on the UI thread) without blocking it.
         _ = RefreshDashboardAsync();
         
         // Listen for Spotify changes
@@ -306,8 +402,6 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     public bool IsSoulseekConnected => _connectionViewModel.IsConnected;
     public string DownloadSpeed => _downloadCenter?.GlobalSpeedDisplay ?? "0 KB/s";
 
-    public string LockdownStatusText => IsLockdownActive ? "🛡️ ACTIVE" : "✅ NOMINAL";
-    public bool IsLockdownActive => CurrentSnapshot.IsForensicLockdownActive;
     public double CurrentCpuLoad => CurrentSnapshot.CurrentCpuLoad;
 
     public string HealthColor => CurrentSnapshot.SystemHealth switch
@@ -319,10 +413,73 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         _ => "#808080"
     };
 
-    public int ExpressCount => _downloadCenter?.ExpressItems.Count ?? 0;
-    public int StandardCount => _downloadCenter?.StandardItems.Count ?? 0;
-    public int BackgroundCount => _downloadCenter?.BackgroundItems.Count ?? 0;
-    
+    /// <summary>
+    /// Combines two real, already-computed values that were never shown anywhere on the
+    /// dashboard: LibraryHealth.HealthStatus (from crash-journal data — "Requires Attention",
+    /// "Recovering (N)", etc., set in LoadLibraryHealthAsync) and available disk space
+    /// (DashboardService.GetStorageInsight, piped into CurrentSnapshot.AvailableFreeSpaceBytes).
+    /// Kept to one compact line deliberately — this tile's row height was tuned tightly in an
+    /// earlier compaction pass, and a second line risks the same overflow regression documented
+    /// there.
+    /// </summary>
+    public string LibraryFooterText =>
+        $"{LibraryHealth?.HealthStatus ?? "Healthy"} · {Utils.FileFormattingUtils.FormatBytes(CurrentSnapshot.AvailableFreeSpaceBytes)} free";
+
+    /// <summary>
+    /// Real system-status badge, replacing a badge that was previously bound to
+    /// "!IsLockdownActive" — a dead-code flag (IsForensicLockdownActive) that was always false,
+    /// making the badge permanently read "OPTIMAL" regardless of actual health.
+    /// </summary>
+    public string EngineStatusText => CurrentSnapshot.SystemHealth switch
+    {
+        SystemHealth.Excellent or SystemHealth.Good => "OPTIMAL",
+        SystemHealth.Warning => "ATTENTION",
+        SystemHealth.Critical => "CRITICAL",
+        _ => "OPTIMAL"
+    };
+
+    private async Task LoadDownloadTrendAsync()
+    {
+        try
+        {
+            var trend = await _dashboardService.GetDownloadTrendAsync(7);
+            Dispatcher.UIThread.Post(() => DownloadTrend = trend);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load download trend summary");
+        }
+    }
+
+    private const int MinAttemptsForLeaderboard = 3;
+    private const int TopPeersCount = 5;
+
+    private void RefreshTopPeers()
+    {
+        try
+        {
+            var top = _peerReliabilityService.GetKnownUsernames()
+                .Select(u => _peerReliabilityService.GetSnapshot(u))
+                .Where(s => s.HasValue && s.Value.DownloadStarts >= MinAttemptsForLeaderboard)
+                .Select(s => s!.Value)
+                .Select(s => new PeerLeaderboardEntry(s.Username, _peerReliabilityService.GetReliabilityScore(s.Username), s.DownloadStarts))
+                .OrderByDescending(p => p.Score)
+                .Take(TopPeersCount)
+                .ToList();
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                TopPeers.Clear();
+                foreach (var p in top) TopPeers.Add(p);
+                OnPropertyChanged(nameof(HasTopPeers));
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to refresh top-peers leaderboard");
+        }
+    }
+
     private void UpdateResilienceLog(List<string> newLog)
     {
         if (ResilienceLog.SequenceEqual(newLog)) return;
@@ -331,21 +488,78 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         foreach (var l in newLog) ResilienceLog.Add(l);
     }
 
-    public async Task RefreshDashboardAsync()
+    private DateTime? _lastRefreshedAtUtc;
+    /// <summary>
+    /// Replaces the previous static "Bridge Operations Active" filler text, which was decorative
+    /// and didn't correspond to anything real.
+    /// </summary>
+    public string LastRefreshedText => _lastRefreshedAtUtc is null
+        ? "Not yet refreshed"
+        : $"Updated {FormatRelativeTime(DateTime.UtcNow - _lastRefreshedAtUtc.Value)}";
+
+    private static string FormatRelativeTime(TimeSpan elapsed)
     {
+        if (elapsed.TotalSeconds < 60) return "just now";
+        if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes} min ago";
+        if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours} hr ago";
+        return $"{(int)elapsed.TotalDays} days ago";
+    }
+
+    /// <summary>
+    /// Safe to call from the UI thread (the Refresh button's command does exactly that) — the real
+    /// work always runs on a thread-pool thread via <see cref="RefreshDashboardCoreAsync"/>, since
+    /// Microsoft.Data.Sqlite's "async" queries underneath actually run synchronously to completion
+    /// on whichever thread calls them (SQLite's C library has no real async I/O), and this method
+    /// runs six of them. Without this indirection, calling it directly from the UI thread — as the
+    /// constructor, the Refresh button, and the dead-letter-retry flow all do — would freeze the
+    /// whole app for as long as those queries take against the full library.
+    /// </summary>
+    public Task RefreshDashboardAsync() => Task.Run(RefreshDashboardCoreAsync);
+
+    private async Task RefreshDashboardCoreAsync()
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        _logger.LogDebug("[Dashboard] Refresh started");
+        Dispatcher.UIThread.Post(() => IsLoadingDashboard = true);
         try
         {
-            var healthTask = LoadLibraryHealthAsync();
-            var recentTask = LoadRecentPlaylistsAsync();
-            var recentDownloadsTask = LoadRecentDownloadsAsync();
-            var spotifyTask = LoadSpotifyRecommendationsAsync();
-            var intelligenceTask = LoadIntelligenceStatsAsync();
+            // Each loader gets its own thread-pool hop: Sqlite's "async" queries and File.Exists
+            // calls run synchronously on whichever thread calls them, so without this a loader
+            // that's slow before its first real await blocks every loader started after it.
+            async Task Timed(string name, Func<Task> load)
+            {
+                var t = System.Diagnostics.Stopwatch.StartNew();
+                await Task.Run(load);
+                _logger.LogDebug("[Dashboard] {Loader} finished in {Ms}ms", name, t.ElapsedMilliseconds);
+            }
 
-            await Task.WhenAll(healthTask, recentTask, recentDownloadsTask, spotifyTask, intelligenceTask);
+            _ = Task.Run(LoadIncompleteAnalysisCountAsync);
+
+            var healthTask = Timed("LibraryHealth", LoadLibraryHealthAsync);
+            var recentTask = Timed("RecentPlaylists", LoadRecentPlaylistsAsync);
+            var recentDownloadsTask = Timed("RecentDownloads", LoadRecentDownloadsAsync);
+            var spotifyTask = Timed("Spotify", LoadSpotifyRecommendationsAsync);
+            var intelligenceTask = Timed("Intelligence", LoadIntelligenceStatsAsync);
+            var trendTask = Timed("DownloadTrend", LoadDownloadTrendAsync);
+
+            await Task.WhenAll(healthTask, recentTask, recentDownloadsTask, spotifyTask, intelligenceTask, trendTask);
+            _logger.LogInformation("[Dashboard] Refresh completed in {Ms}ms", sw.ElapsedMilliseconds);
+
+            RefreshTopPeers();
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                _lastRefreshedAtUtc = DateTime.UtcNow;
+                OnPropertyChanged(nameof(LastRefreshedText));
+            });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to refresh dashboard");
+        }
+        finally
+        {
+            Dispatcher.UIThread.Post(() => IsLoadingDashboard = false);
         }
     }
 
@@ -419,46 +633,91 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task LoadLibraryHealthAsync()
     {
-        IsLoadingHealth = true;
+        Dispatcher.UIThread.Post(() => IsLoadingHealth = true);
         try
         {
-            LibraryHealth = await _dashboardService.GetLibraryHealthAsync();
-            if (LibraryHealth == null)
+            var health = await _dashboardService.GetLibraryHealthAsync();
+            if (health == null)
             {
                 // Trigger an initial calculation if cache is empty
                 await _dashboardService.RecalculateLibraryHealthAsync();
-                LibraryHealth = await _dashboardService.GetLibraryHealthAsync();
+                health = await _dashboardService.GetLibraryHealthAsync();
             }
 
             // Phase 3A (Transparency): Inject real Journal Health data (Recovery Status)
-            if (LibraryHealth != null)
+            if (health != null)
             {
-                UpdateTopGenres(LibraryHealth.TopGenresJson);
-
                 var journalStats = await _crashJournal.GetSystemHealthAsync();
-                
+
                 if (journalStats.DeadLetterCount > 0)
                 {
-                    LibraryHealth.HealthScore = 85; // Penalty for dead letters
-                    LibraryHealth.HealthStatus = "Requires Attention";
-                    LibraryHealth.IssuesCount = journalStats.DeadLetterCount;
+                    health.HealthScore = 85; // Penalty for dead letters
+                    health.HealthStatus = "Requires Attention";
+                    health.IssuesCount = journalStats.DeadLetterCount;
                     // We could add a more specific message property if the view supported it,
                     // but for now, 'Issues Count' drives the orange UI state.
                 }
                 else if (journalStats.ActiveCount > 0)
                 {
-                    LibraryHealth.HealthStatus = $"Recovering ({journalStats.ActiveCount})";
+                    health.HealthStatus = $"Recovering ({journalStats.ActiveCount})";
                     // Active recovery is good, so keep score high
                 }
             }
 
-            IncompleteAnalysisCount = await _dashboardService.GetIncompleteAnalysisTrackCountAsync();
+            Dispatcher.UIThread.Post(() =>
+            {
+                LibraryHealth = health;
+                if (health != null) UpdateTopGenres(health.TopGenresJson);
+            });
         }
         finally
         {
-            IsLoadingHealth = false;
-            Dispatcher.UIThread.Post(PopulateActiveMissions);
+            Dispatcher.UIThread.Post(() =>
+            {
+                IsLoadingHealth = false;
+                PopulateActiveMissions();
+            });
         }
+    }
+
+    private int _incompleteCountInFlight;
+
+    /// <summary>
+    /// Kept off the dashboard's loading gate on purpose: it File.Exists-checks every downloaded
+    /// track, which on a cold boot (OS file cache not yet warm, library spread across drives)
+    /// measured ~60s — and since SQLite/File I/O here is synchronous, it used to also stall every
+    /// other dashboard loader behind it, leaving the whole page on "Loading dashboard..." for a
+    /// minute. It only feeds the "Reanalyze Incomplete Tracks" hint, so it fills in on its own.
+    /// </summary>
+    private async Task LoadIncompleteAnalysisCountAsync()
+    {
+        if (Interlocked.Exchange(ref _incompleteCountInFlight, 1) == 1) return;
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var count = await _dashboardService.GetIncompleteAnalysisTrackCountAsync();
+            _logger.LogDebug("[Dashboard] IncompleteAnalysisCount finished in {Ms}ms", sw.ElapsedMilliseconds);
+            Dispatcher.UIThread.Post(() =>
+            {
+                IncompleteAnalysisCount = count;
+                PopulateActiveMissions();
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load incomplete analysis count");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _incompleteCountInFlight, 0);
+        }
+    }
+
+    private void ShowFailedDownloads()
+    {
+        if (_downloadCenter != null)
+            _downloadCenter.StatusFilter = Downloads.DownloadStatusFilter.Failed;
+        _navigationService.NavigateTo("Projects"); // the Download Center page key
     }
 
     private async Task ClearDeadLettersAsync()
@@ -485,7 +744,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task LoadRecentPlaylistsAsync()
     {
-        IsLoadingRecent = true;
+        Dispatcher.UIThread.Post(() => IsLoadingRecent = true);
         try
         {
             var recent = await _dashboardService.GetRecentPlaylistsAsync(10); // Show more for horizontal scroll
@@ -501,13 +760,13 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         }
         finally
         {
-            IsLoadingRecent = false;
+            Dispatcher.UIThread.Post(() => IsLoadingRecent = false);
         }
     }
 
     private async Task LoadRecentDownloadsAsync()
     {
-        IsLoadingRecentDownloads = true;
+        Dispatcher.UIThread.Post(() => IsLoadingRecentDownloads = true);
         try
         {
             var downloads = await _dashboardService.GetRecentDownloadedTracksAsync(8);
@@ -536,23 +795,29 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     {
         if (!_spotifyAuth.IsAuthenticated)
         {
-            Dispatcher.UIThread.Post(() => SpotifyRecommendations.Clear());
-            IsLoadingSpotify = false;
+            Dispatcher.UIThread.Post(() =>
+            {
+                SpotifyRecommendations.Clear();
+                IsLoadingSpotify = false;
+            });
             return;
         }
 
-        IsLoadingSpotify = true;
+        Dispatcher.UIThread.Post(() => IsLoadingSpotify = true);
         try
         {
             var tracks = await _spotifyEnrichment.GetRecommendationsAsync(8);
-            
-            // Check library for each track
+
+            // Check library for each track in parallel instead of awaiting one DB round-trip
+            // at a time — bounded to 8 recommendations, so this stays cheap even run every load.
+            var lookupTasks = tracks
+                .Where(t => !string.IsNullOrEmpty(t.ISRC))
+                .Select(async track => track.InLibrary = await _databaseService.FindLibraryEntryAsync(track.ISRC) != null)
+                .ToList();
+            await Task.WhenAll(lookupTasks);
+
             foreach (var track in tracks)
             {
-                if (!string.IsNullOrEmpty(track.ISRC))
-                {
-                    track.InLibrary = await _databaseService.FindLibraryEntryAsync(track.ISRC) != null;
-                }
                 track.Artwork = new ArtworkProxy(_artworkCacheService, track.ImageUrl);
             }
 
@@ -601,22 +866,62 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
             _searchViewModel.UnifiedSearchCommand.Execute(null);
     }
 
-    private Task ExecuteRunMissionAsync(MissionOperation? mission)
+    private async Task ExecuteRunMissionAsync(MissionOperation? mission)
     {
-        if (mission == null) return Task.CompletedTask;
+        if (mission == null) return;
+
         switch (mission.Type)
         {
             case Models.OperationType.Download:
-                _navigationService.NavigateTo("Projects");
+                // "Upgrade Bronze Tracks" / "Re-download Low Bitrate" — deep-link into the real,
+                // already-built Upgrade Scout panel where a user reviews/queues candidates,
+                // instead of a bare unfiltered Library nav.
+                _libraryViewModel.IsUpgradeScoutVisible = true;
+                _navigationService.NavigateTo("Library");
                 break;
+
+            case Models.OperationType.System:
+                // "Repair Dead Letters" is the exact same action as the SELF-HEAL button —
+                // just a second entry point into it.
+                mission.IsRunning = true;
+                try
+                {
+                    await ClearDeadLettersAsync();
+                }
+                finally
+                {
+                    mission.IsRunning = false;
+                }
+                break;
+
             case Models.OperationType.Analysis:
+                // "Reanalyze Incomplete Tracks" — navigate, then trigger the real batch-reanalyze
+                // command Analysis already has, same navigate-then-trigger pattern as quick search.
                 _navigationService.NavigateTo("Analysis");
+                mission.IsRunning = true;
+                try
+                {
+                    await Task.Delay(50); // allow navigation frame to settle
+                    ICommand reanalyzeCommand = _analysisPageViewModel.ReanalyzeAllIncompleteCommand;
+                    if (reanalyzeCommand.CanExecute(null))
+                        reanalyzeCommand.Execute(null);
+                }
+                finally
+                {
+                    mission.IsRunning = false;
+                }
                 break;
+
+            case Models.OperationType.Enrichment:
+                // "Enrich Metadata" — no batch metadata-enrichment trigger exists anywhere in the
+                // codebase to deep-link into yet; honest navigation-only until that's built.
+                _navigationService.NavigateTo("Library");
+                break;
+
             default:
                 _navigationService.NavigateTo("Library");
                 break;
         }
-        return Task.CompletedTask;
     }
 
     private void PopulateActiveMissions()
@@ -786,4 +1091,11 @@ public record EnergyBucketViewModel(string Label, int Count, double RelativeHeig
 {
     public double BarHeight => Math.Max(2, RelativeHeight * 80);
     public string TooltipText => $"{Label}: {Count} tracks";
+}
+
+/// <summary>One row of the Dashboard's "Top Peers" mini-leaderboard, built from
+/// PeerReliabilityService data that previously only ever reached the Users page.</summary>
+public record PeerLeaderboardEntry(string Username, double Score, long DownloadStarts)
+{
+    public string ScoreText => NumFormat.Ui($"{Score:P0}");
 }

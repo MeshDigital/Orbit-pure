@@ -5,7 +5,7 @@
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="300"
              x:Class="SLSKDONET.Views.Avalonia.Controls.SpectrogramControl">
   <Grid>
-      <Border Background="#101010" CornerRadius="4" ClipToBounds="True">
+      <Border Background="{StaticResource BrushBg0}" CornerRadius="4" ClipToBounds="True">
           <Grid>
               <!-- The Spectrogram Image -->
               <Image Source="{Binding SpectrogramBitmap, RelativeSource={RelativeSource AncestorType=UserControl}}" 
@@ -39,26 +39,26 @@
                   <!-- We use a proportional container to position lines by % -->
                   
                   <!-- 16kHz Line (~72% up) -->
-                  <Border BorderBrush="#AAFF0000" BorderThickness="0,1,0,0" Height="1" VerticalAlignment="Bottom" Margin="0,0,0,216"
+                  <Border BorderBrush="{StaticResource BrushError}" BorderThickness="0,1,0,0" Height="1" VerticalAlignment="Bottom" Margin="0,0,0,216"
                           IsHitTestVisible="False" Opacity="0.6">
                       <ToolTip.Tip>16kHz Cutoff (MP3 128kbps)</ToolTip.Tip>
                   </Border>
-                  <TextBlock Text="16kHz (Low Quality)" Foreground="#AAFF0000" FontSize="10" 
+                  <TextBlock Text="16kHz (Low Quality)" Foreground="{StaticResource BrushError}" FontSize="10" 
                              VerticalAlignment="Bottom" Margin="4,0,0,218" IsHitTestVisible="False"/>
 
                   <!-- 20kHz Line (~90% up) -->
-                  <Border BorderBrush="#AA00FF00" BorderThickness="0,1,0,0" Height="1" VerticalAlignment="Bottom" Margin="0,0,0,270"
+                  <Border BorderBrush="{StaticResource BrushSuccess}" BorderThickness="0,1,0,0" Height="1" VerticalAlignment="Bottom" Margin="0,0,0,270"
                           IsHitTestVisible="False" Opacity="0.5">
                       <ToolTip.Tip>20kHz (High Quality)</ToolTip.Tip>
                   </Border>
-                   <TextBlock Text="20kHz (High Quality)" Foreground="#AA00FF00" FontSize="10" 
+                   <TextBlock Text="20kHz (High Quality)" Foreground="{StaticResource BrushSuccess}" FontSize="10" 
                              VerticalAlignment="Bottom" Margin="4,0,0,272" IsHitTestVisible="False"/>
               </Grid>
 
               <!-- Loading State (managed by parent VM ideally, but we can show placeholder if null) -->
               <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" 
                           IsVisible="{Binding SpectrogramBitmap, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={x:Static ObjectConverters.IsNull}}">
-                  <TextBlock Text="Waiting for Analysis..." Foreground="#444"/>
+                  <TextBlock Text="Waiting for Analysis..." Foreground="{StaticResource BrushText3}"/>
               </StackPanel>
           </Grid>
       </Border>

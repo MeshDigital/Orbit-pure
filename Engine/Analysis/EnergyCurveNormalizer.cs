@@ -82,8 +82,10 @@ public sealed class EnergyCurveNormalizer
     {
         genre = genre.Trim().ToLowerInvariant();
 
-        // High-energy, highly compressed genres (Techno, House, Hard Dance)
-        if (genre.Contains("techno") || genre.Contains("house") || genre.Contains("dance") || genre.Contains("trance"))
+        // High-energy, highly compressed genres (Techno, House, Hard Dance, DnB — brickwall
+        // mastering means DnB belongs here too, not left ungrouped)
+        if (genre.Contains("techno") || genre.Contains("house") || genre.Contains("dance") || genre.Contains("trance")
+            || genre.Contains("dnb") || genre.Contains("drum") || genre.Contains("jungle"))
         {
             // Boost mid-tier values and expand peak-to-breakdown range
             for (int i = 0; i < energy.Length; i++)

@@ -2,52 +2,70 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
-             xmlns:data="clr-namespace:SLSKDONET.Data"
              mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="120"
              x:Class="SLSKDONET.Views.Avalonia.Controls.SonicTelemetryCard">
-    
-    <Border Classes="GlassCard" Padding="12" Margin="4" CornerRadius="8" Background="#15FFFFFF" BorderBrush="#20FFFFFF" BorderThickness="1">
-        <Grid ColumnDefinitions="Auto, *, Auto">
-            
-            <!-- Left: Info & Mini Waveform -->
+
+    <!-- Live analysis row (Home → Live Ops, DataContext: the operation's ActiveThreadInfo).
+         Confidence is analysis output → neutral meters + mono percentages, no neon rings. -->
+    <UserControl.Styles>
+        <Style Selector="Grid.conf-row">
+            <Setter Property="MinHeight" Value="16"/>
+        </Style>
+        <Style Selector="Grid.conf-row > ProgressBar">
+            <Setter Property="Margin" Value="8,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Border Classes="card" Margin="4">
+        <Grid ColumnDefinitions="*,16,160,Auto">
+
+            <!-- Left: track, status, progress -->
             <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
-                <TextBlock Text="{Binding CurrentTrack}" FontWeight="SemiBold" FontSize="13" MaxWidth="180" TextTrimming="CharacterEllipsis"/>
-                <TextBlock Text="{Binding Status}" FontSize="11" Foreground="#88FFFFFF"/>
-                
-                <!-- Mini Shimmer Waveform (Placeholder for dynamic one) -->
-                <Border Height="20" Width="150" CornerRadius="4" Background="#10FFFFFF" ClipToBounds="True">
-                    <ProgressBar Value="{Binding Progress}" Minimum="0" Maximum="100" 
-                                 Height="20" Background="Transparent" Foreground="#4000FFCC"/>
-                </Border>
+                <TextBlock Classes="body" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                           Text="{Binding CurrentTrack}"/>
+                <TextBlock Classes="caption" TextTrimming="CharacterEllipsis" Text="{Binding Status}"/>
+                <ProgressBar Classes="meter" Minimum="0" Maximum="100" Value="{Binding Progress}"
+                             ToolTip.Tip="Analysis progress"/>
             </StackPanel>
 
-            <!-- Center: Confidence Radars -->
-            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
-                <controls:ConfidenceRadar Label="BPM" Value="{Binding BpmConfidence}" Color="#00FFCC"/>
-                <controls:ConfidenceRadar Label="KEY" Value="{Binding KeyConfidence}" Color="#BB86FC"/>
-                <controls:ConfidenceRadar Label="BIT" Value="{Binding IntegrityScore}" Color="#FF9800"/>
+            <!-- Center: confidences -->
+            <StackPanel Grid.Column="2" Spacing="4" VerticalAlignment="Center">
+                <Grid Classes="conf-row" ColumnDefinitions="28,*,36" ToolTip.Tip="BPM confidence">
+                    <TextBlock Classes="caption" Text="BPM" VerticalAlignment="Center"/>
+                    <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding BpmConfidence}"/>
+                    <TextBlock Grid.Column="2" Classes="mono" HorizontalAlignment="Right" VerticalAlignment="Center"
+                               Text="{Binding BpmConfidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                </Grid>
+                <Grid Classes="conf-row" ColumnDefinitions="28,*,36" ToolTip.Tip="Key confidence">
+                    <TextBlock Classes="caption" Text="Key" VerticalAlignment="Center"/>
+                    <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding KeyConfidence}"/>
+                    <TextBlock Grid.Column="2" Classes="mono" HorizontalAlignment="Right" VerticalAlignment="Center"
+                               Text="{Binding KeyConfidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                </Grid>
+                <Grid Classes="conf-row" ColumnDefinitions="28,*,36" ToolTip.Tip="File integrity score">
+                    <TextBlock Classes="caption" Text="File" VerticalAlignment="Center"/>
+                    <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding IntegrityScore}"/>
+                    <TextBlock Grid.Column="2" Classes="mono" HorizontalAlignment="Right" VerticalAlignment="Center"
+                               Text="{Binding IntegrityScore, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                </Grid>
             </StackPanel>
 
-            <!-- Right: Stage Indicators -->
-            <StackPanel Grid.Column="2" Spacing="2" VerticalAlignment="Center">
-                <ItemsControl ItemsSource="{Binding ActiveStages}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Border Margin="1" ToolTip.Tip="{Binding Label}">
-                                <Ellipse Width="10" Height="10" 
-                                         Fill="{Binding Color}"
-                                         Opacity="{Binding Opacity}">
-                                    <Ellipse.Effect>
-                                        <DropShadowEffect Color="{Binding GlowColor}" BlurRadius="8" Opacity="0.5"/>
-                                    </Ellipse.Effect>
-                                </Ellipse>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </StackPanel>
-            
+            <!-- Right: pipeline stages (done = success, current = accent, pending = grey) -->
+            <ItemsControl Grid.Column="3" ItemsSource="{Binding ActiveStages}" Margin="12,0,0,0" VerticalAlignment="Center">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><StackPanel Spacing="4"/></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Ellipse Classes="status-dot"
+                                 Classes.success="{Binding IsDone}"
+                                 Classes.accent="{Binding IsCurrent}"
+                                 Opacity="{Binding Opacity}"
+                                 ToolTip.Tip="{Binding Label}"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
         </Grid>
     </Border>
 </UserControl>

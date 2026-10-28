@@ -1,0 +1,46 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:setup="clr-namespace:SLSKDONET.ViewModels.Setup"
+             mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
+             x:Class="SLSKDONET.Views.Avalonia.Setup.TourOverlay"
+             x:DataType="setup:QuickTourViewModel"
+             x:CompileBindings="True"
+             Focusable="True">
+
+    <!--
+      Quick tour coach marks. The four scrim rectangles leave a hole over the highlighted
+      navigation item; positions come from the real control bounds (code-behind), so the tour
+      follows sidebar resize / collapse. Esc skips, Enter or Right = Next, Left = Back.
+    -->
+
+    <Canvas x:Name="Root" Background="Transparent">
+        <Rectangle x:Name="ScrimTop" Fill="{StaticResource BrushScrim}"/>
+        <Rectangle x:Name="ScrimBottom" Fill="{StaticResource BrushScrim}"/>
+        <Rectangle x:Name="ScrimLeft" Fill="{StaticResource BrushScrim}"/>
+        <Rectangle x:Name="ScrimRight" Fill="{StaticResource BrushScrim}"/>
+
+        <Border x:Name="Highlight"
+                BorderBrush="{StaticResource BrushAccent}" BorderThickness="2"
+                CornerRadius="{StaticResource RadiusMd}" IsHitTestVisible="False"/>
+
+        <Border x:Name="Card" Classes="dialog" Width="320" Padding="16">
+            <StackPanel Spacing="8">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="section" Text="QUICK TOUR" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Classes="caption mono" Text="{Binding PositionText}" VerticalAlignment="Center"/>
+                </Grid>
+                <TextBlock Classes="h3" Text="{Binding Title}"/>
+                <TextBlock Classes="body-sm" Foreground="{StaticResource BrushText1}" Text="{Binding Body}" TextWrapping="Wrap"/>
+                <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
+                    <Button Classes="ghost small" Content="Skip tour" Command="{Binding SkipCommand}"
+                            ToolTip.Tip="Close the tour (Esc). Settings → Advanced → Setup starts it again."/>
+                    <Button Grid.Column="1" Classes="secondary small" Content="Back" Margin="0,0,8,0"
+                            Command="{Binding BackCommand}" IsVisible="{Binding !IsFirst}"/>
+                    <Button Grid.Column="2" Classes="primary small" Content="{Binding NextLabel}" Command="{Binding NextCommand}"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+    </Canvas>
+</UserControl>

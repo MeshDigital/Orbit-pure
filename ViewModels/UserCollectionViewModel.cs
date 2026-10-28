@@ -8,15 +8,13 @@ using Microsoft.Extensions.Logging;
 using ReactiveUI;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
 public class UserCollectionViewModel : ReactiveObject
 {
-    private static readonly HashSet<string> MusicExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "aif", "aiff", "ape", "alac", "wma"
-    };
+    private static IReadOnlySet<string> MusicExtensions => SLSKDONET.Services.Audio.AudioFormats.AllTokens; // bare tokens ("aiff"), Soulseek shares
 
     private readonly List<Track> _allShares = new();
 
@@ -397,7 +395,10 @@ public abstract class UserCollectionNodeViewModel : ReactiveObject
 
     public string Name { get; }
     public virtual string DisplayName => Name;
-    public virtual string Icon => "📄";
+    // Node kind for the share tree's PathIcon (folder / music file / other file).
+    public virtual bool IsFolder => false;
+    public virtual bool IsMusic => false;
+    public bool IsPlainFile => !IsFolder && !IsMusic;
     public virtual string SecondaryText => string.Empty;
     public virtual string WarningText => string.Empty;
     public virtual bool HasWarning => !string.IsNullOrWhiteSpace(WarningText);
@@ -415,7 +416,7 @@ public sealed class UserCollectionFolderNodeViewModel : UserCollectionNodeViewMo
 
     public ObservableCollection<UserCollectionNodeViewModel> ChildNodes { get; } = new();
     public override IEnumerable<UserCollectionNodeViewModel> Children => ChildNodes;
-    public override string Icon => "📁";
+    public override bool IsFolder => true;
     public override string SecondaryText => QueueableFileCount > 0 ? $"{QueueableFileCount} track(s)" : "Folder";
 
     public override IEnumerable<UserCollectionFileNodeViewModel> EnumerateAllFiles()
@@ -439,7 +440,7 @@ public sealed class UserCollectionFileNodeViewModel : UserCollectionNodeViewMode
     public int Bitrate => Track.Bitrate;
     public bool IsSuspiciousLossless => false;
 
-    public override string Icon => (IsMusicFile ? "🎵" : "📄");
+    public override bool IsMusic => IsMusicFile;
     public override string SecondaryText
     {
         get
@@ -447,7 +448,7 @@ public sealed class UserCollectionFileNodeViewModel : UserCollectionNodeViewMode
             var parts = new List<string>();
             if (!string.IsNullOrWhiteSpace(Extension)) parts.Add(Extension);
             if (Bitrate > 0) parts.Add($"{Bitrate} kbps");
-            if (Track.SampleRate.HasValue) parts.Add($"{Track.SampleRate.Value / 1000.0:F1} kHz");
+            if (Track.SampleRate.HasValue) parts.Add(NumFormat.Ui($"{Track.SampleRate.Value / 1000.0:F1} kHz"));
             return string.Join(" • ", parts);
         }
     }

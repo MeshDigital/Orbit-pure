@@ -2,6 +2,258 @@
 
 ---
 
+## [0.10.0-alpha] — 2026-10-24
+
+A large hardening release: a single design system across the whole app, rebuilt core pages, new DJ tools,
+a first-run setup, and a long list of "built but never wired" bugs fixed. Expect rough edges; most of it
+is new.
+
+### 🎨 One design system, every page redone
+- **One look.** Colours, spacing, type, buttons, chips, cards and icons come from one design system
+  (`DOCS/UI_DESIGN_SYSTEM.md`). Hard-coded colours in views went from 3,106 to **0**, and emoji icons are gone.
+- **Rebuilt pages:** Download Center, Search, Library (page, sidebar and track inspector), Cue Forge, Flow
+  Builder, Workstation, Settings, Import, Analysis, Users/chat, the player, the dialogs and the Dashboard.
+  Each has one header, one toolbar row, filters as one chip strip, overflow menus for secondary actions, and
+  designed empty, loading and error states.
+- **Numbers read the same everywhere:** "174.0", "3,267", "22.1 s" regardless of your Windows region. Number
+  fields accept both "174,5" and "174.5".
+
+### 🧪 New: Edit Lab (stem-based DJ edits)
+Layer stems from any number of tracks on a bar grid, such as B's vocal over A's drums for a custom intro.
+Auto tempo/key matching can be switched off and overridden per clip. There are templates (custom intro,
+acapella, instrumental, bassline swap, extended intro), live preview, and rendering to WAV/FLAC as a new
+library track. Open it from the sidebar or from **Open in Edit Lab** on any track.
+
+### 🎛️ Cue Forge and Flow Builder
+- **One cue editor** powers both, so Flow Builder's "Edit cues" gets drag, snap, rename, colours, pads A–H,
+  loops and undo.
+- **Intro end / Outro markers** (Shift+I / Shift+O, or **Use suggestion** from the phrase analysis), shown as
+  shaded regions and exported to Rekordbox. The auto plan mixes inside them.
+- **Click any cue flag to prelisten** from that point; click again or press Space to stop.
+- **Flow Builder is now a transition designer:** pick an A→B pair, choose mix points and length, and see both
+  tracks **overlaid** on one tempo-matched timeline. Drag B to shift the mix-in, preview with a lead-in, and save.
+- Cue Forge: smooth zoom/scrub, a precise beat grid, keyboard transport, and auto-save before switching tracks.
+  Forced Drop 1 / Drop 2 moved to **Shift+1 / Shift+2**, because 1–8 now trigger pads.
+
+### 🚀 First-run setup
+New installs get a skippable wizard: Soulseek sign-in with a real connection test, folders (downloads, library,
+sharing, Edit Lab output), Spotify, metadata sources, and audio/analysis. A quick tour of the main pages
+follows. You can run both again from Settings → Advanced. Existing installs never see the wizard unasked.
+`ORBIT.exe --setup-preview` runs it in a throwaway profile.
+
+### 📚 Library import and metadata
+- **Guided folder import:** phases with live counts, then a summary with **Analyse N new tracks**. It can run
+  in the background. Track names appear immediately, with no more "Loading…" rows.
+- **AIFF / AIF / AIFF-C fully supported** (import, tags, playback, analysis, search filter, Rekordbox export).
+  One shared format table replaces five hand-written lists.
+- **Multi-source enrichment** for covers, album, label, year and genre: file tags → Deezer → MusicBrainz +
+  Cover Art Archive → Discogs (token) → AcoustID (key + fpcalc) → Spotify (when connected). Each source has its
+  own rate limit, the queue resumes, and lookups are cached. BPM, key and energy always come from ORBIT's own
+  analysis, and your edits are never overwritten. Folder-imported tracks were never enriched before.
+- **Real loudness:** analysis now measures EBU R128 integrated loudness. The old "0.8 LUFS" value was a 0–1
+  score, and it made loudness normalisation turn analysed tracks down by about 15 dB. **Measure loudness**
+  (Analysis page) fills in tracks analysed before this release.
+- **Spotify import flow:** the commit button lights up when it should, playlist tiles and Sync work, merging
+  keeps your playlist's name, re-imports don't duplicate owned tracks, and duplicates get an "update instead"
+  suggestion.
+
+### 🪟 Windows integration
+- **Tray icon:** a sharp icon, left-click to show/hide, a live tooltip (playing / downloads), and a grouped menu.
+- **Taskbar button:** Previous / Play-Pause / Next on hover, and download progress on the taskbar.
+- New setting: **Close button minimises to tray** (on by default).
+
+### 🐞 Notable fixes
+- **New installs had a broken database** (13 missing columns). A startup reconciliation adds anything missing
+  without touching existing data, and a permanent test guards fresh installs.
+- **Fullscreen visuals** no longer snap back to Ambient after a few seconds.
+- **config.ini** saves are serialised and atomic (no more "file in use" errors, no truncated config).
+- **Dashboard "Failed retries"** was a stale journal count. It now shows real failed downloads and links to them.
+- **Startup:** VACUUM no longer runs on every launch (it froze startup), and backups are WAL-safe and honest.
+- **Dead buttons:** removed or fixed throughout, and guard tests keep dead commands, raw colours, duplicate
+  theme keys and new silent catches out.
+- **Removed:** the never-reachable music-video export, and placeholder "Coming soon" features.
+
+
+## [0.9.3-alpha] — 2026-10-01
+
+### 🎚️ Auto-mix no longer rushes through tracks
+In mix mode, tracks often played for only about a minute before the next one came in. The mix log showed three causes:
+- **Drop Sync was the automatic choice.** It leaves the outgoing track 16 bars before its *second* drop, which cuts the rest of the track.
+  - Auto now picks **Rolling**: the incoming drop lands as the outgoing track's main section ends, about 32 bars after its last drop.
+  - Drop Sync is still available as a preset in the Mix editor.
+- **Duplicate drops.** A hand-set "Drop 1" plus an auto "[DROP 1] ✓AI" two seconds later were read as Drop 1 and Drop 2. Drops within 16 bars of each other now count as one, and your own drop wins.
+- **Broken analysis.** A 4-minute track stored as 3 s was mixed out at 0.7 s. Tracks with an implausible length (under 30 s, or cues past the end) no longer get a structure plan. The old cue fallback can't cut a track before half way either.
+
+On top of that, automatic mixes never start before **half the outgoing track has played**.
+
+### 📋 Playlist view: more tracks on screen
+- **Collapsing header:** scrolling down shrinks the playlist header to a slim bar with ▶, shuffle, name, track count and Discover. Scrolling back to the top restores the full header.
+- **One-line toolbar:** search, status chips, Filters, Text, ＋ Queue (N), Mix and Columns (⚙) share one row instead of three. The track count is in the search placeholder.
+- **Columns fit the space.** Hidden columns no longer keep their width. When the list is narrow, for example with the context panel open, the least important columns step aside in this order: Forensics, Rating, Duration, Format, Energy. They used to be cut off under the panel.
+- **Resizable context panel:** drag its left edge (300 px up to about half the window). The width is remembered; the default is now 400 instead of 450.
+
+### ✨ Discover: queued suggestions download first
+- **First in line:** a queued suggestion (or Top 10) is downloaded before anything else and shows at the top of the Download Center queue.
+- **Clickable popup:** the "Queued for download — first in line" popup opens the Download Center when clicked.
+- **Bump to top fix:** Bump to top didn't actually win against tracks from higher-tier playlists. It now goes first regardless of playlist.
+
+## [0.9.2-alpha] — 2026-09-30
+
+### ◆ One-click drops, with the rest automatic
+Placing a drop used to take several steps, and ORBIT's auto cues stayed on the waveform next to yours. Now one action places the drop and everything around it, in both Cue Forge and the Flow Builder cue editor.
+
+- **Ways to place a drop:**
+  - **◆ Drop**, or key **D**. In the Flow Builder this uses where you're listening; in Cue Forge, the playhead.
+  - Right-click the waveform → **◆ Drop here**.
+  - Keys **1** / **2** force Drop 1 / Drop 2.
+  - Setting a cue's role to Drop does the same.
+- **What happens automatically:**
+  - **Snap:** the drop lands on a bar line (a phrase line with Phrase snapping).
+  - **Numbering:** by position. The earlier drop is Drop 1 and the later one Drop 2. A drop placed within 8 bars of an existing one moves that drop.
+  - **Build-in cues** before the drop, from the cue template.
+  - **Standard pads, names and colours**, so CDJ and controller displays show phrase context:
+
+    | Pads | Cues | Colours |
+    |---|---|---|
+    | A B C | [IN -16] [IN -8] [DROP 1] | orange / red-orange |
+    | D E F | [IN -16] [IN -8] [DROP 2] | purple / cyan |
+    | G | [OUT], 32 bars after the last drop, at least 16 bars before the end | red |
+    | H | free for loops | |
+
+  - **Auto cues removed:** the analysis' own cues leave the waveform, and the track once saved. The same happens when you add a cue or move an auto cue. Undo brings them back.
+- **Linked cues:**
+  - Dragging or nudging a drop moves its build-in cues along.
+  - A build-in cue you moved or renamed yourself is unlinked and stays put.
+  - [OUT] follows the last drop until you move it.
+  - Deleting a drop removes its build-in cues.
+
+### 🎚️ Cue templates
+One setting, **Cue template**, in both editors. It is used for drops you place and for automatic cue generation.
+- **DnB / Bass:** −16 −8. Also used for hardstyle and techno.
+- **Long Blend / House:** −32 −16. For house, tech house and trance.
+- **Quick Mix / Hip-Hop:** −8 −4. For hip-hop, pop and R&B.
+- **Custom:** type the bars, e.g. `32,16,8`.
+- **Off:** no build-in cues.
+- **Auto:** picks one of the above from the track's genre. The editor shows which one it picked.
+
+The old "Drop countdown" setting carries over; values like `16,8` become Custom.
+
+### 🤖 Automatic cues use the same layout
+- Generated cues now use the template, the [IN]/[DROP]/[OUT] names and the pad layout above.
+- [OUT] is the detected outro when it leaves 16 bars to mix out. Otherwise it is 32 bars after the last drop, the same point the mix planner mixes out from.
+- Background re-analysis no longer adds auto cues back to a track where you have placed drops yourself. **Regenerate Cues** still does, when you ask for it.
+- Existing cues named "Drop 1" or "16 Bars to Drop 1" are still recognised.
+
+## [0.9.1-alpha] — 2026-09-29
+
+### 🎚️ Mixes planned from the music's structure
+Auto transitions used to start at a single "Outro" cue. Auto-analysis places that cue 0–21 s before the end, which leaves no room for an 8–16-bar blend.
+- **Intro and outro sections (Mixxx style):**
+  - The intro runs from the first downbeat to Drop 1.
+  - The outro starts 32 bars after the last drop and ends at the last audible second.
+  - A transition fits inside both sections.
+- **Whole phrases:** every transition is 8, 16 or 32 bars and starts on a bar line.
+- **Three DnB transition types**, chosen from energy, key compatibility and tempo:
+  - **Rolling:** the incoming drop lands exactly as the outgoing track's main section ends.
+  - **Drop Sync:** both drops land together.
+  - **Relaxed:** outro into intro.
+  - Rolling and Drop Sync swap the bassline in one step, on the drop.
+- **Vocal clashes avoided:** when two vocals would overlap, the planner picks another transition type.
+- **Tempo matching:** the incoming track is sped up or slowed to the outgoing track's tempo, up to 6%. Half-time and double-time readings count as the same tempo.
+- **Tighter mix start:** the start of the mix no longer drifts up to 50 ms late.
+- **Mix editor:** it shows the same plan real playback uses. Choosing Rolling, Relaxed or Drop Sync moves the mix points to where that transition belongs, and 32 bars is a new length option.
+
+### 🤖 CUE-DETR cue detection, to compare for yourself
+- CUE-DETR (ETH DISCO, MIT licence) now runs inside ORBIT. It is a vision model that looks at a spectrogram and marks where a DJ would put cues.
+- The port is checked against the original Python code and produces identical cues on a real track. The model adds about 167 MB to the installer.
+- **Regenerate Cues** is now a submenu, in the library's right-click menu and in the Flow Builder cue strip:
+  - **ORBIT analysis:** ORBIT's normal cues.
+  - **ORBIT + CUE-DETR (compare):** ORBIT's cues, with **✓AI** added where the model agrees. The model's other points are added as cyan **AI** cues.
+  - **CUE-DETR only:** just the model's points.
+- It takes about 10–13 s per track the first time. Results are saved, so switching modes afterwards is instant.
+- Measured on 68 tracks of hand-placed DJ cues:
+  - ORBIT's own cues beat CUE-DETR on its own: 30% vs 23% within a bar. Snapping the model's points to the bar or phrase grid doesn't help.
+  - When the two agree, the cue matched a DJ cue 52% of the time, against 23% for the rest. The compare mode shows exactly that.
+
+### ◆ Simpler drops in the Flow Builder
+- **◆ Drop here** in the transition editor's cue strip: click the waveform on the drop, then click this. It places the Drop and its countdown cues in one step.
+- **Your drop clears the auto cues:** when you set a drop yourself, or move an auto-detected one, the other auto-generated cues are cleared so the waveform stays readable. This works in Cue Forge too, and undo brings them back.
+- **Mix points follow:** after you save or regenerate a deck's cues, the transition is re-planned from them.
+
+### 🏷️ Serato cue tags
+- **Write Cues to Serato Tags** in the library's right-click menu. It writes your cues into the audio file as Serato Markers2, the tag Serato DJ and Mixxx read. This works for MP3, FLAC, AIFF, WAV, Ogg and Opus.
+  - **Keep Serato's** adds ORBIT's cues in free slots and leaves cues you set in Serato alone.
+  - **Replace** swaps them out, after a confirmation.
+  - Track colour, BPM lock and flips are always kept.
+- Serato's cue import could never read real Serato cues (it assumed a different binary layout). It now uses the same parser as the export.
+
+### 🔊 Playback fixes
+- **Volume:** it jumped to 100% at each track change. ORBIT was setting the Windows master volume of the output device; it now only changes its own level.
+- **Output device:** choosing a device in Settings now works, and switches live. If a device is unavailable, ORBIT falls back to the Windows default.
+- **Tracks Windows can't decode:** about 3.5% of one test library, some FLAC/Opus/Ogg files, showed no waveform or simply stopped. They are now decoded once with ffmpeg and cached.
+- **Mix queues:**
+  - A mix no longer stops when it reaches a missing file; missing files are skipped.
+  - Transitions are set up for tracks further down the list, not just the first 50.
+  - A track that ended mid-crossfade no longer stalls the next one.
+
+### 🛠 Other
+- AI cue labels always use a dot for decimals (for example "AI 0.93"), because labels go into Rekordbox and Serato exports.
+- Fixed a random test failure. A test left ReactiveUI pointing at a scheduler it had disposed, and later tests tripped over it depending on run order.
+- **Cue benchmark:** `Tests/CueBenchmark --cue-detr <cache.json>` scores CUE-DETR against the reference cues.
+
+## [0.9.0-alpha] — 2026-09-29
+
+### 🎯 Beat grids that match the music
+ORBIT's grid was no better than chance against a DJ's Rekordbox cues (52% of hand cues on a beat, 14% on a bar line). Stored BPMs were whole-number histogram bins, and DnB half-time readings were rounded before doubling, so a real 174 BPM track was stored as 178.
+- `BeatGridFitter` fits tempo and phase to the beat tracker's ticks (a consensus search, then least squares on the ticks that agree) and picks the downbeat from sub-bass returns and dropouts.
+- `BpmDetectionService` keeps Essentia's exact BPM instead of the rounded histogram value.
+- Rekordbox's own PQTZ beat grid is adopted when ORBIT's ticks line up with it.
+- A one-time background pass re-fitted the library, with a database backup first: 3,528 tracks updated, 538 of them from Rekordbox's grid.
+- Measured on hand cues: on-beat 52% → 92%, on-bar 14% → 77%, BPM within 0.1 of Rekordbox 5% → 86–91%.
+
+### 🎛️ Flow Builder becomes a mix & cue workspace
+- Edit cues in place in the transition editor: drag with snapping, add, rename, role, pad, colour, loop, nudge, undo, "use as mix point". Edits auto-save.
+- Previous / Next transition and a mini strip of the set.
+- Playlist Play starts at the selected track; with Mix on, Play Track continues the mix from that track.
+
+### ✨ Playlist Discover
+- New **Discover** sidepanel tab, opened from a playlist's header. It suggests tracks to add from Beatport (new releases by the playlist's artists, the genre top 100) and Deezer (related artists).
+- Suggestions are ranked by BPM, key and genre fit. Tracks you already own are hidden. When Beatport and Deezer both suggest a track, it gets a ★ and a ranking boost. The best Deezer-only finds are looked up on Beatport to fill in BPM, key and genre.
+- Actions per suggestion: preview clip; **Queue** (adds it to the playlist as a missing track and starts the Soulseek download); a Soulseek search; open on Beatport to buy. **Top 10** queues the best ten.
+- Beatport's public pages sit behind Cloudflare, which blocks .NET's HTTP client, so they are fetched with Windows' built-in curl.exe. Beatport and Deezer can each be switched off in the panel.
+- Suggestions are saved per playlist and show instantly, even after a restart; anything downloaded or queued since is removed. They are re-evaluated in the background only when the playlist changed a lot (about 20% of tracks, or 10+) or after 14 days. Hidden (✕) suggestions stay hidden.
+- "Already owned" covers the library and every playlist (including queued and missing tracks) and handles the library's naming styles: "Title - Original Mix", joint "A & B" credits, "(SOTA Extended Mix)" = "(SOTA Remix)". Checked against the real library.
+
+### 🎆 Fullscreen player and visualizer
+- The fullscreen player is rebuilt: full-screen visualizer, large artwork with BPM / key / energy, track position in the queue, and a MIXING indicator during crossfades.
+- **Up Next** column shows the whole queue with the playing track highlighted and played tracks dimmed; it scrolls to the current track. The sidepanel and Now Playing queues mark the playing track too.
+- Visualizer: runs at display frame rate, bass-to-treble log bands with auto-gain and peak caps, a real oscilloscope and phase scope, and correct colours (they were near-black). Fixed per-frame native memory leaks and render-thread races. The spectrum is now computed from a mono mix; it used to FFT interleaved stereo, which scrambled every visualizer.
+- Seek bar works while dragging; controls fade when the mouse is idle; borderless fullscreen (⛶ / F); keyboard: Space, ← →, Shift+← →, ↑ ↓, M, V, Q, Esc.
+
+### ▶ Always-visible playback controls
+- Previous / Play-Pause / Next and the current track sit in the top bar on every page, with a button for the fullscreen player. In Zen mode a floating play/pause button stays on screen.
+
+### ⏱ Drop countdowns and fine-tuning by ear
+- Setting or moving a Drop places 32/16/8-bar countdown cues before it. Auto picks by genre; configurable or off.
+- Arrow keys fine-tune the selected cue (beat / Shift bar / Ctrl 10 ms) and replay from it on every press. A playing mix waits until the cues are saved.
+
+### 🛠 Fixes
+- About 12 warning and error toasts that never appeared now show.
+- Download Center "Find Similar" works, and "Search Again" really searches again.
+- Settings Save confirms, and failed saves are reported.
+- Second-drop detection now follows the breakdown after Drop 1.
+- The aggressive-mood signal is no longer always zero.
+- Removed an unbound delete-without-confirmation command and an unused silent mock-stem service.
+- Fixed a startup crash from a cue-strip binding.
+- Removed EDMFormer, the optional Python phrase-detection service. It was never installed, and Rekordbox phrase data plus the built-in analysis already cover its job. The Settings "AI Engine" card and install scripts are gone.
+- Found and fixed the real cause of the random test-suite failures: a test replaced the app-wide ReactiveUI scheduler and disposed it without restoring the original.
+- **FLAC seeking:** clicking a waveform in the Mix editor always played FLAC tracks from the start, and Mix transitions started incoming FLAC tracks at 0:00 instead of their mix-in point. Windows Media Foundation drops a seek made before the first read and lands up to ~0.9 s off after. Seeks on FLAC/M4A are now sample-exact (preview, Mix preload, Now Playing, Cue Forge).
+- **Soulseek sharing:** the server was told you share 5 folders (the number of share roots) — leech-detection scripts read that as a tiny share. It now reports the real counts (e.g. 115 folders / 3,403 files) and updates them when the share changes. Only music files are shared (in-progress `.part` / `.incomplete` downloads were shared before), and peers see short folder names instead of full Windows paths.
+- Tests now use their own throwaway database; some used to write to the real library, which left test folders shared on Soulseek.
+
+### 📋 Open work
+All open items now live in `DOCS/OPEN_WORK_PLAN_2026-09-27.md`. Stale plan files moved to `DOCS/archive/plans/`.
+
 ## [0.7.1-beta] — 2026-08-04
 
 ### 🧠 Real genre/mood/embedding AI — replacing a silently-dead Essentia layer
@@ -1673,7 +1925,6 @@ The three retired standalone pages have been relocated to `Views/Avalonia/Legacy
 | File | Purpose |
 |---|---|
 | `Views/Avalonia/Controls/SparklineControl.cs` | Lightweight Avalonia `Control` that renders a normalised float array as a filled sparkline polyline. Used by Flow Builder track cards (`EnergyCurvePoints`). |
-| `Views/Avalonia/Controls/PlaylistMergeDialog.axaml/.cs` | Dialog for merging two playlists with conflict-resolution options. |
 
 ---
 

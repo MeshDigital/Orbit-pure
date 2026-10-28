@@ -21,6 +21,12 @@ public record LibraryIntelligenceStats(
     Dictionary<string, int> KeyCounts,
     int[] EnergyBuckets);
 
+/// <summary>Rolling-window download outcome summary for the Dashboard's "Last N Days" tile.</summary>
+public record DownloadTrendSummary(int Days, int CompletedCount, int FailedCount, double Mp3FallbackPercent)
+{
+    public int TotalCount => CompletedCount + FailedCount;
+}
+
 /// <summary>
 /// Aggregates library health metrics for the dashboard/mission control.
 /// 
@@ -86,13 +92,14 @@ public class DashboardService
             // - Bit-perfect digital copy (1411 kbps uncompressed equivalent)
             // - No generational loss if re-encoded
             // - Archival quality: 5-10 MB/minute storage cost
-            var goldTracks = await context.LibraryEntries.CountAsync(t => t.Format.ToLower() == "flac" || t.Format.ToLower() == "wav");
+            var lossless = SLSKDONET.Services.Audio.AudioFormats.LosslessTokens.ToArray(); // FLAC, WAV, AIFF...
+            var goldTracks = await context.LibraryEntries.CountAsync(t => t.Format != null && lossless.Contains(t.Format.ToLower()));
             
             // SILVER: High-bitrate lossy (320kbps MP3)
             // - "Transparent" encoding: blind tests show <5% can distinguish from lossless
             // - Practical quality: sounds perfect on 99% of systems
             // - Efficient: ~2.5 MB/minute storage
-            var silverTracks = await context.LibraryEntries.CountAsync(t => t.Bitrate >= 320 && t.Format.ToLower() != "flac" && t.Format.ToLower() != "wav");
+            var silverTracks = await context.LibraryEntries.CountAsync(t => t.Bitrate >= 320 && (t.Format == null || !lossless.Contains(t.Format.ToLower())));
             
             // BRONZE: Acceptable lossy (<320kbps)
             // - Audible compression on critical listening (cymbals, vocals)
@@ -121,8 +128,9 @@ public class DashboardService
             // Calculate top genres (Simplified aggregation)
             var genreCounts = context.PlaylistTracks
                 .Where(t => !string.IsNullOrEmpty(t.Genres))
+                .Select(t => t.Genres) // Only the one column needs to leave the DB, not full track rows
                 .AsEnumerable() // Pull into memory for JSON parsing
-                .SelectMany(t => (t.Genres ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                .SelectMany(g => (g ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 .GroupBy(g => g)
                 .Select(g => new { Genre = g.Key, Count = g.Count() })
                 .OrderByDescending(g => g.Count)
@@ -223,25 +231,53 @@ public class DashboardService
                 
             // For better accuracy on dashboard, we can refresh counts from the track table
             // though this might be slower. Let's do it for the recent ones.
+            var playlistIds = entities.Select(e => e.Id).ToList();
+
+            // One aggregate query for total/downloaded counts across all playlists, instead of
+            // 2 CountAsync round-trips per playlist.
+            var countsByPlaylist = await context.PlaylistTracks
+                .Where(t => playlistIds.Contains(t.PlaylistId))
+                .GroupBy(t => t.PlaylistId)
+                .Select(g => new
+                {
+                    PlaylistId = g.Key,
+                    Total = g.Count(),
+                    Downloaded = g.Count(t => t.Status == TrackStatus.Downloaded)
+                })
+                .ToDictionaryAsync(g => g.PlaylistId);
+
+            // Most playlists have no dedicated cover (AlbumArtUrl), only their tracks do — fetch
+            // distinct track art URLs for all of them in one round-trip instead of one query per
+            // playlist, then take the first few per playlist in memory.
+            var missingArtIds = entities.Where(e => string.IsNullOrEmpty(e.AlbumArtUrl)).Select(e => e.Id).ToList();
+            var artUrlsByPlaylist = missingArtIds.Count == 0
+                ? new Dictionary<Guid, List<string>>()
+                : (await context.PlaylistTracks
+                    .Where(t => missingArtIds.Contains(t.PlaylistId) && t.AlbumArtUrl != null && t.AlbumArtUrl != "")
+                    .Select(t => new { t.PlaylistId, t.AlbumArtUrl })
+                    .Distinct()
+                    .ToListAsync())
+                    .GroupBy(t => t.PlaylistId)
+                    .ToDictionary(g => g.Key, g => g.Select(t => t.AlbumArtUrl).Take(4).ToList());
+
             var models = new List<PlaylistJob>();
             foreach (var entity in entities)
             {
                 var model = MapToModel(entity);
-                // Dynamically fetch counts to ensure dashboard is 100% accurate
-                model.SuccessfulCount = await context.PlaylistTracks.CountAsync(t => t.PlaylistId == entity.Id && t.Status == TrackStatus.Downloaded);
-                model.TotalTracks = await context.PlaylistTracks.CountAsync(t => t.PlaylistId == entity.Id);
 
-                // Most playlists have no dedicated cover (AlbumArtUrl), only their tracks do —
-                // fetch a few distinct track art URLs so the dashboard card can build a mosaic.
-                if (string.IsNullOrEmpty(model.AlbumArtUrl))
+                if (countsByPlaylist.TryGetValue(entity.Id, out var counts))
                 {
-                    var trackArtUrls = await context.PlaylistTracks
-                        .Where(t => t.PlaylistId == entity.Id && t.AlbumArtUrl != null && t.AlbumArtUrl != "")
-                        .Select(t => t.AlbumArtUrl)
-                        .Distinct()
-                        .Take(4)
-                        .ToListAsync();
+                    model.SuccessfulCount = counts.Downloaded;
+                    model.TotalTracks = counts.Total;
+                }
+                else
+                {
+                    model.SuccessfulCount = 0;
+                    model.TotalTracks = 0;
+                }
 
+                if (string.IsNullOrEmpty(model.AlbumArtUrl) && artUrlsByPlaylist.TryGetValue(entity.Id, out var trackArtUrls))
+                {
                     model.PlaylistTracks = trackArtUrls
                         .Select(url => new PlaylistTrack { PlaylistId = entity.Id, AlbumArtUrl = url })
                         .ToList();
@@ -281,26 +317,96 @@ public class DashboardService
         }
     }
 
-    public async Task<int> GetIncompleteAnalysisTrackCountAsync()
+    /// <summary>
+    /// Aggregates DownloadHistoryEntity (rich per-attempt telemetry already persisted, but
+    /// previously only ever read back for per-track history lookups) into a small "Last N Days"
+    /// trend for the dashboard: completed/failed counts and how often MP3 fallback was needed.
+    /// One GroupBy query, not per-row — same aggregate-query pattern as GetRecentPlaylistsAsync.
+    /// </summary>
+    public async Task<DownloadTrendSummary> GetDownloadTrendAsync(int days = 7)
     {
         try
         {
             using var context = new AppDbContext();
+            var since = DateTime.UtcNow.AddDays(-days);
 
-            var tracks = await context.PlaylistTracks
+            var rows = await context.DownloadHistory
                 .AsNoTracking()
-                .Include(t => t.TechnicalDetails)
-                .Where(t => t.Status == TrackStatus.Downloaded)
-                .ToListAsync();
-
-            return tracks.Count(track =>
-            {
-                if (string.IsNullOrWhiteSpace(track.TrackUniqueHash))
+                .Where(h => h.RecordedAt >= since)
+                .GroupBy(h => 1)
+                .Select(g => new
                 {
-                    return false;
-                }
+                    Completed = g.Count(h => h.FinalState == "Completed"),
+                    Failed = g.Count(h => h.FinalState == "Failed"),
+                    Total = g.Count(),
+                    Mp3FallbackCount = g.Count(h => h.UsedMp3Fallback)
+                })
+                .FirstOrDefaultAsync();
 
-                if (string.IsNullOrWhiteSpace(track.ResolvedFilePath) || !File.Exists(track.ResolvedFilePath))
+            if (rows == null || rows.Total == 0)
+            {
+                return new DownloadTrendSummary(days, 0, 0, 0.0);
+            }
+
+            var fallbackPercent = rows.Total > 0 ? (double)rows.Mp3FallbackCount / rows.Total * 100.0 : 0.0;
+            return new DownloadTrendSummary(days, rows.Completed, rows.Failed, fallbackPercent);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to compute download trend summary");
+            return new DownloadTrendSummary(days, 0, 0, 0.0);
+        }
+    }
+
+    public async Task<int> GetIncompleteAnalysisTrackCountAsync()
+    {
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            using var context = new AppDbContext();
+
+            // Project down to scalar columns instead of Include()-ing the full TechnicalDetails/
+            // AudioFeatures rows — the latter carries AudioFeaturesEntity.WaveformBlob, a raw byte
+            // array that was being pulled into memory for every downloaded track (thousands of
+            // them) just to read its .Length. WaveformBlobSampleCount is the same "has waveform
+            // data" signal as a plain int column, so the blob bytes never need to leave the DB.
+            var candidates = await context.PlaylistTracks
+                .AsNoTracking()
+                .Where(t => t.Status == TrackStatus.Downloaded)
+                .Select(t => new
+                {
+                    t.TrackUniqueHash,
+                    t.ResolvedFilePath,
+                    t.BPM,
+                    t.MusicalKey,
+                    t.CuePointsJson,
+                    TechnicalCuePointsJson = t.TechnicalDetails != null ? t.TechnicalDetails.CuePointsJson : null,
+                    WaveformSampleCount = t.AudioFeatures != null ? t.AudioFeatures.WaveformBlobSampleCount : 0,
+                })
+                .ToListAsync();
+            var queryMs = sw.ElapsedMilliseconds;
+
+            // The current cue pipeline writes the real CuePoints table (keyed by track hash), not
+            // the legacy CuePointsJson blobs, which it no longer populates — checking only those
+            // flagged nearly every track "missing cues" (the dashboard showed more incomplete
+            // tracks than the whole library). The legacy blobs still count for older tracks.
+            var hashesWithCues = (await context.CuePoints
+                    .AsNoTracking()
+                    .Select(c => c.TrackUniqueHash)
+                    .Distinct()
+                    .ToListAsync())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var cuesMs = sw.ElapsedMilliseconds - queryMs;
+            int fileChecks = 0;
+
+            // The same track appears once per playlist it's in — count each track once.
+            var result = candidates
+                .Where(t => !string.IsNullOrWhiteSpace(t.TrackUniqueHash))
+                .GroupBy(t => t.TrackUniqueHash, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t.ResolvedFilePath)) ?? g.First())
+                .Count(track =>
+            {
+                if (string.IsNullOrWhiteSpace(track.ResolvedFilePath))
                 {
                     return false;
                 }
@@ -308,18 +414,29 @@ public class DashboardService
                 var hasBpm = (track.BPM ?? 0) > 0;
                 var hasKey = !string.IsNullOrWhiteSpace(track.MusicalKey);
 
-                var cueJson = string.IsNullOrWhiteSpace(track.TechnicalDetails?.CuePointsJson)
-                    ? track.CuePointsJson
-                    : track.TechnicalDetails!.CuePointsJson;
-                var hasCues = !string.IsNullOrWhiteSpace(cueJson);
+                var hasCues = hashesWithCues.Contains(track.TrackUniqueHash)
+                    || !string.IsNullOrWhiteSpace(track.TechnicalCuePointsJson)
+                    || !string.IsNullOrWhiteSpace(track.CuePointsJson);
 
-                var hasWaveform = (track.TechnicalDetails?.WaveformData?.Length ?? 0) > 0
-                    || (track.TechnicalDetails?.LowData?.Length ?? 0) > 0
-                    || (track.TechnicalDetails?.MidData?.Length ?? 0) > 0
-                    || (track.TechnicalDetails?.HighData?.Length ?? 0) > 0;
+                // Previously checked TechnicalDetails.WaveformData/LowData/MidData/HighData, which
+                // were dead columns never actually populated by anything — meaning this was always
+                // false and every downloaded track got flagged "incomplete," regardless of real
+                // analysis state. The live waveform data is AudioFeaturesEntity.WaveformBlob.
+                var hasWaveform = track.WaveformSampleCount > 0;
 
-                return !(hasBpm && hasKey && hasCues && hasWaveform);
+                if (hasBpm && hasKey && hasCues && hasWaveform) return false;
+
+                // File.Exists last: it's the only disk hit here, and on a cold boot checking it
+                // for every downloaded track (thousands, across drives) took ~60s. A fully
+                // analysed track is excluded either way, so only the (few) incomplete ones need it.
+                fileChecks++;
+                return File.Exists(track.ResolvedFilePath);
             });
+
+            _logger.LogInformation(
+                "Incomplete analysis count: {Count} (rows {Rows}, query {QueryMs}ms, cue lookup {CuesMs}ms, {FileChecks} file checks, total {TotalMs}ms)",
+                result, candidates.Count, queryMs, cuesMs, fileChecks, sw.ElapsedMilliseconds);
+            return result;
         }
         catch (Exception ex)
         {
@@ -363,10 +480,11 @@ public class DashboardService
 
             var analyzedCount = await liveFeatures.CountAsync(f => f.Bpm > 0);
 
+            var losslessTokens = SLSKDONET.Services.Audio.AudioFormats.LosslessTokens.ToArray();
             var flacCount = await context.LibraryEntries.CountAsync(e =>
-                e.Format != null && (e.Format.ToUpper() == "FLAC" || e.Format.ToUpper() == "WAV" || e.Format.ToUpper() == "AIFF"));
+                e.Format != null && losslessTokens.Contains(e.Format.ToLower()));
             var mp3HqCount = await context.LibraryEntries.CountAsync(e =>
-                e.Bitrate >= 300 && e.Format != null && e.Format.ToUpper() != "FLAC" && e.Format.ToUpper() != "WAV" && e.Format.ToUpper() != "AIFF");
+                e.Bitrate >= 300 && e.Format != null && !losslessTokens.Contains(e.Format.ToLower()));
             var lowQualityCount = Math.Max(0, totalCount - flacCount - mp3HqCount);
 
             var keyCounts = await liveFeatures
@@ -442,13 +560,14 @@ public class DashboardService
             SpotifyKey = entity.SpotifyKey,
             ManualBPM = entity.ManualBPM,
             ManualKey = entity.ManualKey,
+            TagBPM = entity.TagBPM,
             SpectralHash = entity.SpectralHash,
             QualityConfidence = entity.QualityConfidence,
             FrequencyCutoff = entity.FrequencyCutoff,
             IsTrustworthy = entity.IsTrustworthy,
             Integrity = entity.Integrity,
             QualityDetails = entity.QualityDetails,
-            Loudness = entity.Loudness,
+            Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.Loudness),
             TruePeak = entity.TruePeak,
             DynamicRange = entity.DynamicRange,
             Priority = entity.Priority,

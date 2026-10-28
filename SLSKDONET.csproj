@@ -8,9 +8,13 @@
     <Nullable>enable</Nullable>
     <AssemblyName>ORBIT</AssemblyName>
     <RootNamespace>SLSKDONET</RootNamespace>
-    <Version>0.7.1-beta</Version>
+    <Version>0.10.0-alpha</Version>
     <Authors>SLSK_CSV Contributors</Authors>
     <Description>Soulseek batch downloader using Soulseek.NET - Cross-platform with Avalonia UI</Description>
+    <!-- Embeds the icon into the compiled exe itself (Explorer, Alt-Tab, and the taskbar's
+         fallback before Avalonia's own runtime Window.Icon takes over) — previously unset, so
+         the exe showed .NET's generic default icon everywhere. -->
+    <ApplicationIcon>app_icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -136,14 +140,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="tray_icon.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
     <Content Include="app_icon.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+    <!-- Compiled into the assembly so Window.Icon / TrayIcon.Icon can reference them via
+         avares://ORBIT/... in XAML — the root-level PNGs are not picked up by any default
+         AvaloniaResource glob, confirmed by a startup FileNotFoundException without these. -->
+    <AvaloniaResource Include="app_icon.png" />
+    <!-- Multi-resolution (16-256 px) icon for the taskbar button (Window.Icon) and the tray icon. -->
+    <AvaloniaResource Include="app_icon.ico" />
     <Content Include="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
@@ -161,6 +167,7 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <Content Remove="Tools\**\*.cs" />
+    <Content Remove="Tools\cue-detr\**" /><!-- dev scripts that produced models\cue-detr.onnx -->
     <Content Remove="Data\**\*.cs" />
   </ItemGroup>
 

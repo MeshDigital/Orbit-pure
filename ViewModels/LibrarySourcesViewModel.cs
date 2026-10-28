@@ -40,20 +40,15 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
     private readonly IEventBus _eventBus;
     private readonly IDbContextFactory<Data.AppDbContext> _dbFactory;
     private readonly AppConfig _config;
+    private readonly ILibraryImportLauncher _importLauncher;
 
     // Library Folders
     public ObservableCollection<LibraryFolderViewModel> LibraryFolders { get; } = new();
 
-    private string _scanStatus = string.Empty;
-    public string ScanStatus
-    {
-        get => _scanStatus;
-        set => SetProperty(ref _scanStatus, value);
-    }
-
     public ICommand AddLibraryFolderCommand { get; }
     public ICommand RemoveLibraryFolderCommand { get; }
     public ICommand ScanAllLibraryFoldersCommand { get; }
+    public ICommand ToggleWatchCommand { get; }
 
     public LibrarySourcesViewModel(
         ILogger<LibrarySourcesViewModel> logger,
@@ -61,7 +56,8 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
         IFileInteractionService fileInteractionService,
         IEventBus eventBus,
         IDbContextFactory<Data.AppDbContext> dbFactory,
-        AppConfig config)
+        AppConfig config,
+        ILibraryImportLauncher importLauncher)
     {
         _logger = logger;
         _libraryFolderScannerService = libraryFolderScannerService;
@@ -69,10 +65,12 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
         _eventBus = eventBus;
         _dbFactory = dbFactory;
         _config = config;
+        _importLauncher = importLauncher;
 
         AddLibraryFolderCommand = new AsyncRelayCommand(AddLibraryFolderAsync);
         RemoveLibraryFolderCommand = new RelayCommand<LibraryFolderViewModel?>(RemoveLibraryFolder);
         ScanAllLibraryFoldersCommand = new AsyncRelayCommand(ScanAllLibraryFoldersAsync);
+        ToggleWatchCommand = new AsyncRelayCommand<LibraryFolderViewModel?>(ToggleWatchAsync);
 
         // Load existing on init
         _ = LoadLibraryFoldersAsync();
@@ -103,46 +101,37 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private async Task AddLibraryFolderAsync()
+    /// <summary>Folder picker, then the import sheet (registers the folder and imports it).</summary>
+    private Task AddLibraryFolderAsync() => _importLauncher.PickFolderAndStartImportAsync();
+
+    private async Task ToggleWatchAsync(LibraryFolderViewModel? folderVm)
     {
+        if (folderVm == null) return;
+
         try
         {
-            var folderPath = await _fileInteractionService.OpenFolderDialogAsync("Select Library Folder");
-            if (string.IsNullOrEmpty(folderPath)) return;
-
+            var newValue = !folderVm.IsWatched;
             await using var context = _dbFactory.CreateDbContext();
+            var folder = await context.LibraryFolders.FindAsync(folderVm.Id);
+            if (folder == null) return;
 
-            // Check if folder already exists
-            var exists = await context.LibraryFolders.AnyAsync(f => f.FolderPath == folderPath);
-
-            if (exists)
-            {
-                _logger.LogWarning("Folder already added: {Path}", folderPath);
-                return;
-            }
-
-            var folderEntity = new Data.Entities.LibraryFolderEntity
-            {
-                Id = Guid.NewGuid(),
-                FolderPath = folderPath,
-                IsEnabled = true,
-                AddedAt = DateTime.UtcNow
-            };
-
-            context.LibraryFolders.Add(folderEntity);
+            folder.IsWatched = newValue;
             await context.SaveChangesAsync();
 
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-            {
-                LibraryFolders.Add(new LibraryFolderViewModel(folderEntity));
-            });
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => folderVm.IsWatched = newValue);
 
-            _logger.LogInformation("Added library folder: {Path}", folderPath);
+            _logger.LogInformation("Library folder watch {State}: {Path}", newValue ? "enabled" : "disabled", folderVm.FolderPath);
             _eventBus.Publish(new LibraryFoldersChangedEvent());
+
+            // The watcher only sees files that appear from now on. A folder that was never
+            // scanned gets its first, full import through the import sheet (the watcher holds
+            // its own events for that folder until it finishes).
+            if (newValue && folder.LastScannedAt == null)
+                await _importLauncher.StartImportAsync(new[] { folder.Id }, $"Importing {System.IO.Path.GetFileName(folder.FolderPath.TrimEnd('\\', '/'))}");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to add library folder");
+            _logger.LogError(ex, "Failed to toggle folder watch state");
         }
     }
 
@@ -174,12 +163,11 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>"Scan all" opens the import sheet over every enabled Library Source.</summary>
     private async Task ScanAllLibraryFoldersAsync()
     {
         try
         {
-            ScanStatus = "Scanning...";
-
             // Auto-register configured paths so all drives are included even if the
             // user hasn't manually added them via the Library Folders panel.
             if (!string.IsNullOrEmpty(_config.DownloadDirectory))
@@ -188,46 +176,13 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
             if (!string.IsNullOrEmpty(_config.SharedFolderPath) &&
                 !string.Equals(_config.SharedFolderPath, _config.DownloadDirectory, StringComparison.OrdinalIgnoreCase))
                 await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.SharedFolderPath);
-
-            var progress = new Progress<ScanProgress>(p =>
-            {
-                var where = string.IsNullOrWhiteSpace(p.CurrentFile) ? string.Empty : $" | {p.CurrentFile}";
-                ScanStatus = $"Found: {p.FilesDiscovered} | Imported: {p.FilesImported} | Upgraded: {p.FilesAutoUpgraded} | RemoveCands: {p.FilesMarkedForRemoval} | DupPath: {p.FilesDuplicateByPath} | DupTrack: {p.FilesDuplicateByHash} | Skipped: {p.FilesSkipped}{where}";
-            });
-
-            var results = await _libraryFolderScannerService.ScanAllFoldersAsync(progress);
-
-            var totalImported = results.Values.Sum(r => r.FilesImported);
-            var totalSkipped = results.Values.Sum(r => r.FilesSkipped);
-            var totalDupPath = results.Values.Sum(r => r.FilesDuplicateByPath);
-            var totalDupHash = results.Values.Sum(r => r.FilesDuplicateByHash);
-            var totalMetadataFailed = results.Values.Sum(r => r.FilesMetadataFailed);
-            var totalUpgraded = results.Values.Sum(r => r.FilesAutoUpgraded);
-            var totalRemovalCandidates = results.Values.Sum(r => r.FilesMarkedForRemoval);
-
-            ScanStatus = $"✅ Complete! Imported: {totalImported}, Upgraded: {totalUpgraded}, RemoveCands: {totalRemovalCandidates}, DupPath: {totalDupPath}, DupTrack: {totalDupHash}, MetaFail: {totalMetadataFailed}, Skipped: {totalSkipped}";
-
-            _logger.LogInformation(
-                "Library folder scan complete: {Imported} imported, {Upgraded} upgraded, {RemoveCandidates} removal-candidates, {Skipped} skipped, DupPath: {DupPath}, DupHash: {DupHash}, MetaFailed: {MetaFailed}",
-                totalImported,
-                totalUpgraded,
-                totalRemovalCandidates,
-                totalSkipped,
-                totalDupPath,
-                totalDupHash,
-                totalMetadataFailed);
-
-            // Clear status after 5 seconds
-            await Task.Delay(5000);
-            ScanStatus = string.Empty;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to scan library folders");
-            ScanStatus = "❌ Scan failed";
-            await Task.Delay(3000);
-            ScanStatus = string.Empty;
+            _logger.LogWarning(ex, "Could not register the download/shared folders before scanning");
         }
+
+        await _importLauncher.StartImportAsync(null, "Scanning your library folders");
     }
 
     public void Dispose()

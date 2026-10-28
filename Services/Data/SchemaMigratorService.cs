@@ -154,9 +154,9 @@ public class SchemaMigratorService
     {
         try
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var dbPath = System.IO.Path.Combine(appData, "ORBIT", "library.db");
-            var backupDir = System.IO.Path.Combine(appData, "ORBIT", "Backups");
+            var appData = SLSKDONET.Data.OrbitPaths.RoamingRoot;
+            var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
+            var backupDir = LibraryDatabaseMaintenance.GetBackupDirectory(dbPath); // derived from the DB path so ORBIT_DB_PATH (tests) never restores/rotates the real backups
 
             if (!System.IO.File.Exists(dbPath))
             {
@@ -192,7 +192,9 @@ public class SchemaMigratorService
             // but wrap in Task.Run to not block startup significantly if large
             await Task.Run(() =>
             {
-                System.IO.File.Copy(dbPath, backupPath, overwrite: true);
+                // SQLite online backup, not File.Copy: a WAL-mode DB after an unclean shutdown
+                // can hold committed pages in library.db-wal that a plain copy would drop.
+                LibraryDatabaseMaintenance.CreateBackup(dbPath, backupPath);
                 _logger.LogInformation("Database backed up to: {Path}", backupPath);
 
                 // Rotate backups: Keep last 5
@@ -225,13 +227,19 @@ public class SchemaMigratorService
         }
     }
 
+    /// <summary>Marker the Settings "Update Schema" action drops to request a reset on next launch. Lives next to the DB.</summary>
+    public static string ForceResetMarkerPath(string? dbPath = null)
+    {
+        dbPath ??= SLSKDONET.Data.OrbitPaths.LibraryDbPath;
+        return System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(dbPath)) ?? ".", ".force_schema_reset");
+    }
+
     private async Task CheckForForceResetAsync()
     {
         try
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var markerPath = System.IO.Path.Combine(appData, "ORBIT", ".force_schema_reset");
-            var dbPath = System.IO.Path.Combine(appData, "ORBIT", "library.db");
+            var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
+            var markerPath = ForceResetMarkerPath(dbPath);
 
             if (System.IO.File.Exists(markerPath))
             {
@@ -274,8 +282,8 @@ public class SchemaMigratorService
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
         _logger.LogInformation("[{Ms}ms] Database Init: Starting", sw.ElapsedMilliseconds);
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var dbPath = Path.Combine(appData, "ORBIT", "library.db");
+        var appData = SLSKDONET.Data.OrbitPaths.RoamingRoot;
+        var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
 
         // Phase 24: Automatic Database Backup & Recovery
         await CheckForForceResetAsync().ConfigureAwait(false); // Step 1: Check if user requested reset
@@ -290,7 +298,7 @@ public class SchemaMigratorService
             {
                 _logger.LogWarning("Active database is malformed. Attempting recovery from healthy backup before migrations.");
 
-                var backupDir = System.IO.Path.Combine(appData, "ORBIT", "Backups");
+                var backupDir = LibraryDatabaseMaintenance.GetBackupDirectory(dbPath);
                 var restored = await TryRestoreLatestHealthyBackupAsync(backupDir, dbPath).ConfigureAwait(false);
 
                 if (!restored)
@@ -511,6 +519,12 @@ public class SchemaMigratorService
             {
                 context.ConfigureSqliteOptimizations(connection);
                 await ApplySchemaPatchesAsync(context, connection);
+
+                // Safety net behind the migrations and the explicit patches above: whatever the
+                // EF model maps but the database still lacks (a brand-new install was missing 13
+                // columns, 2026-10-19) is added here, additively. See SchemaReconciler.
+                SchemaReconciler.Reconcile(context, connection, _logger);
+                _logger.LogInformation("[{Ms}ms] Database Init: schema reconciliation finished", sw.ElapsedMilliseconds);
             }
         }
 
@@ -1128,6 +1142,14 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // CUE-DETR cue point cache (JSON, nullable = never run)
+            if (!ColumnExists("audio_features", "CueDetrJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding CueDetrJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""CueDetrJson"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
             // Phase 5: VocalDensity for advanced matching transparency
             if (!ColumnExists("audio_features", "VocalDensity"))
             {
@@ -1255,9 +1277,12 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
                 _logger.LogInformation("✅ AnalysisRuns table created successfully");
             }
-            else
+
+            // Patch the table whichever way it was made. This used to be an `else` of the CREATE
+            // above, so a freshly created table (whose CREATE lacks the newer columns) was never
+            // patched — a brand-new install had no BpmConfidence/KeyConfidence/IntegrityScore/
+            // CurrentStage (2026-10-19; SchemaReconciler now also catches this class of drift).
             {
-                // Patch existing table
                 if (!ColumnExists("analysis_runs", "Tier"))
                 {
                     _logger.LogInformation("Patching Schema: Adding Tier to AnalysisRuns...");
@@ -2332,11 +2357,21 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // Trigger rowid alignment: LibraryEntriesFts's implicit rowid must be set explicitly
+            // to LibraryEntries.rowid on every insert/update. Without this, SQLite assigns the FTS
+            // table's rowid from its own independent auto-increment sequence — the two tables'
+            // rowids drift apart (badly, since tbl_lib_au deletes+reinserts on every update), and
+            // `WHERE rowid IN (SELECT rowid FROM LibraryEntriesFts WHERE ... MATCH ...)` — the join
+            // every library search query uses — silently returns whatever LibraryEntries row
+            // happens to currently hold that (unrelated) rowid instead of the actual match. This
+            // was a real, confirmed bug: searching a track title returned a completely different,
+            // unrelated track.
             _logger.LogInformation("Patching Schema: Ensuring LibraryEntriesFts triggers are correct...");
             command.CommandText = @"
                 DROP TRIGGER IF EXISTS tbl_lib_ai;
                 CREATE TRIGGER tbl_lib_ai AFTER INSERT ON LibraryEntries BEGIN
-                    INSERT INTO LibraryEntriesFts(Artist, Title, Album, Key, UniqueHash) VALUES (
+                    INSERT INTO LibraryEntriesFts(rowid, Artist, Title, Album, Key, UniqueHash) VALUES (
+                        new.rowid,
                         new.Artist,
                         new.Title,
                         new.Album,
@@ -2361,13 +2396,14 @@ public class SchemaMigratorService
 
                 DROP TRIGGER IF EXISTS tbl_lib_ad;
                 CREATE TRIGGER tbl_lib_ad AFTER DELETE ON LibraryEntries BEGIN
-                    DELETE FROM LibraryEntriesFts WHERE UniqueHash = old.UniqueHash;
+                    DELETE FROM LibraryEntriesFts WHERE rowid = old.rowid;
                 END;
 
                 DROP TRIGGER IF EXISTS tbl_lib_au;
                 CREATE TRIGGER tbl_lib_au AFTER UPDATE ON LibraryEntries BEGIN
-                    DELETE FROM LibraryEntriesFts WHERE UniqueHash = old.UniqueHash;
-                    INSERT INTO LibraryEntriesFts(Artist, Title, Album, Key, UniqueHash) VALUES (
+                    DELETE FROM LibraryEntriesFts WHERE rowid = old.rowid;
+                    INSERT INTO LibraryEntriesFts(rowid, Artist, Title, Album, Key, UniqueHash) VALUES (
+                        new.rowid,
                         new.Artist,
                         new.Title,
                         new.Album,
@@ -2399,8 +2435,8 @@ public class SchemaMigratorService
             {
                 _logger.LogInformation("Seeding FTS5 library index...");
                 command.CommandText = @"
-                    INSERT INTO LibraryEntriesFts(Artist, Title, Album, Key, UniqueHash)
-                    SELECT Artist, Title, Album,
+                    INSERT INTO LibraryEntriesFts(rowid, Artist, Title, Album, Key, UniqueHash)
+                    SELECT rowid, Artist, Title, Album,
                            COALESCE(MusicalKey, '') || ' ' || (CASE MusicalKey
                             WHEN 'Abm' THEN '1A' WHEN 'G#m' THEN '1A' WHEN 'B' THEN '1B' WHEN 'Cb' THEN '1B'
                             WHEN 'Ebm' THEN '2A' WHEN 'D#m' THEN '2A' WHEN 'F#' THEN '2B' WHEN 'Gb' THEN '2B'
@@ -2419,6 +2455,54 @@ public class SchemaMigratorService
                         UniqueHash FROM LibraryEntries;";
                 await command.ExecuteNonQueryAsync();
                 _logger.LogInformation("✅ Library FTS5 search index seeded successfully.");
+            }
+            else
+            {
+                // Repair pass for an existing index built before the rowid fix above: spot-check
+                // one row's rowid alignment between the two tables (cheap — 1 row) and, if it's
+                // drifted, fully rebuild the index with correct rowid alignment. Self-correcting:
+                // once repaired, this check passes and the rebuild is skipped on future startups.
+                command.CommandText = @"
+                    SELECT le.rowid, fts.rowid
+                    FROM LibraryEntries le
+                    LEFT JOIN LibraryEntriesFts fts ON fts.UniqueHash = le.UniqueHash
+                    LIMIT 1";
+                bool misaligned = false;
+                using (var reader = await command.ExecuteReaderAsync())
+                {
+                    if (await reader.ReadAsync() && !await reader.IsDBNullAsync(1))
+                    {
+                        misaligned = reader.GetInt64(0) != reader.GetInt64(1);
+                    }
+                }
+
+                if (misaligned)
+                {
+                    _logger.LogWarning("LibraryEntriesFts rowid is misaligned with LibraryEntries — full-text search could silently return the wrong track. Rebuilding index with explicit rowid alignment...");
+                    command.CommandText = "DELETE FROM LibraryEntriesFts;";
+                    await command.ExecuteNonQueryAsync();
+                    command.CommandText = @"
+                        INSERT INTO LibraryEntriesFts(rowid, Artist, Title, Album, Key, UniqueHash)
+                        SELECT rowid, Artist, Title, Album,
+                               COALESCE(MusicalKey, '') || ' ' || (CASE MusicalKey
+                                WHEN 'Abm' THEN '1A' WHEN 'G#m' THEN '1A' WHEN 'B' THEN '1B' WHEN 'Cb' THEN '1B'
+                                WHEN 'Ebm' THEN '2A' WHEN 'D#m' THEN '2A' WHEN 'F#' THEN '2B' WHEN 'Gb' THEN '2B'
+                                WHEN 'Bbm' THEN '3A' WHEN 'A#m' THEN '3A' WHEN 'Db' THEN '3B' WHEN 'C#' THEN '3B'
+                                WHEN 'Fm' THEN '4A' WHEN 'Ab' THEN '4B' WHEN 'G#' THEN '4B'
+                                WHEN 'Cm' THEN '5A' WHEN 'Eb' THEN '5B' WHEN 'D#' THEN '5B'
+                                WHEN 'Gm' THEN '6A' WHEN 'Bb' THEN '6B' WHEN 'A#' THEN '6B'
+                                WHEN 'Dm' THEN '7A' WHEN 'F' THEN '7B'
+                                WHEN 'Am' THEN '8A' WHEN 'C' THEN '8B'
+                                WHEN 'Em' THEN '9A' WHEN 'G' THEN '9B'
+                                WHEN 'Bm' THEN '10A' WHEN 'D' THEN '10B'
+                                WHEN 'F#m' THEN '11A' WHEN 'Gbm' THEN '11A' WHEN 'A' THEN '11B'
+                                WHEN 'Dbm' THEN '12A' WHEN 'C#m' THEN '12A' WHEN 'E' THEN '12B'
+                                ELSE ''
+                            END),
+                            UniqueHash FROM LibraryEntries;";
+                    await command.ExecuteNonQueryAsync();
+                    _logger.LogInformation("✅ LibraryEntriesFts rebuilt with correct rowid alignment.");
+                }
             }
 
             // Phase 3: Set-Prep Intelligence tables
@@ -2721,6 +2805,301 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // 24. Structural-stripping breakdown signal (StructuralStrippingEngine) — the
+            // House/Techno-family analogue of SubBassDropoutTimestampsJson/SubBassReturnTimestampsJson
+            // above, but detecting a genuinely different signal shape: full kick+bass transient
+            // *absence* (periodicity check), not just a sub-bass energy-level dropout, since
+            // four-on-the-floor breakdowns often keep a faint bass presence that a pure energy-level
+            // check would misread as "no breakdown here."
+            if (!ColumnExists("audio_features", "StructuralStrippingStartTimestampsJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding structural-stripping columns to audio_features...");
+                command.CommandText = @"
+                    ALTER TABLE ""audio_features"" ADD COLUMN ""StructuralStrippingStartTimestampsJson"" TEXT NOT NULL DEFAULT '[]';
+                    ALTER TABLE ""audio_features"" ADD COLUMN ""StructuralStrippingReturnTimestampsJson"" TEXT NOT NULL DEFAULT '[]';
+                ";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 25. EngineDiagnosticEvents — structured, queryable audit trail for the import/search
+            // pipeline (Engine Diagnostics feature): what a pasted line became, what was searched,
+            // what candidates were evaluated, and why a search did/didn't resolve to a match.
+            if (!TableExists("EngineDiagnosticEvents"))
+            {
+                _logger.LogInformation("Patching Schema: Creating EngineDiagnosticEvents table...");
+                command.CommandText = @"
+                    CREATE TABLE ""EngineDiagnosticEvents"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_EngineDiagnosticEvents"" PRIMARY KEY,
+                        ""TimestampUtc"" TEXT NOT NULL,
+                        ""EventType"" TEXT NOT NULL,
+                        ""TrackHash"" TEXT NULL,
+                        ""PlaylistId"" TEXT NULL,
+                        ""Query"" TEXT NULL,
+                        ""Summary"" TEXT NOT NULL,
+                        ""DetailsJson"" TEXT NULL
+                    );
+                    CREATE INDEX ""IX_EngineDiagnosticEvents_TimestampUtc"" ON ""EngineDiagnosticEvents"" (""TimestampUtc"");
+                    CREATE INDEX ""IX_EngineDiagnosticEvents_EventType"" ON ""EngineDiagnosticEvents"" (""EventType"");
+                    CREATE INDEX ""IX_EngineDiagnosticEvents_PlaylistId"" ON ""EngineDiagnosticEvents"" (""PlaylistId"");
+                ";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 26. Persisted read/unread state for chat — previously in-memory only, so every
+            // restart showed all history as read regardless of what arrived while closed.
+            // DEFAULT 1 backfills existing rows as already-seen, matching that prior behavior.
+            if (!ColumnExists("PrivateMessages", "IsRead"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsRead to PrivateMessages...");
+                command.CommandText = @"ALTER TABLE ""PrivateMessages"" ADD COLUMN ""IsRead"" INTEGER NOT NULL DEFAULT 1;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("RoomMessages", "IsRead"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsRead to RoomMessages...");
+                command.CommandText = @"ALTER TABLE ""RoomMessages"" ADD COLUMN ""IsRead"" INTEGER NOT NULL DEFAULT 1;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 27. Retire TechnicalDetails' dead waveform blob columns — confirmed zero write sites
+            // ever populate real bytes through them (every insert is a bare clone-init with no
+            // waveform fields set). The live waveform path is AudioFeaturesEntity.WaveformBlob,
+            // unpacked on read by LibraryService — these columns were always-empty dead schema.
+            foreach (var deadColumn in new[] { "WaveformData", "RmsData", "LowData", "MidData", "HighData" })
+            {
+                if (ColumnExists("TechnicalDetails", deadColumn))
+                {
+                    _logger.LogInformation("Patching Schema: Dropping dead column TechnicalDetails.{Column}...", deadColumn);
+                    command.CommandText = $"ALTER TABLE \"TechnicalDetails\" DROP COLUMN \"{deadColumn}\";";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            // 28. IX_DownloadHistory_PeerUsername existed only inside the CREATE TABLE branch, so
+            // it was only ever created for a brand-new database — every existing installation's
+            // DownloadHistory table (often tens/hundreds of thousands of rows: one row per download
+            // attempt, not just successes) predates this index and never actually got it. The Users
+            // page's GetDownloadedUsersSummaryAsync GROUP BY on PeerUsername was doing a full table
+            // scan on every load for exactly that reason.
+            if (TableExists("DownloadHistory"))
+            {
+                command.CommandText = @"CREATE INDEX IF NOT EXISTS ""IX_DownloadHistory_PeerUsername"" ON ""DownloadHistory"" (""PeerUsername"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 29. Rekordbox export cue-sync snapshots: enables a three-way merge so a cue edit made
+            // in Cue Forge after a track's first Rekordbox export still propagates on re-export,
+            // while a hand-edit made directly inside Rekordbox since ORBIT's last known-good sync is
+            // still preserved (previously all-or-nothing: any existing cues blocked every future
+            // ORBIT cue update for that track, forever).
+            if (!TableExists("RekordboxExportCueSync"))
+            {
+                _logger.LogInformation("Patching Schema: Creating RekordboxExportCueSync table...");
+                command.CommandText = @"
+                    CREATE TABLE ""RekordboxExportCueSync"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_RekordboxExportCueSync"" PRIMARY KEY,
+                        ""TargetPath"" TEXT NOT NULL,
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""CueSnapshot"" TEXT NOT NULL DEFAULT '',
+                        ""UpdatedAtUtc"" TEXT NOT NULL
+                    );
+                    CREATE UNIQUE INDEX ""IX_RekordboxExportCueSync_TargetPath_Hash"" ON ""RekordboxExportCueSync"" (""TargetPath"", ""TrackUniqueHash"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ RekordboxExportCueSync table created.");
+            }
+
+            // 30. Watch-folder auto-import: lets LibraryFolderWatchService know which registered
+            // library folders should get a live FileSystemWatcher instead of relying entirely on
+            // manual "Scan All" clicks.
+            if (TableExists("LibraryFolders") && !ColumnExists("LibraryFolders", "IsWatched"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsWatched to LibraryFolders...");
+                command.CommandText = @"ALTER TABLE ""LibraryFolders"" ADD COLUMN ""IsWatched"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 31. Mix (Spotify-Mix-parity): saved per-track-pair transition config, keyed by the
+            // outgoing/incoming PlaylistTracks.Id pair so the same two tracks can carry different
+            // transitions in different playlists.
+            if (!TableExists("PlaylistTrackTransitions"))
+            {
+                _logger.LogInformation("Patching Schema: Creating PlaylistTrackTransitions table...");
+                command.CommandText = @"
+                    CREATE TABLE ""PlaylistTrackTransitions"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_PlaylistTrackTransitions"" PRIMARY KEY,
+                        ""PlaylistId"" TEXT NOT NULL,
+                        ""OutgoingPlaylistTrackId"" TEXT NOT NULL,
+                        ""IncomingPlaylistTrackId"" TEXT NOT NULL,
+                        ""PresetName"" TEXT NOT NULL DEFAULT 'Auto',
+                        ""TransitionType"" TEXT NOT NULL DEFAULT 'Crossfade',
+                        ""DurationBars"" INTEGER NOT NULL DEFAULT 16,
+                        ""EchoDecayFactor"" REAL NULL,
+                        ""FilterStartFrequency"" REAL NULL,
+                        ""FilterEndFrequency"" REAL NULL,
+                        ""EqLowGain"" REAL NULL,
+                        ""EqMidGain"" REAL NULL,
+                        ""EqHighGain"" REAL NULL,
+                        ""SourceTriggerSeconds"" REAL NULL,
+                        ""TargetTriggerSeconds"" REAL NULL,
+                        ""WaveDuckDepth"" REAL NULL,
+                        ""FilterSweepRising"" INTEGER NULL,
+                        ""EqSwapLow"" INTEGER NULL,
+                        ""EqSwapMid"" INTEGER NULL,
+                        ""EqSwapHigh"" INTEGER NULL,
+                        ""EqLowCrossoverHz"" REAL NULL,
+                        ""EqHighCrossoverHz"" REAL NULL,
+                        ""UpdatedAtUtc"" TEXT NOT NULL
+                    );
+                    CREATE UNIQUE INDEX ""IX_PlaylistTrackTransitions_Pair"" ON ""PlaylistTrackTransitions"" (""OutgoingPlaylistTrackId"", ""IncomingPlaylistTrackId"");
+                    CREATE INDEX ""IX_PlaylistTrackTransitions_PlaylistId"" ON ""PlaylistTrackTransitions"" (""PlaylistId"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ PlaylistTrackTransitions table created.");
+            }
+
+            // 32. Mix: cue/tempo/key/vocal-aware mix-out/mix-in trigger points (TransitionEngine.
+            // OptimizeTransition), added after the table above shipped without them.
+            if (TableExists("PlaylistTrackTransitions") && !ColumnExists("PlaylistTrackTransitions", "SourceTriggerSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding SourceTriggerSeconds/TargetTriggerSeconds to PlaylistTrackTransitions...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""SourceTriggerSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""TargetTriggerSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 33. Mix Custom mode: Wave preset's duck depth and Rise preset's sweep direction —
+            // TransitionModel already had both fields, but nothing persisted a custom override for
+            // either, so a saved Wave/Melt transition silently fell back to TransitionModel's
+            // hardcoded default instead of whatever TransitionPresetLibrary.Build would have
+            // produced for that preset.
+            if (TableExists("PlaylistTrackTransitions") && !ColumnExists("PlaylistTrackTransitions", "WaveDuckDepth"))
+            {
+                _logger.LogInformation("Patching Schema: Adding WaveDuckDepth/FilterSweepRising to PlaylistTrackTransitions...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""WaveDuckDepth"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""FilterSweepRising"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 34. Mix Custom mode: real EQ band-swap controls. The original EqLowGain/MidGain/
+            // HighGain columns (above) were dead weight — never set, never read — because they're
+            // shaped as gain overrides, not the swap-toggle + crossover-Hz shape the live engine's
+            // EqBandSwapConfig actually needs. These are the correctly-shaped replacement; the old
+            // columns are left in place (still unused) rather than dropped, to avoid a destructive
+            // migration for a handful of always-null columns.
+            if (TableExists("PlaylistTrackTransitions") && !ColumnExists("PlaylistTrackTransitions", "EqSwapLow"))
+            {
+                _logger.LogInformation("Patching Schema: Adding EqSwapLow/Mid/High + crossover columns to PlaylistTrackTransitions...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqSwapLow"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqSwapMid"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqSwapHigh"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqLowCrossoverHz"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqHighCrossoverHz"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 35. BPM read from the file's own embedded tag (TagLib BeatsPerMinute) at import —
+            // trusted over Essentia analysis for breakbeat/DNB tracks, where the DSP beat tracker
+            // has a confirmed quantization bias (two different DNB tracks' raw Essentia BPM
+            // converged to 172.265xx to five decimal places — a fixed internal lag/bin period, not
+            // a real per-track measurement). Sits alongside the existing SpotifyBPM/ManualBPM
+            // dual-truth columns; SyncDenormalizedFeaturesAsync's analysis-write path now skips
+            // overwriting BPM when either ManualBPM or this is set.
+            if (TableExists("LibraryEntries") && !ColumnExists("LibraryEntries", "TagBPM"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TagBPM to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""TagBPM"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("PlaylistTracks") && !ColumnExists("PlaylistTracks", "TagBPM"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TagBPM to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""TagBPM"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("Tracks") && !ColumnExists("Tracks", "TagBPM"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TagBPM to Tracks...");
+                command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""TagBPM"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 36. Mix "Double Drop" transition: loops a bar-aligned tail of the outgoing track
+            // once or twice before crossfading into the incoming track's drop. LoopEnabled isn't
+            // a separate column — TransitionType itself carries "DoubleDrop" as one of its
+            // values, same as every other preset here.
+            if (TableExists("PlaylistTrackTransitions") && !ColumnExists("PlaylistTrackTransitions", "LoopBars"))
+            {
+                _logger.LogInformation("Patching Schema: Adding LoopBars/LoopRepeats to PlaylistTrackTransitions...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""LoopBars"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""LoopRepeats"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 37. Index audio_features.TrackUniqueHash. The EF model declares it (AppDbContext:
+            // HasIndex(af => af.TrackUniqueHash)), but this schema is built by raw-SQL patches, not
+            // EF migrations, so it never physically existed — every PlaylistTracks -> AudioFeatures
+            // join fell back to a full scan of audio_features (blob-heavy rows) per outer row.
+            // Measured on a real 4,380-track library: the dashboard's incomplete-analysis query went
+            // from 40.5s to 0.1s. Non-unique on purpose so it can never fail to create on a library
+            // that happens to hold duplicate hashes; lookup speed is identical either way.
+            if (TableExists("audio_features"))
+            {
+                command.CommandText = @"CREATE INDEX IF NOT EXISTS ""IX_audio_features_TrackUniqueHash"" ON ""audio_features"" (""TrackUniqueHash"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 38. Library metadata enrichment (Services/Enrichment): a resumable queue on the
+            // existing EnrichmentTasks table (priority + deferral), a lookup cache so re-runs don't
+            // hit Deezer/MusicBrainz/Discogs again, and per-field provenance so enrichment never
+            // overwrites a user edit and the inspector can say where a value came from.
+            if (TableExists("EnrichmentTasks") && !ColumnExists("EnrichmentTasks", "Priority"))
+            {
+                _logger.LogInformation("Patching Schema: Adding Priority/NextAttemptAt to EnrichmentTasks...");
+                command.CommandText = @"ALTER TABLE ""EnrichmentTasks"" ADD COLUMN ""Priority"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("EnrichmentTasks") && !ColumnExists("EnrichmentTasks", "NextAttemptAt"))
+            {
+                command.CommandText = @"ALTER TABLE ""EnrichmentTasks"" ADD COLUMN ""NextAttemptAt"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!TableExists("MetadataLookupCache"))
+            {
+                _logger.LogInformation("Patching Schema: Creating MetadataLookupCache table...");
+                command.CommandText = @"
+                    CREATE TABLE ""MetadataLookupCache"" (
+                        ""Provider"" TEXT NOT NULL,
+                        ""CacheKey"" TEXT NOT NULL,
+                        ""StatusCode"" INTEGER NOT NULL DEFAULT 0,
+                        ""Payload"" TEXT NULL,
+                        ""CreatedAtUtc"" TEXT NOT NULL,
+                        CONSTRAINT ""PK_MetadataLookupCache"" PRIMARY KEY (""Provider"", ""CacheKey"")
+                    );";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!TableExists("MetadataProvenance"))
+            {
+                _logger.LogInformation("Patching Schema: Creating MetadataProvenance table...");
+                command.CommandText = @"
+                    CREATE TABLE ""MetadataProvenance"" (
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""Field"" TEXT NOT NULL,
+                        ""Source"" TEXT NOT NULL,
+                        ""Confidence"" REAL NOT NULL DEFAULT 0,
+                        ""UpdatedAtUtc"" TEXT NOT NULL,
+                        CONSTRAINT ""PK_MetadataProvenance"" PRIMARY KEY (""TrackUniqueHash"", ""Field"")
+                    );";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)
@@ -2733,7 +3112,7 @@ public class SchemaMigratorService
     {
         try
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var appData = SLSKDONET.Data.OrbitPaths.RoamingRoot;
             var jsonPath = System.IO.Path.Combine(appData, "ORBIT", "stem_preferences.json");
 
             if (!System.IO.File.Exists(jsonPath)) return;
@@ -2744,7 +3123,7 @@ public class SchemaMigratorService
 
             if (preferences == null || !preferences.Any()) return;
 
-            using (var scope = new SqliteConnection($"Data Source={System.IO.Path.Combine(appData, "ORBIT", "library.db")}"))
+            using (var scope = new SqliteConnection($"Data Source={SLSKDONET.Data.OrbitPaths.LibraryDbPath}"))
             {
                 await scope.OpenAsync();
                 foreach (var (trackId, pref) in preferences)

@@ -1,9 +1,8 @@
+using System;
+using System.Reactive.Linq;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using System;
 using SLSKDONET.ViewModels.Library;
-using SLSKDONET.Data.Entities;
-using System.Reactive.Linq;
 
 namespace SLSKDONET.Views.Avalonia.Dialogs;
 
@@ -18,26 +17,24 @@ public partial class SmartCrateEditorDialog : Window
     {
         Close(null);
     }
-    
-    // Wire up specific interaction if needed, or rely on Command execution in VM
-    // Since VM SaveCommand returns the Entity, we can capture it here?
-    // But Button Command executes independently.
-    // Better pattern: Button Click calls this method. This method invokes Command explicitly OR observes it.
-    
+
+    // Save is driven from Click only (the button used to carry Command="{Binding SaveCommand}"
+    // as well, so one click could run SaveAsync twice). The dialog closes only on a real
+    // result; on failure the VM sets ErrorMessage and the editor stays open.
     private async void Save_Click(object? sender, RoutedEventArgs e)
     {
-        if (DataContext is SmartCrateEditorViewModel vm)
+        if (DataContext is not SmartCrateEditorViewModel vm) return;
+
+        try
         {
-            try
-            {
-                // Execute and await result
-                var result = await vm.SaveCommand.Execute();
+            var result = await vm.SaveCommand.Execute();
+            if (result != null)
                 Close(result);
-            }
-            catch (Exception)
-            {
-                // Error handled in VM
-            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Smart crate editor: save command threw");
+            vm.ErrorMessage = $"Could not save the crate: {ex.Message}";
         }
     }
 }

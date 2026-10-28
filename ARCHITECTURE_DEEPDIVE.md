@@ -37,7 +37,7 @@ extension points, and known trade-offs.
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │                         Avalonia UI (XAML)                           │
-│  LibraryPage · DeckView · TimelineView · VideoExportView · Settings  │
+│  LibraryPage · DeckView · TimelineView · Settings  │
 └────────────────────────────┬─────────────────────────────────────────┘
                              │  ReactiveUI bindings / MediatR events
 ┌────────────────────────────▼─────────────────────────────────────────┐
@@ -468,84 +468,11 @@ class TimelineCommandStack {
 
 ---
 
-## 8. Video Export Pipeline
+## 8. Video Export Pipeline (removed 2026-10-17)
 
-### Responsibility
-Render audio-reactive video: SkiaSharp → PNG frame stream → FFmpeg stdin pipe → H.264/AAC MP4.
-Supports built-in presets (Bars, Waveform, Circle, Spectrum) and Shadertoy-compatible GLSL shaders.
-
-### Files
-```
-Services/Video/
-  VisualEngine.cs           Renders one VisualFrame into an SKBitmap (or custom GLSL)
-  VisualFrame.cs            Per-frame audio snapshot (FFT bands, energy, beat pulse, BPM)
-  VideoRenderer.cs          Orchestrates frame loop → FFmpeg stdin pipe
-  VisualPreset.cs (enum)    Bars | Waveform | Circle | Spectrum | CustomGlsl
-  YouTubeChapterExportService  Generates YouTube chapter timestamps from clip positions
-
-ViewModels/VideoExportViewModel.cs
-Views/VideoExportView.axaml
-```
-
-### Frame Pipeline
-
-```
-AudioMix (NAudio PCM)
-    │  FFT (512-point, Hann window) per frame
-    ▼
-VisualFrame { Energy, BeatPulse, Bpm, Band0..Band5 }
-    │
-    ▼
-VisualEngine.Render(frame) → SKBitmap (1920×1080 @ 30 fps)
-    │
-    ▼
-SKBitmap → PNG bytes (SKBitmap.Encode)
-    │
-    ▼
-FFmpeg stdin pipe (rawvideo or piped PNG stream)
-    │
-    ▼
-libx264 video + AAC audio → output.mp4
-```
-
-FFmpeg command:
-```
-ffmpeg -framerate 30 -f rawvideo -pix_fmt bgra -s 1920x1080 -i pipe:0
-       -i mix.wav
-       -c:v libx264 -preset fast -crf 20
-       -c:a aac -b:a 192k
-       -map 0:v -map 1:a
-       output.mp4
-```
-
-Orbit writes raw BGRA frames directly to FFmpeg's stdin (`Process.StandardInput.BaseStream`),
-avoiding the PNG encode overhead at 30 fps for full HD output.
-
-### GLSL/SkSL Shader System
-
-`VisualEngine.LoadGlslShader(filePath)` accepts any Shadertoy-compatible GLSL fragment shader.
-
-Translation applied by `TranslateToSkSl()`:
-| Shadertoy GLSL | SkSL (SkiaSharp runtime effect) |
-|---|---|
-| `void mainImage(out vec4 fragColor, in vec2 fragCoord)` | `half4 main(float2 fragCoord)` |
-| `vec2`, `vec3`, `vec4` | `float2`, `float3`, `float4` |
-| `mat2`, `mat3`, `mat4` | `float2x2`, `float3x3`, `float4x4` |
-
-Injected uniform block (available in every shader):
-```glsl
-uniform float2 iResolution;  // render dimensions
-uniform float  iTime;        // session progress × total duration (seconds)
-uniform float  iEnergy;      // 0–1 overall energy
-uniform float  iBeatPulse;   // 0–1 beat strength (peaks on downbeat)
-uniform float  iBpm;         // current BPM
-uniform float  iBand0;       // sub-bass  (20–80 Hz)
-uniform float  iBand1;       // bass      (80–250 Hz)
-uniform float  iBand2;       // low-mid   (250–500 Hz)
-uniform float  iBand3;       // mid       (500–2000 Hz)
-uniform float  iBand4;       // high-mid  (2000–4000 Hz)
-uniform float  iBand5;       // presence  (4000–8000 Hz)
-```
+The SkiaSharp → FFmpeg music-video renderer (`VisualEngine`, `VisualFrame`, `VideoRenderer`,
+`VideoExportView`) was never reachable from the UI and was removed; ORBIT assists DJs and does not
+produce videos. Only the YouTube chapter (tracklist timestamp) export remains.
 
 ### YouTube Chapter Export
 

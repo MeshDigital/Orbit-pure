@@ -1,0 +1,155 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.PlaylistDiscoveryPanel"
+             x:DataType="vm:PlaylistDiscoveryViewModel"
+             x:CompileBindings="True"
+             x:Name="Root">
+
+    <UserControl.Styles>
+        <Style Selector="Border.suggestion">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+        </Style>
+        <Style Selector="Border.suggestion:pointerover">
+            <Setter Property="Background" Value="{StaticResource BrushHover}"/>
+        </Style>
+        <!-- Suggested independently by both Beatport and Deezer -->
+        <Style Selector="Border.suggestion.agreed">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccentBorder}"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="12,8">
+
+        <!-- Header -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,8">
+            <StackPanel Spacing="0">
+                <TextBlock Classes="h3" Text="Discover"/>
+                <TextBlock Classes="caption" Text="{Binding PlaylistTitle, StringFormat='for {0}'}"
+                           TextTrimming="CharacterEllipsis" IsVisible="{Binding HasPlaylist}"/>
+            </StackPanel>
+            <Button Grid.Column="1" Classes="secondary small" Content="Queue top 10" Command="{Binding QueueAllCommand}" Margin="0,0,4,0"
+                    VerticalAlignment="Center" IsVisible="{Binding HasSuggestions}"
+                    ToolTip.Tip="Add the top 10 suggestions to this playlist and download them"/>
+            <Button Grid.Column="2" Classes="icon small" Command="{Binding RefreshCommand}" VerticalAlignment="Center"
+                    IsEnabled="{Binding !IsLoading}" IsVisible="{Binding HasPlaylist}"
+                    ToolTip.Tip="Look again (picks different seed artists)">
+                <PathIcon Data="{StaticResource icon_sync}" Width="14" Height="14"/>
+            </Button>
+        </Grid>
+
+        <!-- Sources -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+            <TextBlock Classes="caption" Text="Sources" VerticalAlignment="Center"/>
+            <ToggleButton Classes="chip" Content="Beatport" IsChecked="{Binding UseBeatport}"/>
+            <ToggleButton Classes="chip" Content="Deezer" IsChecked="{Binding UseDeezer}"/>
+        </StackPanel>
+
+        <!-- Status / taste profile -->
+        <StackPanel Grid.Row="2" Spacing="4" Margin="0,0,0,8">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <ProgressBar IsIndeterminate="True" Width="40" Classes="meter" VerticalAlignment="Center"
+                             IsVisible="{Binding IsLoading}"/>
+                <TextBlock Classes="body-sm" Text="{Binding Status}" TextWrapping="Wrap"/>
+            </StackPanel>
+            <TextBlock Classes="caption" Text="{Binding Summary}" TextWrapping="Wrap"
+                       IsVisible="{Binding Summary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+        </StackPanel>
+
+        <!-- Suggestions -->
+        <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl ItemsSource="{Binding Suggestions}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DiscoverySuggestionViewModel">
+                        <Border Classes="suggestion" Classes.agreed="{Binding IsCrossSource}">
+                            <Grid ColumnDefinitions="40,*,Auto" RowDefinitions="Auto,Auto,Auto">
+
+                                <!-- Cover + preview -->
+                                <Panel Grid.RowSpan="3" Width="40" Height="40" VerticalAlignment="Top" Margin="0,0,8,0">
+                                    <Border Background="{StaticResource BrushBg3}" CornerRadius="{StaticResource RadiusSm}" ClipToBounds="True">
+                                        <Image Source="{Binding Artwork.Image}" Stretch="UniformToFill"/>
+                                    </Border>
+                                    <Button Command="{ReflectionBinding #Root.DataContext.PreviewCommand}"
+                                            CommandParameter="{Binding}"
+                                            IsVisible="{Binding HasPreview}"
+                                            Background="{StaticResource BrushScrim}" CornerRadius="{StaticResource RadiusSm}" Padding="0"
+                                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                            ToolTip.Tip="Preview clip">
+                                        <Panel>
+                                            <PathIcon Data="{StaticResource icon_play}" Width="14" Height="14" Foreground="{StaticResource BrushText0}"
+                                                      IsVisible="{Binding !IsPreviewing}"/>
+                                            <PathIcon Data="{StaticResource icon_stop}" Width="14" Height="14" Foreground="{StaticResource BrushText0}"
+                                                      IsVisible="{Binding IsPreviewing}"/>
+                                        </Panel>
+                                    </Button>
+                                </Panel>
+
+                                <!-- Title / artist -->
+                                <StackPanel Grid.Column="1" Spacing="0">
+                                    <TextBlock Classes="body" Text="{Binding Title}" FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}"/>
+                                    <TextBlock Classes="body-sm" Text="{Binding Artist}" Foreground="{StaticResource BrushText1}"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+
+                                <!-- Fit: percentage + bar -->
+                                <StackPanel Grid.Column="2" Spacing="2" HorizontalAlignment="Right" Margin="8,0,0,0"
+                                            ToolTip.Tip="How well it fits this playlist">
+                                    <TextBlock Classes="mono" Text="{Binding FitPercent, StringFormat='{}{0}%'}"
+                                               Foreground="{StaticResource BrushText0}" HorizontalAlignment="Right"/>
+                                    <ProgressBar Classes="meter" Value="{Binding FitPercent}" Maximum="100" Width="44"/>
+                                </StackPanel>
+
+                                <!-- Why -->
+                                <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                                    <TextBlock Classes="caption accent" Text="Both sources" IsVisible="{Binding IsCrossSource}"
+                                               ToolTip.Tip="Suggested independently by both Beatport and Deezer"/>
+                                    <TextBlock Classes="caption" Text="{Binding ReasonText}" TextWrapping="Wrap" MaxWidth="300"/>
+                                </StackPanel>
+
+                                <!-- Actions -->
+                                <Grid Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                                    <TextBlock Classes="mono muted" FontSize="{StaticResource TextSizeCaption}" Text="{Binding MetaText}"
+                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2">
+                                        <Button Classes="secondary small" Content="Queue"
+                                                Command="{ReflectionBinding #Root.DataContext.QueueCommand}"
+                                                CommandParameter="{Binding}" IsVisible="{Binding !IsQueued}"
+                                                ToolTip.Tip="Add to this playlist and download via Soulseek"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding IsQueued}" VerticalAlignment="Center" Margin="4,0">
+                                            <PathIcon Data="{StaticResource icon_check}" Width="12" Height="12" Foreground="{StaticResource BrushSuccess}"/>
+                                            <TextBlock Classes="caption success" Text="Queued"/>
+                                        </StackPanel>
+                                        <Button Classes="icon small"
+                                                Command="{ReflectionBinding #Root.DataContext.SearchCommand}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip.Tip="Search on Soulseek and pick a file yourself">
+                                            <PathIcon Data="{StaticResource icon_search}" Width="14" Height="14"/>
+                                        </Button>
+                                        <Button Classes="icon small"
+                                                Command="{ReflectionBinding #Root.DataContext.OpenLinkCommand}"
+                                                CommandParameter="{Binding}" IsVisible="{Binding HasLink}"
+                                                ToolTip.Tip="{Binding LinkTip}">
+                                            <PathIcon Data="{StaticResource icon_open_external}" Width="14" Height="14"/>
+                                        </Button>
+                                        <Button Classes="icon small"
+                                                Command="{ReflectionBinding #Root.DataContext.DismissCommand}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip.Tip="Hide this suggestion">
+                                            <PathIcon Data="{StaticResource icon_close}" Width="12" Height="12"/>
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

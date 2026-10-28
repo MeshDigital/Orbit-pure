@@ -2,121 +2,113 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:SLSKDONET.ViewModels.Library"
         x:Class="SLSKDONET.Views.Avalonia.Dialogs.BatchTagEditDialog"
-        Title="Batch Edit Tags" Width="420" Height="580"
+        x:DataType="vm:BatchTagEditViewModel"
+        x:CompileBindings="True"
+        Title="Edit tags" Width="520" Height="620"
         WindowStartupLocation="CenterOwner"
         CanResize="False"
-        Background="#151520" TransparencyLevelHint="AcrylicBlur"
+        Background="{StaticResource BrushBg2}" TransparencyLevelHint="AcrylicBlur"
         ExtendClientAreaToDecorationsHint="True">
 
-    <Grid RowDefinitions="Auto,*,Auto" Margin="20">
-        <!-- Header -->
-        <StackPanel Grid.Row="0" Spacing="8" Margin="0,10,0,16">
-            <TextBlock Text="Edit Track Tags" FontSize="18" FontWeight="SemiBold" Foreground="White"/>
-            <TextBlock Text="Modify metadata for selected tracks." FontSize="12" Foreground="#AAA"/>
-            <Border Background="#204EC9B0" CornerRadius="4" Padding="8" Margin="0,4,0,0">
-                <TextBlock Text="💡 Blank fields keep their original values. Filename rename is single-track only."
-                           Foreground="#4EC9B0" FontSize="11" TextWrapping="Wrap"/>
-            </Border>
+    <Window.Styles>
+        <Style Selector="StackPanel.field">
+            <Setter Property="Spacing" Value="4"/>
+        </Style>
+        <!-- Numeric / key fields: mono so values line up. -->
+        <Style Selector="TextBox.num">
+            <Setter Property="FontFamily" Value="{StaticResource FontMono}"/>
+            <Setter Property="FontSize" Value="{StaticResource TextSizeMono}"/>
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="Auto,*,Auto" Margin="24">
+        <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,16">
+            <TextBlock Classes="h2" Text="Edit tags"/>
+            <TextBlock Classes="body-sm muted" TextWrapping="Wrap"
+                       Text="Blank fields keep their original values. File rename is single-track only."/>
         </StackPanel>
 
-        <!-- Form Fields -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-            <StackPanel Spacing="14" Margin="0,0,10,0">
-                <!-- Artist -->
-                <StackPanel Spacing="5">
-                    <TextBlock Text="Artist" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Artist, Mode=TwoWay}" Watermark="Keep original artist"
-                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
-                             CornerRadius="6" Padding="10,8"/>
+            <StackPanel Spacing="12" Margin="0,0,12,0">
+
+                <StackPanel Classes="field">
+                    <TextBlock Classes="caption" Text="Artist"/>
+                    <TextBox Text="{Binding Artist, Mode=TwoWay}" Watermark="{Binding ArtistWatermark}"/>
                 </StackPanel>
 
-                <!-- Title -->
-                <StackPanel Spacing="5">
-                    <TextBlock Text="Track Title" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Title, Mode=TwoWay}" Watermark="Keep original title"
-                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
-                             CornerRadius="6" Padding="10,8"/>
+                <StackPanel Classes="field">
+                    <TextBlock Classes="caption" Text="Title"/>
+                    <TextBox Text="{Binding Title, Mode=TwoWay}" Watermark="{Binding TitleWatermark}"/>
                 </StackPanel>
 
-                <!-- Album -->
-                <StackPanel Spacing="5">
-                    <TextBlock Text="Album" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Album, Mode=TwoWay}" Watermark="Keep original album"
-                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
-                             CornerRadius="6" Padding="10,8"/>
+                <Grid ColumnDefinitions="*,12,*">
+                    <StackPanel Grid.Column="0" Classes="field">
+                        <TextBlock Classes="caption" Text="Album"/>
+                        <TextBox Text="{Binding Album, Mode=TwoWay}" Watermark="{Binding AlbumWatermark}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Classes="field">
+                        <TextBlock Classes="caption" Text="Genre"/>
+                        <TextBox Text="{Binding Genre, Mode=TwoWay}" Watermark="{Binding GenreWatermark}"/>
+                    </StackPanel>
+                </Grid>
+
+                <Grid ColumnDefinitions="*,12,*">
+                    <StackPanel Grid.Column="0" Classes="field">
+                        <TextBlock Classes="caption" Text="BPM"/>
+                        <TextBox Classes="num" Text="{Binding Bpm, Mode=TwoWay}" Watermark="{Binding BpmWatermark}"/>
+                        <TextBlock Classes="caption error" Text="Not a valid number" IsVisible="{Binding !IsBpmValid}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Classes="field">
+                        <TextBlock Classes="caption" Text="Key (Camelot)"/>
+                        <TextBox Classes="num" Text="{Binding Key, Mode=TwoWay}" Watermark="{Binding KeyWatermark}"/>
+                    </StackPanel>
+                </Grid>
+
+                <Grid ColumnDefinitions="*,12,*,12,*">
+                    <StackPanel Grid.Column="0" Classes="field">
+                        <TextBlock Classes="caption" Text="Year"/>
+                        <TextBox Classes="num" Text="{Binding Year, Mode=TwoWay}" Watermark="{Binding YearWatermark}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Classes="field">
+                        <TextBlock Classes="caption" Text="Track no."/>
+                        <TextBox Classes="num" Text="{Binding TrackNumber, Mode=TwoWay}" Watermark="{Binding TrackNumberWatermark}"/>
+                        <TextBlock Classes="caption error" Text="Not a valid track number" TextWrapping="Wrap"
+                                   IsVisible="{Binding !IsTrackNumberValid}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="4" Classes="field">
+                        <TextBlock Classes="caption" Text="Rating (0 to 5)"/>
+                        <TextBox Classes="num" Text="{Binding Rating, Mode=TwoWay}" Watermark="{Binding RatingWatermark}"/>
+                        <TextBlock Classes="caption error" Text="Whole number 0 to 5" TextWrapping="Wrap"
+                                   IsVisible="{Binding !IsRatingValid}"/>
+                    </StackPanel>
+                </Grid>
+
+                <StackPanel Classes="field">
+                    <TextBlock Classes="caption" Text="Mood"/>
+                    <TextBox Text="{Binding Mood, Mode=TwoWay}" Watermark="{Binding MoodWatermark}"/>
                 </StackPanel>
 
-                <!-- Genre -->
-                <StackPanel Spacing="5">
-                    <TextBlock Text="Genre" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Genre, Mode=TwoWay}" Watermark="Keep original genre"
-                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
-                             CornerRadius="6" Padding="10,8"/>
+                <StackPanel Classes="field">
+                    <TextBlock Classes="caption" Text="Comments"/>
+                    <TextBox Text="{Binding Comments, Mode=TwoWay}" Watermark="{Binding CommentsWatermark}"/>
                 </StackPanel>
 
-                <!-- Year -->
-                <StackPanel Spacing="5">
-                    <TextBlock Text="Year" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Year, Mode=TwoWay}" Watermark="Keep original year (e.g. 2026)"
-                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
-                             CornerRadius="6" Padding="10,8"/>
-                </StackPanel>
+                <Border Classes="divider"/>
 
-                <!-- BPM -->
-                <StackPanel Spacing="5">
-                    <TextBlock Text="BPM" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Bpm, Mode=TwoWay}" Watermark="Keep original BPM (e.g. 128)"
-                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
-                             CornerRadius="6" Padding="10,8"/>
-                    <TextBlock Text="Not a valid number" Foreground="#E06C75" FontSize="10"
-                               IsVisible="{Binding !IsBpmValid}"/>
-                </StackPanel>
-
-                <!-- Key -->
-                <StackPanel Spacing="5">
-                    <TextBlock Text="Key (Camelot)" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Key, Mode=TwoWay}" Watermark="Keep original key (e.g. 8A)"
-                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
-                             CornerRadius="6" Padding="10,8"/>
-                </StackPanel>
-
-                <!-- Comments -->
-                <StackPanel Spacing="5">
-                    <TextBlock Text="Comments" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Comments, Mode=TwoWay}" Watermark="Keep original comments"
-                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
-                             CornerRadius="6" Padding="10,8"/>
-                </StackPanel>
-
-                <!-- Mood -->
-                <StackPanel Spacing="5">
-                    <TextBlock Text="Mood" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Mood, Mode=TwoWay}" Watermark="Keep original mood tag"
-                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
-                             CornerRadius="6" Padding="10,8"/>
-                </StackPanel>
-
-                <!-- File Name (single-track only) -->
-                <StackPanel Spacing="5">
-                    <TextBlock Text="File Name (without extension)" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding NewFileName, Mode=TwoWay}"
+                <StackPanel Classes="field">
+                    <TextBlock Classes="caption" Text="File name (without extension)"/>
+                    <TextBox Classes="num" Text="{Binding NewFileName, Mode=TwoWay}"
                              Watermark="{Binding FileNameWatermark}"
-                             IsEnabled="{Binding IsSingleTrack}"
-                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
-                             CornerRadius="6" Padding="10,8"/>
-                    <TextBlock IsVisible="{Binding !IsSingleTrack}"
-                               Text="Select a single track to enable file rename."
-                               Foreground="#666" FontSize="10"/>
+                             IsEnabled="{Binding IsSingleTrack}"/>
+                    <TextBlock Classes="caption" Text="Select a single track to enable file rename."
+                               IsVisible="{Binding !IsSingleTrack}"/>
                 </StackPanel>
             </StackPanel>
         </ScrollViewer>
 
-        <!-- Buttons -->
-        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12" Margin="0,16,0,0">
-            <Button Content="Cancel" Click="Cancel_Click" Background="Transparent" Foreground="#AAA" Padding="16,8"/>
-            <Button Content="Save" Click="Save_Click"
-                    IsEnabled="{Binding CanSave}"
-                    Background="#4EC9B0" Foreground="#151520" Padding="16,8" CornerRadius="6" FontWeight="Bold"/>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,16,0,0">
+            <Button Classes="ghost" Content="Cancel" Click="Cancel_Click"/>
+            <Button Classes="primary" Content="Save" Click="Save_Click" IsEnabled="{Binding CanSave}"/>
         </StackPanel>
     </Grid>
 </Window>

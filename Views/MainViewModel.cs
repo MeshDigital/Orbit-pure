@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
@@ -15,6 +16,7 @@ using System.Collections.Generic; // Added this using directive
 using SLSKDONET.Models;
 using System.Reactive.Linq;
 using ReactiveUI;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Views;
 
@@ -42,15 +44,25 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private readonly IDialogService _dialogService;
     private readonly ILibraryService _libraryService;
     private readonly GlobalHotkeyService _globalHotkeyService;
+    private readonly FlowBuilderViewModel _flowBuilderViewModel;
 
     // Child ViewModels
     public PlayerViewModel PlayerViewModel { get; }
+    public PerformanceTracker PerfTracker { get; }
     public LibraryViewModel LibraryViewModel { get; }
     public SidebarViewModel Sidebar { get; }
     private readonly IRightPanelService _rightPanelService;
     public SearchViewModel SearchViewModel { get; }
     public ConnectionViewModel ConnectionViewModel { get; }
     public SettingsViewModel SettingsViewModel { get; }
+    /// <summary>First-run setup wizard and quick tour (null only in tests that build the shell by hand).</summary>
+    public SLSKDONET.ViewModels.Setup.SetupShellViewModel? Setup { get; }
+
+    /// <summary>The folder import sheet / top-bar chip (Library folders, Settings and setup "Scan now").</summary>
+    public SLSKDONET.ViewModels.LibraryImportViewModel? Import { get; }
+
+    /// <summary>The one background-activity chip (import, analysis, enrichment, loudness).</summary>
+    public SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? Activity { get; }
     public HomeViewModel HomeViewModel { get; }
     public TimelineViewModel TimelineViewModel { get; }
     public StatusBarViewModel StatusBar { get; }
@@ -112,7 +124,12 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         ILibraryService libraryService,
         GlobalHotkeyService globalHotkeyService,
         SidebarViewModel sidebarViewModel,
-        IRightPanelService rightPanelService)
+        IRightPanelService rightPanelService,
+        PerformanceTracker perfTracker,
+        FlowBuilderViewModel flowBuilderViewModel,
+        SLSKDONET.ViewModels.Setup.SetupShellViewModel? setup = null,
+        SLSKDONET.ViewModels.LibraryImportViewModel? import = null,
+        SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? activity = null)
 
     {
         _logger = logger;
@@ -132,10 +149,15 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _dialogService = dialogService;
         _libraryService = libraryService;
         _globalHotkeyService = globalHotkeyService;
+        _flowBuilderViewModel = flowBuilderViewModel;
 
         Sidebar = sidebarViewModel;
+        Setup = setup;
+        Import = import;
+        Activity = activity;
         _rightPanelService = rightPanelService;
-        
+        PerfTracker = perfTracker;
+
         PlayerViewModel = playerViewModel;
         LibraryViewModel = libraryViewModel;
         SearchViewModel = searchViewModel;
@@ -210,6 +232,15 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _disposables.Add(_eventBus.GetEvent<OpenConversationRequestedEvent>()
             .Subscribe(evt => Dispatcher.UIThread.Post(() => HandleOpenConversationRequested(evt))));
 
+        _disposables.Add(_eventBus.GetEvent<OpenFlowBuilderForPlaylistEvent>()
+            .Subscribe(evt => Dispatcher.UIThread.Post(() => HandleOpenFlowBuilderForPlaylist(evt))));
+
+        _disposables.Add(_eventBus.GetEvent<OpenLibraryForPlaylistEvent>()
+            .Subscribe(evt => Dispatcher.UIThread.Post(() => HandleOpenLibraryForPlaylist(evt))));
+
+        _disposables.Add(_eventBus.GetEvent<OpenPlaylistInLibraryEvent>()
+            .Subscribe(evt => Dispatcher.UIThread.Post(() => HandleOpenPlaylistInLibrary(evt))));
+
         // Initialize commands
         NavigateHomeCommand = new RelayCommand(NavigateToHome); // Phase 6D
         NavigateSearchCommand = new RelayCommand(NavigateToSearch);
@@ -222,30 +253,28 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateWorkstationCommand = new RelayCommand(NavigateToWorkstation);
         NavigateDecksCommand = new RelayCommand(NavigateToDecks);
         NavigateTimelineCommand = new RelayCommand(NavigateToTimeline);
-        NavigateStemsCommand = new RelayCommand(NavigateToStems);
+        NavigateEditLabCommand = new RelayCommand(NavigateToEditLab);
         NavigateCueForgeCommand = new RelayCommand(NavigateToCueForge);
         NavigateUsersCommand = new RelayCommand(NavigateToUsers);
+        NavigateFlowBuilderCommand = new RelayCommand(NavigateToFlowBuilder);
         PlayPauseCommand = new RelayCommand(() => PlayerViewModel.TogglePlayPauseCommand.Execute(null));
         FocusSearchCommand = new RelayCommand(FocusSearch);
+        // Expanded -> Mini -> Collapsed(hidden) -> Expanded. Each state's width transition is
+        // handled by the IsNavigationMini/IsNavigationCollapsed setters themselves, so this just
+        // walks the flag cycle.
         ToggleNavigationCommand = new RelayCommand(() =>
         {
             if (!IsNavigationMini && !IsNavigationCollapsed)
             {
-                _lastExpandedNavSidebarWidth = NavSidebarWidth;
                 IsNavigationMini = true;
-                IsNavigationCollapsed = false;
-                NavSidebarWidth = MiniNavSidebarWidth;
             }
             else if (IsNavigationMini)
             {
-                IsNavigationMini = false;
                 IsNavigationCollapsed = true;
             }
             else
             {
-                IsNavigationMini = false;
                 IsNavigationCollapsed = false;
-                NavSidebarWidth = _lastExpandedNavSidebarWidth;
             }
         });
         TogglePlayerCommand = new RelayCommand(() =>
@@ -285,6 +314,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         // Operation Glass Console Toggles
         ToggleZenModeCommand = new RelayCommand(ToggleZenMode);
         ToggleTopBarCommand = new RelayCommand(() => IsTopCommandBarVisible = !IsTopCommandBarVisible);
+        TogglePerformanceOverlayCommand = new RelayCommand(() => IsPerformanceOverlayVisible = !IsPerformanceOverlayVisible);
         ToggleTimelinePanelCommand = new RelayCommand(() => IsTimelinePanelOpen = !IsTimelinePanelOpen);
         ToggleOverlaysPanelCommand = new RelayCommand(() => IsOverlaysPanelOpen = !IsOverlaysPanelOpen);
         ToggleAcquireCommand  = new RelayCommand(() => IsAcquireExpanded  = !IsAcquireExpanded);
@@ -312,8 +342,22 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _disposables.Add(_eventBus.GetEvent<TrackAddedEvent>().Subscribe(evt => OnTrackAdded(evt.TrackModel)));
         _disposables.Add(_eventBus.GetEvent<BatchTracksAddedEvent>().Subscribe(evt => OnBatchTracksAdded(evt.Tracks))); // Issue #4: Batch UI updates
         _disposables.Add(_eventBus.GetEvent<TrackRemovedEvent>().Subscribe(evt => OnTrackRemoved(evt.TrackGlobalId)));
-        
-        
+
+        // Starting a whole playlist's worth of playback (the playlist header's own Play button,
+        // or any other PlayAlbumRequestEvent publisher) is exactly a "Mix session" — default to
+        // the bottom playbar like Spotify, instead of leaving whatever dock the player happened to
+        // already be in. PlayerViewModel.CurrentDockLocation is a separate, effectively unused
+        // legacy enum that MainWindow.axaml's actual bottom-bar visibility never reads — the real
+        // switch is IsPlayerAtBottom (see TogglePlayerLocationCommand above for its side effects,
+        // mirrored here).
+        _disposables.Add(_eventBus.GetEvent<PlayAlbumRequestEvent>().Subscribe(_ =>
+        {
+            IsPlayerAtBottom = true;
+            IsPlayerSidebarVisible = false;
+            IsGlobalSidebarOpen = false;
+        }));
+
+
         // Phase 12.7: Context Menu Requests
         _disposables.Add(_eventBus.GetEvent<RevealFileRequestEvent>().Subscribe(evt => 
             _fileInteractionService.RevealFileInExplorer(evt.FilePath)));
@@ -341,6 +385,15 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _disposables.Add(_eventBus.GetEvent<SLSKDONET.Services.ToastRequestedEvent>().Subscribe(evt =>
         {
             Dispatcher.UIThread.Post(() => ShowToast(evt));
+        }));
+
+        // NotificationEvent is the older of the two toast events and had no subscriber at all, so
+        // every warning/error published with it (session conflict, auto-retry, Download Album /
+        // Remove Track / Open Folder failures, ...) was silently dropped by the event bus.
+        _disposables.Add(_eventBus.GetEvent<SLSKDONET.Services.NotificationEvent>().Subscribe(evt =>
+        {
+            Dispatcher.UIThread.Post(() => ShowToast(
+                new SLSKDONET.Services.ToastRequestedEvent(evt.Title, evt.Message, evt.Type, evt.Duration), evt.OpenPage));
         }));
         
         // Glass Box Architecture: Analysis Queue Visibility
@@ -420,9 +473,10 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.RegisterPage("Analysis", typeof(Avalonia.AnalysisPage));
         _navigationService.RegisterPage("NowPlaying", typeof(Avalonia.NowPlayingPage));
         _navigationService.RegisterPage("Workstation", typeof(Avalonia.WorkstationPage));
-        _navigationService.RegisterPage("Stems", typeof(Avalonia.StemsPage));
-        _navigationService.RegisterPage("CueForge", typeof(Avalonia.CueForgePagee));
+        _navigationService.RegisterPage("EditLab", typeof(Avalonia.EditLabPage));
+        _navigationService.RegisterPage("CueForge", typeof(Avalonia.CueForgePage));
         _navigationService.RegisterPage("Users", typeof(Avalonia.UsersPage));
+        _navigationService.RegisterPage("FlowBuilder", typeof(Avalonia.FlowBuilderPage));
 
         // Subscribe to navigation events
         _navigationService.Navigated += OnNavigated;
@@ -465,6 +519,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             LibraryViewModel?.Dispose();
             SearchViewModel?.Dispose();
             SettingsViewModel?.Dispose();
+            Setup?.Dispose();
             HomeViewModel?.Dispose();
             _globalHotkeyService?.Dispose();
         }
@@ -509,24 +564,115 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     }
 
     // UI State
-    private bool _isNavigationCollapsed;
-    public bool IsNavigationCollapsed
+    /// <summary>Right-hand context panel width — drag its left edge to resize (MainWindow), kept
+    /// between sessions. Bounded so the page beside it always keeps room for a track list.</summary>
+    public double ContextPanelWidth
     {
-        get => _isNavigationCollapsed;
-        set => SetProperty(ref _isNavigationCollapsed, value);
+        get => FitContextPanelWidth(_config.ContextPanelWidth, _windowWidth);
+        set
+        {
+            int width = (int)Math.Round(FitContextPanelWidth(value, _windowWidth));
+            if (width == _config.ContextPanelWidth) return;
+            _config.ContextPanelWidth = width;
+            OnPropertyChanged(nameof(ContextPanelWidth));
+        }
     }
 
-    private bool _isNavigationMini;
-    public bool IsNavigationMini
+    public const double MinContextPanelWidth = 300, MaxContextPanelWidth = 800, ContextPanelMaxWindowShare = 0.35;
+
+    /// <summary>The width the context panel is shown at: the saved width, but never more than 35% of
+    /// the window (and 300–800 px). A saved ~590 px panel on a ~1400 px window left the Library track
+    /// list ~320 px, too narrow for a title. The saved width is kept, so a wider window gets it back.</summary>
+    public static double FitContextPanelWidth(double savedWidth, double windowWidth)
     {
-        get => _isNavigationMini;
-        set => SetProperty(ref _isNavigationMini, value);
+        double max = MaxContextPanelWidth;
+        if (windowWidth > 0)
+            max = Math.Min(max, Math.Max(MinContextPanelWidth, windowWidth * ContextPanelMaxWindowShare));
+        return Math.Clamp(savedWidth, MinContextPanelWidth, max);
+    }
+
+    private double _windowWidth;
+    /// <summary>Set by MainWindow on resize so <see cref="ContextPanelWidth"/> can follow the window.</summary>
+    public double WindowWidth
+    {
+        get => _windowWidth;
+        set
+        {
+            if (Math.Abs(_windowWidth - value) < 1) return;
+            _windowWidth = value;
+            OnPropertyChanged(nameof(ContextPanelWidth));
+        }
+    }
+
+    /// <summary>Called when a resize drag ends, so dragging doesn't write the config on every pixel.</summary>
+    public void SaveContextPanelWidth()
+    {
+        try { _configManager.Save(_config); } catch { /* the width is a convenience; keep it in memory */ }
     }
 
     private const double MiniNavSidebarWidth = 56;
     private double _lastExpandedNavSidebarWidth = 200;
 
-    /// <summary>User-drag-resizable width of the left nav sidebar; the mini/expanded toggle also drives this.</summary>
+    private bool _isNavigationCollapsed;
+    /// <summary>
+    /// Fully hides the left nav sidebar (0 width) — set by Zen Mode, Theater Mode, and the
+    /// narrow-window auto-collapse in MainWindow.axaml.cs. The width transition lives here in
+    /// the setter, not in each of those call sites, because none of them previously touched
+    /// NavSidebarWidth: they set this flag expecting the sidebar to disappear, but nothing in
+    /// MainWindow.axaml ever bound to it, so the column's actual pixel width (and MinWidth) never
+    /// changed — the "collapsed" nav stayed fully visible the whole time under all three features.
+    /// </summary>
+    public bool IsNavigationCollapsed
+    {
+        get => _isNavigationCollapsed;
+        set
+        {
+            if (!SetProperty(ref _isNavigationCollapsed, value)) return;
+
+            if (value)
+            {
+                // Only remember a genuinely-expanded width, not the mini rail's 56px — otherwise
+                // collapsing from the Mini state would clobber the real expanded width the
+                // Expanded->Mini transition already saved, and re-expanding later would land back
+                // at 56px instead of what the user actually had.
+                if (NavSidebarWidth > MiniNavSidebarWidth) _lastExpandedNavSidebarWidth = NavSidebarWidth;
+                IsNavigationMini = false;
+                NavSidebarWidth = 0;
+            }
+            else if (NavSidebarWidth <= 0)
+            {
+                NavSidebarWidth = _lastExpandedNavSidebarWidth > 0 ? _lastExpandedNavSidebarWidth : 200;
+            }
+        }
+    }
+
+    private bool _isNavigationMini;
+    /// <summary>
+    /// Icon-only rail mode (56px). Width bookkeeping lives here (mirroring
+    /// <see cref="IsNavigationCollapsed"/>) so ToggleNavigationCommand's Expanded/Mini/Collapsed
+    /// cycle only has to flip these two flags — every width transition, and remembering the real
+    /// expanded width across both mini and hidden states, happens in exactly one place each.
+    /// </summary>
+    public bool IsNavigationMini
+    {
+        get => _isNavigationMini;
+        set
+        {
+            if (!SetProperty(ref _isNavigationMini, value)) return;
+
+            if (value)
+            {
+                if (NavSidebarWidth > MiniNavSidebarWidth) _lastExpandedNavSidebarWidth = NavSidebarWidth;
+                NavSidebarWidth = MiniNavSidebarWidth;
+            }
+            else if (NavSidebarWidth <= MiniNavSidebarWidth && !IsNavigationCollapsed)
+            {
+                NavSidebarWidth = _lastExpandedNavSidebarWidth > 0 ? _lastExpandedNavSidebarWidth : 200;
+            }
+        }
+    }
+
+    /// <summary>User-drag-resizable width of the left nav sidebar; the mini/expanded/collapsed toggle also drives this.</summary>
     private double _navSidebarWidth = 200;
     public double NavSidebarWidth
     {
@@ -565,6 +711,16 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         set => SetProperty(ref _isTopCommandBarVisible, value);
     }
 
+    /// <summary>Live perf overlay (F12) — MainWindow reacts to this to also toggle Avalonia's own
+    /// native FPS overlay, since RendererDiagnostics is a Window-level rendering API this ViewModel
+    /// has no direct access to.</summary>
+    private bool _isPerformanceOverlayVisible;
+    public bool IsPerformanceOverlayVisible
+    {
+        get => _isPerformanceOverlayVisible;
+        set => SetProperty(ref _isPerformanceOverlayVisible, value);
+    }
+
     private bool _isAcquireVisible = true;
     public bool IsAcquireVisible
     {
@@ -583,27 +739,6 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         }
     }
     public string AcquireChevron => _isAcquireExpanded ? "▾" : "▸";
-
-    private bool _isEnrichVisible = true;
-    public bool IsEnrichVisible
-    {
-        get => _isEnrichVisible;
-        set => SetProperty(ref _isEnrichVisible, value);
-    }
-
-    private bool _isCurateVisible = true;
-    public bool IsCurateVisible
-    {
-        get => _isCurateVisible;
-        set => SetProperty(ref _isCurateVisible, value);
-    }
-
-    private bool _isDeliverVisible = true;
-    public bool IsDeliverVisible
-    {
-        get => _isDeliverVisible;
-        set => SetProperty(ref _isDeliverVisible, value);
-    }
 
     private bool _isSystemVisible = true;
     public bool IsSystemVisible
@@ -701,6 +836,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             {
                 OnPropertyChanged(nameof(IsPlayerInSidebar));
                 OnPropertyChanged(nameof(IsPlayerAtBottomVisible));
+                OnPropertyChanged(nameof(ShowBottomPlayerDrawer));
             }
         }
     }
@@ -715,6 +851,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             {
                 OnPropertyChanged(nameof(IsPlayerInSidebar));
                 OnPropertyChanged(nameof(IsPlayerAtBottomVisible));
+                OnPropertyChanged(nameof(ShowBottomPlayerDrawer));
             }
         }
     }
@@ -796,8 +933,24 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool HasETA => !string.IsNullOrEmpty(AnalysisETA);
 
 
-    public bool IsPlayerInSidebar => !IsPlayerAtBottom && IsPlayerSidebarVisible && CurrentPageType != PageType.TheaterMode && CurrentPageType != PageType.NowPlaying;
-    public bool IsPlayerAtBottomVisible => IsPlayerAtBottom && CurrentPageType != PageType.TheaterMode && CurrentPageType != PageType.NowPlaying;
+    // CurrentPageType != PageType.TheaterMode used to be checked here too, but ResolvePageType
+    // never actually produces PageType.TheaterMode (Theater Mode is an IsZenMode overlay toggle,
+    // not a navigable page) — that half of each condition was always true and dead. Removed;
+    // IsZenMode's own IsNavigationCollapsed/IsPlayerSidebarVisible toggling (see the IsZenMode
+    // setter) is what actually hides player chrome during theater/zen mode.
+    public bool IsPlayerInSidebar => !IsPlayerAtBottom && IsPlayerSidebarVisible && CurrentPageType != PageType.NowPlaying;
+    public bool IsPlayerAtBottomVisible => IsPlayerAtBottom && CurrentPageType != PageType.NowPlaying;
+
+    /// <summary>
+    /// Single collapsed condition for the Bottom Player Drawer's IsVisible — replaces a
+    /// MultiBinding+BoolConverters.And over IsPlayerAtBottomVisible/PlayerViewModel.IsPlayerVisible
+    /// that, in this XAML file's compiled-binding setup, never actually toggled the Border visible
+    /// even once every logged underlying value was confirmed true (including 1.5s later, ruling
+    /// out a race) — the ViewModel state was always correct, only the MultiBinding never reflected
+    /// it in the view. A single plain bool binding is the safer, provenly-working pattern already
+    /// used everywhere else in this file.
+    /// </summary>
+    public bool ShowBottomPlayerDrawer => IsPlayerAtBottomVisible && PlayerViewModel.IsPlayerVisible;
 
     // Phase 12.4: explicit nav-state flags for import/search overlays
     public bool IsAcquireOverlayActive => IsAcquireOverlayPage(CurrentPageType);
@@ -813,7 +966,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsSettingsOverlayActive => CurrentPageType == PageType.Settings;
     public bool IsWorkstationOverlayActive => IsCreativeOverlayPage(CurrentPageType);
     public bool IsCueForgeOverlayActive => CurrentPageType == PageType.CueForge;
+    public bool IsEditLabOverlayActive => CurrentPageType == PageType.EditLab;
     public bool IsUsersOverlayActive => CurrentPageType == PageType.Users;
+    public bool IsFlowBuilderOverlayActive => CurrentPageType == PageType.FlowBuilder;
 
     private static readonly string[] NavigationOverlayPropertyNames =
     [
@@ -830,7 +985,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         nameof(IsSettingsOverlayActive),
         nameof(IsWorkstationOverlayActive),
         nameof(IsCueForgeOverlayActive),
-        nameof(IsUsersOverlayActive)
+        nameof(IsEditLabOverlayActive),
+        nameof(IsUsersOverlayActive),
+        nameof(IsFlowBuilderOverlayActive)
     ];
 
     public static PageType ResolvePageType(Type? pageType, PageType fallback)
@@ -849,8 +1006,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         if (typeof(Avalonia.NowPlayingPage).IsAssignableFrom(pageType)) return PageType.NowPlaying;
         if (typeof(Avalonia.SettingsPage).IsAssignableFrom(pageType)) return PageType.Settings;
         if (typeof(Avalonia.WorkstationPage).IsAssignableFrom(pageType)) return PageType.Workstation;
-        if (pageType.Name.Contains("StemsPage", StringComparison.Ordinal)) return PageType.Stems;
+        if (typeof(Avalonia.EditLabPage).IsAssignableFrom(pageType)) return PageType.EditLab;
         if (typeof(Avalonia.UsersPage).IsAssignableFrom(pageType)) return PageType.Users;
+        if (typeof(Avalonia.FlowBuilderPage).IsAssignableFrom(pageType)) return PageType.FlowBuilder;
 
         return fallback;
     }
@@ -897,7 +1055,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         if (normalizedSource.StartsWith("FlowBuilder.", StringComparison.Ordinal))
         {
-            return currentPageType is PageType.Workstation or PageType.Decks or PageType.Timeline or PageType.Stems;
+            return currentPageType is PageType.Workstation or PageType.Decks or PageType.Timeline;
         }
 
         return true;
@@ -925,7 +1083,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public static bool IsAcquireOverlayPage(PageType pageType) => pageType is PageType.Search or PageType.Projects or PageType.Import;
     public static bool IsSystemOverlayPage(PageType pageType) => pageType is PageType.Home or PageType.Library or PageType.Analysis or PageType.NowPlaying or PageType.Settings;
-    public static bool IsCreativeOverlayPage(PageType pageType) => pageType is PageType.Workstation or PageType.Decks or PageType.Timeline or PageType.Stems;
+    public static bool IsCreativeOverlayPage(PageType pageType) => pageType is PageType.Workstation or PageType.Decks or PageType.Timeline;
 
     private void EnsureNavigationGroupExpanded(PageType pageType)
     {
@@ -939,7 +1097,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             IsSystemExpanded = true;
         }
 
-        if (IsCreativeOverlayPage(pageType))
+        if (IsCreativeOverlayPage(pageType) || pageType == PageType.EditLab)
         {
             IsCreativeExpanded = true;
         }
@@ -973,7 +1131,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public double FontSizeSmall => BaseFontSize * 0.85;
     public double FontSizeMedium => BaseFontSize;
     public double FontSizeLarge => BaseFontSize * 1.2;
-    public string UIScalePercentage => $"{(BaseFontSize / 14.0):P0}";
+    public string UIScalePercentage => NumFormat.Ui($"{(BaseFontSize / 14.0):P0}");
 
     private string _applicationVersion = "Unknown";
     public string ApplicationVersion
@@ -1064,9 +1222,10 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateWorkstationCommand { get; }
     public ICommand NavigateDecksCommand { get; }
     public ICommand NavigateTimelineCommand { get; }
-    public ICommand NavigateStemsCommand { get; }
+    public ICommand NavigateEditLabCommand { get; }
     public ICommand NavigateCueForgeCommand { get; }
     public ICommand NavigateUsersCommand { get; }
+    public ICommand NavigateFlowBuilderCommand { get; }
     public ICommand PlayPauseCommand { get; }
     public ICommand FocusSearchCommand { get; }
     public ICommand ToggleNavigationCommand { get; }
@@ -1078,6 +1237,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand RetryAllFailedDownloadsCommand { get; }
     public ICommand ToggleZenModeCommand { get; }
     public ICommand ToggleTopBarCommand { get; }
+    public ICommand TogglePerformanceOverlayCommand { get; }
     public ICommand ToggleTimelinePanelCommand { get; }
     public ICommand ToggleOverlaysPanelCommand { get; }
     public ICommand ToggleAcquireCommand  { get; }
@@ -1124,20 +1284,21 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 ReactiveUI.MessageBus.Current.SendMessage(new SLSKDONET.Events.CloseInspectorEvent());
             }
 
-            // Handle Theater Mode Layout (Navigation is special because it affects sidebar size)
-            if (CurrentPageType == PageType.TheaterMode)
+            // PageType.TheaterMode is never actually produced by ResolvePageType (no page maps to
+            // it — Theater Mode is implemented as an IsZenMode overlay toggle, not a navigable
+            // page), so this used to be dead code. Worse than just dead: since it unconditionally
+            // reset IsNavigationCollapsed to false on every navigation, it would fight IsZenMode's
+            // own IsNavigationCollapsed=true if a route change ever fired while zen/theater mode
+            // was active. Only restore the default when zen mode isn't the one driving it.
+            if (!IsZenMode)
             {
-                IsNavigationCollapsed = true;
-            }
-            else
-            {
-                // Restore defaults if we weren't already collapsed
-                IsNavigationCollapsed = false; 
+                IsNavigationCollapsed = false;
             }
 
             // Player visibility is now computed based on CurrentPageType
             OnPropertyChanged(nameof(IsPlayerInSidebar));
             OnPropertyChanged(nameof(IsPlayerAtBottomVisible));
+            OnPropertyChanged(nameof(ShowBottomPlayerDrawer));
             OnPropertyChanged(nameof(IsGlobalSidebarOpen));
             
             _logger.LogInformation("Navigation sync: CurrentPage updated to {PageType}", CurrentPageType);
@@ -1170,7 +1331,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         // Navigate to search page and focus the search box
         NavigateToSearch();
-        // For now, just navigate. In a full implementation, we'd use a focus protocol
+        _eventBus.Publish(new FocusSearchBoxRequestedEvent());
     }
 
     private void ToggleZenMode()
@@ -1217,9 +1378,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void NavigateToTimeline() => NavigateToWorkstation();
 
-    private void NavigateToStems()
+    private void NavigateToEditLab()
     {
-        _navigationService.NavigateTo("Stems");
+        _navigationService.NavigateTo("EditLab");
     }
 
     private void NavigateToCueForge()
@@ -1230,6 +1391,11 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void NavigateToUsers()
     {
         _navigationService.NavigateTo("Users");
+    }
+
+    private void NavigateToFlowBuilder()
+    {
+        _navigationService.NavigateTo("FlowBuilder");
     }
 
     /// <summary>
@@ -1251,6 +1417,107 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 _logger.LogWarning(ex, "Failed to open conversation from notification (Username={Username}, RoomName={RoomName})", evt.Username, evt.RoomName);
             }
         }
+    }
+
+    /// <summary>
+    /// Handles the Mix transition editor's "Open in Flow Builder" link: navigates to Flow
+    /// Builder and preloads the same playlist, so the user doesn't land on whatever playlist
+    /// Flow Builder last had open (it persists its own last-selected playlist independently —
+    /// see FlowBuilderViewModel.SelectedPlaylist).
+    /// </summary>
+    private async void HandleOpenFlowBuilderForPlaylist(OpenFlowBuilderForPlaylistEvent evt)
+    {
+        NavigateToFlowBuilder();
+
+        // Guid.Empty means the link was clicked from the Mix tab's "No transition loaded" empty
+        // state — no pair (and so no playlist) has been picked yet. Just navigate; Flow Builder
+        // opens on whatever playlist it last had, same as clicking the sidebar's own link.
+        if (evt.PlaylistId == Guid.Empty) return;
+
+        try
+        {
+            var playlist = _flowBuilderViewModel.Playlists.FirstOrDefault(p => p.Id == evt.PlaylistId);
+            if (playlist == null)
+            {
+                await _flowBuilderViewModel.LoadPlaylistsCommand.Execute().FirstAsync();
+                playlist = _flowBuilderViewModel.Playlists.FirstOrDefault(p => p.Id == evt.PlaylistId);
+            }
+
+            if (playlist != null && !ReferenceEquals(_flowBuilderViewModel.SelectedPlaylist, playlist))
+            {
+                _flowBuilderViewModel.SelectedPlaylist = playlist;
+                await _flowBuilderViewModel.LoadSelectedPlaylistCommand.Execute().FirstAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to preload playlist {PlaylistId} into Flow Builder", evt.PlaylistId);
+        }
+    }
+
+    /// <summary>
+    /// Round-trip half of MixTransitionViewModel's "Fix in Cue Forge" link: Cue Forge's own
+    /// "Back to Mix Transition" button (CueForgeViewModel.BackToMixTransitionCommand) publishes
+    /// this to get back to exactly the playlist + track pair the user came from, instead of a
+    /// dead end once they're done fixing a cue.
+    /// </summary>
+    /// <summary>Import page "Recent imports" → open that playlist in the Library.</summary>
+    private async void HandleOpenPlaylistInLibrary(OpenPlaylistInLibraryEvent evt)
+    {
+        NavigateToLibrary();
+        try
+        {
+            if (evt.PlaylistId == Guid.Empty)
+            {
+                // "All Tracks" (the import sheet's "Open in Library").
+                LibraryViewModel.Projects.LoadAllTracksCommand.Execute(null);
+                return;
+            }
+
+            var playlist = LibraryViewModel.Projects.AllProjects.FirstOrDefault(p => p.Id == evt.PlaylistId);
+            if (playlist == null)
+            {
+                await LibraryViewModel.Projects.LoadProjectsAsync();
+                playlist = LibraryViewModel.Projects.AllProjects.FirstOrDefault(p => p.Id == evt.PlaylistId);
+            }
+
+            if (playlist != null) LibraryViewModel.SelectedProject = playlist;
+            else _logger.LogWarning("Open playlist: {PlaylistId} not found in the Library", evt.PlaylistId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to open playlist {PlaylistId} in the Library", evt.PlaylistId);
+        }
+    }
+
+    private async void HandleOpenLibraryForPlaylist(OpenLibraryForPlaylistEvent evt)
+    {
+        NavigateToLibrary();
+
+        try
+        {
+            var playlist = LibraryViewModel.Projects.AllProjects.FirstOrDefault(p => p.Id == evt.PlaylistId);
+            if (playlist == null)
+            {
+                await LibraryViewModel.Projects.LoadProjectsAsync();
+                playlist = LibraryViewModel.Projects.AllProjects.FirstOrDefault(p => p.Id == evt.PlaylistId);
+            }
+
+            if (playlist != null)
+            {
+                LibraryViewModel.SelectedProject = playlist;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to preload playlist {PlaylistId} into Library for Mix Transition round-trip", evt.PlaylistId);
+        }
+
+        // Reopens the CONTEXT sidepanel's Mix tab on the exact pair — same event the Library
+        // track list's own transition badge publishes (see TrackListViewModel), so this behaves
+        // identically to the user clicking that badge themselves.
+        ReactiveUI.MessageBus.Current.SendMessage(
+            new SLSKDONET.Events.OpenMixTransitionEvent(evt.PlaylistId, evt.OutgoingPlaylistTrackId, evt.IncomingPlaylistTrackId));
     }
 
     private void UpdateFontSizeResources()
@@ -1332,9 +1599,21 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private const int MaxVisibleToasts = 4;
 
-    private void ShowToast(SLSKDONET.Services.ToastRequestedEvent evt)
+    /// <summary>A click on a toast that leads somewhere (e.g. "Queued for download" → Download Center).</summary>
+    public void OpenToast(ToastNotificationViewModel toast)
     {
-        var toast = new ToastNotificationViewModel(evt.Title, evt.Message, evt.Type);
+        Toasts.Remove(toast);
+        if (toast.OpenPage == "Projects") NavigateProjectsCommand.Execute(null);
+        else if (toast.OpenPage != null)
+        {
+            IsGlobalSidebarOpen = false;
+            _navigationService.NavigateTo(toast.OpenPage);
+        }
+    }
+
+    private void ShowToast(SLSKDONET.Services.ToastRequestedEvent evt, string? openPage = null)
+    {
+        var toast = new ToastNotificationViewModel(evt.Title, evt.Message, evt.Type, openPage);
         Toasts.Add(toast);
 
         // Cap how many stack up on screen at once — oldest drops off first.

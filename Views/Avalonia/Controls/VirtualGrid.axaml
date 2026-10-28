@@ -10,22 +10,22 @@
     <UserControl.Styles>
         <!-- Style container element when selected/focused -->
         <Style Selector="ItemsRepeater > TemplatedControl.selected">
-            <Setter Property="Background" Value="#1A3300BF"/>
+            <Setter Property="Background" Value="{StaticResource BrushSelected}"/>
         </Style>
         <Style Selector="ItemsRepeater > Border.selected">
-            <Setter Property="Background" Value="#1A3300BF"/>
+            <Setter Property="Background" Value="{StaticResource BrushSelected}"/>
         </Style>
         <Style Selector="ItemsRepeater > TemplatedControl.selected:pointerover">
-            <Setter Property="Background" Value="#2A3300BF"/>
+            <Setter Property="Background" Value="{StaticResource BrushSelected}"/>
         </Style>
         <Style Selector="ItemsRepeater > Border.selected:pointerover">
-            <Setter Property="Background" Value="#2A3300BF"/>
+            <Setter Property="Background" Value="{StaticResource BrushSelected}"/>
         </Style>
         <Style Selector="ItemsRepeater > TemplatedControl.focused">
-            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
         </Style>
         <Style Selector="ItemsRepeater > Border.focused">
-            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
         </Style>
     </UserControl.Styles>
 

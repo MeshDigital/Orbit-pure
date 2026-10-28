@@ -36,6 +36,12 @@ public partial class LibraryPlaylistTrackSurface : UserControl
         DataContextChanged += OnDataContextChanged;
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
+        // The surface's width decides which optional columns fit (TrackListColumnLayout). Only while
+        // visible: it shares the VM with TrackListView, and whichever one is shown owns the width.
+        SizeChanged += (_, e) =>
+        {
+            if (IsVisible && e.NewSize.Width > 0 && DataContext is TrackListViewModel vm) vm.ListWidth = e.NewSize.Width;
+        };
     }
 
     private void InitializeComponent()

@@ -43,17 +43,22 @@ public class AppDbContext : DbContext
     public DbSet<Entities.PeerReliabilityEntity> PeerReliability { get; set; } // Phase 9: Hedged Resilience
     public DbSet<Entities.DownloadHistoryEntity> DownloadHistory { get; set; } // Download intelligence log
     public DbSet<Entities.CuePointEntity> CuePoints { get; set; } // Phase 17+: Auto-generated structural cue points
+    public DbSet<Entities.EngineDiagnosticEventEntity> EngineDiagnosticEvents { get; set; } // Engine Diagnostics: import/search audit trail
     public DbSet<FrequentSource> FrequentSources { get; set; }
     public DbSet<PrefetchQueueItem> PrefetchQueueItems { get; set; }
     public DbSet<Entities.PrivateMessageEntity> PrivateMessages { get; set; } // Social: 1:1 Soulseek chat
     public DbSet<Entities.RoomMessageEntity> RoomMessages { get; set; } // Social: Soulseek chat rooms
+    public DbSet<Entities.RekordboxExportCueSyncEntity> RekordboxExportCueSync { get; set; } // Rekordbox export: three-way cue merge tracking
+    public DbSet<Entities.PlaylistTrackTransitionEntity> PlaylistTrackTransitions { get; set; } // Mix: saved per-track-pair transition config
+    public DbSet<Entities.MetadataLookupCacheEntity> MetadataLookupCache { get; set; } // Enrichment: cached provider lookups
+    public DbSet<Entities.MetadataProvenanceEntity> MetadataProvenance { get; set; } // Enrichment: per-field source of stored metadata
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         if (!optionsBuilder.IsConfigured)
         {
-            var appData = System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData);
-            var dbPath = Path.Combine(appData, "ORBIT", "library.db");
+            var appData = SLSKDONET.Data.OrbitPaths.RoamingRoot;
+            var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
             Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
 
             // Phase 1B/0: Enable WAL Mode and Busy Timeout for better concurrency
@@ -165,6 +170,16 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PlaylistJobEntity>()
             .HasIndex(j => j.CreatedAt)
             .HasDatabaseName("IX_PlaylistJob_CreatedAt");
+
+        modelBuilder.Entity<Entities.MetadataLookupCacheEntity>()
+            .HasKey(e => new { e.Provider, e.CacheKey });
+        modelBuilder.Entity<Entities.MetadataProvenanceEntity>()
+            .HasKey(e => new { e.TrackUniqueHash, e.Field });
+
+        modelBuilder.Entity<Entities.RekordboxExportCueSyncEntity>()
+            .HasIndex(e => new { e.TargetPath, e.TrackUniqueHash })
+            .IsUnique()
+            .HasDatabaseName("IX_RekordboxExportCueSync_TargetPath_Hash");
 
         // Playlist Folders: nested tree, self-referencing parent
         modelBuilder.Entity<PlaylistFolderEntity>()

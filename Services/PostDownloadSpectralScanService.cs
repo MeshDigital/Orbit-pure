@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
 using SLSKDONET.Models;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services;
 
@@ -36,8 +37,6 @@ public sealed class PostDownloadSpectralScanService : IDisposable
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _scannedPaths =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private static readonly System.Collections.Generic.HashSet<string> LosslessExtensions =
-        new(StringComparer.OrdinalIgnoreCase) { ".flac", ".wav", ".aiff", ".aif", ".ape", ".wv" };
 
     private readonly IAudioIntegrityService _integrityService;
     private readonly DatabaseService _databaseService;
@@ -67,7 +66,12 @@ public sealed class PostDownloadSpectralScanService : IDisposable
         var subscription = _eventBus.GetEvent<TrackStateChangedEvent>()
             .Subscribe(evt =>
             {
-                if (evt.State == PlaylistTrackState.Completed)
+                // WasAlreadyPresent means the file was already on disk and got relinked, not
+                // freshly transferred (e.g. re-syncing a playlist re-requeues a track that turns
+                // out to already be downloaded under a sibling row) — it's the same bytes this
+                // service already analysed the first time, so re-scanning it on every resync would
+                // just be wasted CPU for an identical result.
+                if (evt.State == PlaylistTrackState.Completed && !evt.WasAlreadyPresent)
                     _ = ScanAsync(evt);
             });
         _disposables.Add(subscription);
@@ -105,7 +109,7 @@ public sealed class PostDownloadSpectralScanService : IDisposable
 
             // Only scan lossless formats — MP3/AAC are always lossy by definition.
             var ext = Path.GetExtension(filePath);
-            if (!LosslessExtensions.Contains(ext))
+            if (!SLSKDONET.Services.Audio.AudioFormats.IsLossless(ext))
                 return;
 
             // De-duplicate: skip if already scanned in this session.
@@ -135,13 +139,13 @@ public sealed class PostDownloadSpectralScanService : IDisposable
             };
 
             var cutoffKhz = result.SpectralCutoffHz > 0
-                ? $"{result.SpectralCutoffHz / 1000.0:F1} kHz"
+                ? NumFormat.Ui($"{result.SpectralCutoffHz / 1000.0:F1} kHz")
                 : "unknown";
 
             // QualityDetails is read by UnifiedTrackViewModel for the forensic HUD and tooltip.
             var qualityDetails = result.Verdict == AudioAuthenticityVerdict.Unknown
                 ? result.Reason
-                : $"{result.Verdict} | cutoff: {cutoffKhz} | confidence: {result.Confidence:P0}";
+                : NumFormat.Ui($"{result.Verdict} | cutoff: {cutoffKhz} | confidence: {result.Confidence:P0}");
 
             var frequencyCutoffHz = result.SpectralCutoffHz > 0
                 ? (int?)result.SpectralCutoffHz

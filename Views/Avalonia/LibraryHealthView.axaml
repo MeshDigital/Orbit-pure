@@ -1,0 +1,142 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:SLSKDONET.ViewModels.Library"
+             mc:Ignorable="d" d:DesignWidth="700" d:DesignHeight="560"
+             x:Class="SLSKDONET.Views.Avalonia.LibraryHealthView"
+             x:DataType="vm:LibraryHealthViewModel"
+             x:CompileBindings="True">
+
+    <UserControl.Styles>
+        <Style Selector="Border.health-section">
+            <Setter Property="Background" Value="{StaticResource BrushBg1}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder0}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusLg}"/>
+            <Setter Property="Padding" Value="12"/>
+        </Style>
+    </UserControl.Styles>
+
+    <!-- Hosted in a LibraryPage overlay, which draws the close button in the top-right corner. -->
+    <Border Classes="dialog" Width="700" MaxHeight="640">
+        <Grid RowDefinitions="Auto,*">
+            <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,40,16">
+                <TextBlock Classes="h2" Text="Library health"/>
+                <TextBlock Classes="subtitle" Text="Disk usage, stale tracks, and files ORBIT hasn't indexed yet."/>
+            </StackPanel>
+
+            <ScrollViewer Grid.Row="1" MaxHeight="540">
+                <StackPanel Spacing="16">
+
+                    <!-- Disk usage -->
+                    <Border Classes="health-section">
+                        <StackPanel Spacing="8">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Grid.Column="0" Classes="section" Text="DISK USAGE" VerticalAlignment="Center"/>
+                                <Button Grid.Column="1" Classes="ghost small" Content="Refresh" Command="{Binding RefreshDiskUsageCommand}"/>
+                            </Grid>
+                            <TextBlock Classes="value mono" FontSize="{StaticResource TextSizeValue}" Foreground="{StaticResource BrushText0}"
+                                       Text="{Binding TotalLibrarySizeDisplay}"/>
+                            <TextBlock Classes="caption" Text="Computing…" IsVisible="{Binding IsDiskUsageLoading}"/>
+                            <ItemsControl ItemsSource="{Binding FormatBreakdown}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:FormatBreakdownRowViewModel">
+                                        <Grid ColumnDefinitions="80,*,Auto" Height="24">
+                                            <TextBlock Grid.Column="0" Classes="mono" Text="{Binding Format}" Foreground="{StaticResource BrushText0}" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Classes="mono" Text="{Binding TrackCount, StringFormat='{}{0} tracks'}" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="2" Classes="mono" Text="{Binding TotalSizeDisplay}" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock Classes="section" Text="LARGEST FILES" Margin="0,8,0,0"/>
+                            <ItemsControl ItemsSource="{Binding LargestFiles}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:LargestFileRowViewModel">
+                                        <Grid ColumnDefinitions="*,Auto,Auto" MinHeight="40">
+                                            <StackPanel Grid.Column="0" Spacing="0" VerticalAlignment="Center">
+                                                <TextBlock Classes="body" Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Classes="caption" Text="{Binding Artist}" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1" Classes="mono" Text="{Binding SizeDisplay}" VerticalAlignment="Center" Margin="8,0"/>
+                                            <Button Grid.Column="2" Classes="ghost small" Content="Reveal"
+                                                    Command="{ReflectionBinding $parent[UserControl].DataContext.RevealFileCommand}"
+                                                    CommandParameter="{Binding FilePath}"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Unplayed tracks -->
+                    <Border Classes="health-section">
+                        <StackPanel Spacing="8">
+                            <Grid ColumnDefinitions="*,Auto,Auto">
+                                <TextBlock Grid.Column="0" Classes="section" Text="UNPLAYED TRACKS" VerticalAlignment="Center"/>
+                                <Border Grid.Column="1" Classes="segmented" Margin="0,0,8,0">
+                                    <StackPanel Orientation="Horizontal" Spacing="2">
+                                        <Button Classes="ghost small" Content="30 days" Command="{Binding SetUnplayedThresholdCommand}" CommandParameter="30"/>
+                                        <Button Classes="ghost small" Content="90 days" Command="{Binding SetUnplayedThresholdCommand}" CommandParameter="90"/>
+                                        <Button Classes="ghost small" Content="180 days" Command="{Binding SetUnplayedThresholdCommand}" CommandParameter="180"/>
+                                    </StackPanel>
+                                </Border>
+                                <Button Grid.Column="2" Classes="ghost small" Content="Refresh" Command="{Binding RefreshUnplayedCommand}"/>
+                            </Grid>
+                            <TextBlock Classes="caption">
+                                <Run Text="{Binding UnplayedTracks.Count}"/><Run Text=" tracks not played in "/><Run Text="{Binding UnplayedThresholdDays}"/><Run Text=" days (showing up to 200)"/>
+                            </TextBlock>
+                            <TextBlock Classes="caption" Text="Computing…" IsVisible="{Binding IsUnplayedLoading}"/>
+                            <ItemsControl ItemsSource="{Binding UnplayedTracks}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:UnplayedTrackRowViewModel">
+                                        <Grid ColumnDefinitions="*,Auto" MinHeight="40">
+                                            <StackPanel Grid.Column="0" Spacing="0" VerticalAlignment="Center">
+                                                <TextBlock Classes="body" Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Classes="caption" Text="{Binding Artist}" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1" Classes="mono" Text="{Binding LastPlayedDisplay}" VerticalAlignment="Center"
+                                                       ToolTip.Tip="Last played"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Untracked files -->
+                    <Border Classes="health-section">
+                        <StackPanel Spacing="8">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Grid.Column="0" Classes="section" Text="FILES NOT IN ORBIT" VerticalAlignment="Center"/>
+                                <Button Grid.Column="1" Classes="ghost small" Content="Refresh" Command="{Binding RefreshUntrackedCommand}"/>
+                            </Grid>
+                            <TextBlock Classes="caption" TextWrapping="Wrap"
+                                       Text="Files inside a registered library folder that ORBIT hasn't imported yet (the reverse of orphaned tracks)."/>
+                            <TextBlock Classes="caption" Text="Computing…" IsVisible="{Binding IsUntrackedLoading}"/>
+                            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding !UntrackedFiles.Count}">
+                                <Ellipse Classes="status-dot success"/>
+                                <TextBlock Classes="caption" Text="No untracked files found."/>
+                            </StackPanel>
+                            <ItemsControl ItemsSource="{Binding UntrackedFiles}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:UntrackedFileRowViewModel">
+                                        <Grid ColumnDefinitions="*,Auto" MinHeight="32">
+                                            <TextBlock Grid.Column="0" Classes="mono" Text="{Binding FilePath}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                       ToolTip.Tip="{Binding FilePath}"/>
+                                            <Button Grid.Column="1" Classes="secondary small" Content="Scan now" Margin="8,0,0,0"
+                                                    Command="{ReflectionBinding $parent[UserControl].DataContext.ScanFolderCommand}"
+                                                    CommandParameter="{Binding}"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Border>
+</UserControl>

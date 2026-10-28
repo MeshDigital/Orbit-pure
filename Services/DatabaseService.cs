@@ -28,6 +28,15 @@ public class DatabaseService
     private readonly SemaphoreSlim _initSemaphore = new SemaphoreSlim(1, 1);
     private bool _isInitialized;
 
+    // Short TTL cache for the Users page's per-peer download summary — this query previously ran
+    // an unindexed full-table GROUP BY (fixed separately, see SchemaMigratorService patch #28), but
+    // the Refresh button re-runs LoadAsync on demand, so a brief cache absorbs repeated clicks
+    // without needing an invalidation hook wired into every download-completion path. 20s balances
+    // "don't hammer the DB on a double-click" against "new downloads should show up reasonably soon".
+    private List<UserDownloadSummary>? _downloadedUsersSummaryCache;
+    private DateTime _downloadedUsersSummaryCachedAtUtc = DateTime.MinValue;
+    private static readonly TimeSpan DownloadedUsersSummaryCacheTtl = TimeSpan.FromSeconds(20);
+
     public DatabaseService(
         ILogger<DatabaseService> logger,
         SchemaMigratorService schemaMigrator,
@@ -306,6 +315,24 @@ public class DatabaseService
         }
     }
 
+    /// <summary>
+    /// Deletes a LibraryEntries row by its real primary key. LibraryEntryEntity's <c>[Key]</c> is
+    /// UniqueHash (a string) — its Guid Id field is a secondary convenience field only, per the
+    /// entity's own doc comment — so <see cref="DeleteLibraryEntryAsync"/>'s FindAsync(Guid) can
+    /// never match a row here and silently no-ops. Use this whenever the caller has the track's
+    /// hash (the common case) rather than that Guid.
+    /// </summary>
+    public async Task DeleteLibraryEntryByHashAsync(string uniqueHash)
+    {
+        using var context = new AppDbContext();
+        var entry = await context.LibraryEntries.FindAsync(uniqueHash);
+        if (entry != null)
+        {
+            context.LibraryEntries.Remove(entry);
+            await context.SaveChangesAsync();
+        }
+    }
+
     // Helper to bulk save if needed
     public async Task SaveAllAsync(IEnumerable<TrackEntity> tracks)
     {
@@ -337,9 +364,16 @@ public class DatabaseService
         string? stalledReason = null)
     {
         return await _trackRepository.UpdatePlaylistTrackStatusAndRecalculateJobsAsync(
-            trackUniqueHash, newStatus, resolvedPath, searchRetryCount, notFoundRestartCount, 
+            trackUniqueHash, newStatus, resolvedPath, searchRetryCount, notFoundRestartCount,
             state, error, completedAt, stalledReason);
     }
+
+    public async Task<List<Guid>> BulkUpdatePlaylistTrackStatusAsync(
+        IReadOnlyList<string> trackUniqueHashes, TrackStatus? newStatus, string? state = null,
+        bool? isUserPaused = null, bool clearRetryState = false, bool? isClearedFromDownloadCenter = null,
+        int? priority = null)
+        => await _trackRepository.BulkUpdatePlaylistTrackStatusAsync(
+            trackUniqueHashes, newStatus, state, isUserPaused, clearRetryState, isClearedFromDownloadCenter, priority);
 
     // ===== LibraryEntry Methods =====
 
@@ -637,14 +671,14 @@ public class DatabaseService
         return await _trackRepository.LoadPlaylistTracksAsync(jobId);
     }
 
-    public async Task<int> GetPlaylistTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
+    public async Task<int> GetPlaylistTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, string? qualityTier = null)
     {
-        return await _trackRepository.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter);
+        return await _trackRepository.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier);
     }
 
-    public async Task<List<PlaylistTrackEntity>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false)
+    public async Task<List<PlaylistTrackEntity>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null)
     {
-        return await _trackRepository.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending);
+        return await _trackRepository.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier);
     }
 
     public async Task<List<TrackPhraseEntity>> GetPhrasesByHashAsync(string trackHash)
@@ -657,14 +691,14 @@ public class DatabaseService
         await _trackRepository.SavePhrasesAsync(phrases);
     }
 
-    public async Task<int> GetTotalLibraryTrackCountAsync(string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
+    public async Task<int> GetTotalLibraryTrackCountAsync(string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, string? qualityTier = null)
     {
-        return await _trackRepository.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter);
+        return await _trackRepository.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier);
     }
 
-    public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false)
+    public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null)
     {
-        return await _trackRepository.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending);
+        return await _trackRepository.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier);
     }
 
     public async Task<PlaylistTrackEntity?> GetPlaylistTrackByHashAsync(Guid jobId, string trackHash)
@@ -734,6 +768,39 @@ public class DatabaseService
                     SpectralCrestFactorDb   = {crestFactorDb},
                     SpectralNoiseFloorDbfs  = {noiseFloorDbfs}
                 WHERE Id = {trackId}");
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// Writes a verified track duration to every table that carries its own copy
+    /// (PlaylistTracks.CanonicalDuration in ms, Tracks.CanonicalDuration in ms,
+    /// LibraryEntries.DurationSeconds in seconds — TrackRepository.GetPagedAllTracksAsync derives
+    /// the "All Tracks" view's duration from the LibraryEntries copy, so all three need updating
+    /// for the value to show up everywhere). Guarded to only fill currently-empty values so this
+    /// never clobbers a duration set by a more authoritative source (e.g. Spotify metadata).
+    /// </summary>
+    public async Task UpdateDurationAsync(string trackUniqueHash, int durationSeconds)
+    {
+        if (string.IsNullOrWhiteSpace(trackUniqueHash) || durationSeconds <= 0) return;
+
+        await _writeSemaphore.WaitAsync();
+        try
+        {
+            using var context = new AppDbContext();
+            var canonicalMs = durationSeconds * 1000;
+            await context.Database.ExecuteSqlInterpolatedAsync($@"
+                UPDATE PlaylistTracks SET CanonicalDuration = {canonicalMs}
+                WHERE TrackUniqueHash = {trackUniqueHash} AND (CanonicalDuration IS NULL OR CanonicalDuration = 0)");
+            await context.Database.ExecuteSqlInterpolatedAsync($@"
+                UPDATE Tracks SET CanonicalDuration = {canonicalMs}
+                WHERE GlobalId = {trackUniqueHash} AND (CanonicalDuration IS NULL OR CanonicalDuration = 0)");
+            await context.Database.ExecuteSqlInterpolatedAsync($@"
+                UPDATE LibraryEntries SET DurationSeconds = {durationSeconds}
+                WHERE UniqueHash = {trackUniqueHash} AND (DurationSeconds IS NULL OR DurationSeconds = 0)");
         }
         finally
         {
@@ -863,11 +930,18 @@ public class DatabaseService
                  existingJob.SourceTitle = job.SourceTitle;
                  existingJob.SourceType = job.SourceType;
                  existingJob.IsDeleted = false;
-                 
+                 // SourceUrl was never mapped here — every playlist's "Check for New Tracks" /
+                 // "Open Source Link" stayed permanently unavailable regardless of what the
+                 // in-memory PlaylistJob carried, since this is where it actually gets persisted.
+                 // Only overwrite with a real value — a re-save that doesn't carry a URL (e.g. an
+                 // unrelated status update elsewhere) shouldn't wipe out one already on record.
+                 if (!string.IsNullOrWhiteSpace(job.SourceUrl))
+                     existingJob.SourceUrl = job.SourceUrl;
+
                  // Phase 20
                  existingJob.IsSmartPlaylist = job.IsSmartPlaylist;
                  existingJob.SmartCriteriaJson = job.SmartCriteriaJson;
-                 
+
                  context.Projects.Update(existingJob);
             }
             else
@@ -886,7 +960,8 @@ public class DatabaseService
                      MissingCount = job.MissingCount,
                      // Duplicates removed
                      IsDeleted = false,
-                     
+                     SourceUrl = job.SourceUrl,
+
                      // Phase 20
                      IsSmartPlaylist = job.IsSmartPlaylist,
                      SmartCriteriaJson = job.SmartCriteriaJson
@@ -963,6 +1038,9 @@ public class DatabaseService
                         Album = track.Album,
                         TrackUniqueHash = track.TrackUniqueHash ?? string.Empty,
                         Status = track.Status,
+                        AvailabilityState = (entry != null && !string.IsNullOrEmpty(entry.FilePath))
+                            ? entry.AvailabilityState
+                            : track.AvailabilityState,
                         ResolvedFilePath = track.ResolvedFilePath,
                         TrackNumber = track.TrackNumber,
                         AddedAt = track.AddedAt,
@@ -988,7 +1066,14 @@ public class DatabaseService
                         Energy = track.Energy > 0 ? track.Energy : (entry?.Energy ?? 0),
                         Danceability = track.Danceability > 0 ? track.Danceability : (entry?.Danceability ?? 0),
                         Valence = track.Valence > 0 ? track.Valence : (entry?.Valence ?? 0),
-                        
+
+                        // Bitrate/Format were missing from this initializer entirely (unlike every
+                        // other "inherit if possible" field above) — every PlaylistTracks row ever
+                        // created here silently kept the entity's 0/empty default, even when the
+                        // matched LibraryEntries row (the same physical file) had the real values.
+                        Bitrate = track.Bitrate > 0 ? track.Bitrate.Value : (entry?.Bitrate ?? 0),
+                        Format = SLSKDONET.Models.AudioFileFormat.Resolve(track.Format, null) ?? SLSKDONET.Models.AudioFileFormat.Resolve(entry?.Format, entry?.FilePath ?? track.ResolvedFilePath),
+
                         CuePointsJson = track.CuePointsJson,
                         AudioFingerprint = track.AudioFingerprint,
                         BitrateScore = track.BitrateScore,
@@ -1004,7 +1089,7 @@ public class DatabaseService
                         // Phase 13: Search Filter Overrides
                         PreferredFormats = track.PreferredFormats,
                         MinBitrateOverride = track.MinBitrateOverride,
-                        
+
                         IsEnriched = (track.IsEnriched || (entry?.IsEnriched ?? false))
                     };
                 });
@@ -1033,6 +1118,9 @@ public class DatabaseService
                         Album = track.Album,
                         TrackUniqueHash = track.TrackUniqueHash ?? string.Empty,
                         Status = track.Status,
+                        AvailabilityState = (entry != null && !string.IsNullOrEmpty(entry.FilePath))
+                            ? entry.AvailabilityState
+                            : track.AvailabilityState,
                         ResolvedFilePath = track.ResolvedFilePath,
                         TrackNumber = track.TrackNumber,
                         AddedAt = track.AddedAt,
@@ -1058,6 +1146,12 @@ public class DatabaseService
                         Energy = track.Energy > 0 ? track.Energy : (entry?.Energy ?? 0),
                         Danceability = track.Danceability > 0 ? track.Danceability : (entry?.Danceability ?? 0),
                         Valence = track.Valence > 0 ? track.Valence : (entry?.Valence ?? 0),
+
+                        // See matching comment in the add-branch above: Bitrate/Format were never
+                        // set here at all, so every re-sync of an existing project silently reset
+                        // them to 0/empty on every track, even ones with a correct LibraryEntries match.
+                        Bitrate = track.Bitrate > 0 ? track.Bitrate.Value : (entry?.Bitrate ?? 0),
+                        Format = SLSKDONET.Models.AudioFileFormat.Resolve(track.Format, null) ?? SLSKDONET.Models.AudioFileFormat.Resolve(entry?.Format, entry?.FilePath ?? track.ResolvedFilePath),
 
                         CuePointsJson = track.CuePointsJson,
                         AudioFingerprint = track.AudioFingerprint,
@@ -1719,31 +1813,6 @@ public class DatabaseService
     }
 
     /// <summary>
-    /// Phase 8: Maintenance - Vacuum database to reclaim space and optimize performance.
-    /// Should be called periodically (e.g., during daily maintenance).
-    /// </summary>
-    public async Task VacuumDatabaseAsync()
-    {
-        try
-        {
-            using var context = new AppDbContext();
-            var connection = context.Database.GetDbConnection();
-            await connection.OpenAsync();
-            
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText = "VACUUM";
-            await cmd.ExecuteNonQueryAsync();
-            
-            _logger.LogInformation("Database VACUUM completed successfully");
-            await connection.CloseAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Database VACUUM failed (this is non-critical)");
-        }
-    }
-
-    /// <summary>
     /// ⚠️ INITIATING DATABASE RESET ⚠️
     /// Safely deletes the database file and re-initializes a fresh schema.
     /// This will wipe ALL tracks, projects, and cached data.
@@ -2211,25 +2280,21 @@ public class DatabaseService
 
     // ===== Backup Methods =====
 
-    public async Task BackupDatabaseAsync(string backupPath)
+    /// <summary>
+    /// Writes a consistent snapshot of the library to <paramref name="backupPath"/> (or a
+    /// timestamped file in the Backups folder when null) and returns its path.
+    /// Uses SQLite's online backup API: a plain file copy of a WAL-mode database can miss
+    /// committed pages still in the -wal file. Throws on failure so the caller can report it —
+    /// it used to log and return as if it had succeeded.
+    /// </summary>
+    public Task<string> BackupDatabaseAsync(string? backupPath = null)
     {
-        var dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ORBIT", "library.db");
-        
-        if (!File.Exists(dbPath))
+        return Task.Run(() =>
         {
-            _logger.LogWarning("Database file not found at {Path}, skipping backup", dbPath);
-            return;
-        }
-
-        try
-        {
-            await _fileWriteService.CopyFileAtomicAsync(dbPath, backupPath, preserveTimestamps: true);
-            _logger.LogInformation("✅ Database backup created successfully at {Path}", backupPath);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to create database backup at {Path}", backupPath);
-        }
+            var path = SLSKDONET.Services.LibraryDatabaseMaintenance.CreateBackup(targetPath: backupPath);
+            _logger.LogInformation("Database backup created at {Path}", path);
+            return path;
+        });
     }
 
     public async Task<List<PlaylistTrackEntity>> SearchPlaylistTracksAsync(string query, int limit = 50)
@@ -2327,14 +2392,18 @@ public class DatabaseService
             .ConfigureAwait(false);
         foreach (var row in playlistRows)
         {
-            row.BPM = features.Bpm;
+            // Analysis fills BPM only when nothing more authoritative is already set — a manual
+            // edit or a file-embedded tag both outrank Essentia, which has a confirmed quantization
+            // bias on breakbeat/DNB content (see TagBPM's doc comment). Every other analysis field
+            // below is untouched; only BPM was diagnosed as wrong.
+            if (row.ManualBPM is null && row.TagBPM is null) row.BPM = features.Bpm;
             row.MusicalKey = features.Key;
             row.Energy = features.Energy;
             row.Danceability = features.Danceability;
             row.Valence = features.Valence;
             row.Arousal = features.Arousal;
             row.IsDjTool = features.IsDjTool;
-            row.Loudness = features.LoudnessLUFS;
+            row.Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(features.LoudnessLUFS);
             row.CuePointsJson = features.CuePointsJson;
             row.MoodTag = features.MoodTag;
             row.DetectedSubGenre = features.DetectedSubGenre;
@@ -2349,14 +2418,18 @@ public class DatabaseService
             .ConfigureAwait(false);
         foreach (var row in libraryRows)
         {
-            row.BPM = features.Bpm;
+            // Analysis fills BPM only when nothing more authoritative is already set — a manual
+            // edit or a file-embedded tag both outrank Essentia, which has a confirmed quantization
+            // bias on breakbeat/DNB content (see TagBPM's doc comment). Every other analysis field
+            // below is untouched; only BPM was diagnosed as wrong.
+            if (row.ManualBPM is null && row.TagBPM is null) row.BPM = features.Bpm;
             row.MusicalKey = features.Key;
             row.Energy = features.Energy;
             row.Danceability = features.Danceability;
             row.Valence = features.Valence;
             row.Arousal = features.Arousal;
             row.IsDjTool = features.IsDjTool;
-            row.Loudness = features.LoudnessLUFS;
+            row.Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(features.LoudnessLUFS);
             row.CuePointsJson = features.CuePointsJson;
             row.MoodTag = features.MoodTag;
             row.DetectedSubGenre = features.DetectedSubGenre;
@@ -2371,7 +2444,11 @@ public class DatabaseService
             .ConfigureAwait(false);
         foreach (var row in masterTracks)
         {
-            row.BPM = features.Bpm;
+            // Analysis fills BPM only when nothing more authoritative is already set — a manual
+            // edit or a file-embedded tag both outrank Essentia, which has a confirmed quantization
+            // bias on breakbeat/DNB content (see TagBPM's doc comment). Every other analysis field
+            // below is untouched; only BPM was diagnosed as wrong.
+            if (row.ManualBPM is null && row.TagBPM is null) row.BPM = features.Bpm;
             row.MusicalKey = features.Key;
             row.Energy = features.Energy;
             row.Danceability = features.Danceability;
@@ -2399,11 +2476,18 @@ public class DatabaseService
             .ConfigureAwait(false);
     }
 
-    /// <summary>Per-peer download counts/last-seen, grouped from DownloadHistory — the row source for the Users/Contacts page.</summary>
+    /// <summary>Per-peer download counts/last-seen, grouped from DownloadHistory — the row source
+    /// for the Users/Contacts page. Cached for <see cref="DownloadedUsersSummaryCacheTtl"/> since
+    /// this GroupBy can be a meaningful scan over a large table and the Refresh button re-triggers
+    /// it on demand.</summary>
     public async Task<List<UserDownloadSummary>> GetDownloadedUsersSummaryAsync()
     {
+        var cached = _downloadedUsersSummaryCache;
+        if (cached != null && DateTime.UtcNow - _downloadedUsersSummaryCachedAtUtc < DownloadedUsersSummaryCacheTtl)
+            return cached;
+
         using var context = new AppDbContext();
-        return await context.DownloadHistory
+        var result = await context.DownloadHistory
             .Where(x => x.PeerUsername != null)
             .GroupBy(x => x.PeerUsername!)
             .Select(g => new UserDownloadSummary(
@@ -2413,6 +2497,10 @@ public class DatabaseService
                 g.Max(x => x.RecordedAt)))
             .ToListAsync()
             .ConfigureAwait(false);
+
+        _downloadedUsersSummaryCache = result;
+        _downloadedUsersSummaryCachedAtUtc = DateTime.UtcNow;
+        return result;
     }
 
     /// <summary>
@@ -2509,19 +2597,6 @@ public class DatabaseService
         }
     }
 
-    /// <summary>Distinct peers with any message history, most recently active first — powers the conversation list panel.</summary>
-    public async Task<List<string>> GetConversationPeersAsync()
-    {
-        using var context = new AppDbContext();
-        return await context.PrivateMessages
-            .GroupBy(x => x.PeerUsername)
-            .Select(g => new { Username = g.Key, LastMessageAt = g.Max(x => x.TimestampUtc) })
-            .OrderByDescending(x => x.LastMessageAt)
-            .Select(x => x.Username)
-            .ToListAsync()
-            .ConfigureAwait(false);
-    }
-
     /// <summary>
     /// Recent 1:1 conversations with a last-message preview, most recently active first — the data
     /// source for the Users page's "Conversations" section (distinct from the full "everyone you've
@@ -2540,10 +2615,28 @@ public class DatabaseService
 
         return recentMessages
             .GroupBy(x => x.PeerUsername, StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.First()) // already ordered by TimestampUtc desc, so first = most recent per peer
-            .OrderByDescending(x => x.TimestampUtc)
-            .Select(x => new ConversationSummary(x.PeerUsername, x.Message, x.TimestampUtc, x.IsOutgoing))
+            .Select(g => (Latest: g.First(), HasUnread: g.Any(m => !m.IsOutgoing && !m.IsRead))) // already ordered by TimestampUtc desc, so first = most recent per peer
+            .OrderByDescending(x => x.Latest.TimestampUtc)
+            .Select(x => new ConversationSummary(x.Latest.PeerUsername, x.Latest.Message, x.Latest.TimestampUtc, x.Latest.IsOutgoing, x.HasUnread))
             .ToList();
+    }
+
+    /// <summary>Marks every message in a 1:1 conversation as read — called when its Chat tab is opened.</summary>
+    public async Task MarkConversationReadAsync(string peerUsername)
+    {
+        await _writeSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            await context.PrivateMessages
+                .Where(x => x.PeerUsername == peerUsername && !x.IsRead)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsRead, true))
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
     }
 
     // ── Social: chat rooms ────────────────────────────────────────────────────────
@@ -2586,6 +2679,39 @@ public class DatabaseService
             .ConfigureAwait(false);
     }
 
+    /// <summary>Marks every message in a room as read — called when the room is opened/selected.</summary>
+    public async Task MarkRoomReadAsync(string roomName)
+    {
+        await _writeSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            await context.RoomMessages
+                .Where(x => x.RoomName == roomName && !x.IsRead)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsRead, true))
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>Wipes an entire room's local history on this device — other members' own copies are unaffected.</summary>
+    public async Task DeleteRoomHistoryAsync(string roomName)
+    {
+        await _writeSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            await context.RoomMessages.Where(x => x.RoomName == roomName).ExecuteDeleteAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
     /// <summary>Removes one message from local room history — local-only, the Soulseek protocol has no message recall.</summary>
     public async Task DeleteRoomMessageAsync(Guid id)
     {
@@ -2614,7 +2740,8 @@ public readonly record struct ConversationSummary(
     string Username,
     string LastMessage,
     DateTime LastMessageUtc,
-    bool LastMessageWasOutgoing);
+    bool LastMessageWasOutgoing,
+    bool HasUnread);
 
 
 

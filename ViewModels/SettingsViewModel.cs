@@ -54,7 +54,24 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
     private bool _isApplyingSearchProfile;
     private bool _isDisposed;
+    private bool _isInitialized;
     private IDisposable? _libraryFoldersSubscription;
+
+    private string _settingsSearchText = string.Empty;
+    /// <summary>Drives the Settings page's search box (SettingsSearchMatchConverter) — filters
+    /// the currently active tab's sections by keyword. Not persisted; page-local UI state only.</summary>
+    public string SettingsSearchText
+    {
+        get => _settingsSearchText;
+        set
+        {
+            if (_settingsSearchText != value)
+            {
+                _settingsSearchText = value;
+                OnPropertyChanged();
+            }
+        }
+    }
 
     private readonly ILogger<SettingsViewModel> _logger;
     private readonly AppConfig _config;
@@ -64,13 +81,15 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private readonly ISpotifyMetadataService _spotifyMetadataService;
     private readonly DatabaseService _databaseService;
     private readonly LibraryFolderScannerService _libraryFolderScannerService;
+    private readonly ILibraryImportLauncher? _importLauncher;
     private readonly IEventBus _eventBus;
+    private readonly NetworkActivityMonitor? _networkActivityMonitor;
+    private readonly EngineDiagnosticsService? _engineDiagnosticsService;
     private readonly ISoulseekAdapter _soulseek;
     private readonly ISoulseekCredentialService _credentialService;
     private readonly IConnectionLifecycleService _lifecycle;
     private readonly IDbContextFactory<AppDbContext>? _dbFactory;
     private readonly ILibraryService? _libraryService;
-    private readonly AiEngineService _aiEngine;
     private readonly IDialogService? _dialogService;
 
     // Hardcoded public client ID provided by user/project
@@ -78,12 +97,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private const string DefaultSpotifyClientId = "67842a599c6f45edbf3de3d84231deb4";
 
     public event PropertyChangedEventHandler? PropertyChanged;
-
-    // AI Engine (optional EDMFormer microservice)
-    public AiEngineService AiEngine => _aiEngine;
-    public ICommand InstallAiEngineCommand { get; }
-    public ICommand StartAiServerCommand { get; }
-    public ICommand CheckAiEngineCommand { get; }
 
     // Settings Properties
     public string DownloadPath
@@ -95,6 +108,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             {
                 _config.DownloadDirectory = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(EditLabOutputDirectoryDisplay));
                 SaveSettings(); 
             }
         }
@@ -116,6 +130,81 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>Settings → Library: queue every finished download for analysis.</summary>
+    public bool AnalyzeNewDownloads
+    {
+        get => _config.AnalyzeNewDownloads;
+        set
+        {
+            if (_config.AnalyzeNewDownloads != value)
+            {
+                _config.AnalyzeNewDownloads = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    /// <summary>Settings → Downloads: where Edit Lab renders go. Empty = &lt;download folder&gt;/ORBIT Edits.</summary>
+    public string EditLabOutputDirectory
+    {
+        get => _config.EditLabOutputDirectory ?? "";
+        set
+        {
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value;
+            if (_config.EditLabOutputDirectory != normalized)
+            {
+                _config.EditLabOutputDirectory = normalized;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(EditLabOutputDirectoryDisplay));
+                OnPropertyChanged(nameof(HasCustomEditLabOutputDirectory));
+                SaveSettings();
+            }
+        }
+    }
+
+    public string EditLabOutputDirectoryDisplay => string.IsNullOrWhiteSpace(_config.EditLabOutputDirectory)
+        ? System.IO.Path.Combine(DownloadPath, "ORBIT Edits")
+        : _config.EditLabOutputDirectory!;
+
+    public bool HasCustomEditLabOutputDirectory => !string.IsNullOrWhiteSpace(_config.EditLabOutputDirectory);
+
+    private ICommand? _browseEditLabOutputDirectoryCommand;
+    public ICommand BrowseEditLabOutputDirectoryCommand => _browseEditLabOutputDirectoryCommand ??= new AsyncRelayCommand(async () =>
+    {
+        var path = await _fileInteractionService.OpenFolderDialogAsync("Select Edit Lab Output Folder");
+        if (!string.IsNullOrEmpty(path)) EditLabOutputDirectory = path;
+    });
+
+    private ICommand? _resetEditLabOutputDirectoryCommand;
+    public ICommand ResetEditLabOutputDirectoryCommand => _resetEditLabOutputDirectoryCommand ??= new RelayCommand(() => EditLabOutputDirectory = "");
+
+    /// <summary>Settings → Advanced → Setup: reopen the first-run wizard / start the quick tour.</summary>
+    private ICommand? _runSetupAgainCommand;
+    public ICommand RunSetupAgainCommand => _runSetupAgainCommand ??= new RelayCommand(() => _eventBus.Publish(new SLSKDONET.Services.Setup.OpenSetupWizardRequestedEvent()));
+    private ICommand? _takeTourCommand;
+    public ICommand TakeTourCommand => _takeTourCommand ??= new RelayCommand(() => _eventBus.Publish(new SLSKDONET.Services.Setup.StartTourRequestedEvent()));
+
+    /// <summary>Cancels a Spotify sign-in started from here or from the setup wizard.</summary>
+    public void CancelSpotifyConnect() => _connectCts?.Cancel();
+
+    /// <summary>
+    /// Re-reads every value the setup wizard can change (it writes AppConfig directly), so this
+    /// page shows the same values right away.
+    /// </summary>
+    public void RefreshFromConfig()
+    {
+        foreach (var name in new[]
+                 {
+                     nameof(DownloadPath), nameof(SharedFolderPath), nameof(EnableLibrarySharing),
+                     nameof(AudioOutputMode), nameof(AudioOutputDeviceName), nameof(AnalyzeNewDownloads),
+                     nameof(EditLabOutputDirectory), nameof(EditLabOutputDirectoryDisplay), nameof(HasCustomEditLabOutputDirectory),
+                     nameof(SoulseekUsername), nameof(SoulseekAutoConnectEnabled), nameof(SoulseekRememberPassword),
+                 })
+            OnPropertyChanged(name);
+        RefreshAvailableAudioOutputDevices();
+    }
+
     public bool EnableLibrarySharing
     {
         get => _config.EnableLibrarySharing;
@@ -128,8 +217,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 SaveSettings();
                 // Reflect toggle change in share state immediately
                 _ = Task.Run(() => _soulseek.RefreshShareStateAsync());
-                OnPropertyChanged(nameof(ShareStatusSummary));
-                OnPropertyChanged(nameof(ShareStatusColor));
+                RaiseShareStatusChanged();
             }
         }
     }
@@ -143,6 +231,39 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             if (_config.EnableKeyboardTelemetry != value)
             {
                 _config.EnableKeyboardTelemetry = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Close button minimises ORBIT to the tray (downloads keep running) instead of quitting.
+    /// Read by MainWindow at close time, so it applies immediately.
+    /// </summary>
+    public bool CloseToTray
+    {
+        get => _config.CloseToTray;
+        set
+        {
+            if (_config.CloseToTray != value)
+            {
+                _config.CloseToTray = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    /// <summary>Toggle for the live network-activity feed (Soulseek + HTTP + socket/DNS). Local-only.</summary>
+    public bool EnableNetworkActivityMonitor
+    {
+        get => _config.EnableNetworkActivityMonitor;
+        set
+        {
+            if (_config.EnableNetworkActivityMonitor != value)
+            {
+                _config.EnableNetworkActivityMonitor = value;
                 OnPropertyChanged();
                 SaveSettings();
             }
@@ -223,8 +344,10 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    /// <summary>WaveOut / WasapiShared / WasapiExclusive / Asio — matches <see cref="SLSKDONET.Services.Audio.AudioOutputMode"/>'s member names.</summary>
-    public static string[] AvailableAudioOutputModes { get; } = { "WaveOut", "WasapiShared", "WasapiExclusive", "Asio" };
+    /// <summary>Matches <see cref="SLSKDONET.Services.Audio.AudioOutputMode"/>'s member names. No
+    /// WasapiExclusive: an exclusive stream locks the device, and ORBIT always plays several
+    /// streams at once (two decks per crossfade, plus previews) — it broke every mix.</summary>
+    public static string[] AvailableAudioOutputModes { get; } = { "WasapiShared", "WaveOut", "Asio" };
 
     public string AudioOutputMode
     {
@@ -237,6 +360,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 OnPropertyChanged();
                 SaveSettings();
                 RefreshAvailableAudioOutputDevices();
+                ApplyOutputDeviceNow();
             }
         }
     }
@@ -251,6 +375,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 _config.AudioOutputDeviceName = string.IsNullOrWhiteSpace(value) ? null : value;
                 OnPropertyChanged();
                 SaveSettings();
+                ApplyOutputDeviceNow();
             }
         }
     }
@@ -259,6 +384,14 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public ObservableCollection<string> AvailableAudioOutputDevices { get; } = new();
 
     public ICommand RefreshAudioDevicesCommand => new RelayCommand(RefreshAvailableAudioOutputDevices);
+
+    /// <summary>Switches what is playing right now onto the newly chosen device (off the UI thread — stopping a WASAPI output blocks briefly).</summary>
+    private static void ApplyOutputDeviceNow()
+    {
+        if (Avalonia.Application.Current is not SLSKDONET.App app || app.Services == null) return;
+        if (app.Services.GetService(typeof(SLSKDONET.Services.IAudioPlayerService)) is SLSKDONET.Services.IAudioPlayerService player)
+            System.Threading.Tasks.Task.Run(player.ApplyOutputSettings);
+    }
 
     public void RefreshAvailableAudioOutputDevices()
     {
@@ -490,6 +623,183 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             }
         }
     }
+
+    public bool EnableUpdateCheck
+    {
+        get => _config.EnableUpdateCheck;
+        set
+        {
+            if (_config.EnableUpdateCheck != value)
+            {
+                _config.EnableUpdateCheck = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    /// <summary>True = Neon RGB palette, false = Classic RGB palette — two options, so a single toggle rather than a full picker.</summary>
+    public bool WaveformUseNeonPalette
+    {
+        get => string.Equals(_config.WaveformPalette, "NeonRgb", StringComparison.OrdinalIgnoreCase);
+        set
+        {
+            var newValue = value ? "NeonRgb" : "ClassicRgb";
+            if (!string.Equals(_config.WaveformPalette, newValue, StringComparison.OrdinalIgnoreCase))
+            {
+                _config.WaveformPalette = newValue;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool WaveformShowEnergyCurve
+    {
+        get => _config.WaveformShowEnergyCurve;
+        set
+        {
+            if (_config.WaveformShowEnergyCurve != value)
+            {
+                _config.WaveformShowEnergyCurve = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool WaveformShowVocalGhost
+    {
+        get => _config.WaveformShowVocalGhost;
+        set
+        {
+            if (_config.WaveformShowVocalGhost != value)
+            {
+                _config.WaveformShowVocalGhost = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool WaveformShowPhraseSections
+    {
+        get => _config.WaveformShowPhraseSections;
+        set
+        {
+            if (_config.WaveformShowPhraseSections != value)
+            {
+                _config.WaveformShowPhraseSections = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public float WaveformGain
+    {
+        get => _config.WaveformGain;
+        set
+        {
+            var normalized = Math.Clamp(value, 0.5f, 2.0f);
+            if (Math.Abs(_config.WaveformGain - normalized) > 0.001f)
+            {
+                _config.WaveformGain = normalized;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    // ── Waveform Appearance live preview ────────────────────────────────────
+    // A small synthetic sample — not a real analyzed track — purely so the
+    // Settings page can show what each toggle actually does instead of just
+    // flipping an abstract switch. Built once and cached; every toggle above
+    // drives this same instance via WaveformControl's own StyledProperties,
+    // so no extra plumbing is needed here beyond the sample data itself.
+    private WaveformAnalysisData? _waveformPreviewData;
+    public WaveformAnalysisData WaveformPreviewData => _waveformPreviewData ??= BuildWaveformPreviewData();
+
+    private IEnumerable<float>? _waveformPreviewEnergyCurve;
+    public IEnumerable<float> WaveformPreviewEnergyCurve => _waveformPreviewEnergyCurve ??= BuildWaveformPreviewEnergyCurve();
+
+    private IEnumerable<float>? _waveformPreviewVocalCurve;
+    public IEnumerable<float> WaveformPreviewVocalCurve => _waveformPreviewVocalCurve ??= BuildWaveformPreviewVocalCurve();
+
+    private List<PhraseSegment>? _waveformPreviewPhraseSegments;
+    public IEnumerable<PhraseSegment> WaveformPreviewPhraseSegments => _waveformPreviewPhraseSegments ??= BuildWaveformPreviewPhraseSegments();
+
+    private const int WaveformPreviewSampleCount = 300;
+    private const double WaveformPreviewDurationSeconds = 30.0;
+
+    private static WaveformAnalysisData BuildWaveformPreviewData()
+    {
+        var low = new byte[WaveformPreviewSampleCount];
+        var mid = new byte[WaveformPreviewSampleCount];
+        var high = new byte[WaveformPreviewSampleCount];
+        var peak = new byte[WaveformPreviewSampleCount];
+        var rms = new byte[WaveformPreviewSampleCount];
+
+        for (var i = 0; i < WaveformPreviewSampleCount; i++)
+        {
+            var t = (double)i / WaveformPreviewSampleCount;
+            // A gentle overall envelope (builds, drops, tails off) so the preview reads as a real
+            // track shape rather than a flat noise band, plus distinct phase offsets per band so
+            // the tri-band RGB blend actually shows visible color separation.
+            var envelope = 0.35 + 0.65 * Math.Pow(Math.Sin(t * Math.PI), 0.6);
+
+            low[i] = ToByte(envelope * (0.7 + 0.3 * Math.Sin(t * 18.0)));
+            mid[i] = ToByte(envelope * (0.6 + 0.4 * Math.Sin(t * 30.0 + 1.2)));
+            high[i] = ToByte(envelope * (0.5 + 0.5 * Math.Sin(t * 46.0 + 2.4)));
+            peak[i] = Math.Max(low[i], Math.Max(mid[i], high[i]));
+            rms[i] = ToByte(envelope * 0.6);
+        }
+
+        return new WaveformAnalysisData
+        {
+            PeakData = peak,
+            RmsData = rms,
+            LowData = low,
+            MidData = mid,
+            HighData = high,
+            DurationSeconds = WaveformPreviewDurationSeconds,
+            PointsPerSecond = (int)Math.Round(WaveformPreviewSampleCount / WaveformPreviewDurationSeconds)
+        };
+
+        static byte ToByte(double value) => (byte)Math.Clamp(value * 255.0, 0, 255);
+    }
+
+    private static IEnumerable<float> BuildWaveformPreviewEnergyCurve()
+    {
+        var curve = new float[WaveformPreviewSampleCount];
+        for (var i = 0; i < WaveformPreviewSampleCount; i++)
+        {
+            var t = (double)i / WaveformPreviewSampleCount;
+            curve[i] = (float)Math.Clamp(0.3 + 0.7 * Math.Pow(Math.Sin(t * Math.PI), 0.6), 0, 1);
+        }
+        return curve;
+    }
+
+    private static IEnumerable<float> BuildWaveformPreviewVocalCurve()
+    {
+        var curve = new float[WaveformPreviewSampleCount];
+        for (var i = 0; i < WaveformPreviewSampleCount; i++)
+        {
+            var t = (double)i / WaveformPreviewSampleCount;
+            // Vocal-density curve reads as "high vocal presence" when this value is low (see
+            // WaveformControl's vocal-ghost rendering) — dip it in the back half of the preview.
+            curve[i] = (float)Math.Clamp(0.7 - 0.6 * Math.Max(0, Math.Sin((t - 0.5) * Math.PI)), 0, 1);
+        }
+        return curve;
+    }
+
+    private static List<PhraseSegment> BuildWaveformPreviewPhraseSegments() => new()
+    {
+        new PhraseSegment { Label = "Intro", Start = 0f, Duration = 6f },
+        new PhraseSegment { Label = "Build", Start = 6f, Duration = 6f },
+        new PhraseSegment { Label = "Drop", Start = 12f, Duration = 10f },
+        new PhraseSegment { Label = "Outro", Start = 22f, Duration = 8f },
+    };
 
     public int AutoDownloadInitialWaitMs
     {
@@ -1016,7 +1326,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             Id = "Quality First",
             Title = "Audiophile",
             Description = "Prioritizes lossless, high-bitrate, and perfect rips. No compromises.",
-            Icon = "🎧",
             IsSelected = _config.RankingProfile == "Quality First"
         });
 
@@ -1025,7 +1334,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             Id = "Balanced",
             Title = "Balanced",
             Description = "The best mix of quality, speed, and metadata accuracy. Recommended.",
-            Icon = "⚖️",
             IsSelected = _config.RankingProfile == "Balanced" || string.IsNullOrEmpty(_config.RankingProfile)
         });
 
@@ -1034,7 +1342,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             Id = "DJ Mode",
             Title = "DJ Ready",
             Description = "Prioritizes BPM, Key, and mix-friendly files (Extended Mixes).",
-            Icon = "🎛️",
             IsSelected = _config.RankingProfile == "DJ Mode"
         });
 
@@ -1095,9 +1402,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         IsSpotifyConnecting = newState == SpotifyAuthStatus.Connecting;
         IsSpotifyConnected = newState == SpotifyAuthStatus.Connected;
         
-        OnPropertyChanged(nameof(SpotifyStatusColor));
-        OnPropertyChanged(nameof(SpotifyStatusIcon));
-        
         // Refresh commands
         (ConnectSpotifyCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (DisconnectSpotifyCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
@@ -1129,10 +1433,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         get => _isSpotifyConnected;
         set => SetProperty(ref _isSpotifyConnected, value);
     }
-
-    // SSO State (Legacy compat where needed, but driven by State now)
-    public string SpotifyStatusColor => IsSpotifyConnected ? "#1DB954" : (IsSpotifyConnecting ? "#FFB900" : "#333333");
-    public string SpotifyStatusIcon => IsSpotifyConnected ? "✓" : (IsSpotifyConnecting ? "⏳" : "🚫");
 
 
 
@@ -1249,7 +1549,11 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public ICommand RevokeAndReAuthCommand { get; }
     public ICommand RestartSpotifyAuthCommand { get; }
     public ICommand CheckFfmpegCommand { get; } // Phase 8: Dependency validation
+    public ICommand OpenFfmpegDownloadPageCommand { get; }
     public ICommand ResetDatabaseCommand { get; }
+    public ICommand BackupLibraryNowCommand { get; }
+    public ICommand OpenBackupsFolderCommand { get; }
+    public ICommand ResetToDefaultsCommand { get; }
     public ICommand ScanLibraryCommand { get; } // [NEW] Manual Scan
     public ICommand ReconcileLibraryCommand { get; }
     public ICommand FullLibrarySyncCommand { get; }
@@ -1291,14 +1595,16 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         set => SetProperty(ref _enrichStatus, value);
     }
 
-    private bool _isEnriching;
-    public bool IsEnriching
-    {
-        get => _isEnriching;
-        set { SetProperty(ref _isEnriching, value); OnPropertyChanged(nameof(CanEnrich)); }
-    }
+    private readonly EnrichmentViewModel? _enrichment;
 
-    public bool CanEnrich => !_isEnriching;
+    /// <summary>Settings → Connection → Metadata sources (null in design/test construction).</summary>
+    public MetadataSourcesSettingsViewModel? MetadataSources { get; }
+    public bool HasMetadataSources => MetadataSources != null;
+
+    /// <summary>True while the library enrichment run (MetadataEnrichmentOrchestrator) works.</summary>
+    public bool IsEnriching => _enrichment?.IsRunning == true;
+
+    public bool CanEnrich => _enrichment != null && !_enrichment.IsRunning;
 
     private bool _isReconciling;
     public bool IsReconciling
@@ -1333,13 +1639,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public bool IsFfmpegInstalled
     {
         get => _isFfmpegInstalled;
-        set
-        {
-            if (SetProperty(ref _isFfmpegInstalled, value))
-            {
-                OnPropertyChanged(nameof(FfmpegBorderColor));
-            }
-        }
+        set => SetProperty(ref _isFfmpegInstalled, value);
     }
 
     private string _ffmpegStatus = "Checking...";
@@ -1355,8 +1655,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         get => _ffmpegVersion;
         set => SetProperty(ref _ffmpegVersion, value);
     }
-
-    public string FfmpegBorderColor => IsFfmpegInstalled ? "#1DB954" : "#FFA500";
 
     // Phase 6: Security Audit Feed
     private const int AuditFeedMaxEntries = 100;
@@ -1380,6 +1678,112 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
     public bool HasDiagnosticsSnapshotStatus => !string.IsNullOrEmpty(_diagnosticsSnapshotStatus);
+
+    // Network Activity Monitor: live feed of every outbound network call
+    private const int NetworkActivityFeedMaxEntries = 300;
+    public ObservableCollection<NetworkActivityEntryViewModel> NetworkActivityFeed { get; } = new();
+    private IDisposable? _networkActivitySubscription;
+
+    private int _soulseekCallsLast4Min;
+    public int SoulseekCallsLast4Min
+    {
+        get => _soulseekCallsLast4Min;
+        private set => SetProperty(ref _soulseekCallsLast4Min, value);
+    }
+
+    private int _httpCallsLast4Min;
+    public int HttpCallsLast4Min
+    {
+        get => _httpCallsLast4Min;
+        private set => SetProperty(ref _httpCallsLast4Min, value);
+    }
+
+    private int _socketConnectsLast4Min;
+    public int SocketConnectsLast4Min
+    {
+        get => _socketConnectsLast4Min;
+        private set => SetProperty(ref _socketConnectsLast4Min, value);
+    }
+
+    private static readonly TimeSpan NetworkActivityRateWindow = TimeSpan.FromMinutes(4);
+
+    private void RefreshNetworkActivityRates()
+    {
+        if (_networkActivityMonitor == null) return;
+
+        SoulseekCallsLast4Min = _networkActivityMonitor.CountSince(NetworkActivityRateWindow, "Soulseek");
+        HttpCallsLast4Min = _networkActivityMonitor.CountSince(NetworkActivityRateWindow, "HTTP");
+        SocketConnectsLast4Min = _networkActivityMonitor.CountSince(NetworkActivityRateWindow, "Socket");
+    }
+
+    private void OnNetworkActivityEvent(NetworkActivityEvent e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            NetworkActivityFeed.Insert(0, new NetworkActivityEntryViewModel(e));
+            while (NetworkActivityFeed.Count > NetworkActivityFeedMaxEntries)
+                NetworkActivityFeed.RemoveAt(NetworkActivityFeed.Count - 1);
+
+            RefreshNetworkActivityRates();
+        });
+    }
+
+    // Engine Diagnostics: import/search audit trail (what a pasted line became, what was
+    // searched, what candidates were evaluated, why a search did/didn't match)
+    private const int EngineDiagnosticsFeedMaxEntries = 300;
+    public ObservableCollection<EngineDiagnosticEntryViewModel> EngineDiagnosticsFeed { get; } = new();
+    private IDisposable? _engineDiagnosticsSubscription;
+
+    public string[] EngineDiagnosticsEventTypeFilters { get; } =
+    {
+        "All",
+        EngineDiagnosticEventType.ImportLine,
+        EngineDiagnosticEventType.TracksAddedToPlaylist,
+        EngineDiagnosticEventType.SearchDispatched,
+        EngineDiagnosticEventType.SearchCandidateEvaluated,
+        EngineDiagnosticEventType.SearchResolved,
+    };
+
+    private string _engineDiagnosticsEventTypeFilter = "All";
+    public string EngineDiagnosticsEventTypeFilter
+    {
+        get => _engineDiagnosticsEventTypeFilter;
+        set
+        {
+            if (SetProperty(ref _engineDiagnosticsEventTypeFilter, value))
+            {
+                _ = RefreshEngineDiagnosticsFeedAsync();
+            }
+        }
+    }
+
+    private async System.Threading.Tasks.Task RefreshEngineDiagnosticsFeedAsync()
+    {
+        if (_engineDiagnosticsService == null) return;
+
+        var filter = EngineDiagnosticsEventTypeFilter == "All" ? null : EngineDiagnosticsEventTypeFilter;
+        var recent = await _engineDiagnosticsService.GetRecentAsync(filter, take: EngineDiagnosticsFeedMaxEntries);
+
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            EngineDiagnosticsFeed.Clear();
+            foreach (var entry in recent)
+                EngineDiagnosticsFeed.Add(new EngineDiagnosticEntryViewModel(entry));
+        });
+    }
+
+    private void OnEngineDiagnosticEvent(EngineDiagnosticEvent e)
+    {
+        if (EngineDiagnosticsEventTypeFilter != "All" && EngineDiagnosticsEventTypeFilter != e.EventType)
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            EngineDiagnosticsFeed.Insert(0, new EngineDiagnosticEntryViewModel(e));
+            while (EngineDiagnosticsFeed.Count > EngineDiagnosticsFeedMaxEntries)
+                EngineDiagnosticsFeed.RemoveAt(EngineDiagnosticsFeed.Count - 1);
+        });
+    }
 
     private void OnSecurityAuditEvent(SecurityAuditEvent e)
     {
@@ -1438,18 +1842,28 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public int ShareFileCount
     {
         get => _shareFileCount;
-        private set { _shareFileCount = value; OnPropertyChanged(); OnPropertyChanged(nameof(ShareStatusSummary)); OnPropertyChanged(nameof(ShareStatusColor)); }
+        private set { _shareFileCount = value; OnPropertyChanged(); RaiseShareStatusChanged(); }
     }
 
-    public string ShareStatusColor => !EnableLibrarySharing ? "#666666" :
-        _shareFileCount == 0 ? "#F44336" :
-        _shareFileCount <  500 ? "#FFA500" : "#1DB954";
+    // Share health drives the status dot on the Settings page (Ellipse.status-dot + Classes.*).
+    // Disabled sharing leaves all three false, which renders the neutral grey dot.
+    public bool ShareIsEmpty   => EnableLibrarySharing && _shareFileCount == 0;
+    public bool ShareIsLow     => EnableLibrarySharing && _shareFileCount is > 0 and < 500;
+    public bool ShareIsHealthy => EnableLibrarySharing && _shareFileCount >= 500;
+
+    private void RaiseShareStatusChanged()
+    {
+        OnPropertyChanged(nameof(ShareStatusSummary));
+        OnPropertyChanged(nameof(ShareIsEmpty));
+        OnPropertyChanged(nameof(ShareIsLow));
+        OnPropertyChanged(nameof(ShareIsHealthy));
+    }
 
     public string ShareStatusSummary => !EnableLibrarySharing
         ? "Sharing is disabled"
         : _shareFileCount == 0
             ? "No shared files detected — check the folder path"
-            : $"{_shareFileCount:N0} files shared · {_shareReputationLabel}";
+            : $"{SLSKDONET.Utils.CountFormat.N(_shareFileCount)} files shared · {_shareReputationLabel}";
 
     public ICommand RefreshShareNowCommand { get; private set; } = null!;
 
@@ -1471,54 +1885,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         });
     }
 
-    /// <summary>
-    /// Installs the AI phrase-detection engine. If Conda and/or Git aren't already installed,
-    /// asks for explicit consent before the installer silently downloads and installs them
-    /// (per-user, no admin rights) — previously the installer just failed with instructions to
-    /// go install Miniconda by hand.
-    /// </summary>
-    private async Task ExecuteInstallAiEngineAsync()
-    {
-        var (condaMissing, gitMissing) = await _aiEngine.CheckPrerequisitesAsync();
-
-        if (!condaMissing && !gitMissing)
-        {
-            await _aiEngine.StartInstallAsync();
-            return;
-        }
-
-        if (_dialogService == null)
-        {
-            // No dialog service available (e.g. design-time) — fall back to the installer's
-            // own manual-instructions failure rather than silently installing without consent.
-            await _aiEngine.StartInstallAsync();
-            return;
-        }
-
-        var missing = new System.Collections.Generic.List<string>();
-        if (condaMissing) missing.Add("Conda (Miniconda) — ~80MB download");
-        if (gitMissing) missing.Add("Git for Windows — ~50MB download");
-
-        var message =
-            "The AI phrase-detection engine needs the following that ORBIT couldn't find on this PC:\n\n" +
-            string.Join("\n", missing.ConvertAll(m => $"  •  {m}")) +
-            "\n\nORBIT can download and install these automatically, for your user account only " +
-            "(no admin rights required, from their official sources). Continue?";
-
-        var consented = await _dialogService.ConfirmAsync(
-            "Install Prerequisites",
-            message,
-            confirmLabel: "Install",
-            cancelLabel: "Cancel");
-
-        if (!consented)
-        {
-            return;
-        }
-
-        await _aiEngine.StartInstallAsync(autoInstallConda: condaMissing, autoInstallGit: gitMissing);
-    }
-
     public SettingsViewModel(
         ILogger<SettingsViewModel> logger,
         AppConfig config,
@@ -1535,11 +1901,31 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         KeyboardMappingsViewModel keyboardMappings,
         IDbContextFactory<AppDbContext>? dbFactory = null,
         ILibraryService? libraryService = null,
-        AiEngineService? aiEngine = null,
-        IDialogService? dialogService = null)
+        IDialogService? dialogService = null,
+        NetworkActivityMonitor? networkActivityMonitor = null,
+        EngineDiagnosticsService? engineDiagnosticsService = null,
+        ILibraryImportLauncher? importLauncher = null,
+        EnrichmentViewModel? enrichment = null,
+        MetadataSourcesSettingsViewModel? metadataSources = null)
     {
         _logger = logger;
         _config = config;
+        _enrichment = enrichment;
+        MetadataSources = metadataSources;
+        if (_enrichment != null)
+            _enrichment.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName is nameof(EnrichmentViewModel.IsRunning) or nameof(EnrichmentViewModel.NoticeText))
+                {
+                    OnPropertyChanged(nameof(CanEnrich));
+                    OnPropertyChanged(nameof(IsEnriching));
+                    EnrichStatus = _enrichment.IsRunning ? _enrichment.NoticeText + " · progress on the Analysis page" : _enrichment.NoticeText;
+                    (EnrichMissingMetadataCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+                }
+            };
+        _importLauncher = importLauncher;
+        _networkActivityMonitor = networkActivityMonitor;
+        _engineDiagnosticsService = engineDiagnosticsService;
         _configManager = configManager;
         _fileInteractionService = fileInteractionService;
         _spotifyAuthService = spotifyAuthService;
@@ -1553,16 +1939,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _lifecycle = lifecycle;
         _libraryService = libraryService;
         KeyboardMappings = keyboardMappings;
-        _aiEngine = aiEngine ?? new AiEngineService();
         _dialogService = dialogService;
-
-        InstallAiEngineCommand = new AsyncRelayCommand(ExecuteInstallAiEngineAsync);
-        StartAiServerCommand   = new AsyncRelayCommand(() => _aiEngine.StartServerAsync());
-        CheckAiEngineCommand   = new AsyncRelayCommand(() => _aiEngine.CheckStatusAsync());
-        _ = _aiEngine.CheckStatusAsync();
-
-        try { RefreshAvailableAudioOutputDevices(); }
-        catch (Exception ex) { _logger.LogDebug(ex, "Failed to enumerate audio output devices on Settings load"); }
 
         // Ensure default Client ID is set if empty
         if (string.IsNullOrEmpty(_config.SpotifyClientId))
@@ -1572,7 +1949,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             _config.SpotifyClientSecret = ""; 
         }
 
-        SaveSettingsCommand = new RelayCommand(SaveSettings);
+        SaveSettingsCommand = new RelayCommand(SaveSettingsWithConfirmation);
         BrowseDownloadPathCommand = new AsyncRelayCommand(BrowseDownloadPathAsync);
         BrowseSharedFolderCommand = new AsyncRelayCommand(BrowseSharedFolderAsync);
         BrowseFrequentSourcesStagingPathCommand = new AsyncRelayCommand(BrowseFrequentSourcesStagingPathAsync);
@@ -1583,8 +1960,12 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         ClearSpotifyCacheCommand = new AsyncRelayCommand(ClearSpotifyCacheAsync);
         RevokeAndReAuthCommand = new AsyncRelayCommand(RevokeAndReAuthAsync);
         CheckFfmpegCommand = new AsyncRelayCommand(CheckFfmpegAsync); // Phase 8
+        OpenFfmpegDownloadPageCommand = new RelayCommand(OpenFfmpegDownloadPage);
         RestartSpotifyAuthCommand = new AsyncRelayCommand(RestartSpotifyAuthAsync, () => IsSpotifyConnecting);
         ResetDatabaseCommand = new AsyncRelayCommand(ResetDatabaseAsync);
+        BackupLibraryNowCommand = new AsyncRelayCommand(BackupLibraryNowAsync);
+        OpenBackupsFolderCommand = new RelayCommand(OpenBackupsFolder);
+        ResetToDefaultsCommand = new AsyncRelayCommand(ResetToDefaultsAsync);
         ScanLibraryCommand = new AsyncRelayCommand(ScanLibraryAsync, () => !IsScanning && !IsFullSyncing);
         ReconcileLibraryCommand = new AsyncRelayCommand(ReconcileLibraryAsync, () => !IsReconciling && !IsFullSyncing);
         FullLibrarySyncCommand = new AsyncRelayCommand(FullLibrarySyncAsync, () => !IsFullSyncing && !IsScanning && !IsReconciling);
@@ -1631,20 +2012,48 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
         SelectStrategyCommand = new RelayCommand<RankingStrategyViewModel?>(ExecuteSelectStrategy);
         InitializeStrategies();
-        
-        _ = CheckFfmpegAsync(); // Phase 8: Check FFmpeg on startup
-        _ = LoadLibraryFoldersAsync(); // Phase 0.10
-        _ = LoadRemovalCandidatesAsync();
 
         _libraryFoldersSubscription = _eventBus.GetEvent<LibraryFoldersChangedEvent>().Subscribe(e => { _ = LoadLibraryFoldersAsync(); });
 
         // Phase 6: Security Audit Feed subscription
         _securityAuditSubscription = _eventBus.GetEvent<SecurityAuditEvent>().Subscribe(OnSecurityAuditEvent);
+
+        // Network Activity Monitor: seed from existing history (Subject<T> doesn't replay), then subscribe for live updates
+        if (_networkActivityMonitor != null)
+        {
+            foreach (var entry in _networkActivityMonitor.GetRecentActivity(NetworkActivityFeedMaxEntries))
+                NetworkActivityFeed.Add(new NetworkActivityEntryViewModel(entry));
+            RefreshNetworkActivityRates();
+        }
+        _networkActivitySubscription = _eventBus.GetEvent<NetworkActivityEvent>().Subscribe(OnNetworkActivityEvent);
+        _engineDiagnosticsSubscription = _eventBus.GetEvent<EngineDiagnosticEvent>().Subscribe(OnEngineDiagnosticEvent);
         _adaptiveLaneStatusSubscription = _eventBus.GetEvent<AdaptiveLaneStatusEvent>().Subscribe(OnAdaptiveLaneStatusEvent);
         _searchPressureSubscription = _eventBus.GetEvent<SearchPressureStatusEvent>().Subscribe(OnSearchPressureStatusEvent);
         
         // Force update of derived properties to ensure UI booleans are in sync with SpotifyState
         UpdateDerivedProperties(SpotifyState);
+    }
+
+    /// <summary>
+    /// Runs the device-enumeration/FFmpeg/library-folder/removal-candidate/AI-engine checks that
+    /// used to fire unconditionally from the constructor. SettingsViewModel is a DI singleton
+    /// constructed eagerly at app startup (it's a MainViewModel constructor parameter), so doing
+    /// this work there blocked the UI thread before the main window ever appeared. Call this once,
+    /// from SettingsPage's constructor, so it only runs on first navigation to Settings instead.
+    /// </summary>
+    public void EnsureInitialized()
+    {
+        if (_isInitialized) return;
+        _isInitialized = true;
+
+
+        try { RefreshAvailableAudioOutputDevices(); }
+        catch (Exception ex) { _logger.LogDebug(ex, "Failed to enumerate audio output devices on Settings load"); }
+
+        _ = CheckFfmpegAsync(); // Phase 8: Check FFmpeg on startup
+        _ = LoadLibraryFoldersAsync(); // Phase 0.10
+        _ = LoadRemovalCandidatesAsync();
+        _ = RefreshEngineDiagnosticsFeedAsync();
     }
 
     /// <summary>
@@ -1688,7 +2097,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>
     /// Phase 8: Enhanced FFmpeg dependency checker with timeout, stderr capture, and fallback paths.
     /// </summary>
-    private async Task CheckFfmpegAsync()
+    /// <summary>Also used by the setup wizard's Audio &amp; analysis step.</summary>
+    public async Task CheckFfmpegAsync()
     {
         try
         {
@@ -1823,7 +2233,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             return (false, "");
         }
     }
-    private async Task ConnectSpotifyAsync()
+    /// <summary>Spotify OAuth sign-in (browser). Also used by the setup wizard's Connections step.</summary>
+    public async Task ConnectSpotifyAsync()
     {
         // Cancel any previous attempts to free up the port
         _connectCts?.Cancel();
@@ -1920,19 +2331,62 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private void SaveSettings()
+    /// <summary>
+    /// Restores every setting on this page to its compiled default and saves immediately. Only
+    /// narrowly-scoped resets existed before this (DB schema reset, Spotify full re-auth) — there
+    /// was no single action to undo general customization.
+    /// Mutates the existing AppConfig instance in place (reflection over its public settable
+    /// properties) rather than swapping the reference, since other services/ViewModels hold the
+    /// same shared instance and should see the reset immediately too.
+    /// </summary>
+    private async Task ResetToDefaultsAsync()
+    {
+        var confirmed = await _dialogService.ConfirmAsync(
+            "Reset to Defaults",
+            "This resets every setting on this page back to its default value and saves immediately. This cannot be undone. Continue?",
+            confirmLabel: "Reset",
+            cancelLabel: "Cancel");
+
+        if (!confirmed) return;
+
+        var defaults = new AppConfig();
+        foreach (var prop in typeof(AppConfig).GetProperties())
+        {
+            if (prop.CanWrite && prop.CanRead)
+            {
+                prop.SetValue(_config, prop.GetValue(defaults));
+            }
+        }
+
+        SaveSettings();
+        OnPropertyChanged(string.Empty); // Refresh every binding on the page — not just one property.
+        _logger.LogInformation("Settings reset to defaults");
+    }
+
+    // Every setting auto-saves on change (60+ call sites), so only the explicit Save button confirms
+    // with a toast; a failure is reported from any path, since a silently unsaved setting is worse.
+    private bool SaveSettings()
     {
         try
         {
             _configManager.Save(_config);
             _ = ApplySoulseekRuntimeConfigurationAsync();
-            // TODO: Show toast notification?
             _logger.LogInformation("Settings saved");
+            return true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save settings");
+            _eventBus.Publish(new ToastRequestedEvent(
+                "Settings not saved", $"Could not write the settings file: {ex.Message}", NotificationType.Error, TimeSpan.FromSeconds(8)));
+            return false;
         }
+    }
+
+    private void SaveSettingsWithConfirmation()
+    {
+        if (SaveSettings())
+            _eventBus.Publish(new ToastRequestedEvent("Settings saved", "Your settings were saved.", NotificationType.Success, TimeSpan.FromSeconds(3)));
     }
 
     private async Task ApplySoulseekRuntimeConfigurationAsync()
@@ -1944,6 +2398,20 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to apply Soulseek runtime network configuration after settings save.");
+        }
+    }
+
+    public void OpenFfmpegDownloadPage()
+    {
+        const string url = "https://ffmpeg.org/download.html";
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = url, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not open the FFmpeg download page");
+            _eventBus.Publish(new ToastRequestedEvent("Couldn't open browser", $"Open {url} manually to download FFmpeg.", NotificationType.Warning, TimeSpan.FromSeconds(6)));
         }
     }
 
@@ -1988,182 +2456,61 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-
-    
+    /// <summary>
+    /// "Enrich library metadata": queues every LibraryEntries and download track still missing cover
+    /// art / album / label / year / genre into the background enrichment pipeline (file tags,
+    /// Deezer, MusicBrainz, … per Settings → Connection → Metadata sources). Replaces the old
+    /// 100-PlaylistTracks-per-click Spotify loop that never touched folder-imported tracks.
+    /// </summary>
     private async Task EnrichMissingMetadataAsync()
     {
-        if (IsEnriching) return;
-        IsEnriching = true;
-        EnrichStatus = "Looking for unenriched tracks...";
-        ((AsyncRelayCommand)EnrichMissingMetadataCommand).RaiseCanExecuteChanged();
+        if (_enrichment == null)
+        {
+            EnrichStatus = "Library enrichment is unavailable.";
+            _eventBus.Publish(new ToastRequestedEvent("Enrich library", EnrichStatus, NotificationType.Error, null));
+            return;
+        }
         try
         {
-            const int BatchSize = 100;
-            const int DelayMs = 300;
-
-            var entities = await _databaseService.GetPlaylistTracksNeedingEnrichmentAsync(BatchSize);
-            if (entities.Count == 0)
-            {
-                EnrichStatus = "✅ All tracks already have metadata";
-                await Task.Delay(3000);
-                EnrichStatus = string.Empty;
-                return;
-            }
-
-            EnrichStatus = $"Enriching {entities.Count} tracks...";
-            int enriched = 0;
-            int failed = 0;
-
-            foreach (var entity in entities)
-            {
-                try
-                {
-                    var pt = new Models.PlaylistTrack
-                    {
-                        Id = entity.Id,
-                        PlaylistId = entity.PlaylistId,
-                        Artist = entity.Artist ?? string.Empty,
-                        Title = entity.Title ?? string.Empty,
-                        Album = entity.Album,
-                        TrackUniqueHash = entity.TrackUniqueHash,
-                        Status = entity.Status,
-                        SpotifyTrackId = entity.SpotifyTrackId,
-                        AlbumArtUrl = entity.AlbumArtUrl,
-                        CanonicalDuration = entity.CanonicalDuration,
-                        BPM = entity.BPM,
-                        MusicalKey = entity.MusicalKey,
-                    };
-
-                    if (await _spotifyMetadataService.EnrichTrackAsync(pt))
-                    {
-                        var result = new Services.Models.TrackEnrichmentResult
-                        {
-                            Success = true,
-                            SpotifyId = pt.SpotifyTrackId ?? string.Empty,
-                            SpotifyAlbumId = pt.SpotifyAlbumId,
-                            SpotifyArtistId = pt.SpotifyArtistId,
-                            AlbumArtUrl = pt.AlbumArtUrl ?? string.Empty,
-                            ISRC = pt.ISRC,
-                            Bpm = (float)(pt.BPM ?? 0),
-                            MusicalKey = pt.MusicalKey,
-                            Energy = (float)(pt.Energy ?? 0),
-                        };
-                        await _databaseService.UpdatePlaylistTrackEnrichmentAsync(entity.Id, result);
-                        enriched++;
-                        EnrichStatus = $"Enriched {enriched}/{entities.Count}...";
-                    }
-                    else
-                    {
-                        failed++;
-                    }
-
-                    await Task.Delay(DelayMs);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Enrichment failed for {Artist} - {Title}", entity.Artist, entity.Title);
-                    failed++;
-                }
-            }
-
-            EnrichStatus = $"✅ Enrichment done — {enriched} updated, {failed} not found";
-            _logger.LogInformation("Bulk enrichment complete: {Enriched} updated, {Failed} not found out of {Total}", enriched, failed, entities.Count);
-            await Task.Delay(5000);
-            EnrichStatus = string.Empty;
+            await _enrichment.StartAsync();
+            EnrichStatus = _enrichment.IsRunning ? "Running in the background · progress on the Analysis page" : _enrichment.NoticeText;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Bulk metadata enrichment failed");
-            EnrichStatus = "❌ Enrichment failed";
-            await Task.Delay(3000);
-            EnrichStatus = string.Empty;
+            _logger.LogError(ex, "Could not start library enrichment");
+            EnrichStatus = "Could not start: " + ex.Message;
+            _eventBus.Publish(new ToastRequestedEvent("Enrich library", EnrichStatus, NotificationType.Error, null));
         }
         finally
         {
-            IsEnriching = false;
+            OnPropertyChanged(nameof(CanEnrich));
             ((AsyncRelayCommand)EnrichMissingMetadataCommand).RaiseCanExecuteChanged();
         }
     }
 
+    /// <summary>
+    /// "Scan library": registers the download/shared folders, then runs the import sheet over every
+    /// Library Source (phases, counters and a summary live there, not in this status line).
+    /// </summary>
     private async Task ScanLibraryAsync()
     {
+        if (IsScanning) return;
         try
         {
-            if (IsScanning) return;
             IsScanning = true;
-            ScanStatus = "Preparing to scan...";
-            
-            _logger.LogInformation("Starting manual library scan...");
-            
-            // 1. Ensure configured folders are registered as library scan targets.
-            // Both the download directory and the Soulseek shared folder are included
-            // so files on different drives are always picked up.
-            if (!string.IsNullOrEmpty(_config.DownloadDirectory))
-                await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.DownloadDirectory);
-            else
-                _logger.LogWarning("No download directory configured for scanning.");
+            (ScanLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            (FullLibrarySyncCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            ScanStatus = "Scanning — see the import sheet";
 
-            if (!string.IsNullOrEmpty(_config.SharedFolderPath) &&
-                !string.Equals(_config.SharedFolderPath, _config.DownloadDirectory, StringComparison.OrdinalIgnoreCase))
-                await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.SharedFolderPath);
-
-            // 2. Run Scan
-            var progress = new Progress<ScanProgress>(p =>
-            {
-                var lines = new System.Text.StringBuilder();
-
-                // Completed folders — one summary line each
-                foreach (var f in p.CompletedFolders)
-                    lines.AppendLine(f.Display());
-
-                // Active folder — live counter
-                var active = string.IsNullOrWhiteSpace(p.CurrentFile) ? string.Empty : $"  ⟳ {p.CurrentFile}";
-                lines.Append($"Total: {p.FilesDiscovered} found  |  {p.FilesImported} new  |  {p.FilesDuplicateByPath + p.FilesDuplicateByHash} known  |  {p.FilesAutoUpgraded} upgraded{active}");
-
-                ScanStatus = lines.ToString();
-            });
-
-            var results = await _libraryFolderScannerService.ScanAllFoldersAsync(progress);
-            
-            // 3. Summarize
-            int totalImported = results.Values.Sum(r => r.FilesImported);
-            int totalSkipped = results.Values.Sum(r => r.FilesSkipped);
-            int totalDupPath = results.Values.Sum(r => r.FilesDuplicateByPath);
-            int totalDupHash = results.Values.Sum(r => r.FilesDuplicateByHash);
-            int totalMetadataFailed = results.Values.Sum(r => r.FilesMetadataFailed);
-            int totalUpgraded = results.Values.Sum(r => r.FilesAutoUpgraded);
-            int totalRemovalCandidates = results.Values.Sum(r => r.FilesMarkedForRemoval);
-
-            // Per-folder breakdown for the final status
-            int idx = 0;
-            var folderLines = new System.Text.StringBuilder();
-            folderLines.AppendLine($"✅ Scan complete — {totalImported} new, {totalDupPath + totalDupHash} known, {totalUpgraded} upgraded");
-            foreach (var r in results.Values)
-            {
-                idx++;
-                var name = System.IO.Path.GetFileName(r.FolderPath.TrimEnd(
-                    System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar));
-                if (string.IsNullOrEmpty(name)) name = r.FolderPath;
-                var tag = r.FilesImported > 0 ? $"+{r.FilesImported} new" : (r.TotalFilesFound > 0 ? "all known" : "empty/inaccessible");
-                folderLines.AppendLine($"  [{idx}] {name}  —  {r.TotalFilesFound} files  {tag}");
-            }
-            ScanStatus = folderLines.ToString().TrimEnd();
-            _logger.LogInformation(
-                "Manual scan complete. Imported: {Imported}, Upgraded: {Upgraded}, RemoveCandidates: {RemoveCandidates}, Skipped: {Skipped}, DupPath: {DupPath}, DupHash: {DupHash}, MetaFailed: {MetaFailed}",
-                totalImported,
-                totalUpgraded,
-                totalRemovalCandidates,
-                totalSkipped,
-                totalDupPath,
-                totalDupHash,
-                totalMetadataFailed);
-
+            await EnsureConfiguredFoldersRegisteredAsync();
+            var result = await RunImportSheetAsync("Scanning your library folders");
+            ScanStatus = DescribeImport(result);
             await LoadRemovalCandidatesAsync();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Manual scan failed");
-            ScanStatus = "Scan Failed";
+            ScanStatus = "Scan failed — see logs.";
         }
         finally
         {
@@ -2172,6 +2519,35 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             (FullLibrarySyncCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }
+
+    /// <summary>The download directory and Soulseek shared folder are always Library Sources.</summary>
+    private async Task EnsureConfiguredFoldersRegisteredAsync()
+    {
+        if (!string.IsNullOrEmpty(_config.DownloadDirectory))
+            await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.DownloadDirectory);
+        else
+            _logger.LogWarning("No download directory configured for scanning.");
+
+        if (!string.IsNullOrEmpty(_config.SharedFolderPath) &&
+            !string.Equals(_config.SharedFolderPath, _config.DownloadDirectory, StringComparison.OrdinalIgnoreCase))
+            await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.SharedFolderPath);
+    }
+
+    /// <summary>Runs the import sheet when the shell provides it; tests and headless hosts import directly.</summary>
+    private async Task<LibraryImportResult?> RunImportSheetAsync(string title)
+    {
+        if (_importLauncher != null)
+            return await _importLauncher.RunImportAsync(null, title);
+        return await _libraryFolderScannerService.ImportFoldersAsync(new LibraryImportRequest { Trigger = LibraryImportTrigger.Maintenance });
+    }
+
+    internal static string DescribeImport(LibraryImportResult? result) => result switch
+    {
+        null => "Another import is running. Its progress is in the import sheet.",
+        { Error: not null } => $"Scan stopped: {result.Error}",
+        { WasCancelled: true } => $"Scan cancelled. {SLSKDONET.Utils.CountFormat.N(result.Added)} new tracks kept.",
+        _ => $"Scan complete: {SLSKDONET.Utils.CountFormat.N(result.Added)} new, {SLSKDONET.Utils.CountFormat.N(result.AlreadyInLibrary + result.Duplicates)} already known, {SLSKDONET.Utils.CountFormat.N(result.ProblemCount)} not added.",
+    };
 
     private async Task ReconcileLibraryAsync()
     {
@@ -2216,25 +2592,15 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             (ScanLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
             (ReconcileLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
 
-            if (!string.IsNullOrEmpty(_config.DownloadDirectory))
-                await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.DownloadDirectory);
-
-            if (!string.IsNullOrEmpty(_config.SharedFolderPath) &&
-                !string.Equals(_config.SharedFolderPath, _config.DownloadDirectory, StringComparison.OrdinalIgnoreCase))
-                await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.SharedFolderPath);
-
-            var progress = new Progress<ScanProgress>(p =>
+            await EnsureConfiguredFoldersRegisteredAsync();
+            var import = await RunImportSheetAsync("Full library sync: scanning folders");
+            if (import == null)
             {
-                var folderLabel = string.IsNullOrWhiteSpace(p.CurrentFile)
-                    ? (string.IsNullOrWhiteSpace(p.CurrentFolder) ? string.Empty
-                        : $" ({System.IO.Path.GetFileName(p.CurrentFolder.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar))})")
-                    : $" ({p.CurrentFile})";
-                FullSyncStatus = $"Scanning{folderLabel}: {p.FilesDiscovered} found, {p.FilesImported} imported...";
-            });
-
-            var results = await _libraryFolderScannerService.ScanAllFoldersAsync(progress);
-            int totalImported = results.Values.Sum(r => r.FilesImported);
-            int totalUpgraded = results.Values.Sum(r => r.FilesAutoUpgraded);
+                FullSyncStatus = "Another import is running. Try again when it finishes.";
+                return;
+            }
+            int totalImported = import.Added;
+            int totalUpgraded = import.Upgraded;
 
             FullSyncStatus = "Step 2/2: Reconciling file paths...";
             var (reset, checked_, relinked) = await _libraryService.ReconcileLibraryAsync();
@@ -2411,6 +2777,12 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _securityAuditSubscription?.Dispose();
         _securityAuditSubscription = null;
 
+        _networkActivitySubscription?.Dispose();
+        _networkActivitySubscription = null;
+
+        _engineDiagnosticsSubscription?.Dispose();
+        _engineDiagnosticsSubscription = null;
+
         _adaptiveLaneStatusSubscription?.Dispose();
         _adaptiveLaneStatusSubscription = null;
 
@@ -2507,22 +2879,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         DiagnosticsSnapshotStatus = "";
     }
 
-    // ── Settings help panel ──────────────────────────────────────────────────
-
-    private string _focusedHelpTitle = "Settings";
-    public string FocusedHelpTitle
-    {
-        get => _focusedHelpTitle;
-        set => SetProperty(ref _focusedHelpTitle, value);
-    }
-
-    private string _focusedHelpText = "Hover over or click a field to see context-sensitive guidance here.";
-    public string FocusedHelpText
-    {
-        get => _focusedHelpText;
-        set => SetProperty(ref _focusedHelpText, value);
-    }
-
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
@@ -2595,14 +2951,64 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             (RevokeAndReAuthCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }
+    /// <summary>
+    /// "Back up now" (backlog B6): a consistent snapshot of library.db into the Backups folder.
+    /// Manual backups use their own prefix, so the startup rotation (newest 5) never prunes them.
+    /// </summary>
+    private async Task BackupLibraryNowAsync()
+    {
+        try
+        {
+            var path = await Task.Run(() => SLSKDONET.Services.LibraryDatabaseMaintenance.CreateBackup());
+            LastLibraryBackupText = $"Last backup: {System.IO.Path.GetFileName(path)}";
+            _eventBus.Publish(new ToastRequestedEvent("Library backed up", $"Saved {System.IO.Path.GetFileName(path)} to the Backups folder.", NotificationType.Success, TimeSpan.FromSeconds(5)));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Manual library backup failed");
+            _eventBus.Publish(new ToastRequestedEvent("Backup failed", ex.Message, NotificationType.Error, TimeSpan.FromSeconds(8)));
+        }
+    }
+
+    private void OpenBackupsFolder()
+    {
+        var dir = SLSKDONET.Services.LibraryDatabaseMaintenance.GetBackupDirectory();
+        try { System.IO.Directory.CreateDirectory(dir); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Could not create backups folder {Dir}", dir); }
+        OpenPathInExplorer(dir);
+    }
+
+    private string _lastLibraryBackupText = "Backups are taken automatically every launch (newest 5 kept).";
+    public string LastLibraryBackupText
+    {
+        get => _lastLibraryBackupText;
+        private set => SetProperty(ref _lastLibraryBackupText, value);
+    }
+
     private async Task ResetDatabaseAsync()
     {
-        try 
+        // This deletes library.db on the next launch and rebuilds it from the newest startup
+        // backup. It used to fire on a single click with no confirmation; anything changed since
+        // the last launch would be gone.
+        if (_dialogService != null)
         {
-            // Create marker file
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var markerPath = System.IO.Path.Combine(appData, "ORBIT", ".force_schema_reset");
-            
+            var confirmed = await _dialogService.ConfirmAsync(
+                "Refresh Database Schema",
+                "ORBIT will restart, delete the library database and rebuild it from the most recent startup backup. " +
+                "Changes made since ORBIT last started may be lost. A safety backup of the current database is taken first. Continue?",
+                confirmLabel: "Restart and Rebuild",
+                cancelLabel: "Cancel");
+            if (!confirmed) return;
+        }
+
+        try
+        {
+            // Safety net first: if this fails, don't delete anything.
+            var safety = await Task.Run(() => SLSKDONET.Services.LibraryDatabaseMaintenance.CreateBackup());
+            _logger.LogWarning("Pre-reset safety backup written to {Path}", safety);
+
+            var markerPath = SchemaMigratorService.ForceResetMarkerPath();
+
             await System.IO.File.WriteAllTextAsync(markerPath, DateTime.Now.ToString());
             _logger.LogWarning("Force Reset Marker created at {Path}", markerPath);
             
@@ -2619,6 +3025,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to initiate database reset");
+            _eventBus.Publish(new ToastRequestedEvent("Schema refresh not started", ex.Message, NotificationType.Error, TimeSpan.FromSeconds(8)));
         }
     }
 
@@ -2644,39 +3051,27 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>Settings → Library "Add folder": the same picker + import sheet as Library folders.</summary>
     private async Task AddLibraryFolderAsync()
     {
         try
         {
-            var path = await _fileInteractionService.OpenFolderDialogAsync("Select Music Library Folder");
-            if (string.IsNullOrEmpty(path)) return;
-
-            await using var context = _dbFactory != null ? _dbFactory.CreateDbContext() : new AppDbContext();
-
-            // Check duplicates
-            if (await context.LibraryFolders.AnyAsync(f => f.FolderPath == path))
+            if (_importLauncher != null)
             {
-                _logger.LogWarning("Folder already exists: {Path}", path);
+                await _importLauncher.PickFolderAndStartImportAsync();
                 return;
             }
 
-            var folder = new LibraryFolderEntity
-            {
-                Id = Guid.NewGuid(),
-                FolderPath = path,
-                IsEnabled = true,
-                AddedAt = DateTime.UtcNow
-            };
-
-            context.LibraryFolders.Add(folder);
-            await context.SaveChangesAsync();
-
+            var path = await _fileInteractionService.OpenFolderDialogAsync("Select Music Library Folder");
+            if (string.IsNullOrEmpty(path)) return;
+            await _libraryFolderScannerService.RegisterFolderAsync(path);
             _eventBus.Publish(new LibraryFoldersChangedEvent());
             _logger.LogInformation("Added library folder: {Path}", path);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to add library folder");
+            _eventBus.Publish(new ToastRequestedEvent("Couldn't add the folder", ex.Message, NotificationType.Error, TimeSpan.FromSeconds(6)));
         }
     }
 

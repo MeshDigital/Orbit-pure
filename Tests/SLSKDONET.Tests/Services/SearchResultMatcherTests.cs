@@ -110,6 +110,32 @@ public class SearchResultMatcherTests
     }
 
     [Fact]
+    public void CalculateScore_ShouldNotHardRejectWhenCanonicalDurationIsZero()
+    {
+        // Regression test: found live via the search audit log — "Enei - Sinking Vip" had
+        // CanonicalDuration=0 in the DB (never-downloaded track, no duration data yet), and every
+        // real, correctly-named FLAC candidate (345s actual) was hard-rejected as "Duration:
+        // Outside tolerance (expected 0s...)" because a stored 0 was treated as a real duration
+        // instead of "unknown". A zero CanonicalDuration must behave the same as a null one: don't
+        // score or gate on duration at all, but still let a correct artist/title match through.
+        var model = new PlaylistTrack { Artist = "Enei", Title = "Sinking Vip", CanonicalDuration = 0 };
+        var candidate = new Track
+        {
+            Length = 345,
+            Bitrate = 1025,
+            Filename = "Enei - Sinking VIP.flac",
+            Format = "flac",
+            PathSegments = new List<string> { "Enei", "Enei - Sinking VIP" }
+        };
+
+        var result = _matcher.CalculateMatchResult(model, candidate);
+
+        Assert.NotEqual("Duration Rejected", result.ShortReason);
+        // Artist: 30, Title: 20, Format: FLAC priority, Bitrate bonus -> comfortably above the 70 acceptance bar.
+        Assert.True(result.Score >= 70, $"Score should not be hard-rejected on a zero/unknown CanonicalDuration. Actual: {result.Score}. Breakdown: {result.ScoreBreakdown}");
+    }
+
+    [Fact]
     public void CalculateMatchResult_ShouldHardRejectDurationOutsideTolerance()
     {
         var model = new PlaylistTrack { Artist = "Artist", Title = "Title", CanonicalDuration = 200000 };
@@ -186,6 +212,50 @@ public class SearchResultMatcherTests
 
         // Assert
         Assert.True(curatedResult.Score > junkResult.Score, $"Curated release folder should outrank junk folder. Curated={curatedResult.Score}, Junk={junkResult.Score}");
+    }
+
+    [Theory]
+    [InlineData("Loboski & Flowidus")] // reversed order
+    [InlineData("Flowidus, Loboski")]  // comma instead of ampersand, reversed order
+    [InlineData("Loboski, Flowidus")]  // comma, reversed order
+    public void CalculateScore_ShouldToleratesMultiArtistReorderingAndPunctuation(string filenameArtistOrder)
+    {
+        // Regression test for a bug confirmed live via the search audit log: "Flowidus & Loboski -
+        // Lock It" candidates from real peers scored Artist: Mismatch (0) purely because Soulseek
+        // has no canonical order/punctuation for listing collab artists.
+        var model = new PlaylistTrack { Artist = "Flowidus & Loboski", Title = "Lock It", CanonicalDuration = 200000 };
+        var candidate = new Track
+        {
+            Length = 200,
+            Filename = $"{filenameArtistOrder} - Lock It.flac",
+            Format = "flac",
+            PathSegments = new List<string> { filenameArtistOrder }
+        };
+
+        var result = _matcher.CalculateMatchResult(model, candidate);
+
+        // Duration: 40, Artist: 30, Title: 20 -> 90 pts (both artist names present, order-independent)
+        Assert.True(result.Score >= 90, $"Score should tolerate reordered/re-punctuated multi-artist names. Actual: {result.Score}. Breakdown: {result.ScoreBreakdown}");
+    }
+
+    [Fact]
+    public void CalculateScore_ShouldNotAcceptSoloTrackAsMultiArtistCollabMatch()
+    {
+        // A solo track by just ONE of two collaborators must NOT satisfy a multi-artist query —
+        // the multi-artist fallback requires every individual artist name to be present, not just one.
+        var model = new PlaylistTrack { Artist = "Flowidus & Loboski", Title = "Lock It", CanonicalDuration = 200000 };
+        var candidate = new Track
+        {
+            Length = 200,
+            Filename = "Flowidus - Some Other Solo Track.flac",
+            Format = "flac",
+            PathSegments = new List<string> { "Flowidus" }
+        };
+
+        var result = _matcher.CalculateMatchResult(model, candidate);
+
+        // Artist should NOT be satisfied since "Loboski" is missing entirely.
+        Assert.DoesNotContain("Artist: Matched", result.ScoreBreakdown);
     }
 
     [Fact]

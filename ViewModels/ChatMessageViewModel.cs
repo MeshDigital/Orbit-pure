@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Avalonia.Media.Imaging;
 using ReactiveUI;
 using SLSKDONET.Services;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels;
 
@@ -30,6 +31,9 @@ public sealed class ChatMessageViewModel : ReactiveObject
     public string SenderUsername { get; }
     public string Message { get; }
     public DateTime TimestampUtc { get; }
+
+    /// <summary>Message time in the user's local zone ("14:05"); <see cref="TimestampUtc"/> is UTC.</summary>
+    public string TimeDisplay => DateTime.SpecifyKind(TimestampUtc, DateTimeKind.Utc).ToLocalTime().ToString("HH:mm");
     public bool IsOutgoing { get; }
 
     private bool _showSenderHeader = true;
@@ -70,7 +74,7 @@ public sealed class ChatMessageViewModel : ReactiveObject
     public long ImageSizeBytes { get; }
 
     public string ImageSizeDisplay => ImageSizeBytes >= 1024 * 1024
-        ? $"{ImageSizeBytes / 1024.0 / 1024.0:F1} MB"
+        ? NumFormat.Ui($"{ImageSizeBytes / 1024.0 / 1024.0:F1} MB")
         : $"{Math.Max(1, ImageSizeBytes / 1024)} KB";
 
     private Bitmap? _image;
@@ -137,8 +141,9 @@ public sealed class ChatMessageViewModel : ReactiveObject
             await using var stream = File.OpenRead(localPath);
             Image = new Bitmap(stream);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            Serilog.Log.Warning(ex, "Failed to load chat image attachment {FileName} from {RemoteUsername}", ImageFileName, _remoteUsername);
             ImageError = "Couldn't load image";
         }
         finally

@@ -47,6 +47,64 @@ public class CommentTracklistParserTests
         Assert.Equal("Second Song", result[1].Title);
     }
 
+    [Fact]
+    public void Parse_NumberedTracklist_StripsLeadingTrackNumberFromArtist()
+    {
+        // Regression test: found live via the search audit log — pasted tracklists that number
+        // their entries instead of timestamping them (e.g. "05. Grafix ft. Nu-La - Vital Signs")
+        // left the "05. " list-number stuck onto the Artist field, polluting every search query
+        // built from it and causing real, findable tracks to search for their number-prefixed
+        // name and come back with zero network results.
+        var input = """
+        04. Culture Shock - Empire
+        05. Grafix ft. Nu-La - Vital Signs
+        06. John Summit - LIGHTS GO OUT (Subsonic Edit)
+        """;
+
+        var result = CommentTracklistParser.Parse(input);
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal("Culture Shock", result[0].Artist);
+        Assert.Equal("Empire", result[0].Title);
+        Assert.Equal("Grafix ft. Nu-La", result[1].Artist);
+        Assert.Equal("Vital Signs", result[1].Title);
+        Assert.Equal("John Summit", result[2].Artist);
+        Assert.Equal("LIGHTS GO OUT (Subsonic Edit)", result[2].Title);
+    }
+
+    [Fact]
+    public void Parse_ArtistStartingWithNumber_IsNotMistakenForTrackNumber()
+    {
+        // "21 Savage" / "50 Cent" have no "." or ")" right after the digits, so they must survive
+        // untouched — only an actual list-number prefix ("21. " / "50) ") should be stripped.
+        var input = """
+        21 Savage - Bank Account
+        50 Cent - In Da Club
+        """;
+
+        var result = CommentTracklistParser.Parse(input);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("21 Savage", result[0].Artist);
+        Assert.Equal("50 Cent", result[1].Artist);
+    }
+
+    [Fact]
+    public void Parse_HyphenatedArtistName_IsNotMistakenForSeparator()
+    {
+        // Regression test: a bare "-" with no surrounding spaces inside an artist name (e.g.
+        // "Nu-La") was matched by the artist/title separator itself, silently truncating the
+        // artist and dumping the rest of the name onto the title ("Grafix ft. Nu" / "La - Vital
+        // Signs" instead of "Grafix ft. Nu-La" / "Vital Signs").
+        var input = "Grafix ft. Nu-La - Vital Signs";
+
+        var result = CommentTracklistParser.Parse(input);
+
+        Assert.Single(result);
+        Assert.Equal("Grafix ft. Nu-La", result[0].Artist);
+        Assert.Equal("Vital Signs", result[0].Title);
+    }
+
     private const string Sample1001Tracklist = """
     Kanine @ Summer Essentials Vol. 8 2026-06-29
 
@@ -129,6 +187,48 @@ public class CommentTracklistParserTests
         Assert.DoesNotContain(tracks, t => t.Title.Equals("ID", System.StringComparison.OrdinalIgnoreCase));
         Assert.Contains(tracks, t => t.Artist.Contains("Missy Elliott"));
         Assert.Contains(tracks, t => t.Artist.Contains("SOTA"));
+    }
+
+    [Fact]
+    public void Parse_FiltersUnidentifiedIdTitlesAndIdRemixQualifiers_ButKeepsNamedRemixers()
+    {
+        // Regression: there's no producer literally named "ID" — on 1001Tracklists "ID" always
+        // means the remixer/editor's identity is unknown, so "Song (ID Remix)" is just as
+        // unfindable as bare "ID" (it was never released under a searchable name). Must drop
+        // both "ID (Deeper)"-style base titles AND "(ID Remix)"-style qualifiers, while keeping
+        // titles whose qualifier names a real, identified producer like "SKIYE".
+        var input = """
+        [00:00] Kanine ft. ID - ID (Deeper)
+        [01:00] Underworld - Born Slippy (ID Remix)
+        [02:00] John Summit ft. Inez - light years (SKIYE Remix)
+        [03:00] Michael Gray - The Weekend (ID Remix)
+        """;
+
+        var tracks = CommentTracklistParser.Parse(input);
+
+        Assert.Single(tracks);
+        Assert.Contains(tracks, t => t.Title.Contains("light years"));
+        Assert.DoesNotContain(tracks, t => t.Artist.Contains("Kanine"));
+        Assert.DoesNotContain(tracks, t => t.Title.Contains("Born Slippy"));
+        Assert.DoesNotContain(tracks, t => t.Title.Contains("The Weekend"));
+    }
+
+    [Theory]
+    [InlineData("ID", true)]
+    [InlineData("id", true)]
+    [InlineData(" ID ", true)]
+    [InlineData("ID (Deeper)", true)]
+    [InlineData("ID [VIP]", true)]
+    [InlineData("ID (Edit)", true)]
+    [InlineData("Born Slippy (ID Remix)", true)]
+    [InlineData("The Weekend (ID Remix)", true)]
+    [InlineData("Some Track (ID Flip)", true)]
+    [InlineData("light years (SKIYE Remix)", false)]
+    [InlineData("Turn Back Time (Wilkinson Remix)", false)]
+    [InlineData("Identity", false)]
+    public void IsUnidentifiedTitle_ClassifiesCorrectly(string title, bool expected)
+    {
+        Assert.Equal(expected, CommentTracklistParser.IsUnidentifiedTitle(title));
     }
 
     [Fact]

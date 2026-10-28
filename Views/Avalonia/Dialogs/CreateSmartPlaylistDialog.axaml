@@ -4,110 +4,122 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="using:SLSKDONET.ViewModels.Library"
         xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
-        mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="450"
+        mc:Ignorable="d" d:DesignWidth="440" d:DesignHeight="640"
         x:Class="SLSKDONET.Views.Avalonia.Dialogs.CreateSmartPlaylistDialog"
-        Title="New Smart Playlist"
-        Width="400" Height="500"
+        x:DataType="vm:CreateSmartPlaylistViewModel"
+        x:CompileBindings="True"
+        Title="New smart playlist"
+        Width="440" Height="640"
         WindowStartupLocation="CenterOwner"
         CanResize="False"
-        SystemDecorations="Full">
+        SystemDecorations="Full"
+        Background="{StaticResource BrushBg2}">
 
     <Design.DataContext>
         <vm:CreateSmartPlaylistViewModel/>
     </Design.DataContext>
 
-    <Border Padding="20" Background="#1E1E1E">
-        <StackPanel Spacing="15">
-            <TextBlock Text="Create Smart Playlist" FontSize="20" FontWeight="Bold" Foreground="White" Margin="0,0,0,10"/>
+    <Window.Styles>
+        <Style Selector="NumericUpDown.num">
+            <Setter Property="FontFamily" Value="{StaticResource FontMono}"/>
+            <Setter Property="FontSize" Value="{StaticResource TextSizeMono}"/>
+        </Style>
+        <Style Selector="StackPanel.field">
+            <Setter Property="Spacing" Value="4"/>
+        </Style>
+    </Window.Styles>
 
-            <!-- Name -->
-            <StackPanel Spacing="5">
-                <TextBlock Text="Playlist Name" Foreground="#AAAAAA"/>
-                <TextBox Text="{Binding Name}" Watermark="e.g. High Energy Techno"/>
-            </StackPanel>
+    <Grid RowDefinitions="Auto,*,Auto">
 
-            <Separator Background="#333333" Height="1"/>
-
-            <!-- Criteria -->
-            <TextBlock Text="Criteria" FontWeight="SemiBold" Foreground="White"/>
-
-            <!-- Energy -->
-            <Grid ColumnDefinitions="*, 10, *">
-                <StackPanel Grid.Column="0" Spacing="5">
-                    <TextBlock Text="Min Energy (0.0 - 1.0)" Foreground="#AAAAAA" FontSize="12"/>
-                    <TextBox Text="{Binding MinEnergy}" Watermark="0.0"/>
-                </StackPanel>
-                <StackPanel Grid.Column="2" Spacing="5">
-                    <TextBlock Text="Max Energy (0.0 - 1.0)" Foreground="#AAAAAA" FontSize="12"/>
-                    <TextBox Text="{Binding MaxEnergy}" Watermark="1.0"/>
-                </StackPanel>
-            </Grid>
-
-            <!-- Mood (Valence) -->
-            <Grid ColumnDefinitions="*, 10, *">
-                <StackPanel Grid.Column="0" Spacing="5">
-                    <TextBlock Text="Min Mood (0.0 - 1.0)" Foreground="#AAAAAA" FontSize="12"/>
-                    <TextBox Text="{Binding MinValence}" Watermark="0.0"/>
-                </StackPanel>
-                <StackPanel Grid.Column="2" Spacing="5">
-                    <TextBlock Text="Max Mood (0.0 - 1.0)" Foreground="#AAAAAA" FontSize="12"/>
-                    <TextBox Text="{Binding MaxValence}" Watermark="1.0"/>
-                </StackPanel>
-            </Grid>
-
-            <!-- BPM -->
-            <Grid ColumnDefinitions="*, 10, *">
-                <StackPanel Grid.Column="0" Spacing="5">
-                    <TextBlock Text="Min BPM" Foreground="#AAAAAA" FontSize="12"/>
-                    <TextBox Text="{Binding MinBpm}" Watermark="120"/>
-                </StackPanel>
-                <StackPanel Grid.Column="2" Spacing="5">
-                    <TextBlock Text="Max BPM" Foreground="#AAAAAA" FontSize="12"/>
-                    <TextBox Text="{Binding MaxBpm}" Watermark="140"/>
-                </StackPanel>
-            </Grid>
-
-            <!-- Danceability -->
-            <Grid ColumnDefinitions="*, 10, *">
-                <StackPanel Grid.Column="0" Spacing="5">
-                    <TextBlock Text="Min Danceability (0.0 - 1.0)" Foreground="#AAAAAA" FontSize="12"/>
-                    <TextBox Text="{Binding MinDanceability}" Watermark="0.0"/>
-                </StackPanel>
-                <StackPanel Grid.Column="2" Spacing="5">
-                    <TextBlock Text="Max Danceability (0.0 - 1.0)" Foreground="#AAAAAA" FontSize="12"/>
-                    <TextBox Text="{Binding MaxDanceability}" Watermark="1.0"/>
-                </StackPanel>
-            </Grid>
-
-            <!-- Genre -->
-            <StackPanel Spacing="5">
-                <TextBlock Text="Genre (Contains)" Foreground="#AAAAAA"/>
-                <TextBox Text="{Binding Genre}" Watermark="e.g. House"/>
-            </StackPanel>
-
-            <!-- Rating / Liked -->
-            <Grid ColumnDefinitions="*, 10, *">
-                <StackPanel Grid.Column="0" Spacing="5">
-                    <TextBlock Text="Min Rating (0-5 stars)" Foreground="#AAAAAA" FontSize="12"/>
-                    <TextBox Text="{Binding MinRating}" Watermark="0"/>
-                </StackPanel>
-                <StackPanel Grid.Column="2" Spacing="5" VerticalAlignment="Bottom">
-                    <CheckBox Content="Only Liked tracks" IsChecked="{Binding OnlyLiked}" Foreground="#AAAAAA"/>
-                </StackPanel>
-            </Grid>
-
-            <Separator Background="#333333" Height="1" Margin="0,5"/>
-
-            <TextBlock Text="Target Profile Preview" FontWeight="SemiBold" Foreground="White" Margin="0,0,0,5"/>
-            <controls:SonicProfileControl Profile="{Binding PreviewProfile}" />
-
-            <Separator Background="#333333" Height="1" Margin="0,5"/>
-
-            <!-- Buttons -->
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
-                <Button Command="{Binding CancelCommand}" Content="Cancel" Background="Transparent" Foreground="#AAAAAA"/>
-                <Button Command="{Binding SaveCommand}" Content="Create Playlist" Background="#007ACC" Foreground="White" FontWeight="Bold" Padding="15,8"/>
-            </StackPanel>
+        <StackPanel Grid.Row="0" Margin="24,24,24,16" Spacing="4">
+            <TextBlock Classes="h2" Text="New smart playlist"/>
+            <TextBlock Classes="body-sm muted" TextWrapping="Wrap"
+                       Text="Tracks that match every criterion are added automatically. Leave a field empty to ignore it."/>
         </StackPanel>
-    </Border>
+
+        <ScrollViewer Grid.Row="1" Padding="24,0">
+            <StackPanel Spacing="16">
+
+                <StackPanel Classes="field">
+                    <TextBlock Classes="caption" Text="Playlist name"/>
+                    <TextBox Text="{Binding Name}" Watermark="e.g. High energy techno"/>
+                </StackPanel>
+
+                <Border Classes="divider"/>
+                <TextBlock Classes="section" Text="CRITERIA"/>
+
+                <!-- Energy -->
+                <Grid ColumnDefinitions="*,8,*">
+                    <StackPanel Grid.Column="0" Classes="field">
+                        <TextBlock Classes="caption" Text="Min energy (0 to 1)"/>
+                        <NumericUpDown Classes="num" Value="{Binding MinEnergy}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.00" Watermark="0.00"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Classes="field">
+                        <TextBlock Classes="caption" Text="Max energy (0 to 1)"/>
+                        <NumericUpDown Classes="num" Value="{Binding MaxEnergy}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.00" Watermark="1.00"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Mood (valence) -->
+                <Grid ColumnDefinitions="*,8,*">
+                    <StackPanel Grid.Column="0" Classes="field">
+                        <TextBlock Classes="caption" Text="Min mood (0 to 1)"/>
+                        <NumericUpDown Classes="num" Value="{Binding MinValence}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.00" Watermark="0.00"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Classes="field">
+                        <TextBlock Classes="caption" Text="Max mood (0 to 1)"/>
+                        <NumericUpDown Classes="num" Value="{Binding MaxValence}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.00" Watermark="1.00"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- BPM -->
+                <Grid ColumnDefinitions="*,8,*">
+                    <StackPanel Grid.Column="0" Classes="field">
+                        <TextBlock Classes="caption" Text="Min BPM"/>
+                        <NumericUpDown Classes="num" Value="{Binding MinBpm}" Minimum="0" Maximum="300" Increment="1" FormatString="0" Watermark="120"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Classes="field">
+                        <TextBlock Classes="caption" Text="Max BPM"/>
+                        <NumericUpDown Classes="num" Value="{Binding MaxBpm}" Minimum="0" Maximum="300" Increment="1" FormatString="0" Watermark="140"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Danceability -->
+                <Grid ColumnDefinitions="*,8,*">
+                    <StackPanel Grid.Column="0" Classes="field">
+                        <TextBlock Classes="caption" Text="Min danceability (0 to 1)"/>
+                        <NumericUpDown Classes="num" Value="{Binding MinDanceability}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.00" Watermark="0.00"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Classes="field">
+                        <TextBlock Classes="caption" Text="Max danceability (0 to 1)"/>
+                        <NumericUpDown Classes="num" Value="{Binding MaxDanceability}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.00" Watermark="1.00"/>
+                    </StackPanel>
+                </Grid>
+
+                <StackPanel Classes="field">
+                    <TextBlock Classes="caption" Text="Genre contains"/>
+                    <TextBox Text="{Binding Genre}" Watermark="e.g. House"/>
+                </StackPanel>
+
+                <!-- Rating / liked -->
+                <Grid ColumnDefinitions="*,8,*">
+                    <StackPanel Grid.Column="0" Classes="field">
+                        <TextBlock Classes="caption" Text="Min rating (0 to 5 stars)"/>
+                        <NumericUpDown Classes="num" Value="{Binding MinRating}" Minimum="0" Maximum="5" Increment="1" FormatString="0" Watermark="0"/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="2" Content="Only liked tracks" IsChecked="{Binding OnlyLiked}" VerticalAlignment="Bottom"/>
+                </Grid>
+
+                <Border Classes="divider"/>
+                <TextBlock Classes="section" Text="TARGET PROFILE"/>
+                <controls:SonicProfileControl Profile="{Binding PreviewProfile}"/>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="24,16,24,24">
+            <Button Classes="ghost" Content="Cancel" Command="{Binding CancelCommand}"/>
+            <Button Classes="primary" Content="Create playlist" Command="{Binding SaveCommand}"/>
+        </StackPanel>
+    </Grid>
 </Window>

@@ -46,7 +46,7 @@ public class PlaylistExportLocationUriTests : IDisposable
     }
 
     private PlaylistExportService CreateService() =>
-        new(NullLogger<PlaylistExportService>.Instance, CreateInMemoryFactory());
+        new(NullLogger<PlaylistExportService>.Instance, CreateInMemoryFactory(), new SLSKDONET.Tests.Helpers.FakeFileWriteService());
 
     private async Task<string> ExportSingleTrackAndGetLocationAsync(string filePath)
     {

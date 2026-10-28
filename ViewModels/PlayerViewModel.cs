@@ -46,6 +46,32 @@ namespace SLSKDONET.ViewModels
         private readonly IAudioPlayerService _playerService;
         private readonly AppConfig? _config;
         private readonly ConfigManager? _configManager;
+        private readonly SLSKDONET.Services.Repositories.ITransitionRepository? _transitionRepository;
+        private readonly SLSKDONET.Services.Repositories.ITrackRepository? _trackRepository;
+        private readonly ICuePointService? _cuePointService;
+        private readonly IDialogService? _dialogService;
+        private readonly SLSKDONET.Services.AnalysisQueueService? _analysisQueueService;
+        // Singletons — stopped whenever real queue/playlist playback starts (see LoadTrackCore),
+        // so a Mix Editor waveform click-preview or a Library row hover-preview never keeps
+        // playing underneath the track the user actually pressed play on. Both are self-contained
+        // WASAPI outputs (never hijack this main player), so nothing crashes if they overlap —
+        // they'd just audibly mix together, which is the actual problem this prevents.
+        private readonly SLSKDONET.Services.Audio.ILibraryPreviewPlayer? _libraryPreviewPlayer;
+        private readonly SLSKDONET.Services.Audio.ITransitionPreviewPlayer? _transitionPreviewPlayer;
+        private static readonly SLSKDONET.Engine.Transitions.TransitionEngine _pointSuggestionEngine = new();
+
+        /// <summary>The same singleton instance the CONTEXT sidepanel's "Mix" tab uses (see
+        /// SidebarViewModel) — shared so loading a pair here and loading one via a badge click
+        /// elsewhere always agree on state, matching the existing OpenMixTransitionCommand's
+        /// choice to route through the same shared editor rather than a separate copy.</summary>
+        public MixTransitionViewModel? MixTransitionVm { get; }
+
+        // Waveform appearance pass-through — set once from AppConfig in the constructor.
+        public bool WaveformUseNeonPalette { get; }
+        public double WaveformGain { get; }
+        public bool WaveformShowEnergyCurve { get; }
+        public bool WaveformShowVocalGhost { get; }
+        public bool WaveformShowPhraseSections { get; }
         private readonly DatabaseService _databaseService;
         private readonly ArtworkCacheService _artworkCacheService;
         private readonly IEventBus _eventBus;
@@ -81,7 +107,19 @@ namespace SLSKDONET.ViewModels
         public bool IsPlaying
         {
             get => _isPlaying;
-            set => SetProperty(ref _isPlaying, value);
+            set
+            {
+                if (SetProperty(ref _isPlaying, value))
+                {
+                    // AnalysisQueueService.StealthMode (throttled dispatch, halved worker count)
+                    // already existed fully built but was never actually turned on by anything —
+                    // background track analysis ran at full ProcessorCount/2 parallelism
+                    // regardless of whether audio was playing, competing with the real-time audio
+                    // thread for CPU and causing exactly the "performance drops while playing and
+                    // analysing" symptom. Now follows playback state directly.
+                    _analysisQueueService?.SetStealthMode(value);
+                }
+            }
         }
 
         private float _position; // 0.0 to 1.0
@@ -173,6 +211,124 @@ namespace SLSKDONET.ViewModels
 
         public bool HasUpNext => CurrentQueueIndex + 1 < Queue.Count;
 
+        /// <summary>Everything after the playing track, in play order (fullscreen player's Up Next).</summary>
+        public List<PlaylistTrackViewModel> UpNextQueue =>
+            Queue.Skip(Math.Max(0, CurrentQueueIndex + 1)).ToList();
+
+        /// <summary>"12 up next · 58 min" — or empty when nothing is queued after the current track.</summary>
+        public string UpNextSummary
+        {
+            get
+            {
+                var upcoming = Queue.Skip(Math.Max(0, CurrentQueueIndex + 1)).ToList();
+                if (upcoming.Count == 0) return string.Empty;
+                var ms = upcoming.Sum(t => (long)(t.Model?.CanonicalDuration ?? 0));
+                var minutes = (int)Math.Round(ms / 60000.0);
+                return minutes > 0 ? $"{upcoming.Count} up next · {minutes} min" : $"{upcoming.Count} up next";
+            }
+        }
+
+        /// <summary>"Track 3 of 14" while playing from the queue.</summary>
+        public string QueuePositionText =>
+            CurrentQueueIndex >= 0 && CurrentQueueIndex < Queue.Count ? $"Track {CurrentQueueIndex + 1} of {Queue.Count}" : string.Empty;
+
+        private bool _isExpandedQueueVisible = true;
+        /// <summary>Up Next column in the fullscreen player; shown by default whenever there is a queue.</summary>
+        public bool IsExpandedQueueVisible
+        {
+            get => _isExpandedQueueVisible;
+            set
+            {
+                if (SetProperty(ref _isExpandedQueueVisible, value))
+                    OnPropertyChanged(nameof(ShowExpandedQueue));
+            }
+        }
+
+        public bool ShowExpandedQueue => IsExpandedQueueVisible && Queue.Count > 0;
+
+        private bool _queueStatesScheduled;
+
+        /// <summary>Coalesces queue/index changes into one pass over the rows (bulk loads add one row at a time).</summary>
+        private void ScheduleUpdateQueueStates()
+        {
+            if (_queueStatesScheduled) return;
+            _queueStatesScheduled = true;
+            Dispatcher.UIThread.Post(() =>
+            {
+                _queueStatesScheduled = false;
+                UpdateQueueStates();
+            }, DispatcherPriority.Background);
+        }
+
+        /// <summary>Marks each queue row as played / playing / upcoming and numbers it.</summary>
+        internal void UpdateQueueStates()
+        {
+            var index = CurrentQueueIndex;
+            for (int i = 0; i < Queue.Count; i++)
+            {
+                var row = Queue[i];
+                row.QueueNumber = i + 1;
+                row.IsQueueCurrent = i == index;
+                row.IsQueuePlayed = index >= 0 && i < index;
+            }
+            OnPropertyChanged(nameof(UpNextQueue));
+            OnPropertyChanged(nameof(UpNextSummary));
+            OnPropertyChanged(nameof(QueuePositionText));
+        }
+
+        // ── Mix transition visibility ────────────────────────────────────────────────────────
+        // Previously AudioPlayerService computed all of this (whether a crossfade was active, how
+        // far through it was, which preset) with zero external visibility — no UI could show
+        // "mixing now" during real playback. Wired to AudioPlayerService.CrossfadeStarted/
+        // CrossfadeProgressChanged/CrossfadeEnded in the constructor below.
+
+        private bool _isCrossfading;
+        /// <summary>True while the engine is actively crossfading into the next track.</summary>
+        public bool IsCrossfading
+        {
+            get => _isCrossfading;
+            set => SetProperty(ref _isCrossfading, value);
+        }
+
+        private double _crossfadeProgressPercent;
+        /// <summary>0-100 progress through the active crossfade.</summary>
+        public double CrossfadeProgressPercent
+        {
+            get => _crossfadeProgressPercent;
+            set => SetProperty(ref _crossfadeProgressPercent, value);
+        }
+
+        private string? _activeCrossfadePresetName;
+        /// <summary>Preset name driving the crossfade currently in progress, or null for the
+        /// legacy fixed crossfade (no saved Mix transition for this pair).</summary>
+        public string? ActiveCrossfadePresetName
+        {
+            get => _activeCrossfadePresetName;
+            set => SetProperty(ref _activeCrossfadePresetName, value);
+        }
+
+        private string? _upcomingTransitionPresetName;
+        /// <summary>Preset name that will drive the crossfade into <see cref="UpNextPreview"/>'s
+        /// first track, resolved as soon as a saved Mix transition is found for (current, next) —
+        /// visible ahead of time, not just once the crossfade actually starts. Null when no saved
+        /// transition exists for this pair (nothing Mix-specific will happen, though the legacy
+        /// fixed crossfade may still apply if enabled).</summary>
+        public string? UpcomingTransitionPresetName
+        {
+            get => _upcomingTransitionPresetName;
+            set => SetProperty(ref _upcomingTransitionPresetName, value);
+        }
+
+        private bool _isMixPanelExpanded;
+        /// <summary>Whether the inline Mix editor (dual waveform, preset picker, trigger
+        /// controls — the same content the CONTEXT sidepanel's "Mix" tab hosts) is expanded
+        /// within the Now Playing screen itself. See <see cref="ToggleMixPanelCommand"/>.</summary>
+        public bool IsMixPanelExpanded
+        {
+            get => _isMixPanelExpanded;
+            set => SetProperty(ref _isMixPanelExpanded, value);
+        }
+
         private int _currentQueueIndex = -1;
         public int CurrentQueueIndex
         {
@@ -183,6 +339,7 @@ namespace SLSKDONET.ViewModels
                 {
                     OnPropertyChanged(nameof(UpNextPreview));
                     OnPropertyChanged(nameof(HasUpNext));
+                    ScheduleUpdateQueueStates();
                 }
             }
         }
@@ -332,7 +489,11 @@ namespace SLSKDONET.ViewModels
         public VisualizerPreset CurrentVisualizerPreset
         {
             get => _currentVisualizerPreset;
-            set => SetProperty(ref _currentVisualizerPreset, value);
+            set
+            {
+                if (SetProperty(ref _currentVisualizerPreset, value))
+                    OnPropertyChanged(nameof(CurrentVisualizerPresetName));
+            }
         }
 
         private VisualizerEngineMode _visualizerEngineMode = VisualizerEngineMode.Standard;
@@ -460,6 +621,14 @@ namespace SLSKDONET.ViewModels
             set => SetProperty(ref _spectrumData, value);
         }
 
+        private float[] _waveformSamples = Array.Empty<float>();
+        /// <summary>Latest mono time-domain block (oscilloscope/phase visuals).</summary>
+        public float[] WaveformSamples
+        {
+            get => _waveformSamples;
+            set => SetProperty(ref _waveformSamples, value);
+        }
+
         private float _vuRight;
         public float VuRight
         {
@@ -553,17 +722,35 @@ namespace SLSKDONET.ViewModels
         public ICommand AddCurrentTrackToProjectCommand { get; }
         public ICommand PlayQueueItemCommand { get; }
 
+        /// <summary>Badge-click: opens the "Mix" tab in the CONTEXT sidepanel for this queue
+        /// row's transition into the next track — the same event the Library track list's own
+        /// Mix badges publish, giving a live-session route into adjusting a transition without
+        /// navigating back to the Library page and re-finding the pair.</summary>
+        public ICommand OpenMixTransitionCommand { get; }
+
+        /// <summary>Expands/collapses the inline Mix editor in the Now Playing screen itself
+        /// (see <see cref="IsMixPanelExpanded"/>) instead of requiring a trip to the separate
+        /// CONTEXT-sidepanel "Mix" tab. Loads the current→next pair into the shared
+        /// <see cref="MixTransitionVm"/> on expand.</summary>
+        public ICommand ToggleMixPanelCommand { get; }
+
         // Entertainment Engine Commands
         public ICommand ToggleAmbientModeCommand { get; }
         public ICommand ToggleFlowModeCommand { get; }
         public ICommand ToggleMetadataDrivenVisualsCommand { get; }
         public ICommand ToggleExpandedPlayerCommand { get; }
         public ReactiveCommand<Unit, Unit> CycleVisualizerPresetCommand { get; }
+        public ReactiveCommand<Unit, Unit> PreviousVisualizerPresetCommand { get; private set; } = null!;
+        public ICommand ToggleExpandedQueueCommand { get; private set; } = null!;
+
+        /// <summary>"Spectrum Bars", "Circular Wave"… for the fullscreen player's preset label.</summary>
+        public string CurrentVisualizerPresetName =>
+            System.Text.RegularExpressions.Regex.Replace(CurrentVisualizerPreset.ToString(), "(?<=[a-z])(?=[A-Z])", " ");
 
         // Phase 5C: UI Throttling
         private DateTime _lastTimeUpdate = DateTime.MinValue;
 
-        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IRightPanelService rightPanelService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null, AppConfig? config = null, ConfigManager? configManager = null)
+        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IRightPanelService rightPanelService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null, AppConfig? config = null, ConfigManager? configManager = null, SLSKDONET.Services.Repositories.ITransitionRepository? transitionRepository = null, MixTransitionViewModel? mixTransitionViewModel = null, SLSKDONET.Services.Repositories.ITrackRepository? trackRepository = null, ICuePointService? cuePointService = null, IDialogService? dialogService = null, SLSKDONET.Services.AnalysisQueueService? analysisQueueService = null, SLSKDONET.Services.Audio.ILibraryPreviewPlayer? libraryPreviewPlayer = null, SLSKDONET.Services.Audio.ITransitionPreviewPlayer? transitionPreviewPlayer = null, SLSKDONET.Services.Transitions.TransitionPlanService? transitionPlanService = null)
         {
             _playerService = playerService;
             _databaseService = databaseService;
@@ -575,6 +762,15 @@ namespace SLSKDONET.ViewModels
             _flowModeService = flowModeService;
             _config = config;
             _configManager = configManager;
+            _transitionRepository = transitionRepository;
+            MixTransitionVm = mixTransitionViewModel;
+            _trackRepository = trackRepository;
+            _cuePointService = cuePointService;
+            _transitionPlanService = transitionPlanService;
+            _dialogService = dialogService;
+            _analysisQueueService = analysisQueueService;
+            _libraryPreviewPlayer = libraryPreviewPlayer;
+            _transitionPreviewPlayer = transitionPreviewPlayer;
 
             // Restore persisted playback settings (crossfade/pitch used to reset to defaults every restart)
             if (_config != null)
@@ -584,6 +780,15 @@ namespace SLSKDONET.ViewModels
                 _pitch = _config.PlaybackPitch;
                 _playerService.Pitch = _config.PlaybackPitch;
             }
+
+            // Waveform appearance — read-only pass-through to AppConfig, same convention as every
+            // other settings-backed value in this app (applies on next view load, no live cross-VM
+            // push notification, matching how other settings toggles already behave here).
+            WaveformUseNeonPalette = !string.Equals(_config?.WaveformPalette, "ClassicRgb", StringComparison.OrdinalIgnoreCase);
+            WaveformGain = _config?.WaveformGain ?? 1.0f;
+            WaveformShowEnergyCurve = _config?.WaveformShowEnergyCurve ?? true;
+            WaveformShowVocalGhost = _config?.WaveformShowVocalGhost ?? true;
+            WaveformShowPhraseSections = _config?.WaveformShowPhraseSections ?? true;
 
             // Wire Ambient Mode service events
             if (_ambientModeService is not null)
@@ -647,6 +852,19 @@ namespace SLSKDONET.ViewModels
                 }
             }).DisposeWith(_disposables);
 
+            // Loudness backfill / inspector "Measure": queued rows can be separate view-model
+            // instances from the library list, so copy the new value onto them here. Normalised
+            // playback reads Model.Loudness when a track starts, so the next play uses it.
+            eventBus.GetEvent<TrackLoudnessMeasuredEvent>().Where(e => e.Success).Subscribe(evt =>
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    foreach (var queued in Queue)
+                        if (queued.Model is { } m && m.TrackUniqueHash == evt.TrackGlobalId)
+                            m.Loudness = evt.Lufs;
+                });
+            }).DisposeWith(_disposables);
+
             eventBus.GetEvent<AnalysisQueueStatusChangedEvent>().Subscribe(evt =>
             {
                 Dispatcher.UIThread.Post(() =>
@@ -665,20 +883,48 @@ namespace SLSKDONET.ViewModels
             eventBus.GetEvent<PlayAlbumRequestEvent>().Subscribe(evt =>
             {
                 if (evt.Tracks == null || !evt.Tracks.Any()) return;
-                
+
                 Dispatcher.UIThread.Post(() =>
                 {
+                    // Starting a whole playlist's worth of playback is exactly a "Mix session" —
+                    // default to the bottom playbar (Spotify-style) instead of leaving whatever
+                    // dock the player happened to be in, so the Up Next/Mix-badge queue strip is
+                    // immediately visible without the user having to switch layouts themselves.
+                    CurrentDockLocation = PlayerDockLocation.BottomBar;
+
                     _suppressSave = true;
                     try
                     {
-                        // 1. Clear existing queue
-                        ClearQueue();
-                        
+                        // 1. Clear existing queue — inlined rather than calling the public
+                        // ClearQueue() helper, which itself does another Dispatcher.UIThread.Post.
+                        // Posting from inside a callback that's already running via Post doesn't
+                        // run synchronously — it queues a SEPARATE callback to run only after this
+                        // entire block (including the "add all tracks" loop and PlayTrackAtIndex
+                        // below) has already finished. That meant the "clear" actually ran AFTER
+                        // the fresh queue was populated and playback had already started, silently
+                        // wiping the queue and stopping playback moments later (observed as a
+                        // "Saved queue with 36 items" DB write immediately followed by a "Saved
+                        // queue with 0 items" one a second or two after). We're already on the UI
+                        // thread here (inside the outer Post), so just mutate directly.
+                        Queue.Clear();
+                        CurrentQueueIndex = -1;
+                        CurrentTrack = null;
+                        _shuffleHistory.Clear();
+                        Stop();
+
                         // 2. Add all tracks to queue
                         foreach (var track in evt.Tracks)
                         {
-                            // Only add tracks with valid file paths
-                            if (!string.IsNullOrEmpty(track.ResolvedFilePath))
+                            // A non-empty ResolvedFilePath alone isn't enough — it can go stale
+                            // (file moved/deleted after the path was resolved) without the row's
+                            // other fields ever being corrected. Confirmed live: a track with a
+                            // stale path made it into the queue at index 0, LoadTrackCore threw
+                            // "Could not find file", and playback silently stopped right there —
+                            // "Playing Album" had already fired, so the only visible symptom was a
+                            // notification with no audio. SchedulePreloadNext already guards the
+                            // same way for the same reason; this brings the initial queue build up
+                            // to that same standard.
+                            if (!string.IsNullOrEmpty(track.ResolvedFilePath) && System.IO.File.Exists(track.ResolvedFilePath))
                             {
                                 var vm = new PlaylistTrackViewModel(track, eventBus, null, _artworkCacheService);
                                 Queue.Add(vm);
@@ -691,11 +937,33 @@ namespace SLSKDONET.ViewModels
                         DebounceSaveQueue();
                     }
                     
-                    // 3. Play first track if any were added
+                    // 3. Play the requested start track (or the first) if any were added
                     if (Queue.Any())
                     {
-                        CurrentQueueIndex = 0;
-                        PlayTrackAtIndex(0);
+                        int startIndex = 0;
+                        if (evt.StartTrackId is Guid startId)
+                        {
+                            var found = Queue.ToList().FindIndex(t => t.Model?.Id == startId);
+                            if (found >= 0) startIndex = found;
+                        }
+                        CurrentQueueIndex = startIndex;
+                        PlayTrackAtIndex(startIndex);
+
+                        // Mix was enabled on the playlist when Play was pressed — surface the
+                        // transition settings for the first hop immediately instead of leaving the
+                        // user to discover the MIX module (and that it does anything) on their own.
+                        if (evt.MixModeEnabled)
+                        {
+                            ShowMixPanelForCurrentPair();
+                        }
+                    }
+                    else
+                    {
+                        // Every candidate track's ResolvedFilePath turned out stale (file moved or
+                        // deleted since the path was resolved) — nothing playable made it into the
+                        // queue. "Playing Album" already fired before this event was processed, so
+                        // without this the user sees that toast and then silence with zero clue why.
+                        Console.WriteLine($"[PlayerViewModel] PlayAlbumRequestEvent had {evt.Tracks.Count()} track(s) but none had a file that still exists on disk");
                     }
                 });
             }).DisposeWith(_disposables);
@@ -726,6 +994,37 @@ namespace SLSKDONET.ViewModels
             Observable.FromEventPattern(h => _playerService.TrackAdvanced += h, h => _playerService.TrackAdvanced -= h)
                 .Subscribe(_ => Dispatcher.UIThread.Post(OnTrackAdvanced))
                 .DisposeWith(_disposables);
+
+            // Mix transition visibility during real playback — see the IsCrossfading/
+            // CrossfadeProgressPercent/ActiveCrossfadePresetName properties above.
+            Observable.FromEventPattern<CrossfadeStartedEventArgs>(h => _playerService.CrossfadeStarted += h, h => _playerService.CrossfadeStarted -= h)
+                .Subscribe(e => Dispatcher.UIThread.Post(() =>
+                {
+                    IsCrossfading = true;
+                    CrossfadeProgressPercent = 0;
+                    ActiveCrossfadePresetName = e.EventArgs.PresetName;
+                }))
+                .DisposeWith(_disposables);
+
+            Observable.FromEventPattern<double>(h => _playerService.CrossfadeProgressChanged += h, h => _playerService.CrossfadeProgressChanged -= h)
+                .Sample(TimeSpan.FromMilliseconds(50))
+                .ObserveOn(RxApp.MainThreadScheduler)
+                .Subscribe(e => CrossfadeProgressPercent = e.EventArgs * 100.0)
+                .DisposeWith(_disposables);
+
+            Observable.FromEventPattern(h => _playerService.CrossfadeEnded += h, h => _playerService.CrossfadeEnded -= h)
+                .Subscribe(_ => Dispatcher.UIThread.Post(() =>
+                {
+                    IsCrossfading = false;
+                    CrossfadeProgressPercent = 0;
+                    ActiveCrossfadePresetName = null;
+                }))
+                .DisposeWith(_disposables);
+
+            // Queue-wide Mix badges (ShowMixTransitionBadge/TransitionPresetLabel/
+            // TransitionBadgeColor on each PlaylistTrackViewModel) — recomputed whenever the
+            // queue's contents change, e.g. a whole playlist loading in one track-at-a-time burst.
+            Queue.CollectionChanged += (_, __) => ScheduleUpdateQueueTransitionBadges();
 
             Observable.FromEventPattern<float>(h => _playerService.PositionChanged += h, h => _playerService.PositionChanged -= h)
                 .Sample(TimeSpan.FromMilliseconds(50)) // 20fps for progress markers
@@ -786,9 +1085,15 @@ namespace SLSKDONET.ViewModels
                 .DisposeWith(_disposables);
 
             Observable.FromEventPattern<float[]>(h => _playerService.SpectrumChanged += h, h => _playerService.SpectrumChanged -= h)
-                .Sample(TimeSpan.FromMilliseconds(40)) // 25fps for Spectrum
+                .Sample(TimeSpan.FromMilliseconds(25)) // FFT blocks arrive ~43/s (50% overlap); the visualizer smooths at display rate
                 .ObserveOn(RxApp.MainThreadScheduler)
                 .Subscribe(e => SpectrumData = e.EventArgs)
+                .DisposeWith(_disposables);
+
+            Observable.FromEventPattern<float[]>(h => _playerService.WaveformChanged += h, h => _playerService.WaveformChanged -= h)
+                .Sample(TimeSpan.FromMilliseconds(33))
+                .ObserveOn(RxApp.MainThreadScheduler)
+                .Subscribe(e => WaveformSamples = e.EventArgs)
                 .DisposeWith(_disposables);
 
             TogglePlayPauseCommand = new RelayCommand(TogglePlayPause);
@@ -804,7 +1109,7 @@ namespace SLSKDONET.ViewModels
                 int next = ((int)CurrentVisualStyle + 1) % values.Length;
                 CurrentVisualStyle = (VisualizerStyle)next;
             });
-            ClearQueueCommand = new RelayCommand(ClearQueue, () => Queue.Any());
+            ClearQueueCommand = new AsyncRelayCommand(ClearQueueWithConfirmationAsync, () => Queue.Any());
             ToggleShuffleCommand = new RelayCommand(ToggleShuffle);
             ToggleRepeatCommand = new RelayCommand(ToggleRepeat);
             ToggleCrossfadeCommand = new RelayCommand(() => IsCrossfadeEnabled = !IsCrossfadeEnabled);
@@ -837,6 +1142,8 @@ namespace SLSKDONET.ViewModels
             RevealCurrentTrackCommand = new RelayCommand(RevealCurrentTrack);
             AddCurrentTrackToProjectCommand = new RelayCommand(AddCurrentTrackToProject);
             PlayQueueItemCommand = new RelayCommand<PlaylistTrackViewModel>(PlayQueueItem);
+            OpenMixTransitionCommand = new RelayCommand<PlaylistTrackViewModel>(OpenMixTransition);
+            ToggleMixPanelCommand = new RelayCommand(ToggleMixPanel);
 
             // Entertainment Engine Commands
             ToggleAmbientModeCommand = new RelayCommand(() =>
@@ -870,6 +1177,13 @@ namespace SLSKDONET.ViewModels
                     }
 
                     var shouldOpen = !IsExpandedPlayerOpen;
+                    // Closing while in Theater Mode (borderless fullscreen) must leave that too,
+                    // or the window stays chrome-less with nothing on screen to get out of it.
+                    if (!shouldOpen && IsTheaterMode)
+                    {
+                        _eventBus.Publish(new RequestTheaterModeEvent());
+                        return;
+                    }
                     IsExpandedPlayerOpen = shouldOpen;
 
                     if (shouldOpen)
@@ -891,6 +1205,13 @@ namespace SLSKDONET.ViewModels
                 int next = ((int)CurrentVisualizerPreset + 1) % values.Length;
                 CurrentVisualizerPreset = (VisualizerPreset)next;
             });
+            PreviousVisualizerPresetCommand = ReactiveCommand.Create(() =>
+            {
+                var values = Enum.GetValues<VisualizerPreset>();
+                int prev = ((int)CurrentVisualizerPreset - 1 + values.Length) % values.Length;
+                CurrentVisualizerPreset = (VisualizerPreset)prev;
+            });
+            ToggleExpandedQueueCommand = new RelayCommand(() => IsExpandedQueueVisible = !IsExpandedQueueVisible);
 
             
             // Phase 0: Queue persistence - auto-save on changes
@@ -922,8 +1243,10 @@ namespace SLSKDONET.ViewModels
                  DebounceSaveQueue();
              }
              OnPropertyChanged(nameof(IsQueueEmpty));
+             OnPropertyChanged(nameof(ShowExpandedQueue));
              OnPropertyChanged(nameof(UpNextPreview));
              OnPropertyChanged(nameof(HasUpNext));
+             ScheduleUpdateQueueStates();
         }
 
         private void DebounceSaveQueue()
@@ -1254,6 +1577,72 @@ namespace SLSKDONET.ViewModels
                 PlayTrackAtIndex(index);
         }
 
+        private void OpenMixTransition(PlaylistTrackViewModel? outgoing)
+        {
+            if (outgoing?.NextPlaylistTrackId is not Guid incomingId) return;
+
+            var playlistId = outgoing.Model?.PlaylistId ?? Guid.Empty;
+            ReactiveUI.MessageBus.Current.SendMessage(
+                new SLSKDONET.Events.OpenMixTransitionEvent(playlistId, outgoing.Id, incomingId));
+        }
+
+        /// <summary>
+        /// Expands/collapses the inline Mix editor in the Now Playing screen. Loads the actual
+        /// current→next pair into the shared MixTransitionVm on every expand (not just the first
+        /// time) so re-opening after the track has advanced always reflects the real upcoming
+        /// hop rather than whatever pair happened to be loaded last.
+        /// </summary>
+        private void ToggleMixPanel()
+        {
+            IsMixPanelExpanded = !IsMixPanelExpanded;
+            if (IsMixPanelExpanded) LoadCurrentPairIntoMixPanel();
+        }
+
+        /// <summary>
+        /// Surfaces the transition settings for the current→next pair immediately after starting
+        /// playback of a Mix-mode playlist (see the PlayAlbumRequestEvent handler below), instead
+        /// of leaving the user to discover the MIX module — and that it does anything — on their
+        /// own. Does both of this app's two separate "show the Mix editor" routes: expands the
+        /// inline module for whenever the player is docked in the vertical sidebar, AND opens the
+        /// CONTEXT sidepanel's own "Mix" tab (the same route a badge click uses) since starting
+        /// playback also switches the player to the bottom bar by default — the inline module
+        /// lives inside the vertical PlayerControl view, which isn't the visible surface in that
+        /// dock mode, so relying on it alone would silently show nothing.
+        ///
+        /// Public so LibraryViewModel can also call it when the "+ Mix" toggle is switched on
+        /// mid-playback (not just at the moment Play is first pressed) — turning Mix on should
+        /// surface the current pair's settings right away, not only the next time Play happens to
+        /// be pressed.
+        /// </summary>
+        public void ShowMixPanelForCurrentPair()
+        {
+            IsMixPanelExpanded = true;
+            LoadCurrentPairIntoMixPanel();
+
+            var nextIndex = PeekNextIndex();
+            if (CurrentTrack == null || nextIndex is not int idx || idx < 0 || idx >= Queue.Count) return;
+            var next = Queue[idx];
+            var playlistId = CurrentTrack.Model?.PlaylistId ?? next.Model?.PlaylistId ?? Guid.Empty;
+            if (playlistId == Guid.Empty) return;
+
+            ReactiveUI.MessageBus.Current.SendMessage(
+                new SLSKDONET.Events.OpenMixTransitionEvent(playlistId, CurrentTrack.Id, next.Id));
+        }
+
+        private void LoadCurrentPairIntoMixPanel()
+        {
+            if (MixTransitionVm == null) return;
+
+            var nextIndex = PeekNextIndex();
+            if (CurrentTrack == null || nextIndex is not int idx || idx < 0 || idx >= Queue.Count) return;
+
+            var next = Queue[idx];
+            var playlistId = CurrentTrack.Model?.PlaylistId ?? next.Model?.PlaylistId ?? Guid.Empty;
+            if (playlistId == Guid.Empty) return;
+
+            _ = MixTransitionVm.LoadPairAsync(playlistId, CurrentTrack.Id, next.Id);
+        }
+
         // Phase 9.3: Like Feature Implementation
         private async System.Threading.Tasks.Task ToggleLikeAsync()
         {
@@ -1352,6 +1741,51 @@ namespace SLSKDONET.ViewModels
             });
         }
         
+        /// <summary>
+        /// Stops playback synchronously (not posted to the dispatcher) if <paramref name="globalId"/>
+        /// is the track currently open — playing or paused. A caller about to permanently delete
+        /// that track's file must call this and let it return BEFORE deleting: NAudio's
+        /// AudioFileReader holds the file open for as long as this deck is alive, so File.Delete
+        /// on a still-playing track fails outright (silently, from DownloadManager's perspective)
+        /// until the deck is disposed and releases the handle. Also strips any other occurrences
+        /// of the track from the queue so a deleted file can't be played again later in the session.
+        /// </summary>
+        public void StopIfCurrentTrack(string globalId)
+        {
+            if (string.IsNullOrEmpty(globalId)) return;
+
+            if (string.Equals(CurrentTrack?.GlobalId, globalId, StringComparison.OrdinalIgnoreCase))
+            {
+                Stop();
+                CurrentTrack = null;
+            }
+
+            foreach (var stale in Queue.Where(t => string.Equals(t.GlobalId, globalId, StringComparison.OrdinalIgnoreCase)).ToList())
+            {
+                RemoveFromQueue(stale);
+            }
+        }
+
+        /// <summary>
+        /// User-facing "Clear all" button handler — confirms first, since ClearQueue() also stops
+        /// playback and there was previously no way to back out of a misclick. Matches the
+        /// existing confirm-before-destructive-action pattern elsewhere in the app (e.g.
+        /// UserProfileViewModel.ClearConversationCommand). ClearQueue() itself stays
+        /// confirmation-free for the one other, programmatic caller (TrackOperationsViewModel).
+        /// </summary>
+        private async Task ClearQueueWithConfirmationAsync()
+        {
+            if (_dialogService != null)
+            {
+                var confirmed = await _dialogService.ConfirmAsync(
+                    "Clear Queue",
+                    "This stops playback and removes every track from the queue. Continue?");
+                if (!confirmed) return;
+            }
+
+            ClearQueue();
+        }
+
         public void ClearQueue()
         {
             Dispatcher.UIThread.Post(() =>
@@ -1407,24 +1841,50 @@ namespace SLSKDONET.ViewModels
             else if (IsShuffling)
             {
                 nextIndex = GetRandomTrackIndex();
+                for (int attempt = 0; attempt < 10 && !IsPlayableQueueItem(nextIndex); attempt++)
+                    nextIndex = GetRandomTrackIndex();
             }
             else
             {
-                nextIndex = CurrentQueueIndex + 1;
-                if (nextIndex >= Queue.Count)
+                // Skip tracks whose file is gone — one missing file used to end playback there.
+                if (NextPlayableIndex(CurrentQueueIndex + 1, wrap: RepeatMode == RepeatMode.All) is not int found)
+                    return; // End of queue
+                nextIndex = found;
+            }
+
+            PlayTrackAtIndex(nextIndex);
+        }
+
+        /// <summary>The queue row has a file on disk that can be played.</summary>
+        private bool IsPlayableQueueItem(int index) =>
+            index >= 0 && index < Queue.Count
+            && Queue[index].Model?.ResolvedFilePath is { Length: > 0 } path
+            && System.IO.File.Exists(path);
+
+        /// <summary>
+        /// First playable queue index at or after <paramref name="from"/> (wrapping around once when
+        /// <paramref name="wrap"/>), or null. Queues are built from every track with a recorded
+        /// path, and files do go missing — skipping them keeps a playlist (and its mixes) going.
+        /// </summary>
+        private int? NextPlayableIndex(int from, bool wrap)
+        {
+            int count = Queue.Count;
+            for (int step = 0; step < count; step++)
+            {
+                int i = from + step;
+                if (i >= count)
                 {
-                    if (RepeatMode == RepeatMode.All)
-                    {
-                        nextIndex = 0;
-                    }
-                    else
-                    {
-                        return; // End of queue
-                    }
+                    if (!wrap) return null;
+                    i -= count;
+                }
+                if (IsPlayableQueueItem(i))
+                {
+                    if (step > 0)
+                        Serilog.Log.Information("[Player] Skipping {Count} queued track(s) with no playable file", step);
+                    return i;
                 }
             }
-            
-            PlayTrackAtIndex(nextIndex);
+            return null;
         }
         
         private void PlayPreviousTrack()
@@ -1456,18 +1916,40 @@ namespace SLSKDONET.ViewModels
         
         private void PlayTrackAtIndex(int index)
         {
-            if (index < 0 || index >= Queue.Count) return;
-
-            var track = Queue[index];
-            SetNowPlayingState(index, track);
-
-            var filePath = track.Model?.ResolvedFilePath;
-            if (!string.IsNullOrEmpty(filePath))
+            // A queued track that is missing or fails to open is skipped rather than ending
+            // playback there. Bounded to one pass over the queue so a queue of nothing but broken
+            // files can't loop forever.
+            for (int attempts = 0; attempts < Math.Max(1, Queue.Count); attempts++)
             {
-                PlayTrack(filePath, track.Title ?? "Unknown", track.Artist ?? "Unknown", track.Model?.Loudness);
-            }
+                if (index < 0 || index >= Queue.Count) return;
 
-            SchedulePreloadNext();
+                var track = Queue[index];
+                SetNowPlayingState(index, track);
+
+                var filePath = track.Model?.ResolvedFilePath;
+                bool loaded = false;
+                if (!string.IsNullOrEmpty(filePath) && System.IO.File.Exists(filePath))
+                {
+                    loaded = LoadTrackCore(filePath, track.Title ?? "Unknown", track.Artist ?? "Unknown", autoPlay: true, track.Model?.Loudness);
+                }
+                else
+                {
+                    Serilog.Log.Warning("[Player] Queued track has no file on disk, skipping: {Artist} - {Title} ({Path})", track.Artist, track.Title, filePath);
+                }
+
+                if (loaded)
+                {
+                    SchedulePreloadNext();
+                    return;
+                }
+
+                if (IsShuffling || RepeatMode == RepeatMode.One ||
+                    NextPlayableIndex(index + 1, wrap: RepeatMode == RepeatMode.All) is not int next || next == index)
+                {
+                    return;
+                }
+                index = next;
+            }
         }
 
         /// <summary>
@@ -1479,6 +1961,16 @@ namespace SLSKDONET.ViewModels
         {
             CurrentQueueIndex = index;
             CurrentTrack = track;
+
+            // TrackTitle/TrackArtist (what the bottom player bar actually displays) are otherwise
+            // only set inside LoadTrackCore — fine for PlayTrackAtIndex, which calls PlayTrack()
+            // right after this, but OnTrackAdvanced (the engine autonomously promoting a deck on
+            // crossfade completion) deliberately never calls PlayTrack()/LoadTrackCore — the audio
+            // is already playing — so without this, the bar kept showing whatever track was
+            // playing before the LAST manually-initiated play, unchanged across every automatic
+            // crossfade advance for the rest of the session.
+            TrackTitle = track.Title ?? "Unknown";
+            TrackArtist = track.Artist ?? "Unknown";
 
             // Phase 9.2 & 9.3: Set album artwork and like status
             Dispatcher.UIThread.Post(async () =>
@@ -1503,6 +1995,10 @@ namespace SLSKDONET.ViewModels
         /// </summary>
         private void SchedulePreloadNext()
         {
+            // Cleared up front so stale info from whatever pair was previously "up next" doesn't
+            // linger on screen while the new pair's saved-transition lookup is still in flight.
+            UpcomingTransitionPresetName = null;
+
             var nextIndex = PeekNextIndex();
             if (nextIndex is int idx && idx >= 0 && idx < Queue.Count)
             {
@@ -1511,12 +2007,219 @@ namespace SLSKDONET.ViewModels
                 {
                     _playerService.PreloadNext(path, Queue[idx].Model?.Loudness);
                     _preloadedQueueIndex = idx;
+
+                    // Resolve any saved Mix transition for (current, next) so the crossfade the
+                    // engine performs when it reaches this pair reflects what was chosen in the
+                    // Mix editor, not the app-wide default. Attached once resolved rather than
+                    // blocking the (already-issued) file preload above on a DB round-trip.
+                    _ = AttachSavedTransitionAsync(path, CurrentTrack, Queue[idx]);
                     return;
                 }
             }
 
             _playerService.CancelPreload();
             _preloadedQueueIndex = null;
+        }
+
+        private readonly SLSKDONET.Services.Transitions.TransitionPlanService? _transitionPlanService;
+
+        private async Task AttachSavedTransitionAsync(string preloadedPath, PlaylistTrackViewModel? outgoing, PlaylistTrackViewModel incoming)
+        {
+            if (_transitionRepository == null || outgoing == null)
+            {
+                return;
+            }
+
+            var bpm = incoming.Model?.BPM is > 0 ? incoming.Model.BPM!.Value : 128.0;
+            double? outgoingBpm = outgoing.Model?.BPM is > 0 ? outgoing.Model.BPM : null;
+            var saved = await _transitionRepository.GetTransitionAsync(outgoing.Id, incoming.Id).ConfigureAwait(false);
+
+            // Structure-based plan (sections, phrases, DnB transition types, vocal check) — also the
+            // source of exact analysed BPMs, which the engine uses to tempo-match the incoming deck.
+            var score = Services.Playlist.TrackPairCompatibilityScorer.Score(
+                outgoing.CamelotDisplay, incoming.CamelotDisplay, outgoing.Energy, incoming.Energy);
+            (SLSKDONET.Engine.Transitions.TransitionPlan Plan, SLSKDONET.Engine.Transitions.TrackStructure Outgoing, SLSKDONET.Engine.Transitions.TrackStructure Incoming)? planned = null;
+            if (_transitionPlanService != null
+                && outgoing.Model?.TrackUniqueHash is { Length: > 0 } outHash
+                && incoming.Model?.TrackUniqueHash is { Length: > 0 } inHash)
+            {
+                try
+                {
+                    planned = await _transitionPlanService.PlanAsync(outHash, inHash, score.CombinedScore).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Serilog.Log.Warning(ex, "[Mix] Transition planning failed for {Out} -> {In}", outHash, inHash);
+                }
+            }
+            if (planned is { } p)
+            {
+                bpm = p.Incoming.Bpm;
+                outgoingBpm = p.Outgoing.Bpm;
+            }
+
+            SLSKDONET.Models.Timeline.TransitionModel model;
+            string presetName;
+            double? sourceTrigger;
+            double? targetTrigger;
+
+            if (saved != null)
+            {
+                model = saved.ToTransitionModel();
+                presetName = saved.PresetName;
+                sourceTrigger = saved.SourceTriggerSeconds;
+                targetTrigger = saved.TargetTriggerSeconds;
+            }
+            else
+            {
+                // No explicit save for this pair — every pair's badge already defaults its label
+                // to "Auto" (see UpdateQueueTransitionBadgesAsync/TrackListViewModel's equivalent),
+                // but nothing ever actually built and attached that Auto transition to real
+                // playback: this method used to just return here, so an unsaved pair silently
+                // played a hard cut/gapless swap with no mix effect at all — the "built but never
+                // wired" gap behind "can't get songs to play with effect". Score the pair the same
+                // way the badge does and materialize the same Auto transition TransitionPresetLibrary
+                // already knows how to build (duration/type chosen from harmonic+energy fit) so
+                // every hop in a playlist actually mixes by default, not just ones saved by hand.
+                model = Services.Timeline.TransitionPresetLibrary.Build("Auto", score);
+                presetName = "Auto";
+
+                // Without an explicit trigger point, AudioPlayerService falls back to "start the
+                // crossfade N seconds before the literal end of the file" (N derived from the
+                // preset's bar count) — reasonable, but structure-blind: it has no idea where the
+                // track's actual outro/2nd-drop/tail is, so a track with a long instrumental outro
+                // and one that cuts hard right after the last chorus get treated identically. Reuse
+                // the same cue-point/phrase-aware suggestion (TransitionEngine.OptimizeTransition)
+                // the Mix editor already computes for a manually-picked pair, so an Auto-scored pair
+                // during real playback gets the same structure-aware mix-out/mix-in points instead
+                // of a generic duration-based guess.
+                sourceTrigger = null;
+                targetTrigger = null;
+                if (planned is { } plan)
+                {
+                    model = Services.Timeline.TransitionPresetLibrary.Build(plan.Plan.PresetName, score, plan.Plan.DurationBars);
+                    presetName = plan.Plan.PresetName;
+                    sourceTrigger = plan.Plan.SourceTriggerSeconds;
+                    targetTrigger = plan.Plan.TargetTriggerSeconds;
+                    Serilog.Log.Information("[Mix] {Out} -> {In}: {Reason} (out {Src:0.0}s, in {Tgt:0.0}s)",
+                        outgoing.Title, incoming.Title, plan.Plan.Reason, sourceTrigger, targetTrigger);
+                }
+                else if (_trackRepository != null && _cuePointService != null)
+                {
+                    var outgoingHash = outgoing.Model?.TrackUniqueHash;
+                    var incomingHash = incoming.Model?.TrackUniqueHash;
+                    if (!string.IsNullOrWhiteSpace(outgoingHash) && !string.IsNullOrWhiteSpace(incomingHash))
+                    {
+                        try
+                        {
+                            var sourceEntity = await _trackRepository.FindTrackAsync(outgoingHash).ConfigureAwait(false);
+                            var targetEntity = await _trackRepository.FindTrackAsync(incomingHash).ConfigureAwait(false);
+                            if (sourceEntity != null && targetEntity != null)
+                            {
+                                var sourceCues = await _cuePointService.GetByTrackIdAsync(outgoingHash).ConfigureAwait(false);
+                                var targetCues = await _cuePointService.GetByTrackIdAsync(incomingHash).ConfigureAwait(false);
+                                var suggestion = _pointSuggestionEngine.OptimizeTransition(sourceEntity, targetEntity, sourceCues, targetCues);
+                                sourceTrigger = Math.Max(0, suggestion.SourceTriggerTime);
+                                targetTrigger = Math.Max(0, suggestion.TargetTriggerTime);
+                                // Old-style cues (e.g. a "Mix-Out Warning" at 0:00 on a badly analysed
+                                // track) must not cut a track short: before half way, mix at the end instead.
+                                double realLength = _playerService.Duration;
+                                if (realLength > 0 && sourceTrigger < Engine.Transitions.TransitionPlanner.MinPlayFraction * realLength)
+                                {
+                                    sourceTrigger = null;
+                                    targetTrigger = null;
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[PlayerViewModel] Auto transition point suggestion failed for {outgoingHash}->{incomingHash}: {ex.Message}");
+                        }
+                    }
+                }
+            }
+
+            // Guard against a race: by the time this DB round-trip resolves, playback may already
+            // have moved past this pair (e.g. the user skipped ahead) — don't paint stale
+            // "up next via <preset>" visibility for a pair that's no longer relevant. Set directly
+            // (not inside the Dispatcher.Post below) so this class' own reflection-based unit
+            // tests can await it deterministically, matching UpdateQueueTransitionBadgesAsync's
+            // equivalent choice just above.
+            if (_preloadedQueueIndex is int stillPreloadedIndex && Queue.ElementAtOrDefault(stillPreloadedIndex)?.Model?.ResolvedFilePath == preloadedPath)
+            {
+                UpcomingTransitionPresetName = presetName;
+            }
+
+            Dispatcher.UIThread.Post(() => _playerService.SetPendingTransitionForNext(
+                preloadedPath, model, bpm, sourceTrigger, targetTrigger, presetName, outgoingBpm));
+        }
+
+        private bool _queueTransitionBadgesScheduled;
+
+        /// <summary>
+        /// Debounces bursts of Queue mutations (bulk-loading a playlist adds one track at a time)
+        /// into a single badge recompute per burst, mirroring TrackListViewModel's
+        /// ScheduleUpdateMixTransitionBadges for the Library track list's own badges.
+        /// </summary>
+        private void ScheduleUpdateQueueTransitionBadges()
+        {
+            if (_queueTransitionBadgesScheduled) return;
+            _queueTransitionBadgesScheduled = true;
+            Dispatcher.UIThread.Post(() =>
+            {
+                _queueTransitionBadgesScheduled = false;
+                _ = UpdateQueueTransitionBadgesAsync();
+            }, DispatcherPriority.Background);
+        }
+
+        /// <summary>
+        /// Resolves and sets ShowMixTransitionBadge/TransitionPresetLabel/TransitionBadgeColor on
+        /// every consecutive pair in the live playback Queue — the same properties
+        /// TrackListViewModel.UpdateMixTransitionBadgesAsync computes for the Library track list,
+        /// but nothing populated them for the player's own Queue instances (a separate set of
+        /// PlaylistTrackViewModel objects), so the Up Next strip and queue panel never showed
+        /// which preset would actually drive each upcoming hop. Always shown here (not gated by
+        /// a "Mix mode" toggle — the Library page's toggle is a track-list display preference,
+        /// not a gate on whether saved transitions apply during real playback).
+        /// </summary>
+        private async Task UpdateQueueTransitionBadgesAsync()
+        {
+            if (_transitionRepository == null || Queue.Count == 0) return;
+
+            // No ConfigureAwait(false)/Dispatcher.Post marshaling — matching
+            // TrackListViewModel.UpdateMixTransitionBadgesAsync's own established pattern for the
+            // exact same kind of "await a DB lookup, then set view-model properties" method: the
+            // continuation resumes via the ambient SynchronizationContext (the UI thread, since
+            // this is always invoked from a UI-thread-originated call), so no manual marshaling
+            // is needed — and unlike Dispatcher.UIThread.Post, that continuation is exactly what
+            // this class' own reflection-based unit tests can already await deterministically.
+            var playlistId = Queue[0].Model?.PlaylistId ?? Guid.Empty;
+            var saved = playlistId != Guid.Empty
+                ? (await _transitionRepository.GetTransitionsForPlaylistAsync(playlistId))
+                    .ToDictionary(t => (t.OutgoingPlaylistTrackId, t.IncomingPlaylistTrackId))
+                : new Dictionary<(Guid, Guid), Models.Timeline.PlaylistTrackTransition>();
+
+            for (int i = 0; i < Queue.Count; i++)
+            {
+                var current = Queue[i];
+                if (i == Queue.Count - 1)
+                {
+                    current.ShowMixTransitionBadge = false;
+                    current.NextPlaylistTrackId = null;
+                    continue;
+                }
+
+                var next = Queue[i + 1];
+                current.ShowMixTransitionBadge = true;
+                current.NextPlaylistTrackId = next.Id;
+
+                var score = Services.Playlist.TrackPairCompatibilityScorer.Score(
+                    current.CamelotDisplay, next.CamelotDisplay, current.Energy, next.Energy);
+                current.TransitionBadgeColor = Services.Playlist.TrackPairCompatibilityScorer.CompatibilityColor(score.CombinedScore);
+                current.TransitionPresetLabel = saved.TryGetValue((current.Id, next.Id), out var savedTransition)
+                    ? savedTransition.PresetName
+                    : "Auto";
+            }
         }
 
         /// <summary>
@@ -1531,13 +2234,7 @@ namespace SLSKDONET.ViewModels
             if (IsShuffling) return null;
             if (RepeatMode == RepeatMode.One) return CurrentQueueIndex;
 
-            var nextIndex = CurrentQueueIndex + 1;
-            if (nextIndex >= Queue.Count)
-            {
-                return RepeatMode == RepeatMode.All ? 0 : null;
-            }
-
-            return nextIndex;
+            return NextPlayableIndex(CurrentQueueIndex + 1, wrap: RepeatMode == RepeatMode.All);
         }
 
         /// <summary>
@@ -1547,10 +2244,20 @@ namespace SLSKDONET.ViewModels
         /// </summary>
         private void OnTrackAdvanced()
         {
-            if (_preloadedQueueIndex is not int index || index < 0 || index >= Queue.Count)
+            // The engine has already moved to its preloaded deck. If the preloaded index got lost
+            // this used to return without updating anything: audio played the next track while
+            // the UI stayed on the old one and nothing more was preloaded — so at that track's end
+            // "next" was computed from the stale position and the mix chain broke.
+            int? resolved = _preloadedQueueIndex is int preloaded && preloaded >= 0 && preloaded < Queue.Count
+                ? preloaded
+                : PeekNextIndex();
+            if (resolved is not int index)
             {
+                Serilog.Log.Warning("[Player] Engine advanced but the next queue track is unknown (current index {Index})", CurrentQueueIndex);
                 return;
             }
+            if (_preloadedQueueIndex == null)
+                Serilog.Log.Warning("[Player] Engine advanced without a recorded preload — assuming queue index {Index}", index);
 
             var track = Queue[index];
             _preloadedQueueIndex = null;
@@ -1868,13 +2575,18 @@ namespace SLSKDONET.ViewModels
                     
                     if (canResume)
                     {
+                        _libraryPreviewPlayer?.StopPreview();
+                        _transitionPreviewPlayer?.StopPreview();
                         _playerService.Pause(); // Resume
                         IsPlaying = true; // Assume success
                     }
                     else
                     {
-                       // Track finished or not loaded. Restart.
-                       PlayTrack(path!, CurrentTrack?.Title ?? "Unknown", CurrentTrack?.Artist ?? "Unknown");
+                       // Track finished or not loaded. Restart. Thread the loudness gain through
+                       // like PlayTrackAtIndex does — omitting it here meant restarting a track
+                       // that had already played to the end (via Play, not Next) silently dropped
+                       // back to unnormalized volume for the replay.
+                       PlayTrack(path!, CurrentTrack?.Title ?? "Unknown", CurrentTrack?.Artist ?? "Unknown", CurrentTrack?.Model?.Loudness);
                     }
                 }
                 // Case 2: No track loaded, but Queue has items
@@ -2065,7 +2777,7 @@ namespace SLSKDONET.ViewModels
         
         // Helper to load track
         public void PlayTrack(string filePath, string title, string artist, double? loudnessLufs = null)
-            => LoadTrackCore(filePath, title, artist, autoPlay: true, loudnessLufs);
+            => _ = LoadTrackCore(filePath, title, artist, autoPlay: true, loudnessLufs);
 
         /// <summary>
         /// Loads a track "hot and ready" without starting playback — e.g. Cue Forge loading
@@ -2075,9 +2787,9 @@ namespace SLSKDONET.ViewModels
         /// buffer before the pause takes effect.
         /// </summary>
         public void LoadTrackPaused(string filePath, string title, string artist, double? loudnessLufs = null)
-            => LoadTrackCore(filePath, title, artist, autoPlay: false, loudnessLufs);
+            => _ = LoadTrackCore(filePath, title, artist, autoPlay: false, loudnessLufs);
 
-        private void LoadTrackCore(string filePath, string title, string artist, bool autoPlay, double? loudnessLufs = null)
+        private bool LoadTrackCore(string filePath, string title, string artist, bool autoPlay, double? loudnessLufs = null)
         {
             Console.WriteLine($"[PlayerViewModel] LoadTrackCore called with: {filePath} (autoPlay={autoPlay})");
 
@@ -2095,16 +2807,24 @@ namespace SLSKDONET.ViewModels
                 TrackTitle = title;
                 TrackArtist = artist;
 
-                if (autoPlay) _playerService.Play(filePath, loudnessLufs);
+                if (autoPlay)
+                {
+                    // Real playback starting — cannot have several sources racing for the audio
+                    // output, so any waveform-click or hover preview stops first.
+                    _libraryPreviewPlayer?.StopPreview();
+                    _transitionPreviewPlayer?.StopPreview();
+                    _playerService.Play(filePath, loudnessLufs);
+                }
                 else _playerService.LoadWithoutPlaying(filePath, loudnessLufs);
                 IsPlaying = autoPlay;
 
                 // Hide loading state
                 Dispatcher.UIThread.Post(() => IsLoading = false);
+                return true;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[PlayerViewModel] Playback error: {ex.Message}");
+                Serilog.Log.Warning(ex, "[Player] Could not play {File}", filePath);
 
                 // Phase 9.2: Show error state with thread-safe updates
                 Dispatcher.UIThread.Post(() =>
@@ -2122,6 +2842,7 @@ namespace SLSKDONET.ViewModels
                 });
 
                 IsPlaying = false;
+                return false;
             }
         }
 
@@ -2182,27 +2903,50 @@ namespace SLSKDONET.ViewModels
 
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    Queue.Clear();
-                    
-                    int currentIndex = -1;
-                    for (int i = 0; i < savedQueue.Count; i++)
+                    // This DB read can take long enough (racing against heavy startup work like
+                    // the similarity index's HNSW graph build) that the user may already have
+                    // started playing something themselves — e.g. via the playlist header's Play
+                    // button — before this resolves. Restoring the OLD saved queue at that point
+                    // would silently wipe out the track they just started playing. Only restore
+                    // into a genuinely still-empty queue.
+                    if (Queue.Count > 0)
                     {
-                        var (track, isCurrent) = savedQueue[i];
+                        Console.WriteLine("[PlayerViewModel] Skipped restoring saved queue — a queue is already active");
+                        return;
+                    }
+
+                    Queue.Clear();
+
+                    // Same bug class as the PlayAlbumRequestEvent stale-path fix: a track's file
+                    // can be moved/deleted between sessions without its saved ResolvedFilePath
+                    // ever being corrected. Restoring it anyway meant pressing Play on a dead
+                    // "now playing" entry with no error until the user actually tried — skip it
+                    // instead, same as the album-play queue-build path does.
+                    int currentIndex = -1;
+                    int skipped = 0;
+                    foreach (var (track, isCurrent) in savedQueue)
+                    {
+                        if (string.IsNullOrEmpty(track.ResolvedFilePath) || !System.IO.File.Exists(track.ResolvedFilePath))
+                        {
+                            skipped++;
+                            continue;
+                        }
+
                         var vm = new PlaylistTrackViewModel(track);
                         Queue.Add(vm);
-                        
+
                         if (isCurrent)
-                            currentIndex = i;
+                            currentIndex = Queue.Count - 1;
                     }
-                    
+
                     // Restore current track position
                     if (currentIndex >= 0 && currentIndex < Queue.Count)
                     {
                         CurrentQueueIndex = currentIndex;
                         CurrentTrack = Queue[currentIndex];
                     }
-                    
-                    Console.WriteLine($"[PlayerViewModel] Loaded {savedQueue.Count} tracks from saved queue");
+
+                    Console.WriteLine($"[PlayerViewModel] Loaded {Queue.Count} tracks from saved queue" + (skipped > 0 ? $" ({skipped} skipped — file no longer exists)" : ""));
                 });
             }
             catch (Exception ex)

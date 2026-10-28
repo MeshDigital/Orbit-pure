@@ -45,6 +45,16 @@ public sealed class PlaylistOptimizerOptions
     /// </summary>
     public double EnergyWeight { get; init; } = 0.5;
 
+    /// <summary>
+    /// Multiplier for genre/style dissimilarity, sourced from
+    /// <see cref="Similarity.SimilarityIndex"/> embedding cosine similarity (cost = (1 -
+    /// similarity) * GenreWeight). Only applied when both tracks have an embedding and the
+    /// optimizer was constructed with a <see cref="Similarity.SimilarityIndex"/> — otherwise this
+    /// term is silently 0, same as the section-transition weight when phrase data is missing.
+    /// Set to 0 to disable genre-aware ordering entirely.
+    /// </summary>
+    public double GenreWeight { get; init; } = 1.5;
+
     // ── Constraints ────────────────────────────────────────────────────────
     /// <summary>
     /// If set, the optimizer starts the path from this hash.

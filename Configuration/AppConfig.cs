@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using SLSKDONET.Models;
 
 namespace SLSKDONET.Configuration;
@@ -17,7 +15,7 @@ public class AppConfig
     public int ListenPort { get; set; } = 49998;
     public bool UseUPnP { get; set; } = false;
     public int ConnectTimeout { get; set; } = 60000; // ms
-    public int SearchTimeout { get; set; } = 12000; // ms; longer idle window improves late peer discovery for lossless searches
+    public int SearchTimeout { get; set; } = 20000; // ms; longer idle window improves late peer discovery for lossless searches — not every peer is nearby, give distant/slower ones real time to answer
     public int SearchAccumulatorWindowSeconds { get; set; } = 15; // was 30 — cap desperate-lane accumulation; accumulatorShortCircuit handles early exits for normal lanes
     public int MaxConcurrentSearches { get; set; } = 5; // Throttling to prevent bans
     public int MaxDiscoveryLanes { get; set; } = 5; // Concurrent discovery jobs for seeker pipeline
@@ -39,18 +37,39 @@ public class AppConfig
     public int ElevatedSearchExtraDelayMs { get; set; } = 75;
     public int CriticalSearchExtraDelayMs { get; set; } = 200;
     public int SearchTokenBucketCapacity { get; set; } = 1;
-    public int SearchTokenBucketRefillMs { get; set; } = 3500;
-    public int ElevatedSearchTokenBucketRefillMs { get; set; } = 4000;
-    public int CriticalSearchTokenBucketRefillMs { get; set; } = 5000;
+    // Sustained rate = 1 search per refill interval (capacity=1, no bursting).
+    // Was 3500/4000/5000ms (~68/4min at baseline) — well above Soulseek's observed
+    // ~25-30 searches per 4-minute-window ban threshold. Widened to keep the sustained
+    // rate inside that safe band even under Normal pressure, escalating further as
+    // pressure rises.
+    public int SearchTokenBucketRefillMs { get; set; } = 9000;
+    public int ElevatedSearchTokenBucketRefillMs { get; set; } = 10000;
+    public int CriticalSearchTokenBucketRefillMs { get; set; } = 12000;
+    // Outgoing private/room chat messages had no rate limiting at all (unlike search above),
+    // despite Soulseek's own ban notice explicitly naming "flood chat rooms or private chat with
+    // many messages" as a ban trigger. Capacity allows a small natural burst (e.g. the gate-bot
+    // auto-responder replying to several already-queued peers back-to-back); refill caps the
+    // sustained rate to roughly 1 message/second, well under anything a real conversation needs.
+    public int MessageTokenBucketCapacity { get; set; } = 5;
+    public int MessageTokenBucketRefillMs { get; set; } = 900;
+    // Live feed of every outbound network call (Soulseek + HTTP + raw sockets/DNS), surfaced in
+    // Settings → Advanced → Network Activity. Local-only, default on since it's the tool used to
+    // diagnose ban-causing traffic patterns; overhead is connection/request-level only.
+    public bool EnableNetworkActivityMonitor { get; set; } = true;
     public int SearchResponseLimit { get; set; } = 200; // was 100 — at Critical (65%) this gives ~130, enough for meaningful ranking
     public int SearchFileLimit { get; set; } = 200; // was 100
     public int SearchHardResultCap { get; set; } = 10000; // Absolute per-search circuit breaker for accepted candidates
     public int SearchHardFileCap { get; set; } = 50000; // Absolute per-search circuit breaker for inbound files (0 disables)
     public int MaxPeerQueueLength { get; set; } = 50; // Ignore peers with very long queue lengths
-    public int MinSearchDurationSeconds { get; set; } = 5; // Brain buffer floor: 5s gives network time to collect results but doesn't make downloads glacially slow
+    public int MinSearchDurationSeconds { get; set; } = 16; // Brain buffer floor (halved in DownloadDiscoveryService, clamped 6-15s): gives distant/slower peers real time to answer before a speculative silver-match accept short-circuits the wait
     public int MinLosslessSearchDurationSeconds { get; set; } = 10; // was 20 — accumulator short-circuit handles fast exits; 10s is the fallback for scarce tracks
     public bool EnableSpeculativeEarlyAccept { get; set; } = true; // Accept silver match after minSearchDuration window; avoids waiting full buffer for good-enough results
     public bool EnableAutoAcquireOnImport { get; set; } = false; // Auto-acquire imported Spotify Ghost tracks
+    // GhostAcquisitionOrchestrator's background sweep only starts when DownloadManager.IsQueueIdle
+    // (nothing pending/searching/downloading) — avoids competing with the user's own active
+    // searches for search bandwidth. Default on since idle-gating is strictly safer than the old
+    // always-on behavior; this is a safety valve to restore the old behavior if needed.
+    public bool EnableIdleGhostAcquisition { get; set; } = true;
     public bool EnableGoldenEarlyExit { get; set; } = true; // Golden FLAC hit (score≥85, >700kbps, queue=0) cancels the lane immediately
     public bool EnableFastLaneEarlyExit { get; set; } = true; // Idle peer winner cancels the lane immediately; avoids waiting for the rest of the stream
     public bool EnableQuickStrikeEarlyExit { get; set; } = true; // Score>95 exits the tier immediately without waiting for full buffer
@@ -144,6 +163,12 @@ public class AppConfig
     public double WindowY { get; set; } = double.NaN;
     public bool WindowMaximized { get; set; } = false;
 
+    /// <summary>
+    /// Close button (X / Alt+F4) hides ORBIT to the tray so downloads keep running; only the tray's
+    /// "Quit ORBIT" exits. Off: the close button quits. Stored as [Window] CloseToTray.
+    /// </summary>
+    public bool CloseToTray { get; set; } = true;
+
     // Dashboard layout persistence (three-column shell state)
     public double DashboardRightPanelWidth { get; set; } = 320; // Width of the right panel in pixels
     public bool DashboardIsNavigationCollapsed { get; set; } = false; // Whether the left navigation is collapsed
@@ -161,9 +186,31 @@ public class AppConfig
     // Flow Builder persistence
     public string? FlowBuilderSelectedPlaylistId { get; set; }
     public bool FlowBuilderRestoreContentOnStartup { get; set; } = true;
-    public bool EnableFlowBuilderSuggestedFlowPreview { get; set; } = true;
+
+    /// <summary>Countdown cues placed automatically before a Drop cue when one is set or moved:
+    /// "Off", "Auto" (by genre family: breakbeat/DnB 32,16,8 bars; four-on-the-floor 32,16), or a
+    /// fixed comma-separated bar list such as "32,16,8". See Engine.Cueing.DropCountdownCues.</summary>
+    public string DropCountdownMode { get; set; } = "Auto";
+
+    /// <summary>Bars before the drop for the "Custom" cue template, e.g. "32,16,8".</summary>
+    public string CustomCountdownBars { get; set; } = "32,16,8";
+
+    /// <summary>Playlist Discover panel sources (public Beatport pages / Deezer API).</summary>
+    public bool DiscoverUseBeatport { get; set; } = true;
+
+    /// <summary>Width of the right-hand context panel (pixels), resizable by dragging its edge.</summary>
+    public int ContextPanelWidth { get; set; } = 400;
+    public bool DiscoverUseDeezer { get; set; } = true;
     public bool EnableFlowBuilderSuggestedFlowTelemetry { get; set; } = true;
-    public int FlowBuilderSuggestedFlowPreviewRolloutPercent { get; set; } = 10;
+
+    // Library metadata enrichment (Services/Enrichment). API keys are NOT here: they live in the
+    // DPAPI-encrypted MetadataCredentialStore.
+    /// <summary>Enrich new imports/downloads automatically in the background.</summary>
+    public bool EnrichmentAutoRun { get; set; } = true;
+    /// <summary>Provider order, cheapest/most trusted first (comma-separated provider names).</summary>
+    public string EnrichmentProviderOrder { get; set; } = "tags,deezer,musicbrainz,discogs,acoustid,spotify,beatport";
+    /// <summary>Enabled providers. Beatport is off by default (scraped pages, easily rate-limited).</summary>
+    public string EnrichmentEnabledProviders { get; set; } = "tags,deezer,musicbrainz,discogs,acoustid,spotify";
 
     // Frequent Sources (privacy-first, local-only, opt-in)
     public bool EnableFrequentSources { get; set; } = false;
@@ -202,6 +249,11 @@ public class AppConfig
 
     // Audio Analysis Parallelism
     public int MaxConcurrentAnalyses { get; set; } = 0; // 0 = auto-detect based on CPU/RAM, 1 = sequential, >1 = parallel
+    /// <summary>Queue every finished download for analysis (BPM, key, cues, loudness). [Analysis] AnalyzeNewDownloads.</summary>
+    public bool AnalyzeNewDownloads { get; set; } = true;
+
+    // Edit Lab: where rendered edits are written. Empty = <download folder>/ORBIT Edits. [EditLab] OutputDirectory.
+    public string? EditLabOutputDirectory { get; set; }
 
     // Hyper-Drive: Adaptive lane autotuning
     public bool EnableAdaptiveLanes { get; set; } = true;
@@ -230,6 +282,23 @@ public class AppConfig
     public int AutoDownloadMaxCandidatesToScore { get; set; } = 50; // Cap scoring to top 50 for determinism
     public string? AutoDownloadExcludedPhrases { get; set; } = "remix,cover,live,acoustic"; // Comma-separated phrases to exclude
     public bool AutoDownloadDiagnosticsEnabled { get; set; } = false; // Local-only diagnostic logging to PlaylistActivityLogEntity
+
+    // Update check — a single unauthenticated GET to the public GitHub Releases API at most once
+    // per CheckInterval, comparing tag_name against this build's own version. No telemetry, no
+    // account/PII involved; opt-out toggle provided for consistency with this app's other
+    // network-touching features.
+    public bool EnableUpdateCheck { get; set; } = true;
+    public DateTime? LastUpdateCheckUtc { get; set; }
+    public string? LastSeenUpdateVersion { get; set; } // Suppresses re-notifying for a version already shown
+
+    // Waveform appearance — the RGB tri-band renderer/overlays already existed but had zero
+    // user-facing settings (colors/overlays were compiled-in constants).
+    public string WaveformPalette { get; set; } = "NeonRgb"; // "NeonRgb" or "ClassicRgb"
+    public bool WaveformShowEnergyCurve { get; set; } = true;
+    public bool WaveformShowVocalGhost { get; set; } = true;
+    public bool WaveformShowPhraseSections { get; set; } = true;
+    public bool WaveformShowBeatGrid { get; set; } = true;
+    public float WaveformGain { get; set; } = 1.0f;
 
     // Library smart insert (segment-aware playlist intelligence)
     // Confidence threshold: 0.80 strict, 0.72 normal, 0.65 loose/experimental
@@ -266,23 +335,16 @@ public class AppConfig
     /// </summary>
     public bool EnableKeyboardTelemetry { get; set; } = false;
 
-    public bool IsFlowBuilderPreviewEnabledForThisInstall(string installKey)
-    {
-        if (!EnableFlowBuilderSuggestedFlowPreview)
-            return false;
+    // ── [Setup] first-run wizard and quick tour ──────────────────────────────────────────
+    /// <summary>The first-run setup wizard was finished or skipped (or an existing install was detected).</summary>
+    public bool SetupCompleted { get; set; }
+    /// <summary>Wizard version that set <see cref="SetupCompleted"/>; lets a future wizard ask about new steps only.</summary>
+    public int SetupVersion { get; set; }
+    /// <summary>The quick tour was finished or skipped at least once.</summary>
+    public bool TourCompleted { get; set; }
 
-        if (FlowBuilderSuggestedFlowPreviewRolloutPercent <= 0)
-            return false;
+    /// <summary>Download folder used when config.ini has none (also what the first-run check treats as "not chosen yet").</summary>
+    public static string FallbackDownloadDirectory =>
+        System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile), "Downloads", "SLSKDONET");
 
-        if (FlowBuilderSuggestedFlowPreviewRolloutPercent >= 100)
-            return true;
-
-        if (string.IsNullOrWhiteSpace(installKey))
-            return false;
-
-        using var sha256 = SHA256.Create();
-        var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(installKey.Trim()));
-        var bucket = hashBytes[0] % 100;
-        return bucket < FlowBuilderSuggestedFlowPreviewRolloutPercent;
-    }
 }

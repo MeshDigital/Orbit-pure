@@ -47,15 +47,23 @@ public sealed class PlaylistOptimizationResult
 /// </summary>
 public sealed class PlaylistOptimizer
 {
+    // The O(n²) greedy pass is fine up to ~500 tracks (see class doc comment); past that it's an
+    // uncapped, synchronous, previously-uncancellable loop that could freeze the UI. Same failure
+    // contract as PlaylistIntelligenceService.MaxReorderTracks.
+    public const int MaxOptimizeTracks = 500;
+
     private readonly ILogger<PlaylistOptimizer> _logger;
     private readonly SectionVectorService? _sectionVectors;
+    private readonly Similarity.SimilarityIndex? _similarityIndex;
 
     public PlaylistOptimizer(
         ILogger<PlaylistOptimizer> logger,
-        SectionVectorService? sectionVectors = null)
+        SectionVectorService? sectionVectors = null,
+        Similarity.SimilarityIndex? similarityIndex = null)
     {
         _logger = logger;
         _sectionVectors = sectionVectors;
+        _similarityIndex = similarityIndex;
     }
 
     // ── Public API ─────────────────────────────────────────────────────────
@@ -74,6 +82,12 @@ public sealed class PlaylistOptimizer
 
         if (hashes.Count == 0)
             return new PlaylistOptimizationResult();
+
+        if (hashes.Count > MaxOptimizeTracks)
+            throw new ArgumentException(
+                $"OptimizeAsync input exceeds the {MaxOptimizeTracks}-track safety limit (got {hashes.Count}). " +
+                "Split the set into smaller chunks before optimizing.",
+                nameof(trackHashes));
 
         // Load features for all tracks in one query.
         Dictionary<string, AudioFeaturesEntity> features;
@@ -97,13 +111,19 @@ public sealed class PlaylistOptimizer
         if (_sectionVectors != null && options.SectionTransitionWeight > 0)
             await _sectionVectors.PreloadAsync(analyzed, cancellationToken);
 
-        var ordered = GreedyOrder(analyzed, features, options, _sectionVectors);
+        // Same pre-warm strategy for genre embeddings — fetch the whole lookup once so the
+        // synchronous greedy loop below can do plain dictionary reads.
+        IReadOnlyDictionary<string, float[]>? embeddings = null;
+        if (_similarityIndex != null && options.GenreWeight > 0)
+            embeddings = await _similarityIndex.GetEmbeddingLookupAsync(cancellationToken);
+
+        var ordered = GreedyOrder(analyzed, features, options, _sectionVectors, embeddings, cancellationToken);
 
         // Apply optional energy-curve post-pass.
         if (options.EnergyCurve != EnergyCurvePattern.None && ordered.Count > 2)
             ordered = ApplyEnergyCurve(ordered, features, options.EnergyCurve);
 
-        double totalCost = ComputePathCost(ordered, features, options, _sectionVectors);
+        double totalCost = ComputePathCost(ordered, features, options, _sectionVectors, embeddings);
 
         var result = ordered.Concat(unanalyzed).ToList();
         return new PlaylistOptimizationResult
@@ -120,7 +140,9 @@ public sealed class PlaylistOptimizer
         List<string> hashes,
         Dictionary<string, AudioFeaturesEntity> features,
         PlaylistOptimizerOptions options,
-        SectionVectorService? sectionVectors = null)
+        SectionVectorService? sectionVectors = null,
+        IReadOnlyDictionary<string, float[]>? embeddings = null,
+        CancellationToken cancellationToken = default)
     {
         if (hashes.Count == 0) return hashes;
 
@@ -128,12 +150,14 @@ public sealed class PlaylistOptimizer
         var path = new List<string>(hashes.Count);
 
         // Choose the starting node.
-        string current = ChooseStartNode(hashes, features, options);
+        string current = ChooseStartNode(hashes, features, options, embeddings);
         path.Add(current);
         remaining.Remove(current);
 
         while (remaining.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             // Find the unvisited track with the lowest edge cost from current.
             string? best = null;
             double bestCost = double.MaxValue;
@@ -141,7 +165,7 @@ public sealed class PlaylistOptimizer
             var currentFeature = features[current];
             foreach (var candidate in remaining)
             {
-                double cost = EdgeCost(currentFeature, features[candidate], options);
+                double cost = EdgeCost(currentFeature, features[candidate], options, embeddings);
 
                 if (sectionVectors != null)
                 {
@@ -176,7 +200,8 @@ public sealed class PlaylistOptimizer
     private static string ChooseStartNode(
         List<string> hashes,
         Dictionary<string, AudioFeaturesEntity> features,
-        PlaylistOptimizerOptions options)
+        PlaylistOptimizerOptions options,
+        IReadOnlyDictionary<string, float[]>? embeddings = null)
     {
         // If caller specified a start track and it exists in our set, honour it.
         if (options.StartTrackHash != null && features.ContainsKey(options.StartTrackHash))
@@ -189,7 +214,7 @@ public sealed class PlaylistOptimizer
             var f = features[h];
             return hashes
                 .Where(other => other != h)
-                .Average(other => EdgeCost(f, features[other], options));
+                .Average(other => EdgeCost(f, features[other], options, embeddings));
         }) ?? hashes[0];
     }
 
@@ -267,7 +292,8 @@ public sealed class PlaylistOptimizer
     internal static double EdgeCost(
         AudioFeaturesEntity a,
         AudioFeaturesEntity b,
-        PlaylistOptimizerOptions opts)
+        PlaylistOptimizerOptions opts,
+        IReadOnlyDictionary<string, float[]>? embeddings = null)
     {
         double harmonic = CamelotDistance(a.CamelotKey, b.CamelotKey) * opts.HarmonicWeight;
 
@@ -279,19 +305,30 @@ public sealed class PlaylistOptimizer
         double bEnergy = b.EnergyScore == 0 ? 5 : b.EnergyScore;
         double energy = Math.Abs(aEnergy - bEnergy) * opts.EnergyWeight;
 
-        return harmonic + tempo + jumpPenalty + energy;
+        // Genre/style dissimilarity — only contributes when both tracks have an embedding;
+        // unanalyzed tracks stay neutral (0 extra cost) rather than being penalized.
+        double genre = 0;
+        if (opts.GenreWeight > 0 && embeddings != null
+            && embeddings.TryGetValue(a.TrackUniqueHash, out var vecA)
+            && embeddings.TryGetValue(b.TrackUniqueHash, out var vecB))
+        {
+            genre = (1.0 - Similarity.SimilarityIndex.CosineSimilarity(vecA, vecB)) * opts.GenreWeight;
+        }
+
+        return harmonic + tempo + jumpPenalty + energy + genre;
     }
 
     private static double ComputePathCost(
         List<string> path,
         Dictionary<string, AudioFeaturesEntity> features,
         PlaylistOptimizerOptions opts,
-        SectionVectorService? sectionVectors)
+        SectionVectorService? sectionVectors,
+        IReadOnlyDictionary<string, float[]>? embeddings = null)
     {
         double cost = 0;
         for (int i = 0; i < path.Count - 1; i++)
         {
-            cost += EdgeCost(features[path[i]], features[path[i + 1]], opts);
+            cost += EdgeCost(features[path[i]], features[path[i + 1]], opts, embeddings);
 
             if (sectionVectors != null)
             {

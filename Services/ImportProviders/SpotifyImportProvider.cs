@@ -18,7 +18,7 @@ public class SpotifyImportProvider : IStreamingImportProvider
     private readonly Configuration.AppConfig _config;
 
     public string Name => "Spotify";
-    public string IconGlyph => "🎵";
+    public string IconGlyph => "spotify";
 
     public SpotifyImportProvider(
         ILogger<SpotifyImportProvider> logger,
@@ -97,6 +97,7 @@ public class SpotifyImportProvider : IStreamingImportProvider
                  {
                      Tracks = batch,
                      SourceTitle = batch.FirstOrDefault()?.SourceTitle ?? "Spotify Playlist",
+                     SourceOwner = batch.FirstOrDefault()?.SourceOwner,
                      TotalEstimated = batch.FirstOrDefault()?.TotalTracks ?? 0
                  };
              }
@@ -105,15 +106,22 @@ public class SpotifyImportProvider : IStreamingImportProvider
         {
             // Scraper fallback (blocking)
             var result = await ImportAsync(input);
-            if (result.Success && result.Tracks.Any())
+            if (!result.Success || !result.Tracks.Any())
             {
-                yield return new ImportBatchResult
-                {
-                    Tracks = result.Tracks,
-                    SourceTitle = result.SourceTitle,
-                    TotalEstimated = result.Tracks.Count
-                };
+                // Not connected and the public web-player fallback failed too (private playlist,
+                // consent wall, bad link). Connecting the account is the usual fix.
+                throw new ImportSourceException(
+                    (result.ErrorMessage ?? "No tracks found in this Spotify link.") +
+                    " Connect Spotify to import private or large playlists.",
+                    requiresSignIn: true);
             }
+
+            yield return new ImportBatchResult
+            {
+                Tracks = result.Tracks,
+                SourceTitle = result.SourceTitle,
+                TotalEstimated = result.Tracks.Count
+            };
         }
     }
 }

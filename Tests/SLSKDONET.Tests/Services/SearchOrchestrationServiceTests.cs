@@ -4,9 +4,11 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using SLSKDONET.Configuration;
+using SLSKDONET.Data;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Services.Network;
@@ -66,7 +68,11 @@ public class SearchOrchestrationServiceTests
             config,
             hardening,
             library.Object,
-            eventBus);
+            eventBus,
+            new EngineDiagnosticsService(
+                Mock.Of<IDbContextFactory<AppDbContext>>(),
+                eventBus,
+                NullLogger<EngineDiagnosticsService>.Instance));
 
         await foreach (var _ in sut.SearchAsync(
             query: "Artist - Track (Original Mix)",
@@ -156,7 +162,11 @@ public class SearchOrchestrationServiceTests
             config,
             hardening,
             library.Object,
-            eventBus);
+            eventBus,
+            new EngineDiagnosticsService(
+                Mock.Of<IDbContextFactory<AppDbContext>>(),
+                eventBus,
+                NullLogger<EngineDiagnosticsService>.Instance));
 
         var results = new List<Track>();
         await foreach (var track in sut.SearchAsync(
@@ -249,7 +259,11 @@ public class SearchOrchestrationServiceTests
             config,
             hardening,
             library.Object,
-            eventBus);
+            eventBus,
+            new EngineDiagnosticsService(
+                Mock.Of<IDbContextFactory<AppDbContext>>(),
+                eventBus,
+                NullLogger<EngineDiagnosticsService>.Instance));
 
         await foreach (var _ in sut.SearchAsync(
             query: "Artist - Track (Original Mix)",
@@ -329,7 +343,11 @@ public class SearchOrchestrationServiceTests
             config,
             hardening,
             library.Object,
-            eventBus);
+            eventBus,
+            new EngineDiagnosticsService(
+                Mock.Of<IDbContextFactory<AppDbContext>>(),
+                eventBus,
+                NullLogger<EngineDiagnosticsService>.Instance));
 
         await foreach (var _ in sut.SearchAsync(
             query: "Artist - Track (Original Mix)",
@@ -418,7 +436,11 @@ public class SearchOrchestrationServiceTests
             config,
             hardening,
             library.Object,
-            eventBus);
+            eventBus,
+            new EngineDiagnosticsService(
+                Mock.Of<IDbContextFactory<AppDbContext>>(),
+                eventBus,
+                NullLogger<EngineDiagnosticsService>.Instance));
 
         var results = new List<Track>();
         await foreach (var track in sut.SearchAsync(
@@ -509,7 +531,11 @@ public class SearchOrchestrationServiceTests
             config,
             hardening,
             library.Object,
-            eventBus);
+            eventBus,
+            new EngineDiagnosticsService(
+                Mock.Of<IDbContextFactory<AppDbContext>>(),
+                eventBus,
+                NullLogger<EngineDiagnosticsService>.Instance));
 
         await foreach (var _ in sut.SearchAsync(
             query: "Artist - Track (Original Mix)",
@@ -602,7 +628,11 @@ public class SearchOrchestrationServiceTests
             config,
             hardening,
             library.Object,
-            eventBus);
+            eventBus,
+            new EngineDiagnosticsService(
+                Mock.Of<IDbContextFactory<AppDbContext>>(),
+                eventBus,
+                NullLogger<EngineDiagnosticsService>.Instance));
 
         var target = new PlaylistTrack
         {
@@ -713,7 +743,11 @@ public class SearchOrchestrationServiceTests
             config,
             hardening,
             library.Object,
-            eventBus);
+            eventBus,
+            new EngineDiagnosticsService(
+                Mock.Of<IDbContextFactory<AppDbContext>>(),
+                eventBus,
+                NullLogger<EngineDiagnosticsService>.Instance));
 
         var results = new List<Track>();
         await foreach (var track in sut.SearchAsync(
@@ -778,7 +812,11 @@ public class SearchOrchestrationServiceTests
             config,
             hardening,
             library.Object,
-            eventBus);
+            eventBus,
+            new EngineDiagnosticsService(
+                Mock.Of<IDbContextFactory<AppDbContext>>(),
+                eventBus,
+                NullLogger<EngineDiagnosticsService>.Instance));
 
         async Task ConsumeAsync()
         {

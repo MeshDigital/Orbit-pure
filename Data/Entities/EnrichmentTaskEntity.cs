@@ -25,6 +25,12 @@ public class EnrichmentTaskEntity
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime? UpdatedAt { get; set; }
+
+    /// <summary>Higher runs first (new downloads before a library-wide backfill).</summary>
+    public int Priority { get; set; }
+
+    /// <summary>Not before this time (a provider that could fill the track was rate-limited).</summary>
+    public DateTime? NextAttemptAt { get; set; }
 }
 
 public enum EnrichmentStatus

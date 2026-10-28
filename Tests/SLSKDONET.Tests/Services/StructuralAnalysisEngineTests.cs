@@ -164,6 +164,58 @@ public class StructuralAnalysisEngineTests
     }
 
     [Fact]
+    public void FindDrops_DetectsDropFarFromAnyPhraseGridBoundary()
+    {
+        // Phrase grid boundaries at 120 BPM (16 bars) are at 0, 32, 64, ... seconds. The old
+        // implementation only searched within PhraseBoundaryToleranceSeconds (4s) of one of
+        // those boundaries, so a real drop landing well off-grid — an odd-length intro, a
+        // non-16-bar breakdown, BPM-drift compounding over minutes — would never be found at
+        // all. Verified against real library tracks (Gancher & Ruin - Rituals, ShockOne -
+        // Follow Me) where the true drop sat many bars off the rigid grid. The rise here is at
+        // t=20, 12s from the nearest boundary (32s) — well outside the old tolerance.
+        float bpm = 120f;
+        var (_, phrases) = StructuralAnalysisEngine.ComputePhraseBoundaries(bpm, 120.0);
+
+        var energy = new List<float>();
+        for (int i = 0; i < 120; i++)
+            energy.Add(i < 20 ? 0.3f : 0.9f);
+
+        var drops = StructuralAnalysisEngine.FindDrops(energy, phrases, bpm);
+
+        Assert.NotEmpty(drops);
+        Assert.InRange(drops[0].TimestampSeconds, 18.0, 22.0);
+    }
+
+    [Fact]
+    public void FindDrops_PrefersDipPrecededCandidate_OverEqualNoveltyWithoutDip()
+    {
+        // Regression test for the pre-drop-silence scoring bonus: real EDM productions cut
+        // energy right before the drop lands (HPF sweep + sample-drop silence) specifically to
+        // make the drop hit harder, so a candidate preceded by that dip is far more likely the
+        // real drop than an equal-strength novelty spike that isn't. Verified against a real
+        // library track (Metrik - Simulation): multiple novelty peaks of comparable raw strength
+        // existed, and only the dip-preceded one was the actual drop (confirmed by an
+        // independent, pre-existing detection signal agreeing with it).
+        float bpm = 120f;
+        int duration = 110;
+        var energy = new float[duration];
+
+        for (int i = 0; i < 30; i++) energy[i] = 0.40f;        // buildup baseline for candidate A
+        for (int i = 30; i < 59; i++) energy[i] = 0.85f;       // candidate A: jump with NO dip before it
+        for (int i = 59; i < 79; i++) energy[i] = 0.40f;       // settle back down / buildup baseline for B
+        energy[79] = 0.15f;                                     // candidate B: genuine pre-drop dip
+        for (int i = 80; i < duration; i++) energy[i] = 0.60f; // candidate B: jump — same raw novelty as A
+
+        var (_, phrases) = StructuralAnalysisEngine.ComputePhraseBoundaries(bpm, duration);
+        var drops = StructuralAnalysisEngine.FindDrops(energy.ToList(), phrases, bpm);
+
+        Assert.NotEmpty(drops);
+        // Both candidates have identical raw novelty (0.45) — only the dip-scoring bonus can make
+        // the dip-preceded one (t=80) rank ahead of the equal-strength, dip-less one (t=30).
+        Assert.InRange(drops[0].TimestampSeconds, 78.0, 82.0);
+    }
+
+    [Fact]
     public void FindDrops_ReturnsEmptyForEmptyEnergyCurve()
     {
         var drops = StructuralAnalysisEngine.FindDrops(
@@ -253,5 +305,52 @@ public class StructuralAnalysisEngineTests
         var result = StructuralAnalysisEngine.Analyze(bpm, duration, energy);
 
         Assert.Contains(result.Sections, s => s.Type == PhraseType.Drop || s.Type == PhraseType.Build);
+    }
+
+    [Fact]
+    public void Analyze_DropSectionStart_UsesActualDropTimestamp_NotGridBoundary()
+    {
+        // Regression test: a Drop-classified StructuralSection previously always reported its
+        // enclosing phrase-grid slot's boundary as StartSeconds, discarding the actual detected
+        // drop timestamp — losing up to a full phrase's worth of precision (commonly 20-40s).
+        // Verified against real library tracks (Gancher & Ruin - Rituals, ShockOne - Follow Me)
+        // this cost 40s+ of cue-placement accuracy. The section's Start must match where the drop
+        // actually was, not the grid slot it happened to land inside.
+        float bpm = 120f;
+        double duration = 300.0;
+        var energy = Enumerable.Range(0, (int)duration)
+            .Select(i => i < 50 ? 0.2f : 0.9f)
+            .ToList<float>();
+
+        var result = StructuralAnalysisEngine.Analyze(bpm, duration, energy);
+
+        // 16-bar grid slot at 120 BPM is [32, 64) — the drop at t=50 sits mid-slot, not at 32.
+        var dropSection = Assert.Single(result.Sections, s => s.Type == PhraseType.Drop);
+        Assert.InRange(dropSection.StartSeconds, 48.0, 52.0);
+    }
+
+    [Fact]
+    public void Analyze_DropNearSharedGridBoundary_DoesNotCollapseIntoNearZeroDurationSliver()
+    {
+        // Regression test for a real bug found via a library track (Maduk, Lexurus, RIENK - New
+        // Beginning): a single real drop landing right at a grid-slot boundary satisfied the
+        // Start-override match for BOTH the section ending there and the section starting there,
+        // collapsing the first into a spurious near-zero-duration "Drop" sliver directly beside
+        // the real one (Drop@88.78 dur=0.01s next to the real Drop@89.00 dur=21.98s). No
+        // Drop-classified section should end up with a degenerate duration purely because the
+        // Start override matched a timestamp that actually belongs to a neighboring slot.
+        float bpm = 120f;
+        double duration = 200.0;
+        // 16-bar grid slot boundary at 120 BPM falls at t=64 — the rise happens exactly there.
+        var energy = Enumerable.Range(0, (int)duration)
+            .Select(i => i < 64 ? 0.2f : 0.9f)
+            .ToList<float>();
+
+        var result = StructuralAnalysisEngine.Analyze(bpm, duration, energy);
+
+        var dropSections = result.Sections.Where(s => s.Type == PhraseType.Drop).ToList();
+        Assert.NotEmpty(dropSections);
+        Assert.All(dropSections, s => Assert.True(s.EndSeconds - s.StartSeconds > 1.0,
+            $"Drop section [{s.StartSeconds},{s.EndSeconds}) has a near-zero duration — likely a boundary drop claimed by two neighboring sections."));
     }
 }

@@ -90,6 +90,10 @@ public class TrackEntity
     public string? SpotifyKey { get; set; }
     public double? ManualBPM { get; set; }
     public string? ManualKey { get; set; }
+    /// <summary>BPM read from the file's own embedded tag (TagLib BeatsPerMinute) at import —
+    /// trusted over Essentia analysis for genres (breakbeat/DNB) where the DSP beat tracker has a
+    /// known quantization bias. See SyncDenormalizedFeaturesAsync's ManualBPM/TagBPM guard.</summary>
+    public double? TagBPM { get; set; }
 
     // Phase 8: Sonic Integrity & Spectral Analysis
     public IntegrityLevel Integrity { get; set; } = IntegrityLevel.None; // Phase 3B: Dual-Truth Verification
@@ -345,6 +349,10 @@ public class PlaylistTrackEntity
     public string? SpotifyKey { get; set; }
     public double? ManualBPM { get; set; }
     public string? ManualKey { get; set; }
+    /// <summary>BPM read from the file's own embedded tag (TagLib BeatsPerMinute) at import —
+    /// trusted over Essentia analysis for genres (breakbeat/DNB) where the DSP beat tracker has a
+    /// known quantization bias. See SyncDenormalizedFeaturesAsync's ManualBPM/TagBPM guard.</summary>
+    public double? TagBPM { get; set; }
 
     // Sonic Integrity
     public string? SpectralHash { get; set; }
@@ -486,6 +494,10 @@ public class LibraryEntryEntity
     public string? SpotifyKey { get; set; }
     public double? ManualBPM { get; set; }
     public string? ManualKey { get; set; }
+    /// <summary>BPM read from the file's own embedded tag (TagLib BeatsPerMinute) at import —
+    /// trusted over Essentia analysis for genres (breakbeat/DNB) where the DSP beat tracker has a
+    /// known quantization bias. See SyncDenormalizedFeaturesAsync's ManualBPM/TagBPM guard.</summary>
+    public double? TagBPM { get; set; }
 
     public double? Energy { get; set; }
     public double? EnergyRatio { get; set; }

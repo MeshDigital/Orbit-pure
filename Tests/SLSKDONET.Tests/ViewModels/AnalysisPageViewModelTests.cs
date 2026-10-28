@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Moq;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
+using SLSKDONET.Services.AudioAnalysis;
 using SLSKDONET.Services.Library;
 using SLSKDONET.ViewModels;
 using SLSKDONET.ViewModels.Library;
@@ -13,6 +14,7 @@ using Xunit;
 
 namespace SLSKDONET.Tests.ViewModels;
 
+[Collection(NonParallelCollection.Name)]
 public class AnalysisPageViewModelTests : IDisposable
 {
     private readonly EventBusService _bus = new();
@@ -178,7 +180,7 @@ public class AnalysisPageViewModelTests : IDisposable
         var pending = _vm.LibraryTracks.First(t => !t.HasAnalysis);
         _vm.AddToQueue(pending);
 
-        InvokeHandler(_vm, "OnTrackAnalysisFailed", new TrackAnalysisFailedEvent(pending.TrackId, "decoder error"));
+        await InvokeAsyncHandler(_vm, "OnTrackAnalysisFailedAsync", new TrackAnalysisFailedEvent(pending.TrackId, "decoder error"));
         await InvokeAsyncHandler(_vm, "OnTrackAnalysisCompletedAsync", new TrackAnalysisCompletedEvent(pending.TrackId, false, "decoder error"));
 
         Assert.False(pending.IsInQueue);
@@ -199,6 +201,68 @@ public class AnalysisPageViewModelTests : IDisposable
         await _vm.StartAnalysisAsync();
 
         Assert.True(publishedRequests >= 1);
+    }
+
+    [Fact]
+    public async Task RunMissingForPlaylist_UsesCoveragePopulationAndPerTrackMasks()
+    {
+        var selected = new AnalysisTrackItem("selected", "Selected", "Track");
+        var unrelated = new AnalysisTrackItem("unrelated", "Other", "Track");
+        _vm.LibraryTracks.Add(selected);
+        _vm.LibraryTracks.Add(unrelated);
+
+        var missingKey = new TrackAnalysisCoverage(
+            AnalysisEngine.Pipeline,
+            AnalysisEngine.Pipeline & ~AnalysisEngine.Key);
+        var coverage = new PlaylistAnalysisCoverage(Guid.NewGuid(), "Selected set", new[]
+        {
+            new TrackCoverageEntry("selected", "Selected", "Track", missingKey),
+            new TrackCoverageEntry("not-loaded", "Unlisted", "Track", missingKey),
+        });
+        SetCoverage(coverage);
+
+        var published = new System.Collections.Generic.List<TrackAnalysisRequestedEvent>();
+        using var sub = _bus.GetEvent<TrackAnalysisRequestedEvent>().Subscribe(published.Add);
+
+        var method = typeof(AnalysisPageViewModel).GetMethod(
+            "RunMissingForPlaylistAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        await (Task)method.Invoke(_vm, null)!;
+
+        Assert.Equal(2, published.Count);
+        Assert.Contains(published, e => e.TrackGlobalId == "selected" && e.Engines == AnalysisEngine.Key);
+        Assert.Contains(published, e => e.TrackGlobalId == "not-loaded" && e.Engines == AnalysisEngine.Key);
+        Assert.DoesNotContain(published, e => e.TrackGlobalId == "unrelated");
+        Assert.DoesNotContain(unrelated, _vm.AnalysisQueue);
+    }
+
+    [Fact]
+    public void MapLibraryEntryToTrack_UnmeasuredEntry_DoesNotFabricateAnalysisData()
+    {
+        var method = typeof(AnalysisPageViewModel).GetMethod(
+            "MapLibraryEntryToTrack", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        var item = (AnalysisTrackItem)method.Invoke(_vm, new object[]
+        {
+            new LibraryEntry { UniqueHash = "empty", Artist = "Artist", Title = "Title" },
+        })!;
+
+        Assert.Null(item.AnalysisData);
+        Assert.False(item.HasAnalysis);
+    }
+
+    [Fact]
+    public void EmptyCoverage_RemainsVisibleAndExplainsTheEmptySelection()
+    {
+        SetCoverage(new PlaylistAnalysisCoverage(Guid.NewGuid(), "Empty set", Array.Empty<TrackCoverageEntry>()));
+
+        Assert.True(_vm.HasCoverageData);
+        Assert.Contains("No tracks with audio on disk", _vm.CoverageSummary);
+    }
+
+    private void SetCoverage(PlaylistAnalysisCoverage coverage)
+    {
+        typeof(AnalysisPageViewModel).GetField("_coverage", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(_vm, coverage);
     }
 
     private static void InvokeHandler(object instance, string methodName, object evt)

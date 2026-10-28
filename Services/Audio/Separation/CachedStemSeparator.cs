@@ -92,6 +92,17 @@ public sealed class CachedStemSeparator : IStemSeparator
         return stems;
     }
 
+    /// <summary>
+    /// The four cached stem files for <paramref name="inputFilePath"/> under the current model, or
+    /// null when any is missing — answers "are this track's stems ready?" without separating.
+    /// </summary>
+    public Task<Dictionary<StemType, string>?> TryGetCachedStemsAsync(string inputFilePath, CancellationToken cancellationToken = default)
+    {
+        string trackHash = ComputeFileHash(inputFilePath);
+        float duration = GetAudioDuration(inputFilePath);
+        return TryGetAllStemsFromCacheAsync(trackHash, duration, _inner.ModelTag, cancellationToken);
+    }
+
     // ─── Private helpers ─────────────────────────────────────────────────────
 
     /// <summary>
@@ -142,11 +153,12 @@ public sealed class CachedStemSeparator : IStemSeparator
     {
         try
         {
-            using var reader = new NAudio.Wave.AudioFileReader(filePath);
+            using var reader = SLSKDONET.Services.Audio.PlayableAudio.Open(filePath, out _);
             return (float)reader.TotalTime.TotalSeconds;
         }
-        catch
+        catch (Exception ex)
         {
+            Serilog.Log.Debug(ex, "[StemCache] Couldn't read the duration of {File}", filePath);
             return 0f;
         }
     }

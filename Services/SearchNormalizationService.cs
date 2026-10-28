@@ -27,8 +27,27 @@ public class SearchNormalizationService
         "va"
     };
 
+    // Version-qualifier keywords the relaxed query should drop to broaden the search net. Matched
+    // two ways: first as a whole enclosing (...)/[...] group — so "(ID Remix)", "(Skrillex Edit)",
+    // "(Radio Edit)" etc. get removed in one piece, taking any other words in the group (like an
+    // "ID"/producer-name prefix) with them — then as a bare fallback for unbracketed occurrences
+    // ("Track Extended Mix" with no parens). Matching only the bare keyword (the old behavior)
+    // left modifier words like "ID" dangling in the query after the surrounding parens were
+    // stripped, e.g. "Born Slippy (ID Remix)" → "Born Slippy ID" instead of "Born Slippy".
     private static readonly string[] RelaxedTitleNoisePatterns =
     {
+        @"[\(\[][^\(\)\[\]]*\boriginal mix\b[^\(\)\[\]]*[\)\]]",
+        @"[\(\[][^\(\)\[\]]*\bextended mix\b[^\(\)\[\]]*[\)\]]",
+        @"[\(\[][^\(\)\[\]]*\bradio edit\b[^\(\)\[\]]*[\)\]]",
+        @"[\(\[][^\(\)\[\]]*\bclub mix\b[^\(\)\[\]]*[\)\]]",
+        @"[\(\[][^\(\)\[\]]*\boriginal version\b[^\(\)\[\]]*[\)\]]",
+        @"[\(\[][^\(\)\[\]]*\bfeat\.?\s+[^\(\)\[\]]*[\)\]]",
+        @"[\(\[][^\(\)\[\]]*\bft\.?\s+[^\(\)\[\]]*[\)\]]",
+        @"[\(\[][^\(\)\[\]]*\bfeaturing\s+[^\(\)\[\]]*[\)\]]",
+        @"[\(\[][^\(\)\[\]]*\bremix\b[^\(\)\[\]]*[\)\]]",
+        @"[\(\[][^\(\)\[\]]*\bbootleg\b[^\(\)\[\]]*[\)\]]",
+        @"[\(\[][^\(\)\[\]]*\bdub\b[^\(\)\[\]]*[\)\]]",
+        @"[\(\[][^\(\)\[\]]*\bedit\b[^\(\)\[\]]*[\)\]]",
         @"\boriginal mix\b",
         @"\bextended mix\b",
         @"\bradio edit\b",

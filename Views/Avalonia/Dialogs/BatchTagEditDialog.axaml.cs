@@ -33,6 +33,8 @@ public partial class BatchTagEditDialog : Window
                 Key = vm.Key,
                 Comments = vm.Comments,
                 Mood = vm.Mood,
+                TrackNumber = vm.TrackNumber,
+                Rating = vm.Rating,
                 NewFileName = vm.IsSingleTrack ? vm.NewFileName : null,
             };
             Close(result);
