@@ -851,7 +851,8 @@ public partial class App : Application
         // Phase 10.5: Native Dependency Health (Reliability)
         services.AddSingleton<NativeDependencyHealthService>();
 
-        // Update check — single GET against GitHub Releases, opt-out via AppConfig.EnableUpdateCheck.
+        // Update check — one throttled GET against the GitHub Releases list (stable + pre-releases),
+        // opt-out via AppConfig.EnableUpdateCheck.
         services.AddSingleton<IUpdateCheckService, UpdateCheckService>();
         
         // Views - Register all page controls for NavigationService

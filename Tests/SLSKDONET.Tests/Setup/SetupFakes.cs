@@ -117,7 +117,7 @@ internal sealed class FakePicker : IFileInteractionService
 internal sealed class FakeNotifications : INotificationService
 {
     public List<(string Title, string Message)> Shown { get; } = new();
-    public void Show(string title, string message, NotificationType type = NotificationType.Information, TimeSpan? duration = null) => Shown.Add((title, message));
+    public void Show(string title, string message, NotificationType type = NotificationType.Information, TimeSpan? duration = null, string? openUrl = null) => Shown.Add((title, message));
 }
 
 /// <summary>A temp directory + temp config.ini, deleted on dispose.</summary>

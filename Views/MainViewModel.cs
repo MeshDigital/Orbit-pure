@@ -1627,6 +1627,26 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public void OpenToast(ToastNotificationViewModel toast)
     {
         Toasts.Remove(toast);
+
+        // Update notices carry the exact release page. Open it in the user's browser instead of
+        // navigating somewhere in-app; a failure to launch the browser is non-fatal.
+        if (!string.IsNullOrWhiteSpace(toast.OpenUrl))
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(toast.OpenUrl)
+                {
+                    UseShellExecute = true
+                });
+            }
+            catch
+            {
+                // No default browser / blocked by policy — the URL is also in the toast text.
+            }
+
+            return;
+        }
+
         if (toast.OpenPage == "Projects") NavigateProjectsCommand.Execute(null);
         else if (toast.OpenPage != null)
         {
@@ -1637,7 +1657,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void ShowToast(SLSKDONET.Services.ToastRequestedEvent evt, string? openPage = null)
     {
-        var toast = new ToastNotificationViewModel(evt.Title, evt.Message, evt.Type, openPage);
+        var toast = new ToastNotificationViewModel(evt.Title, evt.Message, evt.Type, openPage, evt.OpenUrl);
         Toasts.Add(toast);
 
         // Cap how many stack up on screen at once — oldest drops off first.

@@ -8,7 +8,9 @@ namespace SLSKDONET.Views;
 /// </summary>
 public interface INotificationService
 {
-    void Show(string title, string message, NotificationType type = NotificationType.Information, TimeSpan? duration = null);
+    /// <param name="openUrl">When set, the toast becomes clickable and opens this URL (used by the
+    /// update check to point at the matching GitHub release).</param>
+    void Show(string title, string message, NotificationType type = NotificationType.Information, TimeSpan? duration = null, string? openUrl = null);
 }
 
 /// <summary>

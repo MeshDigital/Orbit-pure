@@ -268,7 +268,7 @@ public sealed class EditLabViewModelTests : IDisposable
     private sealed class FakeNotifications : SLSKDONET.Views.INotificationService
     {
         public (string Title, string Message, SLSKDONET.Views.NotificationType Type)? Last;
-        public void Show(string title, string message, SLSKDONET.Views.NotificationType type = SLSKDONET.Views.NotificationType.Information, TimeSpan? duration = null) =>
+        public void Show(string title, string message, SLSKDONET.Views.NotificationType type = SLSKDONET.Views.NotificationType.Information, TimeSpan? duration = null, string? openUrl = null) =>
             Last = (title, message, type);
     }
 

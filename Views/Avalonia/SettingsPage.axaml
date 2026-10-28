@@ -1262,14 +1262,14 @@
                         </StackPanel>
 
                         <StackPanel Classes="settings-section"
-                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Check for Updates GitHub Releases version Dependencies FFmpeg check download install close button minimise minimize tray taskbar quit background'}">
+                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Check for Updates GitHub Releases version alpha beta pre-release Dependencies FFmpeg check download install close button minimise minimize tray taskbar quit background'}">
                             <TextBlock Classes="section" Text="SYSTEM"/>
                             <Border Classes="card">
                                 <StackPanel>
                                     <Grid Classes="row" ColumnDefinitions="*,Auto">
                                         <StackPanel Classes="label">
                                             <TextBlock Classes="body" Text="Check for updates on launch"/>
-                                            <TextBlock Classes="caption" Text="Looks at GitHub Releases at most every 12 hours and shows a notice when a newer version exists."/>
+                                            <TextBlock Classes="caption" Text="Looks at GitHub Releases at most every 12 hours. Includes alpha/beta pre-release builds and flags when you're running one. Click the notice to open the release page."/>
                                         </StackPanel>
                                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnableUpdateCheck, Mode=TwoWay}"/>
                                     </Grid>

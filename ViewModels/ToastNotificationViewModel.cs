@@ -15,14 +15,29 @@ public class ToastNotificationViewModel
 
     /// <summary>Page a click opens (navigation key), or null.</summary>
     public string? OpenPage { get; }
-    public bool IsClickable => OpenPage != null;
-    public string ClickHint => OpenPage == "Projects" ? "Click to open the Download Center →" : "Click to open →";
 
-    public ToastNotificationViewModel(string title, string message, NotificationType type, string? openPage = null)
+    /// <summary>External URL a click opens (e.g. the matching GitHub release), or null.</summary>
+    public string? OpenUrl { get; }
+
+    public bool IsClickable => OpenPage != null || !string.IsNullOrWhiteSpace(OpenUrl);
+
+    public string ClickHint => !string.IsNullOrWhiteSpace(OpenUrl)
+        ? "Click to open the release page →"
+        : OpenPage == "Projects"
+            ? "Click to open the Download Center →"
+            : "Click to open →";
+
+    public ToastNotificationViewModel(
+        string title,
+        string message,
+        NotificationType type,
+        string? openPage = null,
+        string? openUrl = null)
     {
         Title = title;
         Message = message;
         Type = type;
         OpenPage = openPage;
+        OpenUrl = openUrl;
     }
 }

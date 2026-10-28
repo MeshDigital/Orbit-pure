@@ -138,7 +138,7 @@ public class DownloadCenterFilterStripTests
 
         ((ICommand)sut.ClearCompletedCommand).Execute(null);
 
-        notifications.Verify(n => n.Show("Downloads", "Nothing completed to clear", NotificationType.Information, It.IsAny<TimeSpan?>()), Times.Once);
+        notifications.Verify(n => n.Show("Downloads", "Nothing completed to clear", NotificationType.Information, It.IsAny<TimeSpan?>(), It.IsAny<string?>()), Times.Once);
     }
 
     private static DownloadCenterViewModel CreateSut(out EventBusService eventBus, INotificationService? notifications = null)

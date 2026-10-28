@@ -8,7 +8,12 @@ namespace SLSKDONET.Services;
 /// Published whenever <see cref="NotificationServiceAdapter.Show"/> is called, so the UI layer
 /// (a toast host bound in MainViewModel) can render an actual on-screen notification.
 /// </summary>
-public record ToastRequestedEvent(string Title, string Message, NotificationType Type, TimeSpan? Duration);
+public record ToastRequestedEvent(
+    string Title,
+    string Message,
+    NotificationType Type,
+    TimeSpan? Duration,
+    string? OpenUrl = null);
 
 /// <summary>
 /// Adapter that implements the view-level INotificationService for Avalonia.
@@ -25,7 +30,7 @@ public class NotificationServiceAdapter : global::SLSKDONET.Views.INotificationS
         _eventBus = eventBus;
     }
 
-    public void Show(string title, string message, NotificationType type = NotificationType.Information, TimeSpan? duration = null)
+    public void Show(string title, string message, NotificationType type = NotificationType.Information, TimeSpan? duration = null, string? openUrl = null)
     {
         var logMessage = $"{type}: {title} - {message}";
 
@@ -44,6 +49,6 @@ public class NotificationServiceAdapter : global::SLSKDONET.Views.INotificationS
                 break;
         }
 
-        _eventBus.Publish(new ToastRequestedEvent(title, message, type, duration));
+        _eventBus.Publish(new ToastRequestedEvent(title, message, type, duration, openUrl));
     }
 }

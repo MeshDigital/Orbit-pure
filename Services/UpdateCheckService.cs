@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Net.Http;
 using System.Reflection;
 using System.Text.Json;
@@ -6,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Configuration;
+using SLSKDONET.Services.UpdateCheck;
 using SLSKDONET.Views;
 
 namespace SLSKDONET.Services;
@@ -13,23 +16,30 @@ namespace SLSKDONET.Services;
 public interface IUpdateCheckService
 {
     /// <summary>
-    /// Checks GitHub Releases for a newer tagged version and shows a toast if one is found.
-    /// Throttled to at most once per <see cref="UpdateCheckService.CheckInterval"/>, and never
-    /// re-notifies for a version already shown. Safe to call on every app start — all failures
-    /// (network, parsing, rate limiting) are caught and logged, never thrown.
+    /// Checks GitHub Releases for a newer build and shows a toast when one is found. Both stable
+    /// releases and alpha/beta/RC pre-releases are considered, so early builds are not invisible
+    /// just because GitHub's "latest" endpoint ignores pre-releases. Throttled to at most once per
+    /// <see cref="UpdateCheckService.CheckInterval"/>, and never re-notifies for the same build.
+    /// Safe to call on every app start — all failures (network, parsing, rate limiting) are caught
+    /// and logged, never thrown.
     /// </summary>
     Task CheckForUpdatesAsync(CancellationToken ct = default);
 }
 
 /// <summary>
-/// Single unauthenticated GET to the public GitHub Releases API, comparing the latest tag against
-/// this build's own version. No telemetry, no account, no PII — just "is there a newer tag".
-/// Opt-out via AppConfig.EnableUpdateCheck for consistency with this app's other network-touching
-/// features (see AutoSearchService's own privacy-first framing).
+/// A single unauthenticated GET to the public GitHub Releases API, then a channel-aware comparison
+/// against this build's own version. No telemetry, no account, no PII — just "is there a newer
+/// stable or early build". Opt-out via AppConfig.EnableUpdateCheck for consistency with this app's
+/// other network-touching features (see AutoSearchService's own privacy-first framing).
+///
+/// Why the full releases list instead of <c>/releases/latest</c>: GitHub's "latest" endpoint hides
+/// every pre-release, so alpha/beta/RC builds — and the fact that the user is running one — were
+/// previously never surfaced. The full list also lets the notice explain the 0.10.0-alpha → 0.2.0
+/// version-line reset by ordering releases by publication date rather than by SemVer alone.
 /// </summary>
 public sealed class UpdateCheckService : IUpdateCheckService
 {
-    private const string ApiUrl = "https://api.github.com/repos/MeshDigital/Orbit-pure/releases/latest";
+    internal const string ReleasesApiUrl = "https://api.github.com/repos/MeshDigital/Orbit-pure/releases?per_page=100";
     private const string UserAgent = "ORBIT-App/1.0.0 ( https://github.com/MeshDigital/Orbit-pure )";
     private static readonly TimeSpan CheckInterval = TimeSpan.FromHours(12);
 
@@ -65,7 +75,7 @@ public sealed class UpdateCheckService : IUpdateCheckService
 
         try
         {
-            using var response = await _httpClient.GetAsync(ApiUrl, ct).ConfigureAwait(false);
+            using var response = await _httpClient.GetAsync(ReleasesApiUrl, ct).ConfigureAwait(false);
 
             // Record the attempt regardless of outcome — a 404 (no releases yet) or a rate limit
             // shouldn't cause this to retry on every single app launch.
@@ -79,38 +89,32 @@ public sealed class UpdateCheckService : IUpdateCheckService
             }
 
             var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            using var doc = JsonDocument.Parse(json);
-
-            if (!doc.RootElement.TryGetProperty("tag_name", out var tagProp))
+            var releases = ParseReleases(json);
+            if (releases.Count == 0)
                 return;
-
-            var tagName = tagProp.GetString();
-            if (string.IsNullOrWhiteSpace(tagName))
-                return;
-
-            var releaseUrl = doc.RootElement.TryGetProperty("html_url", out var urlProp)
-                ? urlProp.GetString() ?? ApiUrl
-                : "https://github.com/MeshDigital/Orbit-pure/releases/latest";
 
             var currentVersionText = GetCurrentVersionText();
-            var latestVersion = NormalizeToVersion(tagName);
-            var currentVersion = NormalizeToVersion(currentVersionText);
-
-            if (latestVersion == null || currentVersion == null || latestVersion <= currentVersion)
+            var notice = UpdatePlanner.Plan(currentVersionText, releases);
+            if (notice is null)
                 return;
 
-            // Already told the user about this exact tag — don't repeat it every launch.
-            if (string.Equals(_config.LastSeenUpdateVersion, tagName, StringComparison.OrdinalIgnoreCase))
+            // Already told the user about this exact build/state — don't repeat it every launch.
+            if (string.Equals(_config.LastSeenUpdateVersion, notice.Key, StringComparison.OrdinalIgnoreCase))
                 return;
 
-            _config.LastSeenUpdateVersion = tagName;
+            _config.LastSeenUpdateVersion = notice.Key;
             await _configManager.SaveAsync(_config).ConfigureAwait(false);
 
+            _logger.LogInformation(
+                "Update check: showing {Kind} notice for {Key} (current {Current})",
+                notice.Kind, notice.Key, currentVersionText);
+
             _notificationService.Show(
-                "Update Available",
-                $"ORBIT {tagName} is available — you're on {currentVersionText}. {releaseUrl}",
+                notice.Title,
+                notice.Message,
                 NotificationType.Information,
-                TimeSpan.FromSeconds(15));
+                TimeSpan.FromSeconds(20),
+                notice.Url);
         }
         catch (OperationCanceledException)
         {
@@ -122,25 +126,70 @@ public sealed class UpdateCheckService : IUpdateCheckService
         }
     }
 
-    private static string GetCurrentVersionText()
+    /// <summary>Parses the GitHub releases array, skipping drafts and non-version tags.</summary>
+    internal static IReadOnlyList<UpdateRelease> ParseReleases(string json)
     {
-        return Assembly.GetExecutingAssembly()
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-            ?? "0.0.0";
+        var releases = new List<UpdateRelease>();
+
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            return releases;
+
+        foreach (var element in doc.RootElement.EnumerateArray())
+        {
+            if (element.ValueKind != JsonValueKind.Object)
+                continue;
+
+            if (GetBoolean(element, "draft"))
+                continue;
+
+            var release = UpdateRelease.TryCreate(
+                GetString(element, "tag_name"),
+                GetString(element, "name"),
+                GetString(element, "html_url"),
+                GetBoolean(element, "prerelease"),
+                GetDate(element, "published_at") ?? GetDate(element, "created_at"));
+
+            if (release is not null)
+                releases.Add(release);
+        }
+
+        return releases;
     }
 
-    /// <summary>Strips a leading "v", any "-prerelease" tag, and any "+build" metadata, keeping
-    /// just the Major.Minor.Patch numeric core for ordering comparison.</summary>
-    private static Version? NormalizeToVersion(string raw)
+    private static string? GetString(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
+
+    private static bool GetBoolean(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var property) &&
+        property.ValueKind is JsonValueKind.True or JsonValueKind.False &&
+        property.GetBoolean();
+
+    private static DateTimeOffset? GetDate(JsonElement element, string propertyName)
     {
-        var trimmed = raw.Trim().TrimStart('v', 'V');
+        var text = GetString(element, propertyName);
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
 
-        var plusIndex = trimmed.IndexOf('+');
-        if (plusIndex >= 0) trimmed = trimmed[..plusIndex];
+        return DateTimeOffset.TryParse(
+            text,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+            out var value)
+            ? value
+            : null;
+    }
 
-        var dashIndex = trimmed.IndexOf('-');
-        if (dashIndex >= 0) trimmed = trimmed[..dashIndex];
+    private static string GetCurrentVersionText()
+    {
+        var informational = Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 
-        return Version.TryParse(trimmed, out var version) ? version : null;
+        if (!string.IsNullOrWhiteSpace(informational))
+            return informational;
+
+        return Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0";
     }
 }
