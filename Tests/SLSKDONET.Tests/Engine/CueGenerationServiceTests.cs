@@ -389,6 +389,94 @@ public class CueGenerationServiceTests
             d => Assert.True(d.TimestampInSeconds <= DurationSeconds - 16 * 240.0 / Bpm));
     }
 
+    // ── Multi-signal consensus (real bug: Against The Grain) ────────────────
+
+    /// <summary>
+    /// Regression for the reported "drop is placed way before the actual drop" bug. The real track
+    /// had sub-bass returns at 49.4s / 54.9s / 66.0s, no persisted spectral flux in the cached fast
+    /// path, and a real drop at 66.2s. Every sub-bass return therefore scored identically and the
+    /// old code picked the earliest one, snapping it to 45.2s — 21 seconds early, in the intro.
+    /// The stored drop hint (66.0s, also the phrase drop) must win over the lone early return.
+    /// </summary>
+    [Fact]
+    public void GenerateCues_DspPath_PrefersTheHintedDrop_OverAnEarlierTiedSubBassReturn()
+    {
+        var service = CreateService();
+        var analysis = new AnalysisPipelineResult
+        {
+            Bpm = (float)Bpm,
+            DurationSeconds = 255.86,
+            Genre = "Techno",
+            SubBassReturnTimestamps = new List<double> { 49.44, 54.92, 66.00, 176.23, 181.93, 187.43 },
+            HintedDropTimestamp = 66.00,
+            EnergyCurve = RampAt(255, riseAt: 66.0, low: 0.45f, high: 0.95f),
+        };
+
+        var cues = service.GenerateCues("hash", analysis, 1.045);
+        var drop1 = cues.First(c => c.Label == "[DROP 1]");
+
+        Assert.InRange(drop1.TimestampInSeconds, 65.0, 67.0);
+        // The build-in cues are exact bar arithmetic from the real drop — the mix-in points.
+        var builds = cues.Where(c => c.Label.StartsWith("[IN -")).OrderBy(c => c.TimestampInSeconds).ToList();
+        Assert.Equal(2, builds.Count);
+        Assert.InRange(builds[1].TimestampInSeconds, drop1.TimestampInSeconds - 32 * 60.0 / Bpm - 0.01,
+                                                   drop1.TimestampInSeconds - 32 * 60.0 / Bpm + 0.01);
+    }
+
+    /// <summary>Even without a stored hint, several agreeing votes (sub-bass return + energy rise)
+    /// must outrank an earlier sub-bass return that nothing corroborates.</summary>
+    [Fact]
+    public void GenerateCues_DspPath_CorroboratedCandidate_BeatsAnEarlierLoneReturn()
+    {
+        var service = CreateService();
+        var analysis = new AnalysisPipelineResult
+        {
+            Bpm = (float)Bpm,
+            DurationSeconds = 255.86,
+            Genre = "Techno",
+            SubBassReturnTimestamps = new List<double> { 49.44, 54.92, 66.00 },
+            EnergyCurve = RampAt(255, riseAt: 66.0, low: 0.45f, high: 0.95f),
+        };
+
+        var drop1 = service.GenerateCues("hash", analysis, 1.045).First(c => c.Label == "[DROP 1]");
+
+        Assert.InRange(drop1.TimestampInSeconds, 65.0, 67.0);
+    }
+
+    /// <summary>A phrase drop is a musical boundary already; it must not be shifted onto an 8-bar
+    /// grid whose bar phase is off. On this real track the downbeat guess sat three beats late, so
+    /// the 8-bar snap used to move the correct 66.21s drop to 67.24s (and the single-bar snap to
+    /// 65.87s).</summary>
+    [Fact]
+    public void GenerateCues_PhraseDrop_KeepsThePhraseStart_NotAWrongBarPhase()
+    {
+        var service = CreateService();
+        var analysis = new AnalysisPipelineResult
+        {
+            Bpm = (float)Bpm,
+            DurationSeconds = 255.86,
+            PhraseSegments = new List<PhraseSegment>
+            {
+                new() { Label = "Intro", Start = 0f, Duration = 44.14f, Confidence = 0.97f },
+                new() { Label = "Build", Start = 44.14f, Duration = 22.07f, Confidence = 0.61f },
+                new() { Label = "Drop", Start = 66.21f, Duration = 66.21f, Confidence = 0.75f },
+                new() { Label = "Breakdown", Start = 132.42f, Duration = 22.07f, Confidence = 0.92f },
+                new() { Label = "Drop", Start = 176.56f, Duration = 22.07f, Confidence = 0.70f },
+                new() { Label = "Outro", Start = 242.77f, Duration = 13.09f, Confidence = 0.97f },
+            },
+        };
+
+        var cues = service.GenerateCues("hash", analysis, 1.045);
+
+        Assert.InRange(cues.First(c => c.Label == "[DROP 1]").TimestampInSeconds, 66.15, 66.30);
+        Assert.InRange(cues.First(c => c.Label == "[DROP 2]").TimestampInSeconds, 176.50, 176.65);
+        // [IN -16] lands on the intro end — the actual transition point into the build.
+        Assert.InRange(cues.First(c => c.Label == "[IN -16]").TimestampInSeconds, 44.05, 44.25);
+    }
+
+    private static float[] RampAt(int seconds, double riseAt, float low, float high) =>
+        Enumerable.Range(0, seconds).Select(i => i < riseAt ? low : high).ToArray();
+
     private static AnalysisPipelineResult MlAnalysis(double dropStartSeconds = 150.0) => new()
     {
         Bpm = (float)Bpm,

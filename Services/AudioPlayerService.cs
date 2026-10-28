@@ -1195,8 +1195,21 @@ namespace SLSKDONET.Services
             // LoadWithoutPlaying (Cue Forge's "borrow the player" path) is Stopped, not Paused, so
             // the old `else if (Paused)` left it silent — clicking a cue in Cue Forge did nothing
             // unless the track was already playing elsewhere. Stopped must start playback too.
-            if (wasPlaying) _current.Output.Pause();
-            else _current.Output.Play();
+            if (wasPlaying)
+            {
+                _current.Output.Pause();
+            }
+            else
+            {
+                // Clicking a cue seeks and then starts playback. For FLAC/M4A the seek is a
+                // decode-forward running on a background thread (ExactSeek), and starting the output
+                // before it lands lets the reader deliver samples from wherever it still was — heard
+                // as "playback starts before the cue". Waiting here costs only the decode-forward
+                // time (~1 ms per second of audio, ~70 ms at a one-minute cue); a full-track seek is
+                // still bounded by Deck.WaitForSeek's 3-second timeout.
+                _current.WaitForSeek();
+                _current.Output.Play();
+            }
 
             // Keep a preloaded/crossfading deck in lockstep so it doesn't keep playing silently
             // (or fail to resume) independently of the current one.

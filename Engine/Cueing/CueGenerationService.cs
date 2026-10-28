@@ -304,7 +304,7 @@ public sealed class CueGenerationService
             : downbeatAnchor;
 
         double drop1Time = drops.Count > 0
-            ? SnapToBar(drops[0].Start, bpm, downbeatAnchor)
+            ? SnapToBeat(drops[0].Start, bpm, downbeatAnchor)
             : duration * 0.35;
         float drop1Confidence = drops.Count > 0 ? 0.95f : 0.55f;
 
@@ -329,7 +329,7 @@ public sealed class CueGenerationService
                 .FirstOrDefault();
             if (earlierDsp > 0)
             {
-                drop1Time = SnapToBar(earlierDsp, bpm, downbeatAnchor);
+                drop1Time = SnapToBeat(earlierDsp, bpm, downbeatAnchor);
                 drop1Confidence = 0.7f;
             }
         }
@@ -338,7 +338,7 @@ public sealed class CueGenerationService
         float drop2Confidence;
         if (drops.Count >= 2)
         {
-            drop2Time = SnapToBar(drops[1].Start, bpm, downbeatAnchor);
+            drop2Time = SnapToBeat(drops[1].Start, bpm, downbeatAnchor);
             drop2Confidence = 0.95f;
         }
         else
@@ -358,7 +358,7 @@ public sealed class CueGenerationService
                 .LastOrDefault();
             if (breakdownAfterDrop1 != null)
             {
-                drop2Time = SnapToBar(breakdownAfterDrop1.Start + breakdownAfterDrop1.Duration, bpm, downbeatAnchor);
+                drop2Time = SnapToBeat(breakdownAfterDrop1.Start + breakdownAfterDrop1.Duration, bpm, downbeatAnchor);
                 drop2Confidence = 0.75f;
             }
             else
@@ -490,60 +490,47 @@ public sealed class CueGenerationService
         var weights = strategy?.GetSignalWeights() ?? new DropSignalWeights(0.85f, 0.45f, 1.0f);
 
         // ── 1. Collect and score drop candidates ──────────────────────────
-        // SubBassReturns are normally the strongest signal. Reinforce with flux novelty.
-        var dropCandidates = new List<(double Time, float Score)>();
+        // Every signal votes, with its own reliability weight, and votes that land on the same
+        // moment reinforce each other (MergeDropCandidates). Before this, all sub-bass returns
+        // scored identically whenever the spectral-flux curve was unavailable — and the cached
+        // fast path never persists that curve — so the *earliest* return in the selection window
+        // won by accident. That is exactly how a 49s build hit beat the real 66s drop on
+        // TR Tactics — Against The Grain, placing [DROP 1] 21s before the drop.
+        var dropVotes = new List<DropCandidate>();
 
         foreach (var t in analysis.SubBassReturnTimestamps)
         {
             float fluxBonus = SampleFluxAt(analysis.SpectralFluxNovelty, t, duration);
-            dropCandidates.Add((t, weights.SubBassWeight * (0.7f + weights.SpectralFluxWeight * 0.3f * fluxBonus)));
+            float score = weights.SubBassWeight * (0.7f + weights.SpectralFluxWeight * 0.3f * fluxBonus);
+            dropVotes.Add(new DropCandidate(t, score + EnergyRiseBonus(analysis.EnergyCurve, t, duration), "sub-bass"));
         }
 
-        // Also consider novelty drop signatures not already covered
-        foreach (var (dropTs, buildStart, strength) in analysis.NoveltyDropSignatures)
-        {
-            bool alreadyCovered = dropCandidates.Any(d => Math.Abs(d.Time - dropTs) < bar * 2);
-            if (!alreadyCovered)
-                dropCandidates.Add((dropTs, strength * 0.8f));
-        }
+        foreach (var (dropTs, _, strength) in analysis.NoveltyDropSignatures)
+            dropVotes.Add(new DropCandidate(dropTs, strength * 0.8f + EnergyRiseBonus(analysis.EnergyCurve, dropTs, duration), "novelty"));
 
         // Broadband RMS energy-jump candidates — catches genres where sub-bass never truly cuts
         // out (continuous-bassline techno/house), using the already-computed EnergyCurve. Every
         // genre gets a legitimate drop candidate this way, not just ones with a literal sub-bass
         // breakdown.
         foreach (var t in FindEnergyJumpCandidates(analysis.EnergyCurve, duration))
-        {
-            bool alreadyCovered = dropCandidates.Any(d => Math.Abs(d.Time - t) < bar * 2);
-            if (!alreadyCovered)
-                dropCandidates.Add((t, weights.EnergyJumpWeight * 0.75f));
-        }
+            dropVotes.Add(new DropCandidate(t, weights.EnergyJumpWeight * 0.75f, "energy"));
 
         // Family-specific drop candidates (e.g. FourOnTheFloor's structural-stripping return — the
         // moment the kick genuinely re-enters at full force after a real breakdown; Breakbeat's
-        // novelty-corroborated sub-bass returns). A candidate near an existing one raises that
-        // entry's score to the higher of the two rather than being skipped outright — a corroboration
-        // signal is, by definition, usually close to an already-known candidate (that's what makes it
-        // a corroboration), so silently dropping it as "already covered" would make it a no-op.
+        // novelty-corroborated sub-bass returns). They join the same vote pool instead of being
+        // skipped when an unrelated candidate happens to sit nearby.
         if (strategy != null)
         {
             foreach (var (t, score) in strategy.GetFamilySpecificDropCandidates(analysis, bpm, downbeatAnchor))
-            {
-                int nearbyIndex = dropCandidates.FindIndex(d => Math.Abs(d.Time - t) < bar * 2);
-                if (nearbyIndex >= 0)
-                {
-                    if (score > dropCandidates[nearbyIndex].Score)
-                        dropCandidates[nearbyIndex] = (dropCandidates[nearbyIndex].Time, score);
-                }
-                else
-                {
-                    dropCandidates.Add((t, score));
-                }
-            }
+                dropVotes.Add(new DropCandidate(t, score, "family"));
         }
 
-        // Sort by time, deduplicate within 2 bars
-        dropCandidates.Sort((a, b) => a.Time.CompareTo(b.Time));
-        dropCandidates = Deduplicate(dropCandidates, bar * 2);
+        // The analysis' own reported first drop (the header's "Time till drop") is the strongest
+        // single vote: it is already a consensus value, not one raw detector's output.
+        if (analysis.HintedDropTimestamp is { } hinted && hinted > 0 && hinted < duration)
+            dropVotes.Add(new DropCandidate(hinted, 0.95f, "hint"));
+
+        var dropCandidates = MergeDropCandidates(dropVotes, bar);
 
         // ── 2. Pick primary drops (up to 2) ──────────────────────────────
         // Drop 1: the highest-scored candidate in 10-50% of the track. (Earlier/later windows were
@@ -555,19 +542,15 @@ public sealed class CueGenerationService
             analysis.SubBassDropoutTimestamps, bar, duration);
 
         // Fallback positions when signals are missing. Drops are the anchor every other cue in
-        // this method is offset from — snapping only to the nearest single bar (the old
-        // SnapToBar) let a raw DSP timestamp land on any bar count from the intro (e.g. bar 27),
-        // which isn't where a real phrase boundary falls in 8-bar-phrase music (24/32/40...). A DJ
-        // setting cues in Rekordbox places the drop where the phrase actually lands, never
-        // mid-phrase, so the detected timestamp is snapped to the nearest 8-bar (32-beat) phrase
-        // boundary instead — matching the phrase length already assumed everywhere else in this
-        // file (bar*8/*16/*32 fallback offsets) and in GenerateCuesHeuristic's SnapToBeatMultiple
-        // calls below.
+        // this method is offset from, so a raw DSP timestamp is pulled onto the phrase grid — but
+        // never by more than three quarters of a bar: the 8-bar grid is anchored on the detected
+        // downbeat, and when that bar phase is wrong (a known failure mode of the strongest-beat
+        // heuristic), an unbounded snap could drag a correctly detected drop over a bar away.
         double drop1Time = drop1.Time > 0
-            ? SnapToPhrase(drop1.Time, bpm, downbeatAnchor)
+            ? SnapDropToGrid(drop1.Time, bpm, downbeatAnchor)
             : SnapToPhrase(duration * 0.32, bpm, downbeatAnchor);
         double drop2Time = drop2.Time > 0
-            ? SnapToPhrase(drop2.Time, bpm, downbeatAnchor)
+            ? SnapDropToGrid(drop2.Time, bpm, downbeatAnchor)
             : SnapToPhrase(drop1Time + bar * 32, bpm, downbeatAnchor);
 
         // ── 3. Intro — first downbeat, adjusted for long DJ intros ────────
@@ -713,20 +696,6 @@ public sealed class CueGenerationService
             peak = Math.Max(peak, fluxCurve[i]);
         float max = fluxCurve.Max();
         return max > 0 ? peak / max : 0f;
-    }
-
-    private static List<(double Time, float Score)> Deduplicate(
-        List<(double Time, float Score)> sorted, double minGap)
-    {
-        var result = new List<(double Time, float Score)>();
-        foreach (var item in sorted)
-        {
-            if (result.Count == 0 || item.Time - result[^1].Time >= minGap)
-                result.Add(item);
-            else if (item.Score > result[^1].Score)
-                result[^1] = item;
-        }
-        return result;
     }
 
     // ── Heuristic Path (original logic, preserved) ──────────────────────────
@@ -998,6 +967,84 @@ public sealed class CueGenerationService
         double bar = 60.0 / bpm * 4;
         double offset = t - anchor;
         return anchor + Math.Round(offset / bar) * bar;
+    }
+
+    /// <summary>Nearest beat of the analysed grid. Beat phase is far more robust than bar phase
+    /// (which relies on the strongest-beat downbeat guess), so a detected drop is cleaned up at beat
+    /// resolution and the build-in cues are laid out by exact bar arithmetic from there.</summary>
+    private static double SnapToBeat(double t, double bpm, double anchor)
+    {
+        double beat = 60.0 / bpm;
+        return Math.Max(0, anchor + Math.Round((t - anchor) / beat) * beat);
+    }
+
+    /// <summary>
+    /// Snaps a DSP-detected drop onto the phrase grid, but only while that stays close to the
+    /// detected onset (≤ 0.75 bar); otherwise it falls back to the nearest beat. The phrase grid is
+    /// anchored on the detected downbeat, and a wrong bar phase would otherwise move a correct drop
+    /// by a full bar (verified: a 66.0s drop snapped to 67.2s on a track whose downbeat guess sat
+    /// three beats late).
+    /// </summary>
+    private static double SnapDropToGrid(double t, double bpm, double anchor)
+    {
+        if (bpm <= 0) return t;
+        double bar = 240.0 / bpm;
+        double phrase = SnapToPhrase(t, bpm, anchor);
+        return Math.Abs(phrase - t) <= 0.75 * bar ? phrase : SnapToBeat(t, bpm, anchor);
+    }
+
+    private readonly record struct DropCandidate(double Time, float Score, string Source);
+
+    /// <summary>
+    /// Merges nearby votes (within two bars) into one candidate whose score is the best single vote
+    /// plus a corroboration bonus for every *other* signal that agrees. This is what turns several
+    /// weak-but-agreeing detections into a winner over one louder false positive, and it makes the
+    /// result independent of candidate ordering (the old code let the earliest of several tied
+    /// sub-bass returns win).
+    /// </summary>
+    private static List<(double Time, float Score)> MergeDropCandidates(
+        IReadOnlyList<DropCandidate> votes, double bar)
+    {
+        var result = new List<(double Time, float Score)>();
+        var ordered = votes.Where(v => v.Time > 0).OrderBy(v => v.Time).ToList();
+        double clusterWidth = bar * 2;
+
+        int i = 0;
+        while (i < ordered.Count)
+        {
+            var group = new List<DropCandidate> { ordered[i] };
+            int j = i + 1;
+            while (j < ordered.Count && ordered[j].Time - ordered[i].Time <= clusterWidth)
+                group.Add(ordered[j++]);
+
+            var strongest = group.OrderByDescending(g => g.Score).ThenBy(g => g.Time).First();
+            float corroboration = group
+                .Where(g => !string.Equals(g.Source, strongest.Source, StringComparison.Ordinal))
+                .GroupBy(g => g.Source)
+                .Sum(s => s.Max(g => g.Score));
+
+            result.Add((strongest.Time, strongest.Score + 0.4f * corroboration));
+            i = j;
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Small score bonus (0–0.2) for a candidate sitting on a sustained broadband energy rise —
+    /// the "the track actually lifts here" signal. Local-only, so a crash or fill that raises RMS
+    /// for a second still needs another signal to agree before it can outrank a real drop.
+    /// </summary>
+    private static float EnergyRiseBonus(float[] curve, double time, double duration)
+    {
+        if (curve.Length < 8 || duration <= 0) return 0f;
+        double secPerSample = duration / curve.Length;
+        int idx = (int)Math.Clamp(time / secPerSample, 0, curve.Length - 1);
+        int before = Math.Max(2, (int)Math.Round(4.0 / secPerSample));
+        int after = Math.Max(1, (int)Math.Round(2.0 / secPerSample));
+        float pre = AverageRange(curve, idx - before, idx);
+        float post = AverageRange(curve, idx, idx + after);
+        if (pre <= 0f) return 0f;
+        return 0.2f * Math.Clamp((post / pre - 1f) / 1.5f, 0f, 1f);
     }
 
     /// <summary>Standard EDM/house/techno phrase length in bars. A DJ placing cues in Rekordbox

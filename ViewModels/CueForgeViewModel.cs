@@ -54,6 +54,12 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     public ObservableCollection<PhraseSegment> PhraseSegments { get; } = new();
 
+    /// <summary>The phrase list resolved for the open track (TrackPhrases when fresh, otherwise the
+    /// legacy JSON column when its provenance is trusted). The phrase map, the section suggestions
+    /// and Auto-generate all use this one list, so what you see and what gets cued can never come
+    /// from two different analyses.</summary>
+    private IReadOnlyList<PhraseSegment> _resolvedPhrases = Array.Empty<PhraseSegment>();
+
     // ── Track Context ──────────────────────────────────────────────────────
 
     private string? _trackHash;
@@ -603,6 +609,10 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     public ReactiveCommand<Unit, Unit> AutoGenerateCuesCommand { get; }
 
+    /// <summary>One click: empties the working set and resets the waveform view (zoom and scroll)
+    /// so the track is a blank slate again. Undoable like every other cue edit.</summary>
+    public ReactiveCommand<Unit, Unit> ClearCuesCommand { get; }
+
     /// <summary>Replaces a legacy cached waveform through the normal high-priority analysis queue.</summary>
     public ReactiveCommand<Unit, Unit> RefreshWaveformCommand { get; }
 
@@ -787,6 +797,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         var canRefresh = hasTrack.CombineLatest(notRefreshing, (h, r) => h && r);
 
         AutoGenerateCuesCommand = ReactiveCommand.CreateFromTask(AutoGenerateCuesAsync, canAct);
+        ClearCuesCommand = ReactiveCommand.Create(ClearCues, hasTrack);
         RefreshWaveformCommand = ReactiveCommand.CreateFromTask(RefreshWaveformAsync, canRefresh);
         ImportRekordboxCuesCommand = ReactiveCommand.CreateFromTask(ImportRekordboxCuesAsync, canAct);
 
@@ -1003,6 +1014,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         WaveformZoom = 1.0; WaveformScroll = 0;
         CurrentPlayPosition = 0;
         TimeTillDropSeconds = null;
+        _resolvedPhrases = Array.Empty<PhraseSegment>();
         _trackFilePath = null;
         _durationKnown = false;
         TrackLoadError = null;
@@ -1071,7 +1083,26 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                     ? new OnsetDensityEngine().ComputeOnsetDensityCurve(beatGrid, TrackDuration)
                     : null;
 
-                var segments = ParsePhraseSegments(features.PhraseSegmentsJson);
+                List<PhraseSegment> storedPhrases = new();
+                if (_libraryService is not null)
+                {
+                    try { storedPhrases = PhraseSourceResolver.FromTrackPhrases(await _libraryService.GetPhrasesByHashAsync(trackHash)); }
+                    catch (Exception ex) { _logger.LogWarning(ex, "CueForge: couldn't load stored phrase data for {Hash}", trackHash); }
+                    if (version != _loadVersion) return;
+                }
+
+                // The phrase map, the section suggestions and Auto-generate all read this one list.
+                // TrackPhrases is the fresher store: the legacy PhraseSegmentsJson column is only
+                // written when empty, so older tracks keep boundaries from an analysis run on the
+                // pre-correction (half-time) grid forever — exactly the stale "intro ends 1:27"
+                // suggestion and mis-placed drop seen on Against The Grain.
+                _resolvedPhrases = PhraseSourceResolver.Resolve(
+                    features.PhraseSegmentsSource,
+                    ParsePhraseSegments(features.PhraseSegmentsJson),
+                    storedPhrases,
+                    features.TrackDuration);
+
+                var segments = _resolvedPhrases;
                 await _ui(() =>
                 {
                     PhraseSegments.Clear();
@@ -1412,7 +1443,20 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         }
     }
 
+    private void ClearCues()
+    {
+        if (TrackHash is null) return;
+        Session.ReplaceAllCues(Array.Empty<OrbitCue>(),
+            "Cleared every cue. Ctrl+Z puts them back.");
+        // "Reset the waveform" too: back to the whole-track view and the top of the track, so the
+        // slate is visually clean, not just the cue list.
+        WaveformZoom = 1.0;
+        WaveformScroll = 0;
+        if (!IsPlaying) SetPlayhead(0);
+    }
+
     private async Task AutoGenerateCuesAsync()
+
     {
         if (TrackHash is null || Session.TrackHash is null) return;
         if (_libraryService == null || _engineCueService == null) return;
@@ -1430,7 +1474,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 return;
             }
 
-            var analysis = BuildAnalysisResultFromFeatures(features);
+            var analysis = BuildAnalysisResultFromFeatures(features, _resolvedPhrases);
             double downbeat = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
 
             var generatedEntities = _engineCueService.GenerateCues(
@@ -1502,9 +1546,12 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     // ── Fast-path AnalysisPipelineResult reconstruction ────────────────────
 
     // Delegates to Engine.Analysis.AnalysisPipelineResultBuilder, which AnalyzeTrackStructureJob's
-    // background pipeline also calls, so both routes score cues against identical signals.
-    internal static Engine.Analysis.AnalysisPipelineResult BuildAnalysisResultFromFeatures(AudioFeaturesEntity f) =>
-        Engine.Analysis.AnalysisPipelineResultBuilder.Build(f);
+    // background pipeline also calls, so both routes score cues against identical signals. The
+    // phrase list is passed explicitly because the view model resolves it from TrackPhrases, which
+    // the builder cannot reach on its own.
+    internal static Engine.Analysis.AnalysisPipelineResult BuildAnalysisResultFromFeatures(
+        AudioFeaturesEntity f, IReadOnlyList<PhraseSegment>? phrases = null) =>
+        Engine.Analysis.AnalysisPipelineResultBuilder.Build(f, phrases);
 
     // ── Utility ────────────────────────────────────────────────────────────
 
