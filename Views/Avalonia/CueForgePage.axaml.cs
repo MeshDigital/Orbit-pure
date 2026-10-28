@@ -46,11 +46,29 @@ public partial class CueForgePage : UserControl
         // Clicking anywhere that isn't a text field returns keyboard focus to the page, so the
         // shortcuts (Space, A, D, 1–8…) keep working after using a button or the waveform.
         AddHandler(PointerPressedEvent, OnAnyPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+        // Space is the transport toggle here and must fire before a focused Button (Play, Add cue,
+        // …) turns it into a click. Tunnel phase runs before any child's bubbling handler.
+        AddHandler(KeyDownEvent, OnSpaceTunnel, RoutingStrategies.Tunnel, handledEventsToo: true);
     }
 
     public CueForgePage(CueForgeViewModel viewModel) : this()
     {
         DataContext = viewModel;
+    }
+
+    private void OnSpaceTunnel(object? sender, KeyEventArgs e)
+    {
+        // Space toggles transport in Cue Forge. Handled in the tunnel phase so a focused Button
+        // (Play, Add cue, …) can't swallow Space as its own click — pressing Space while listening
+        // always stops a cue prelisten or pauses the track, leaving the playhead where you want
+        // to drop a cue.
+        if (e.Key != Key.Space || e.KeyModifiers != KeyModifiers.None) return;
+        if (_vm is not { } vm || !vm.HasTrackLoaded) return;
+        if (e.Source is TextBox || IsTextInputFocused()) return;
+
+        if (vm.Session.StopPrelisten()) { e.Handled = true; return; }
+        vm.PlayPauseCommand.Execute().Subscribe();
+        e.Handled = true;
     }
 
     protected override void OnDataContextChanged(EventArgs e)
@@ -222,10 +240,6 @@ public partial class CueForgePage : UserControl
             case Key.Down when none:
             case Key.Right when none:
                 vm.NextCueCommand.Execute().Subscribe();
-                break;
-            case Key.Space when none:
-                // A cue being prelistened (clicked flag) stops; otherwise normal play / pause.
-                if (!vm.Session.StopPrelisten()) vm.PlayPauseCommand.Execute().Subscribe();
                 break;
             case Key.I when shift:
                 vm.Session.SetIntroEndAtPlayheadCommand.Execute().Subscribe();
