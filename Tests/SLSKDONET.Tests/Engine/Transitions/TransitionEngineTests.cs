@@ -175,6 +175,71 @@ public class TransitionEngineTests
         Assert.Same(mixIn, suggestion.SelectedTargetCue);
     }
 
+    /// <summary>
+    /// When both tracks have drops the hand-off belongs on the OUTGOING track's SECOND drop: mix out
+    /// 16 (or 8) bars before it and come in the same distance before the incoming Drop 1, so the new
+    /// track drops on drop 2. Numbers mirror a real 174 BPM pair ("Out Of My Head", Subsonic).
+    /// </summary>
+    [Fact]
+    public void OptimizeTransition_BothTracksHaveDrops_LandsOnOutgoingSecondDrop()
+    {
+        var engine = new TransitionEngine();
+        var outgoing = new TrackEntity { GlobalId = "out", BPM = 174.0, MusicalKey = "3A", CanonicalDuration = 193_100 };
+        var incoming = new TrackEntity { GlobalId = "in", BPM = 174.0, MusicalKey = "3A", CanonicalDuration = 200_000 };
+
+        var outDrop2Approach = Cue(78.62, CuePointType.Build, "[IN2 -16]");
+        var sourceCues = new List<CuePointEntity>
+        {
+            Cue(34.48, CuePointType.Build, "[IN -16]"),
+            Cue(45.52, CuePointType.Build, "[IN -8]"),
+            Cue(56.55, CuePointType.Drop, "[DROP 1]"),
+            outDrop2Approach,
+            Cue(89.66, CuePointType.Build, "[IN2 -8]"),
+            Cue(100.69, CuePointType.Drop, "[DROP 2]"),
+            Cue(144.83, CuePointType.Outro, "[OUT]"),
+        };
+        var inDrop1Approach = Cue(34.48, CuePointType.Build, "[IN -16]");
+        var targetCues = new List<CuePointEntity>
+        {
+            Cue(0, CuePointType.Intro, "Intro"),
+            inDrop1Approach,
+            Cue(45.52, CuePointType.Build, "[IN -8]"),
+            Cue(56.55, CuePointType.Drop, "[DROP 1]"),
+        };
+
+        var suggestion = engine.OptimizeTransition(outgoing, incoming, sourceCues, targetCues);
+
+        // 16 bars before Drop 2 outgoing, 16 bars before Drop 1 incoming: both drops land together.
+        Assert.Equal(78.62, suggestion.SourceTriggerTime, 2);
+        Assert.Equal(34.48, suggestion.TargetTriggerTime, 2);
+        Assert.Same(outDrop2Approach, suggestion.SelectedSourceCue);
+        Assert.Same(inDrop1Approach, suggestion.SelectedTargetCue);
+        Assert.Contains("2nd drop", suggestion.Description);
+    }
+
+    /// <summary>Drops analysed without countdown cues still get the 8-bar approach (computed from
+    /// the tempo). Values match the real "[IN -8]" / "[IN2 -8]" markers for the same 174 BPM track.</summary>
+    [Fact]
+    public void OptimizeTransition_DropsWithoutCountdownCues_FallBackToEightBarsOut()
+    {
+        var engine = new TransitionEngine();
+        var outgoing = new TrackEntity { GlobalId = "out", BPM = 174.0, MusicalKey = "8A", CanonicalDuration = 240_000 };
+        var incoming = new TrackEntity { GlobalId = "in", BPM = 174.0, MusicalKey = "8A", CanonicalDuration = 240_000 };
+
+        var sourceCues = new List<CuePointEntity>
+        {
+            Cue(56.55, CuePointType.Drop, "[DROP 1]"),
+            Cue(100.69, CuePointType.Drop, "[DROP 2]"),
+        };
+        var targetCues = new List<CuePointEntity> { Cue(56.55, CuePointType.Drop, "[DROP 1]") };
+
+        var suggestion = engine.OptimizeTransition(outgoing, incoming, sourceCues, targetCues);
+
+        double bar = 240.0 / 174.0;
+        Assert.Equal(100.69 - 8 * bar, suggestion.SourceTriggerTime, 2); // 89.66 = [IN2 -8]
+        Assert.Equal(56.55 - 8 * bar, suggestion.TargetTriggerTime, 2);  // 45.52 = [IN -8]
+    }
+
     [Theory]
     [InlineData("8A", "8A", true)]
     [InlineData("8A", "9A", true)]

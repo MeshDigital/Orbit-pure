@@ -103,11 +103,30 @@ public sealed class TransitionEngine
         }
         else
         {
-            suggestion.SourceTriggerTime = sourceTime;
-            suggestion.SelectedSourceCue = mixOutCue;
-            suggestion.TargetTriggerTime = targetTime;
-            suggestion.SelectedTargetCue = mixInCue;
-            suggestion.Description = "Standard Transition. ";
+            // Both tracks have a drop: hand over on the OUTGOING track's SECOND drop. Mix out
+            // 8/16 bars before that drop while the incoming track comes in 8/16 bars before its
+            // own drop, so the new track's drop lands exactly on drop 2 — instead of bleeding
+            // outro into intro. (Drop 1 is the wrong anchor: after it comes a minute of the main
+            // section, its comedown and then drop 2, which is where the hand-off actually belongs.)
+            var outgoingDrop = LastDrop(sourceCues);
+            if (outgoingDrop is { } outDrop && firstDropCue is { } inDrop)
+            {
+                var from = ApproachBeforeDrop(outDrop, sourceCues, sourceBpm);
+                var to = ApproachBeforeDrop(inDrop, targetCues, targetBpm);
+                suggestion.SourceTriggerTime = from.Time;
+                suggestion.SelectedSourceCue = from.Cue;
+                suggestion.TargetTriggerTime = to.Time;
+                suggestion.SelectedTargetCue = to.Cue;
+                suggestion.Description = "Drop-to-drop: incoming drop lands on the outgoing track's 2nd drop. ";
+            }
+            else
+            {
+                suggestion.SourceTriggerTime = sourceTime;
+                suggestion.SelectedSourceCue = mixOutCue;
+                suggestion.TargetTriggerTime = targetTime;
+                suggestion.SelectedTargetCue = mixInCue;
+                suggestion.Description = "Standard Transition. ";
+            }
         }
 
         // Harmonic compatibility adjustments
@@ -150,34 +169,39 @@ public sealed class TransitionEngine
     }
 
     /// <summary>
-    /// The "in" point for a drop-anchored transition: 8 or 16 bars before the incoming drop (its
-    /// approach/build), never on the drop itself — entering exactly on a drop cuts into it.
-    /// Prefers 16 bars (the longest, smoothest blend), then 8, matching the countdown layout's
-    /// "[IN -16] [IN -8]" markers. Returns the analysed countdown cue when one sits on that bar so
-    /// the UI can still highlight which marker it picked; otherwise the computed time.
+    /// The mix point for a drop-anchored transition: 8 or 16 bars before <paramref name="dropCue"/>
+    /// (its approach/build), never on the drop itself — entering exactly on a drop cuts into it.
+    /// Prefers 16 bars (the longest, smoothest blend), then 8, and only accepts the analysed
+    /// countdown cue that states those bars AND actually sits there — so Drop 1's "[IN -16]" can
+    /// never be mistaken for Drop 2's approach. Falls back to a computed 8 bars out.
     /// </summary>
     private static (double Time, CuePointEntity? Cue) ApproachBeforeDrop(
-        CuePointEntity dropCue, List<CuePointEntity> targetCues, double targetBpm)
+        CuePointEntity dropCue, List<CuePointEntity> cues, double bpm)
     {
-        double bar = 4.0 * 60.0 / (targetBpm > 0 ? targetBpm : 120.0);
+        double bar = 4.0 * 60.0 / (bpm > 0 ? bpm : 120.0);
         double drop = dropCue.TimestampInSeconds;
-
-        var countdowns = targetCues
-            .Where(c => c.Type == CuePointType.Build && c.TimestampInSeconds < drop)
-            .Select(c => (Cue: c, Bars: BarsBeforeDrop(c.Label)))
-            .Where(x => x.Bars is 16 or 8)
-            .ToList();
 
         foreach (var bars in new[] { 16, 8 })
         {
-            var match = countdowns.FirstOrDefault(x => x.Bars == bars);
-            if (match.Cue != null) return (match.Cue.TimestampInSeconds, match.Cue);
+            double wanted = Math.Max(0, drop - bars * bar);
+            var match = cues
+                .Where(c => c.Type == CuePointType.Build && BarsBeforeDrop(c.Label) == bars)
+                .Where(c => Math.Abs(c.TimestampInSeconds - wanted) <= 2.5 * bar)
+                .OrderBy(c => Math.Abs(c.TimestampInSeconds - wanted))
+                .FirstOrDefault();
+            if (match is not null) return (match.TimestampInSeconds, match);
         }
 
         // No analysed marker on an 8/16-bar approach (genre template Off, or a hand-placed drop):
         // land 8 bars out, the shortest standard build.
         return (Math.Max(0, drop - 8 * bar), null);
     }
+
+    /// <summary>The track's final drop (Drop 2, or Drop 1 on a one-drop track); null when none.</summary>
+    private static CuePointEntity? LastDrop(List<CuePointEntity> cues) =>
+        cues.Where(c => c.Type == CuePointType.Drop)
+            .OrderBy(c => c.TimestampInSeconds)
+            .LastOrDefault();
 
     /// <summary>Bars-before-drop a countdown label states, or null when it isn't one. Handles the
     /// current "[IN -16]" / "[IN2 -8]" and "N Bars to Drop 1" labels, plus older beat-labelled
