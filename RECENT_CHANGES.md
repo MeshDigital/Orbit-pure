@@ -2,12 +2,12 @@
 
 ---
 
-## [0.20.0-alpha] — 2026-10-28
+## [0.2.0] — 2026-10-28
 
 A cumulative release covering everything merged since 0.10.0-alpha (23 commits, 231 files, +17.7k / −2.3k).
-The version jumps to 0.20.0 because this is a milestone build, not a patch on 0.10 — still alpha, and it
-upgrades 0.10.0-alpha in place.
-Full detail, upgrade notes and known issues: **[DOCS/RELEASE_NOTES_0.20.0-alpha.md](DOCS/RELEASE_NOTES_0.20.0-alpha.md)**.
+The first **0.2** release — early stable. Versioning restarts at 0.2, so this is a new line rather than an
+in-place upgrade: uninstall any 0.10.0-alpha first.
+Full detail, upgrade notes and known issues: **[DOCS/RELEASE_NOTES_0.2.0.md](DOCS/RELEASE_NOTES_0.2.0.md)**.
 Merged PRs: #173 (DJ prep, library UX, Cue Forge), #174 (startup UI stalls), #175 (startup + analysis
 performance), #176 (analysis pipeline, Essentia shipping, cue playback, drop-2 mixes); direct on `master`:
 the music-reactive visualizer and Flow Mode.

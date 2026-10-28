@@ -1,12 +1,15 @@
-# ORBIT 0.20.0-alpha — release notes
+# ORBIT 0.2.0 — release notes
 
 **Released:** 2026-10-28 · **Previous public build:** 0.10.0-alpha (2026-10-24) · **Runtime:** win-x64,
 self-contained single file.
 
-This is a cumulative alpha covering everything merged into `master` since the 0.10.0-alpha package:
-23 commits, 231 files, +17.7k / −2.3k lines. The version jumps to **0.20.0** because this is a
-milestone build rather than a patch on 0.10 — it is still an alpha, and it upgrades 0.10.0-alpha in
-place (same installer AppId).
+This is the first **0.2** release — early stable. Versioning restarts at 0.2 to mark the leap, so this
+is a new version line, not an in-place upgrade: uninstall any 0.10.0-alpha first (Add/Remove Programs),
+then install 0.2.0. Your `%APPDATA%\ORBIT` library, config, fingerprints and stems are left untouched
+by both uninstall and install.
+
+It covers everything merged into `master` since the 0.10.0-alpha package: 23 commits, 231 files,
++17.7k / −2.3k lines.
 
 **Merged pull requests in this build:** #173 (DJ prep, library UX, Cue Forge), #174 (startup UI
 stalls), #175 (startup + analysis performance), #176 (analysis pipeline, Essentia shipping, cue
@@ -77,6 +80,11 @@ Completeness is now measured from stored output.
   runs leave cue rows alone; cues-only runs regenerate cues without bumping `StructuralVersion`.
 - **Failures are failures.** A cues-only run that produces no cues, or a run that leaves requested
   outputs absent, now reports a real error with a reason instead of completing as a no-op.
+- **The Essentia CLI now ships next to the exe.** Single-file publish was bundling
+  `essentia_streaming_extractor_music.exe` into `ORBIT.exe` and extracting it to a temp folder the
+  runner never looked in, so packaged builds silently skipped BPM/key extraction — including the
+  0.10.0-alpha installer. It is now marked `ExcludeFromSingleFile` and sits in `Tools\` where
+  `EssentiaRunner` expects it.
 
 ## Flow Mode (the player's Flow toggle)
 
@@ -257,9 +265,9 @@ turning Flow on produced a blank panel. It now plans, explains, and drives playb
 
 | File | What it is |
 |---|---|
-| `artifacts/ORBIT-Setup-0.20.0-alpha-win-x64.exe` | Per-user installer (no admin prompt), shortcuts, uninstaller |
-| `artifacts/ORBIT-0.20.0-alpha-win-x64.zip` | Portable package (same publish output) |
-| `artifacts/ORBIT-0.20.0-alpha-win-x64-manifest.txt` | Version, runtime, configuration, publish timestamp |
+| `artifacts/ORBIT-Setup-0.2.0-win-x64.exe` | Per-user installer (no admin prompt), shortcuts, uninstaller |
+| `artifacts/ORBIT-0.2.0-win-x64.zip` | Portable package (same publish output) |
+| `artifacts/ORBIT-0.2.0-win-x64-manifest.txt` | Version, runtime, configuration, publish timestamp |
 
 Install and uninstall both leave `%APPDATA%\ORBIT` (library database, config, fingerprints, stems)
 untouched, so reinstall never costs you your library.

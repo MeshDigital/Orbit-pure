@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>ORBIT</AssemblyName>
     <RootNamespace>SLSKDONET</RootNamespace>
-    <Version>0.20.0-alpha</Version>
+    <Version>0.2.0</Version>
     <Authors>SLSK_CSV Contributors</Authors>
     <Description>Soulseek batch downloader using Soulseek.NET - Cross-platform with Avalonia UI</Description>
     <!-- Embeds the icon into the compiled exe itself (Explorer, Alt-Tab, and the taskbar's
@@ -172,6 +172,15 @@
     <Content Remove="Tools\**\*.cs" />
     <Content Remove="Tools\cue-detr\**" /><!-- dev scripts that produced models\cue-detr.onnx -->
     <Content Remove="Data\**\*.cs" />
+    <!-- The Essentia CLI is a native sidecar that EssentiaRunner resolves next to the exe
+         (AppContext.BaseDirectory\Tools\...). PublishSingleFile was bundling it into ORBIT.exe and
+         extracting it to a temp folder the runner never looks in, so packaged builds silently
+         skipped BPM/key extraction ("Binary not found"), including the 0.10.0-alpha installer.
+         ExcludeFromSingleFile keeps it beside the app in the single-file release. -->
+    <Content Update="Tools\essentia_streaming_extractor_music.exe">
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
   </ItemGroup>
 
   <!-- RekordboxBridge (Companions/) opens Rekordbox's SQLCipher master.db out of process, so this
