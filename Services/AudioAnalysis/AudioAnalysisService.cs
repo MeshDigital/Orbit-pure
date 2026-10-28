@@ -194,7 +194,9 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
 
             IReadOnlyList<float> rmsCurve = Array.Empty<float>();
             float[] mono = Array.Empty<float>();
-            var needsDropSignals = engines.Has(AnalysisEngine.Structure | AnalysisEngine.Cues);
+            // Partial runs need these signals when either output was requested. Has() requires
+            // both bits and made Structure-only and Cues-only Fill Missing runs reuse stale data.
+            var needsDropSignals = engines.HasAny(AnalysisEngine.Structure | AnalysisEngine.Cues);
             if (pcmSamples.Length > 0)
             {
                 // Integrated loudness (BS.1770 / EBU R128) for the inspector and loudness-normalised
@@ -238,7 +240,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 // dropout/return, every build-confirmed novelty peak) instead of the single
                 // collapsed DropTimeSeconds/DropConfidence float pair it previously had to work with.
                 // Mono is also used by tempo downbeat validation and Mood's ONNX classifier.
-                if (needsDropSignals || engines.Has(AnalysisEngine.Tempo | AnalysisEngine.Mood))
+                if (needsDropSignals || engines.HasAny(AnalysisEngine.Tempo | AnalysisEngine.Mood))
                     mono = ToMono(pcmSamples, pcmChannels);
 
                 if (needsDropSignals)
@@ -495,6 +497,21 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             {
                 // A10 is additive: never block or alter A9-era analysis completion behavior.
                 _logger.LogWarning(ex, "[AudioAnalysis] Fingerprint generation failed for {Hash}; continuing without fingerprint.", trackUniqueHash);
+            }
+
+            // A repair run must not report success when its requested outputs are still absent.
+            // Partial results stay saved, but the queue receives an honest failure instead of
+            // letting Fill Missing complete repeatedly with no change (notably when Essentia is
+            // unavailable or a model cannot run). Structure/cues are verified by their queue jobs.
+            var verifiableOutputs = engines & (AnalysisEngine.Waveform | AnalysisEngine.Loudness |
+                AnalysisEngine.Tempo | AnalysisEngine.Key | AnalysisEngine.Mood);
+            var presentOutputs = AnalysisCoverageAnalyzer.Detect(features);
+            var missingOutputs = verifiableOutputs & ~presentOutputs;
+            if (missingOutputs != AnalysisEngine.None)
+            {
+                throw new InvalidOperationException(
+                    $"Analysis did not produce requested outputs: {AnalysisEngines.Describe(missingOutputs)}. " +
+                    "Check dependency health and the analysis logs; partial results were preserved.");
             }
 
             progress?.Report((100, "Done"));

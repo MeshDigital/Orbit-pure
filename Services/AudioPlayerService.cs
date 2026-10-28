@@ -1191,8 +1191,12 @@ namespace SLSKDONET.Services
             if (_current?.Output == null) return;
 
             bool wasPlaying = _current.Output.PlaybackState == PlaybackState.Playing;
+            // This method is the toggle behind PlayerViewModel.TogglePlayPause. A deck opened with
+            // LoadWithoutPlaying (Cue Forge's "borrow the player" path) is Stopped, not Paused, so
+            // the old `else if (Paused)` left it silent — clicking a cue in Cue Forge did nothing
+            // unless the track was already playing elsewhere. Stopped must start playback too.
             if (wasPlaying) _current.Output.Pause();
-            else if (_current.Output.PlaybackState == PlaybackState.Paused) _current.Output.Play();
+            else _current.Output.Play();
 
             // Keep a preloaded/crossfading deck in lockstep so it doesn't keep playing silently
             // (or fail to resume) independently of the current one.
