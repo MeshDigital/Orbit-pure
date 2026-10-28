@@ -30,15 +30,11 @@ public class TransitionEngineTests
     };
 
     /// <summary>
-    /// CueGenerationService's real 8-cue schema labels the approach markers "32 Beats to Drop 1"/
-    /// "16 Beats to Drop 1" with CuePointType.Build, and they sort chronologically before the
-    /// actual "Drop 1" (CuePointType.Drop). A Label.Contains("Drop") lookup (the old
-    /// implementation) matches the approach marker first since CuePointService returns cues
-    /// ordered by timestamp — landing every drop-in transition 8 bars early. This must resolve
-    /// to the real drop.
+    /// A drop-in transition must never enter ON the drop — that cuts into it. The mix-in lands on
+    /// the 8/16-bars-before-drop countdown marker instead ("32 Beats to Drop 1" here = 8 bars out).
     /// </summary>
     [Fact]
-    public void OptimizeTransition_TempoJump_TargetsRealDropCue_NotTheApproachMarker()
+    public void OptimizeTransition_TempoJump_TargetsDropApproach_NotTheDrop()
     {
         var engine = new TransitionEngine();
         var source = MakeTrack(bpm: 174.0);
@@ -55,7 +51,7 @@ public class TransitionEngineTests
 
         var suggestion = engine.OptimizeTransition(source, target, sourceCues, targetCues);
 
-        Assert.Equal(44, suggestion.TargetTriggerTime);
+        Assert.Equal(33, suggestion.TargetTriggerTime);
     }
 
     [Fact]
@@ -98,28 +94,30 @@ public class TransitionEngineTests
     }
 
     [Fact]
-    public void OptimizeTransition_TempoJump_SelectedTargetCueIsTheRealDrop_NotTheApproachMarker()
+    public void OptimizeTransition_TempoJump_SelectedTargetCueIsTheApproachMarker()
     {
         var engine = new TransitionEngine();
         var source = MakeTrack(bpm: 174.0);
         var target = MakeTrack(bpm: 130.0);
 
         var dropCue = Cue(44, CuePointType.Drop, "Drop 1");
+        var approachCue = Cue(33, CuePointType.Build, "32 Beats to Drop 1");
         var sourceCues = new List<CuePointEntity> { Cue(210, CuePointType.Outro, "Outro") };
         var targetCues = new List<CuePointEntity>
         {
             Cue(0, CuePointType.Intro, "Intro"),
-            Cue(33, CuePointType.Build, "32 Beats to Drop 1"),
+            approachCue,
             dropCue,
         };
 
         var suggestion = engine.OptimizeTransition(source, target, sourceCues, targetCues);
 
-        Assert.Same(dropCue, suggestion.SelectedTargetCue);
+        Assert.Same(approachCue, suggestion.SelectedTargetCue);
+        Assert.NotSame(dropCue, suggestion.SelectedTargetCue);
     }
 
     [Fact]
-    public void OptimizeTransition_IncompatibleKeysWithVocalOverlap_ShiftsTargetToRealDropCue()
+    public void OptimizeTransition_IncompatibleKeysWithVocalOverlap_ShiftsTargetToDropApproach()
     {
         var engine = new TransitionEngine();
         var source = new TrackEntity
@@ -143,7 +141,8 @@ public class TransitionEngineTests
 
         var suggestion = engine.OptimizeTransition(source, target, sourceCues, targetCues);
 
-        Assert.Equal(44, suggestion.TargetTriggerTime);
+        // On the drop's approach (8 bars out), never on the drop itself.
+        Assert.Equal(33, suggestion.TargetTriggerTime);
         Assert.True(suggestion.CompatibilityScore < 50.0);
     }
 
