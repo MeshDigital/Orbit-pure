@@ -329,7 +329,7 @@ public class AnalysisQueueService : IDisposable
             PublishProgress(evt.TrackGlobalId, "Analyzing audio", 20);
 
             var analysis = await _audioAnalysisService
-                .AnalyzeFileAsync(filePath, evt.TrackGlobalId, cancellationToken: CancellationToken.None)
+                .AnalyzeFileAsync(filePath, evt.TrackGlobalId, engines: evt.Engines, cancellationToken: CancellationToken.None)
                 .ConfigureAwait(false);
 
             if (analysis is null)
@@ -344,8 +344,21 @@ public class AnalysisQueueService : IDisposable
                 return;
             }
 
-            PublishProgress(evt.TrackGlobalId, "Computing structure", 75);
-            await _analyzeTrackStructureJob.ExecuteAsync(evt.TrackGlobalId).ConfigureAwait(false);
+            // Structure and cue rows are separate outputs. Structure-only runs must not create
+            // cues; Cues-only runs remap existing signals without incrementing StructuralVersion.
+            if (evt.Engines.Has(AnalysisEngine.Structure))
+            {
+                PublishProgress(evt.TrackGlobalId, "Computing structure", 75);
+                await _analyzeTrackStructureJob.ExecuteAsync(
+                    evt.TrackGlobalId,
+                    generateCues: evt.Engines.Has(AnalysisEngine.Cues)).ConfigureAwait(false);
+            }
+            else if (evt.Engines.Has(AnalysisEngine.Cues))
+            {
+                PublishProgress(evt.TrackGlobalId, "Generating cue points", 75);
+                if (!await _analyzeTrackStructureJob.RegenerateCuesOnlyAsync(evt.TrackGlobalId).ConfigureAwait(false))
+                    throw new InvalidOperationException("Cue generation could not run against the stored analysis data.");
+            }
             await UpdateTrackAnalysisStatusAsync(evt.TrackGlobalId, AnalysisStatus.Completed, null).ConfigureAwait(false);
             _eventBus.Publish(new TrackAnalysisUpdatedEvent(evt.TrackGlobalId, DateTime.UtcNow, analysis.Id));
 

@@ -1011,6 +1011,9 @@ public partial class App : Application
         services.AddSingleton<Services.IAudioAnalysisService>(sp =>
             sp.GetRequiredService<Services.AudioAnalysis.AudioAnalysisService>());
 
+        // Per-playlist analysis completeness ("what exactly is missing") for the Analysis page.
+        services.AddSingleton<Services.AudioAnalysis.AnalysisCoverageService>();
+
         // ── Issue 2.1: Embedding Extraction Service ───────────────────────
         services.AddSingleton<Services.Embeddings.EmbeddingExtractionService>();
         services.AddSingleton<Services.Embeddings.IEmbeddingExtractionService>(sp =>

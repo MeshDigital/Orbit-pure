@@ -65,7 +65,11 @@ public sealed class AnalyzeTrackStructureJob
     /// </summary>
     /// <param name="trackUniqueHash">Content hash of the track to analyse.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task ExecuteAsync(string trackUniqueHash, CancellationToken cancellationToken = default)
+    /// <param name="generateCues">Whether to also generate cue rows; Structure-only runs leave them untouched.</param>
+    public async Task ExecuteAsync(
+        string trackUniqueHash,
+        CancellationToken cancellationToken = default,
+        bool generateCues = true)
     {
         _logger.LogInformation("[AnalyzeTrackStructureJob] Starting structural analysis for track {Hash}", trackUniqueHash);
 
@@ -181,21 +185,24 @@ public sealed class AnalyzeTrackStructureJob
                 }
             }
 
-            // Step 6: Generate and persist cue points — via the real-signal-aware
-            // Engine.Cueing.CueGenerationService, built from the features entity's persisted
-            // sub-bass/novelty/energy JSON (not a fresh, independent recompute), the exact same
-            // way Cue Forge's own Auto-Generate button does it.
-            var analysisPipelineResult = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features);
-            double downbeatAnchor = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
-            var cues = await _cueGenerationService.GenerateAndPersistCuesAsync(
-                trackUniqueHash,
-                analysisPipelineResult,
-                downbeatAnchor,
-                features.VocalStartSeconds.HasValue ? (double?)features.VocalStartSeconds.Value : null,
-                features.VocalEndSeconds.HasValue ? (double?)features.VocalEndSeconds.Value : null,
-                features.VocalIntensity > 0 ? (double?)features.VocalIntensity : null,
-                cancellationToken,
-                skipIfManualDrops: true); // drops you placed by hand own the track
+            if (generateCues)
+            {
+                // Step 6: Generate and persist cue points — via the real-signal-aware
+                // Engine.Cueing.CueGenerationService, built from the features entity's persisted
+                // sub-bass/novelty/energy JSON (not a fresh, independent recompute), the exact same
+                // way Cue Forge's own Auto-Generate button does it.
+                var analysisPipelineResult = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features);
+                double downbeatAnchor = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
+                await _cueGenerationService.GenerateAndPersistCuesAsync(
+                    trackUniqueHash,
+                    analysisPipelineResult,
+                    downbeatAnchor,
+                    features.VocalStartSeconds.HasValue ? (double?)features.VocalStartSeconds.Value : null,
+                    features.VocalEndSeconds.HasValue ? (double?)features.VocalEndSeconds.Value : null,
+                    features.VocalIntensity > 0 ? (double?)features.VocalIntensity : null,
+                    cancellationToken,
+                    skipIfManualDrops: true); // drops you placed by hand own the track
+            }
 
             // Step 7: Mark structural analysis version on the features entity
             features.StructuralVersion += 1;
@@ -215,8 +222,8 @@ public sealed class AnalyzeTrackStructureJob
             PublishCompleted(trackUniqueHash, success: true);
 
             _logger.LogInformation(
-                "[AnalyzeTrackStructureJob] Finished for track {Hash}: {CueCount} cue points generated.",
-                trackUniqueHash, cues.Count);
+                "[AnalyzeTrackStructureJob] Finished for track {Hash} (cue generation: {GenerateCues}).",
+                trackUniqueHash, generateCues);
         }
         catch (OperationCanceledException)
         {
