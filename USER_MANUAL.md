@@ -21,7 +21,9 @@
 7. [Library & Quality Rings](#library--quality-rings)
 8. [Forensic Quality Controls](#forensic-quality-controls)
 9. [Settings Reference](#settings-reference)
-10. [Troubleshooting](#troubleshooting)
+10. [Flow Mode](#flow-mode)
+11. [Analysis Coverage & Repairs](#analysis-coverage--repairs)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -227,6 +229,63 @@ Files that fail the safety gate are held in **Quarantine** and not added to the 
 | **Quality** | Fake-lossless rejection | Enable/disable the spectral safety gate |
 | **Dependencies** | FFmpeg / Essentia | Shows detected versions; **Re-check** button |
 | **Library** | Upgrade Scout | Background search for better-quality copies of existing tracks |
+
+---
+
+## Flow Mode
+
+Flow is the player's auto-DJ: instead of following track order, it picks what plays next out of your
+queue and shows why. Turn it on with the **Flow** chip on the Now Playing page (or the Flow toggle in
+the fullscreen player).
+
+**What it scores.** Key distance on the Camelot wheel, tempo (half/double/3:2 relationships count as a
+match, so 87 BPM pairs with 174 BPM), how close the track is to the energy target, and mood/genre
+affinity. Tracks you just heard — and repeats by the same artist — are pushed down.
+
+**What the card tells you.** The next track with its BPM, key and energy, a bar per axis plus the real
+numbers (`Key · 8A → 8B · Compatible (+1)`, `Tempo · 128.0 → 174.0 BPM · 2:3 ratio (±12.0)`), the
+crossfade it will use, and the four tracks after it. If Flow can't plan it says why: no analysis on the
+current track, nothing else queued, or nothing analysed yet.
+
+**Tuning it.** *Optimise for* chooses the weighting — Silky Smooth (harmony), Club Banger (energy),
+Radio Perfect (balanced), Genre Bender (tempo-first). The **Energy** slider bends the whole arc calmer
+or more energetic.
+
+**Behaviour to know.** Flow drives the preload, the Next button and the automatic hand-over, so the
+crossfade lands on the track it chose — even if that track sits earlier in the queue. Shuffle and Flow
+both own the order: switching one on switches the other off. Flow plans from the queue only, so give it
+a playlist rather than a single track.
+
+---
+
+## Analysis Coverage & Repairs
+
+The Analysis page no longer guesses. Each track is measured per engine, so a half-analysed track is
+reported as half-analysed instead of showing a tick.
+
+| Engine | Proves it ran when… |
+|:--|:--|
+| Waveform | a non-empty waveform blob is stored |
+| Loudness | integrated loudness is non-zero |
+| Tempo & grid | BPM plus a non-empty beat grid |
+| Key | a Camelot key, or a key with confidence |
+| Mood & genre | a genre distribution, embedding, or confident mood tag |
+| Structure | a structural version, phrases, or a drop time |
+| Cues | cue rows (or legacy cue JSON) |
+| Fingerprint | a stored fingerprint or the fingerprint file |
+
+**Reading the card.** "4095 of 4177 tracks fully analysed" plus "68 partially analysed · 14 not
+analysed at all", then one row per engine with `4163 / 4177` and "14 missing". The playlist picker
+scopes it to a playlist or the whole library; only downloaded tracks whose file is still on disk count,
+matched by hash.
+
+**Repairing.** **Fill missing** queues only what the selection lacks — a track that already has key and
+tempo is not re-analysed for them. **Run** on a row queues just that engine. In the library, rows show
+"Missing Key, Cues and Fingerprint" with an inline action for that track.
+
+**Notes.** Coverage is not versioned per engine, so after an engine upgrade use **Run** to force a
+refresh. The card scrolls — the last engine rows sit below the fold. Older cached waveforms show a
+**Refresh full analysis** banner in Cue Forge (that pass is always manual, never silent).
 
 ---
 

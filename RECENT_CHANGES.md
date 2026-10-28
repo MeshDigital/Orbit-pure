@@ -2,33 +2,104 @@
 
 ---
 
-## [Unreleased] — 2026-10-28
+## [0.20.0-alpha] — 2026-10-28
+
+A cumulative release covering everything merged since 0.10.0-alpha (22 commits, 227 files, +17.3k / −2.3k).
+Full detail, upgrade notes and known issues: **[DOCS/RELEASE_NOTES_0.20.0-alpha.md](DOCS/RELEASE_NOTES_0.20.0-alpha.md)**.
+
+### 📊 Analysis: per-engine coverage and honest repairs
+- The Analysis page can report an incomplete track. Before, every library row received a fabricated
+  `AnalysisData`, so "analysis missing" could never fire — every row showed ✓ and "M of M analysed".
+- New **ANALYSIS COVERAGE** card: playlist picker ("Whole library" first), "N of M tracks fully analysed",
+  partial/none breakdown, and **eight engine rows** (Waveform, Loudness, Tempo & grid, Key, Mood & genre,
+  Structure, Cues, Fingerprint) with purpose, meter, `4163 / 4177` and "14 missing".
+- Per-row **Run** and **Fill missing** queue only the missing engines for tracks in the current selection,
+  matched by hash and restricted to files actually on disk. Library rows gained "Missing Key, Cues and
+  Fingerprint" plus an inline repair action.
+- `TrackAnalysisRequestedEvent` carries an `AnalysisEngine` mask and `AnalyzeFileAsync` gates each step, so
+  structure-only runs leave cues alone and cues-only runs regenerate cues without bumping `StructuralVersion`.
+- Zero-output runs now fail with a reason instead of completing as a no-op. Coverage defaults (0 BPM, `[]`,
+  a bare energy curve, CUE-DETR inspector JSON) never count as proof an engine ran.
+- The Essentia extractor is now tracked in git (`*.exe` had excluded it), so fresh worktrees and branches
+  actually ship the native BPM/key/mood dependency.
 
 ### ▶️ Flow Mode now actually plans — and explains itself
-
-The player's **Flow** toggle was a built engine (`FlowModeService`, scoring energy/BPM/key) with **no caller**:
-`RebuildFlowPathAsync` was never invoked, so with Flow on the Now Playing card went blank — no next track, no reason.
-Fixed and extended:
-
-- Flow plans on every track change, queue change, preset change and energy-nudge change, from the queue being played.
-- Scoring lives in `Services/Entertainment/FlowPathPlanner` (pure, unit-tested): Camelot-wheel distance, ratio-aware tempo
-  matching (2:1 / 1:2 / 3:2, so 87 next to 174 BPM is a match), energy ramp toward the target, mood/genre affinity,
-  repeat/same-artist damping, and a stable tie-break so identical inputs always produce the same path. It plans 5 hops,
-  each scored against the hop before it.
-- The plan drives playback: `PeekNextIndex` (preload/crossfade), the Next button, and the has-next guards all consult it.
-  Turning shuffle on stands Flow down, and activating Flow switches shuffle off.
-- Now Playing shows the next track (BPM / key / energy), a bar plus real numbers per axis ("8A → 8B · Compatible (+1)"),
-  the crossfade length, the next four hops, an *Optimise for* preset picker and an energy slider; the fullscreen overlay's
-  UP NEXT column names the pick.
-- Every blocked state explains itself (no analysis / nothing queued / nothing analysed), and the service is DB-free again,
-  so a plan is ready before the next deck preloads.
+- Flow was a built engine with **no caller**: `RebuildFlowPathAsync` was never invoked, so with Flow on the Now
+  Playing card went blank. It now plans on every track change, queue change, preset change and energy nudge.
+- New pure `Services/Entertainment/FlowPathPlanner`: Camelot-wheel distance, ratio-aware tempo (2:1 / 1:2 / 3:2,
+  so 87 next to 174 BPM is a match), energy ramp toward the target, mood/genre affinity, repeat/same-artist
+  damping, deterministic tie-break, 5 hops each scored against the hop before it.
+- The plan drives playback: `PeekNextIndex` (preload/crossfade), the Next button and the has-next guards all
+  consult it. Shuffle and Flow stand each other down — the one you switched on last wins.
+- Now Playing shows the next track's BPM/key/energy, a bar plus real numbers per axis, the crossfade length, the
+  next four hops, an **Optimise for** picker and an **Energy** slider; the fullscreen overlay's UP NEXT names the pick.
+- Every blocked state explains itself (no track / no analysis / nothing queued / nothing analysed) instead of
+  leaving an empty panel.
 
 ### 🖥️ Fullscreen player: the controls stop coming back on their own
+- The overlay faded its chrome after 3.5 s, un-faded ~2–3 s later, faded again, on a loop. Avalonia re-raises
+  `PointerMoved` when the element under a **stationary** cursor changes (the seek thumb slides on every position
+  tick; the queue scrolls on track change). Idle detection now compares pointer positions, fading is idempotent,
+  and the chrome never fades while paused.
 
-The overlay fades its chrome after 3.5 s of inactivity, then un-faded itself ~2–3 s later, faded again, and repeated.
-Avalonia re-raises `PointerMoved` when the element under a **stationary** cursor changes (the seek thumb slides on every
-position tick; the queue scrolls on track change), and every one of those counted as user activity. Idle detection now
-compares pointer positions (sub-pixel moves are ignored), fading is idempotent, and chrome never fades while paused.
+### 🎛️ Cue Forge, waveforms and DJ prep
+- Docked **track list** on the left (playlist picker, filter, "Track 3 of 24") replaces the header flyout; a
+  **Preparation menu** gathers generation, cue template, Rekordbox cue import, grid repair and shortcuts; Undo/Redo
+  moved to the header and the toolbar wraps.
+- New **Layers** flyout (energy curve, onset density, vocal ghost, phrase sections, beat grid, display gain);
+  **Grid repair** (Bar 1 here, ±10 ms slip, reset, beat jump); beat-jump buttons and `[` / `]` shortcuts.
+- **Tri-band waveform rewrite**: each column keeps its strongest sample instead of averaging (kicks and drop edges
+  survive), plus a scaling bug that cropped waveforms at 150% is fixed. Stale cached waveforms show a
+  **Refresh full analysis** banner.
+- Cue labels use up to three lanes and hide unplaceable ones; the overview strip shows A–H pad badges; the dock is
+  responsive below 1000 px width / 700 px height.
+- **Intro timing** in Cue Forge and the Library inspector: time to first drop (seconds and bars) and intro length in
+  4/4, using the earliest usable drop. Transition **Share** saves mix-out/mix-in as reusable Mix-In/Mix-Out cues.
+- Second drops within 16 bars of the end (or of Drop 1) are omitted; `[OUT]` needs four bars; Drop-2 countdowns are
+  `[IN2 -16]` / `[IN2 -8]`; **Countdowns as memory cues** frees pads A B D E.
+
+### 🎚️ Automatic mixes hand over on the second drop
+- A tempo-matched, energetic pair now plans **Drop Sync**: mix out 16 bars before Drop 2 (8 when the incoming drop
+  comes sooner), enter the same distance before the incoming Drop 1, so the drops meet across a 16- or 32-bar blend.
+- Approach markers must match both bar count and position, so Drop 1's `[IN -16]` can't serve Drop 2. Standard-tempo
+  suggestions never enter on the drop. A DJ-marked outro still wins; the fair-run floor is half (a quarter for a
+  drop-2 hand-over); vocal clashes fall back to Rolling.
+
+### 🗂️ Library, import, Rekordbox and setup
+- Each playlist remembers its search, filters, sort, column widths and scroll position; playlists can be dragged
+  onto each other to reorder; a **PREP** column labels each row (Locate file / Analyse / Set grid / Add cues /
+  Export ready) with the repair inline; columns resize and fold instead of clipping; Select All spans the filtered
+  playlist. Workstation **Locate** relinks a moved file across every playlist and keeps its cues, grid and analysis.
+- CSV import reads comma/semicolon/tab/pipe and Windows-1252, matches headers by alias, and reports which columns
+  and rows it used or skipped. Spotify imports retry the public page and explain failures in plain words.
+- **New RekordboxBridge companion** reads Rekordbox 6/7's encrypted `master.db` read-only out of process, so Cue
+  Forge can load a track's Rekordbox cues and loops. Export gained a **preflight** (missing files, bad BPM, broken
+  grids, out-of-range cues, corrupt JSON), merge-mode never overwrites non-empty Rekordbox values without a confirm,
+  and unparseable XML blocks the export instead of being replaced.
+- **Send feedback** (Ctrl+Shift+F) zips a screenshot, note, system info and the last 15 minutes of scrubbed logs to
+  the clipboard — nothing is uploaded. Setup gained a **THIS PC** section that disables analysis flavours the machine
+  can't run, with the reason. Windows x64 installs a pinned, SHA-256-verified **FFmpeg** (~110 MB, once).
+
+### ▶️ Player, visualizer and performance
+- Play on a **stopped** deck now starts audio (Cue Forge's cue clicks only worked after playing from the Library);
+  **Space** is handled in the tunnel phase so a focused button can't swallow it.
+- The visualizer gained a continuous **morph** signal driving hue, rotation, scale, warp and ripple timing in every
+  preset, with stronger bass/beat reactions.
+- Startup no longer eagerly loads every library project or double-syncs library entries; Download Centre hydrates
+  only missing rows and batches updates; playlist mosaics build off the UI thread; analysis workers are capped by
+  cores and memory and Effnet tables/sessions are initialised once.
+
+### Upgrade notes
+- `audio_features.TimeTillDropSeconds` (nullable) via migration `20261028143000_AddTimeTillDropSeconds` + runtime patch.
+- Two one-time post-launch passes: `TimeTillDropBackfillService` (30 s, energy curves only) and
+  `CueLayoutRepairService` (90 s, writes `library.db.bak-cue-layout-v2-<timestamp>` first).
+- New `LibraryViewState` folder beside `library.db` (per-playlist view state); `ManualSortOrder` now persists, so
+  playlist order switches once to your manual arrangement.
+- Analysis stamps `2026.10.28-triband-v2`; cached waveforms need **Refresh full analysis** (never silent).
+
+### Verification
+- Release + Debug builds: **0 errors**. Full suite on this tree: **2683 passed, 11 skipped, 0 failed**.
+- Architecture guards green, including new Flow-wiring and fullscreen-idle ratchets.
 
 ---
 

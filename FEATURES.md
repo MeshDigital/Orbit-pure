@@ -26,12 +26,32 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Selection FAB**: Floating bottom bar appears when ≥1 track is selected — one-click ▶️ Play, ⊕ Add to Queue, 🔬 Analyse, ✏️ Tag Edit, 📤 Rekordbox export, and ✕ Clear selection without opening context menus
 - **Playlist view that makes room for tracks**: the header collapses to a slim bar (▶, shuffle, name, Discover) while scrolling; search, status chips, filters, Mix and Columns share a single toolbar row; columns you hide take no space, and when the list is narrow (e.g. context panel open) the least important columns step aside (Forensics → Rating → Duration → Format → Energy)
 - **Resizable context panel**: drag the right-hand panel's left edge; the width is remembered (`[Layout] ContextPanelWidth`)
+- **Per-Playlist View Memory**: each playlist remembers its own search, status filters, sort, column
+  widths and scroll position (stored in a `LibraryViewState` folder beside `library.db`); switching
+  back — or restarting — restores it. Column edges drag to resize, and widths persist.
+- **PREP Column**: every row says what it still needs — *Locate file*, *Analyse*, *Set grid*,
+  *Add cues* or *Export ready* — with the repair action inline.
+- **Playlist Reordering**: drag a playlist onto another to insert it before or after, with a drop
+  line showing the target; the manual order persists across restarts. Select All spans the whole
+  filtered playlist, not just loaded rows.
+- **Workstation Relink**: Locate re-points a moved file in every playlist, restores Downloaded
+  status and keeps the track's cues, beat grid and analysis.
 
 ### Enhanced Export Capabilities
 - **Forensic CSV Export**: Professional-grade playlist exports with integrity metrics
 - **Comprehensive Metadata**: Includes BPM, key, energy, and spectral data
 - **Rekordbox Compatibility**: Native XML export for professional DJ software
 - **Batch Processing**: Efficient export of large playlists and collections
+- **Export Preflight**: refuses to write an export that would be wrong — missing files, invalid BPM,
+  broken or non-increasing beat grids, out-of-range cues and corrupt cue JSON are all reported first.
+- **Re-Export Merge Protection**: re-exporting into an existing `rekordbox.xml` keeps every non-empty
+  Rekordbox value (Rating, Colour, Comments, cues) unless you confirm replacing it; an XML ORBIT
+  cannot parse is left untouched and blocks the export instead of being overwritten.
+- **Rekordbox Library Reader**: `Tools\RekordboxBridge` (shipped with the release) opens Rekordbox
+  6/7's encrypted `master.db` read-only in its own process, so Cue Forge can pull a track's hot cues,
+  memory cues and loops by file path. Rekordbox cues keep their colours and win over auto cues; a pad
+  clash demotes the generated cue to a memory cue.
+
 
 ### Intelligent Search & Discovery
 - **Multi-Source Search**: Simultaneous querying of local library and Soulseek network
@@ -62,6 +82,20 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Spectral Forensics**: Frequency cutoff detection and energy distribution analysis
 - **Quality Metrics**: Dynamic range, loudness, and true peak measurements
 - **Integrity Verification**: Automatic detection of audio file manipulation
+- **Per-Engine Analysis Coverage**: the Analysis page measures nine independent engines (waveform,
+  loudness, tempo & grid, key, mood & genre, structure, cues, fingerprint; stems on demand) from
+  stored output only, so "incomplete" is a real state: "4095 of 4177 tracks fully analysed",
+  "68 partially analysed · 14 not analysed at all", with `4163 / 4177` and "14 missing" per engine.
+  Defaults (0 BPM, `[]`, a bare energy curve, CUE-DETR inspector JSON) never count as proof.
+- **Scoped Repairs**: per-engine **Run** on the coverage row, **Fill missing** for the whole
+  selection, and a per-row "Missing Key, Cues and Fingerprint" action in the library. Only the
+  selection is queued, each track only for its own gaps, matched by hash and limited to files that
+  still exist on disk. A repair that produces nothing now fails with a reason instead of no-opping.
+- **Intro Timing**: time to first drop (seconds and bars) and intro length in 4/4 in the Cue Forge
+  track bar and the Library inspector, using the earliest usable drop rather than the loudest.
+- **Feedback Report**: Send feedback (Ctrl+Shift+F, or the top bar) zips a screenshot, your note,
+  system info and the last 15 minutes of logs with passwords/tokens/username scrubbed, then puts the
+  file on the clipboard. Nothing is uploaded.
 
 ---
 
@@ -170,6 +204,7 @@ Flow picks what plays next out of the queue instead of following track order, an
 - **Max-BPM-Jump Guard**: Configurable penalty rejects transitions wider than a set BPM range, preventing jarring key-tempo collisions
 - **Seeded Ordering**: Optional fixed start/end track constraints for opening and closing track pinning
 - **Structure-planned mixes**: playback mixes from each track's intro/outro sections in whole 8/16/32-bar phrases. Auto picks **Rolling** (the incoming drop lands as the outgoing main section ends) or **Relaxed**; **Drop Sync** (double drop) is a preset only. Vocal clashes are avoided, tempos are matched up to 6%, and an automatic mix never starts before half the outgoing track has played
+- **Second-Drop Hand-over**: for a tempo-matched, energetic pair the planner now runs **Drop Sync** itself — mix out 16 bars before the outgoing **Drop 2** (8 when the incoming drop arrives sooner) and enter the same distance before the incoming **Drop 1**, so the new drop lands on a drop across a 16- or 32-bar blend. Approach markers must match both their stated bars and their position (Drop 1's `[IN -16]` can't serve Drop 2), a mix never enters *on* the drop, a DJ-marked outro still wins, and a drop-to-drop window that would clash vocals falls back to Rolling
 
 ### Background Processing
 - **Job Queue**: `Channel<T>`-backed unbounded job queue (`BackgroundJobQueue`) with configurable concurrency
@@ -198,6 +233,11 @@ Flow picks what plays next out of the queue instead of following track order, an
 - **Background Processing**: Non-blocking analysis and downloads
 - **Memory Management**: Efficient resource usage for large libraries
 - **Delta Synchronization**: Sub-second updates for incremental changes
+- **First-Window Startup**: library projects load on first navigation instead of at launch, and the
+  duplicate library-entry sync that ran before the first window is gone
+- **Analysis Worker Budget**: automatic workers are `min(cores/2, memory budget, 8)` — 4 GB reserved
+  for the system, ~768 MB per worker — and the Effnet mel filterbank is built once rather than per
+  worker, with ONNX sessions initialised behind a lock and pinned to one thread
 
 ---
 
@@ -208,6 +248,21 @@ Flow picks what plays next out of the queue instead of following track order, an
 - **Automatic Recovery**: Seamless continuation after interruptions
 - **Comprehensive Logging**: Detailed diagnostics for troubleshooting
 - **Beta Testing Tools**: Structured feedback collection and analysis
+- **Feedback Bundle**: Send feedback (Ctrl+Shift+F) writes a zip with a screenshot, your note, system
+  info and the last 15 minutes of logs — passwords, tokens and the Windows user name are scrubbed and
+  nothing is uploaded.
+- **Honest Failures**: a repair that produces no output now fails with a reason ("Cue generation
+  produced no cue points", "Analysis did not produce requested outputs") instead of completing silently.
+
+### First-Run Setup & Machine Checks
+- **THIS PC**: the setup wizard detects CPU/GPU/memory and switches off analysis, AI tagging or stem
+  separation **with the reason** when the machine can't run them, instead of failing later.
+- **FFmpeg self-install (Windows x64)**: ORBIT fetches and verifies (SHA-256) a pinned build (~110 MB,
+  one time), with progress in the wizard; Linux/macOS users get the exact install command instead.
+- **One-Time Repairs**: after an upgrade, two background passes (30 s and 90 s after startup) backfill
+  time-to-first-drop from stored energy curves and repair older cue layouts, each writing a database
+  backup first.
+
 
 ### Privacy & Security
 - **Local Operation**: No telemetry or external data collection

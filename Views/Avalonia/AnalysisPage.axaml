@@ -219,7 +219,10 @@
                         <ItemsControl ItemsSource="{Binding CoverageRows}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:EngineCoverageRow">
-                                    <Grid ColumnDefinitions="150,*,64,84,Auto" MinHeight="30">
+                                    <!-- Column 2 is Auto, not a fixed 64: at 12px mono a four-digit
+                                         count ("4163 / 4177") is ~75px and was being clipped to
+                                         "4163 / 417", which made the coverage numbers untrustworthy. -->
+                                    <Grid ColumnDefinitions="150,*,Auto,84,Auto" MinHeight="30">
                                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                             <TextBlock Classes="body-sm" Text="{Binding Name}"/>
                                         </StackPanel>
