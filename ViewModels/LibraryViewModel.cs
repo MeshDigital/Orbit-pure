@@ -689,8 +689,8 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         _disposables.Add(_eventBus.GetEvent<RetryDownloadFromInspectorEvent>().Subscribe(evt =>
             Dispatcher.UIThread.InvokeAsync(() => Operations.HardRetryCommand.Execute(FindSelectedTrack(evt.TrackGlobalId)))));
         
-        // Startup background tasks
-        Task.Run(() => _libraryService.SyncLibraryEntriesFromTracksAsync()).ConfigureAwait(false);
+        // App startup owns the one library-entry synchronization pass, after database recovery.
+        // Running another pass from this constructor duplicated every track/library DB read.
         _ = RefreshLifecycleMetricsAsync();
         Intelligence.SeedSuggestNextScaffoldCandidates();
         Intelligence.SeedPlaylistUpgradeScaffoldCandidates();

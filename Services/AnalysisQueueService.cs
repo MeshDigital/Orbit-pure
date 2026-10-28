@@ -21,7 +21,7 @@ namespace SLSKDONET.Services;
 /// the Glass Box architecture (transparent queue visibility in the UI).
 ///
 /// Parallelism is controlled via <see cref="AppConfig.MaxConcurrentAnalyses"/>:
-///   0 = auto (ProcessorCount / 2, minimum 1)
+///   0 = auto (CPU and memory budget, capped to avoid native/DSP oversubscription)
 ///   1 = sequential (safe for low-RAM machines)
 ///  >1 = explicit parallelism cap
 /// </summary>
@@ -84,7 +84,7 @@ public class AnalysisQueueService : IDisposable
         int requested = config?.MaxConcurrentAnalyses ?? 0;
         MaxWorkers = requested > 0
             ? requested
-            : Math.Max(1, Environment.ProcessorCount / 2);
+            : GetAutomaticWorkerCount(Environment.ProcessorCount, GC.GetGCMemoryInfo().TotalAvailableMemoryBytes);
 
         _parallelismGate = new SemaphoreSlim(MaxWorkers, MaxWorkers);
 
@@ -97,6 +97,21 @@ public class AnalysisQueueService : IDisposable
         _logger.LogInformation(
             "AnalysisQueue initialised: MaxWorkers={W} (requested={R})",
             MaxWorkers, requested);
+    }
+
+    internal static int GetAutomaticWorkerCount(int logicalCores, long totalMemoryBytes)
+    {
+        const int maxAutomaticWorkers = 8;
+        const long reservedSystemBytes = 4L * 1024 * 1024 * 1024;
+        const long estimatedBytesPerWorker = 768L * 1024 * 1024;
+
+        // Each worker can hold a whole-track stereo PCM buffer, mono/resampled copies, mel
+        // tensors and an FFmpeg process. Reserve memory for the UI/OS and avoid creating more
+        // native work than the machine can sustain; an explicit config value remains an override.
+        int cpuWorkers = Math.Max(1, logicalCores / 2);
+        long availableBytes = Math.Max(0, totalMemoryBytes - reservedSystemBytes);
+        int memoryWorkers = (int)Math.Max(1, availableBytes / estimatedBytesPerWorker);
+        return Math.Max(1, Math.Min(maxAutomaticWorkers, Math.Min(cpuWorkers, memoryWorkers)));
     }
 
     /// <summary>

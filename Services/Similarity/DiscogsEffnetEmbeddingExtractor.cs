@@ -49,6 +49,7 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
     private readonly string _modelPath;
     private readonly ILogger<DiscogsEffnetEmbeddingExtractor> _logger;
 
+    private readonly object _loadGate = new();
     private InferenceSession? _session;
     private bool _loadAttempted;
     private string? _modelTag;
@@ -227,41 +228,52 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
 
     private void EnsureSessionLoaded()
     {
-        if (_loadAttempted) return;
-        _loadAttempted = true;
-
-        if (!SLSKDONET.Services.Platform.HardwareCapabilities.Allows(SLSKDONET.Services.Platform.HardwareFeature.AiTagging))
+        // Keep the check inside the lock: _loadAttempted is set before native initialization,
+        // so an unsynchronized fast path could observe an incomplete session.
+        lock (_loadGate)
         {
-            _logger.LogWarning("[EmbeddingExtractor] AI tagging is switched off on this machine: {Reason}",
-                SLSKDONET.Services.Platform.HardwareCapabilities.Current.VerdictFor(SLSKDONET.Services.Platform.HardwareFeature.AiTagging).Reason);
-            return;
-        }
+            if (_loadAttempted) return;
+            _loadAttempted = true;
 
-        if (!File.Exists(_modelPath))
-        {
-            _logger.LogWarning(
-                "[EmbeddingExtractor] DiscogsEffnet model not found at {Path}. " +
-                "Similarity search and ONNX-based genre/mood classification will operate without it.",
-                _modelPath);
-            return;
-        }
+            if (!SLSKDONET.Services.Platform.HardwareCapabilities.Allows(SLSKDONET.Services.Platform.HardwareFeature.AiTagging))
+            {
+                _logger.LogWarning("[EmbeddingExtractor] AI tagging is switched off on this machine: {Reason}",
+                    SLSKDONET.Services.Platform.HardwareCapabilities.Current.VerdictFor(SLSKDONET.Services.Platform.HardwareFeature.AiTagging).Reason);
+                return;
+            }
 
-        try
-        {
-            var opts = new SessionOptions();
-            opts.AppendExecutionProvider_DML();
+            if (!File.Exists(_modelPath))
+            {
+                _logger.LogWarning(
+                    "[EmbeddingExtractor] DiscogsEffnet model not found at {Path}. " +
+                    "Similarity search and ONNX-based genre/mood classification will operate without it.",
+                    _modelPath);
+                return;
+            }
 
-            _session  = new InferenceSession(_modelPath, opts);
-            _modelTag = BuildModelTag(_modelPath);
+            try
+            {
+                // A single bounded native session is shared by all workers. Limit ONNX's own CPU
+                // thread pool as well: outer track parallelism already supplies the concurrency.
+                using var opts = new SessionOptions
+                {
+                    IntraOpNumThreads = 1,
+                    InterOpNumThreads = 1,
+                };
+                opts.AppendExecutionProvider_DML();
 
-            _logger.LogInformation(
-                "[EmbeddingExtractor] Loaded DiscogsEffnet model. Tag={Tag}", _modelTag);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex,
-                "[EmbeddingExtractor] Failed to load ONNX model from {Path}. Embeddings disabled.",
-                _modelPath);
+                _session  = new InferenceSession(_modelPath, opts);
+                _modelTag = BuildModelTag(_modelPath);
+
+                _logger.LogInformation(
+                    "[EmbeddingExtractor] Loaded DiscogsEffnet model. Tag={Tag}", _modelTag);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "[EmbeddingExtractor] Failed to load ONNX model from {Path}. Embeddings disabled.",
+                    _modelPath);
+            }
         }
     }
 

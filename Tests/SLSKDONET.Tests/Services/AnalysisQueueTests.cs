@@ -35,6 +35,19 @@ public class AnalysisQueueTests
         _service = new AnalysisQueueService(_eventBusMock.Object, _loggerMock.Object, _dbFactoryMock.Object);
     }
 
+    [Theory]
+    [InlineData(32, 32L * 1024 * 1024 * 1024, 8)]
+    [InlineData(8, 8L * 1024 * 1024 * 1024, 4)]
+    [InlineData(4, 4L * 1024 * 1024 * 1024, 1)]
+    [InlineData(2, 0, 1)]
+    public void AutomaticWorkerCount_RespectsCpuMemoryAndStabilityBudget(
+        int logicalCores,
+        long totalMemoryBytes,
+        int expected)
+    {
+        Assert.Equal(expected, AnalysisQueueService.GetAutomaticWorkerCount(logicalCores, totalMemoryBytes));
+    }
+
     [Fact]
     public void StealthMode_StartsDisabled()
     {

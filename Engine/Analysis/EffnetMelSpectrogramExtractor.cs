@@ -36,6 +36,12 @@ public static class EffnetMelSpectrogramExtractor
     public const int MelBands = 96;
     public const int PatchFrames = 128;
 
+    // These immutable tables are identical for every track. Sharing them avoids rebuilding the
+    // same Hann window and 96 × 257 filterbank in every concurrent analysis worker.
+    private static readonly float[] AnalysisWindow = Window.OfType(WindowType.Hann, FrameSize);
+    private static readonly float[][] MelFilterbank = FilterBanks.MelBankSlaney(
+        MelBands, FrameSize, SampleRate, lowFreq: 0, highFreq: SampleRate / 2.0, normalizeGain: false);
+
     /// <summary>
     /// Downsamples mono audio at an arbitrary source rate to 16 kHz via linear interpolation.
     /// Not audiophile-grade, but more than sufficient for feeding a classifier model — small
@@ -94,14 +100,7 @@ public static class EffnetMelSpectrogramExtractor
     private static List<float[]> ComputeMelFrames(float[] monoAudio16k)
     {
         var fft = new RealFft(FrameSize);
-        var window = Window.OfType(WindowType.Hann, FrameSize);
         int numBins = FrameSize / 2 + 1;
-
-        // Slaney-style triangular mel filterbank — matches Essentia's warpingFormula: 'slaneyMel'.
-        // normalizeGain: false → unit-height triangles ("unit_tri" in Essentia's own terminology),
-        // not area-normalized gain.
-        var filterbank = FilterBanks.MelBankSlaney(
-            MelBands, FrameSize, SampleRate, lowFreq: 0, highFreq: SampleRate / 2.0, normalizeGain: false);
 
         int frameCount = (monoAudio16k.Length - FrameSize) / HopSize + 1;
         var melFrames = new List<float[]>(Math.Max(0, frameCount));
@@ -116,7 +115,7 @@ public static class EffnetMelSpectrogramExtractor
             int offset = f * HopSize;
 
             for (int n = 0; n < FrameSize; n++)
-                frameBuffer[n] = monoAudio16k[offset + n] * window[n];
+                frameBuffer[n] = monoAudio16k[offset + n] * AnalysisWindow[n];
 
             fft.Direct(frameBuffer, re, im);
 
@@ -132,7 +131,7 @@ public static class EffnetMelSpectrogramExtractor
             for (int b = 0; b < MelBands; b++)
             {
                 float energy = 0f;
-                var filter = filterbank[b];
+                var filter = MelFilterbank[b];
                 for (int k = 0; k < numBins; k++)
                     energy += filter[k] * power[k];
 
