@@ -76,12 +76,16 @@ public class PlaylistMosaicService
         if (_cache.TryGetValue(key, out var weakRef) && weakRef.TryGetTarget(out var cached))
             return Task.FromResult<Bitmap?>(cached);
 
-        // Dedup concurrent requests for the same key
-        return _pending.GetOrAdd(key, async k =>
+        // Dedup concurrent requests for the same key. The whole pipeline runs off the caller's
+        // thread: network continuations, SKImage decoding, Skia composition, PNG encoding and the
+        // final Avalonia Bitmap decode are all substantial work, and Library constructs these
+        // requests on the UI thread. ConfigureAwait alone would not cover synchronously-completing
+        // HTTP handlers/cache paths, so use an explicit worker task for every uncached build.
+        return _pending.GetOrAdd(key, k => Task.Run(async () =>
         {
             try
             {
-                var bitmap = await BuildMosaicAsync(urls);
+                var bitmap = await BuildMosaicAsync(urls).ConfigureAwait(false);
                 if (bitmap != null)
                 {
                     _cache[k] = new WeakReference<Bitmap>(bitmap);
@@ -110,7 +114,7 @@ public class PlaylistMosaicService
             {
                 _pending.TryRemove(k, out _);
             }
-        });
+        }));
     }
 
     private void PurgeDeadReferences()

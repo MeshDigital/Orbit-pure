@@ -1733,46 +1733,24 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
     private void InitialHydration()
     {
-        var existingDownloads = _downloadManager.GetAllDownloads();
-        
-        foreach (var (model, state) in existingDownloads)
-        {
-            var fakeEvent = new TrackAddedEvent(model, state);
-            OnTrackAdded(fakeEvent);
-        }
+        // BatchTracksAddedEvent normally delivers these rows before the hydration-complete signal.
+        // Only catch up rows that were actually missed; replacing every existing row would create a
+        // second set of view models, event subscriptions and timers for the same restored tracks.
+        var knownTrackIds = _downloadsSource.Items.Select(x => x.Model.Id).ToHashSet();
+        var missingDownloads = _downloadManager.GetAllDownloads()
+            .Where(x => !knownTrackIds.Contains(x.Model.Id))
+            .Select(x => (x.Model, (PlaylistTrackState?)x.State))
+            .ToList();
+
+        if (missingDownloads.Count > 0)
+            OnBatchTracksAdded(new BatchTracksAddedEvent(missingDownloads));
     }
     
     private void OnTrackAdded(TrackAddedEvent e)
     {
         Dispatcher.UIThread.Post(() =>
         {
-            var track = e.TrackModel;
-            
-            // Phase 2.5: Create Smart View Model
-            var viewModel = new UnifiedTrackViewModel(track, _downloadManager, _eventBus, _artworkCache, _libraryService, _databaseService, _config, _dbFactory);
-
-            // Phase 12.3: Monitor Selection
-            viewModel.WhenAnyValue(x => x.IsSelected)
-                .Subscribe(selected =>
-                {
-                    if (selected) 
-                    {
-                        if (!SelectedItems.Contains(viewModel)) SelectedItems.Add(viewModel);
-                    }
-                    else 
-                    {
-                        SelectedItems.Remove(viewModel);
-                    }
-                })
-                .DisposeWith(_subscriptions); // Note: Should ideally attach to VM lifetime, but Global subscriptions are fine for now.
-
-            // Set initial state override if needed
-            if (e.InitialState.HasValue)
-            {
-                viewModel.State = e.InitialState.Value;
-            }
-            
-            _downloadsSource.AddOrUpdate(viewModel);
+            _downloadsSource.AddOrUpdate(CreateTrackViewModel(e.TrackModel, e.InitialState));
         });
     }
     
@@ -1784,35 +1762,38 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     {
         Dispatcher.UIThread.Post(() =>
         {
-            foreach (var (track, initialState) in e.Tracks)
-            {
-                // Phase 2.5: Create Smart View Model
-                var viewModel = new UnifiedTrackViewModel(track, _downloadManager, _eventBus, _artworkCache, _libraryService, _databaseService, _config, _dbFactory);
+            var viewModels = e.Tracks
+                .Select(x => CreateTrackViewModel(x.Track, x.InitialState))
+                .ToList();
 
-                // Phase 12.3: Monitor Selection
-                viewModel.WhenAnyValue(x => x.IsSelected)
-                    .Subscribe(selected =>
-                    {
-                        if (selected) 
-                        {
-                            if (!SelectedItems.Contains(viewModel)) SelectedItems.Add(viewModel);
-                        }
-                        else 
-                        {
-                            SelectedItems.Remove(viewModel);
-                        }
-                    })
-                    .DisposeWith(_subscriptions);
-
-                // Set initial state override if needed
-                if (initialState.HasValue)
-                {
-                    viewModel.State = initialState.Value;
-                }
-                
-                _downloadsSource.AddOrUpdate(viewModel);
-            }
+            // One cache transaction means one changeset for every downstream DynamicData pipeline,
+            // rather than replaying all filters, projections, groups and sorts once per track.
+            _downloadsSource.Edit(updater => updater.AddOrUpdate(viewModels));
         });
+    }
+
+    private UnifiedTrackViewModel CreateTrackViewModel(PlaylistTrack track, PlaylistTrackState? initialState)
+    {
+        var viewModel = new UnifiedTrackViewModel(track, _downloadManager, _eventBus, _artworkCache, _libraryService, _databaseService, _config, _dbFactory);
+
+        viewModel.WhenAnyValue(x => x.IsSelected)
+            .Subscribe(selected =>
+            {
+                if (selected)
+                {
+                    if (!SelectedItems.Contains(viewModel)) SelectedItems.Add(viewModel);
+                }
+                else
+                {
+                    SelectedItems.Remove(viewModel);
+                }
+            })
+            .DisposeWith(_subscriptions); // Note: Should ideally attach to VM lifetime, but Global subscriptions are fine for now.
+
+        if (initialState.HasValue)
+            viewModel.State = initialState.Value;
+
+        return viewModel;
     }
     
     // New: Handle global removal
