@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using System.Timers;
@@ -78,6 +79,17 @@ namespace SLSKDONET.Services
             public double? RequestedSeekSeconds;
             public bool SeekWorkerRunning;
 
+            /// <summary>Set by <see cref="Dispose"/> before the output is stopped. WASAPI raises
+            /// <c>PlaybackStopped</c> synchronously from <c>Stop()</c> (verified on NAudio 2.2.1,
+            /// shared + event-sync), i.e. while this deck may still be the service's <c>_current</c>.
+            /// The output's PlaybackStopped handler must ignore a deck that is being torn down on
+            /// purpose, or it mistakes a track change for a natural end-of-track and starts the
+            /// preloaded deck (see AudioPlayerService.PromoteNextDeck).</summary>
+            public volatile bool IsDisposed;
+
+            /// <summary>Told the owning service to drop this deck from its live set.</summary>
+            public Action<Deck>? OnDisposed;
+
             /// <summary>Blocks until a pending background seek is done (normally long finished —
             /// preload happens minutes before the crossfade). Bounded so playback can never hang.</summary>
             public void WaitForSeek()
@@ -108,9 +120,20 @@ namespace SLSKDONET.Services
 
             public void Dispose()
             {
-                try { Output?.Stop(); } catch { /* already stopped/disposed */ }
-                AudioFile?.Dispose();
-                Output?.Dispose();
+                if (IsDisposed) return;
+                IsDisposed = true;
+                try
+                {
+                    try { Output?.Stop(); } catch { /* already stopped/disposed */ }
+                    AudioFile?.Dispose();
+                    try { Output?.Dispose(); } catch { /* already disposed */ }
+                    Output = null;
+                    AudioFile = null;
+                }
+                finally
+                {
+                    OnDisposed?.Invoke(this);
+                }
             }
         }
 
@@ -182,6 +205,25 @@ namespace SLSKDONET.Services
         private double _crossfadeProgress;
         private float _masterVolumeFraction = 1f;
 
+        /// <summary>Guards <see cref="_current"/>, <see cref="_next"/>, <see cref="_nextFilePath"/>,
+        /// <see cref="_stopping"/> and <see cref="_liveDecks"/>: the deck fields are touched by the
+        /// UI thread (play/pause/stop), the crossfade timer thread and each output's
+        /// PlaybackStopped thread (which WASAPI raises synchronously from inside Stop()).</summary>
+        private readonly object _deckLock = new();
+
+        /// <summary>True while a deliberate Stop() is tearing the decks down. Set before the
+        /// outputs are stopped, so a PlaybackStopped raised by that Stop() can never be mistaken
+        /// for an end-of-track that should hand over to the preloaded deck.</summary>
+        private bool _stopping;
+
+        /// <summary>Every deck this service created and has not disposed yet. Exists so Stop() can
+        /// guarantee "nothing is still making sound": a deck that lost its <see cref="_current"/>/
+        /// <see cref="_next"/> reference would otherwise keep playing with no way to reach it.</summary>
+        private readonly HashSet<Deck> _liveDecks = new();
+
+        /// <summary>Test seam: replaces the real output device. Production leaves this null.</summary>
+        internal Func<ISampleProvider, IWavePlayer>? OutputFactory { get; set; }
+
         private bool _isInitialized;
         private System.Timers.Timer? _timer;
 
@@ -250,7 +292,13 @@ namespace SLSKDONET.Services
 
         private void OnTimerElapsed(object? sender, ElapsedEventArgs e)
         {
-            var current = _current;
+            Deck? current;
+            Deck? next;
+            lock (_deckLock)
+            {
+                current = _current;
+                next = _next;
+            }
             if (current?.AudioFile == null) return;
 
             // The outgoing track ran out mid-crossfade. This used to stall for good: this timer
@@ -282,14 +330,14 @@ namespace SLSKDONET.Services
             // legacy fixed-duration global crossfade — it applies regardless of the
             // CrossfadeEnabled toggle, since choosing a transition for this specific pair is a
             // more specific instruction than the app-wide default.
-            var pendingTransition = _next?.PendingTransition;
-            var effectiveCrossfadeSeconds = TransitionSeconds(current, _next);
+            var pendingTransition = next?.PendingTransition;
+            var effectiveCrossfadeSeconds = TransitionSeconds(current, next);
 
-            if ((CrossfadeEnabled || pendingTransition != null) && _next?.Output != null)
+            if ((CrossfadeEnabled || pendingTransition != null) && next?.Output != null)
             {
                 bool shouldStart;
                 double plannedStart = double.NaN;
-                if (_next.PendingSourceTriggerSeconds is double sourceTrigger)
+                if (next.PendingSourceTriggerSeconds is double sourceTrigger)
                 {
                     // Analysis-suggested/saved mix-out point: an absolute position in THIS track,
                     // not "however many seconds are left" — a mix-out near a phrase boundary well
@@ -307,27 +355,34 @@ namespace SLSKDONET.Services
 
                 if (shouldStart)
                 {
-                    _isCrossfading = true;
-                    _crossfadeElapsedSeconds = 0;
-                    _crossfadeProgress = 0;
-                    if (_next.Gain != null) _next.Gain.Volume = 0f;
-                    if (_next.Eq != null) _next.Eq.Active = pendingTransition != null;
+                    // The pair must still be the pair this tick planned for: a user track change
+                    // can replace both decks between the reads above and this point.
+                    lock (_deckLock)
+                    {
+                        if (!ReferenceEquals(_current, current) || !ReferenceEquals(_next, next))
+                            return;
+                        _isCrossfading = true;
+                        _crossfadeElapsedSeconds = 0;
+                        _crossfadeProgress = 0;
+                    }
+                    if (next.Gain != null) next.Gain.Volume = 0f;
+                    if (next.Eq != null) next.Eq.Active = pendingTransition != null;
                     if (current.Eq != null) current.Eq.Active = pendingTransition != null;
-                    _next.WaitForSeek();
-                    double speedRatio = ApplyTempoSync(current, _next);
+                    next.WaitForSeek();
+                    double speedRatio = ApplyTempoSync(current, next);
                     // The timer ticks every 50 ms, so the mix starts up to that late. For a planned
                     // alignment (incoming target point on a bar), skip the incoming deck forward by
                     // the same musical amount so both downbeats stay together.
-                    if (!double.IsNaN(plannedStart) && _next.PendingTargetTriggerSeconds is > 0)
+                    if (!double.IsNaN(plannedStart) && next.PendingTargetTriggerSeconds is > 0)
                     {
                         double late = current.AudioFile.CurrentTime.TotalSeconds - plannedStart;
-                        if (late > 0.002 && late < 0.5) SkipForward(_next, late * speedRatio);
+                        if (late > 0.002 && late < 0.5) SkipForward(next, late * speedRatio);
                     }
-                    _next.Output.Play();
+                    next.Output!.Play();
 
                     CrossfadeStarted?.Invoke(this, new CrossfadeStartedEventArgs
                     {
-                        PresetName = _next.PendingTransitionPresetName,
+                        PresetName = next.PendingTransitionPresetName,
                         DurationSeconds = effectiveCrossfadeSeconds,
                     });
                 }
@@ -338,7 +393,15 @@ namespace SLSKDONET.Services
 
         private void AdvanceCrossfade(Deck current)
         {
-            if (_next?.Output == null)
+            Deck? next;
+            lock (_deckLock)
+            {
+                // The outgoing deck this tick is fading must still be the live one.
+                if (!ReferenceEquals(_current, current)) return;
+                next = _next;
+            }
+
+            if (next?.Output == null)
             {
                 var wasCrossfading = _isCrossfading;
                 _isCrossfading = false;
@@ -347,8 +410,8 @@ namespace SLSKDONET.Services
                 return;
             }
 
-            var pendingTransition = _next.PendingTransition;
-            var durationSeconds = TransitionSeconds(current, _next);
+            var pendingTransition = next.PendingTransition;
+            var durationSeconds = TransitionSeconds(current, next);
 
             _crossfadeElapsedSeconds += TimerIntervalSeconds;
             var t = durationSeconds > 0 ? Math.Clamp(_crossfadeElapsedSeconds / durationSeconds, 0.0, 1.0) : 1.0;
@@ -381,10 +444,10 @@ namespace SLSKDONET.Services
                 var automation = _liveTransitionEngine.CalculateAutomation(region, (long)(t * samplePoints));
 
                 currentGain = _masterVolumeFraction * current.LoudnessGain * automation.OutgoingGain;
-                nextGain = _masterVolumeFraction * _next.LoudnessGain * automation.IncomingGain;
+                nextGain = _masterVolumeFraction * next.LoudnessGain * automation.IncomingGain;
 
                 if (current.Eq != null) { current.Eq.LowGain = automation.OutgoingLowGain; current.Eq.MidGain = automation.OutgoingMidGain; current.Eq.HighGain = automation.OutgoingHighGain; }
-                if (_next.Eq != null) { _next.Eq.LowGain = automation.IncomingLowGain; _next.Eq.MidGain = automation.IncomingMidGain; _next.Eq.HighGain = automation.IncomingHighGain; }
+                if (next.Eq != null) { next.Eq.LowGain = automation.IncomingLowGain; next.Eq.MidGain = automation.IncomingMidGain; next.Eq.HighGain = automation.IncomingHighGain; }
             }
             else
             {
@@ -392,11 +455,11 @@ namespace SLSKDONET.Services
                 // the overlap, unlike a linear fade which dips in the middle) — unchanged
                 // behavior for playlists that haven't saved a Mix transition.
                 currentGain = (float)(_masterVolumeFraction * current.LoudnessGain * Math.Cos(t * Math.PI / 2));
-                nextGain = (float)(_masterVolumeFraction * _next.LoudnessGain * Math.Sin(t * Math.PI / 2));
+                nextGain = (float)(_masterVolumeFraction * next.LoudnessGain * Math.Sin(t * Math.PI / 2));
             }
 
             if (current.Gain != null) current.Gain.Volume = currentGain;
-            if (_next.Gain != null) _next.Gain.Volume = nextGain;
+            if (next.Gain != null) next.Gain.Volume = nextGain;
 
             _crossfadeProgress = t;
             CrossfadeProgressChanged?.Invoke(this, t);
@@ -408,16 +471,22 @@ namespace SLSKDONET.Services
         /// <summary>Ends the crossfade: incoming deck at full level with its EQ reset, then promoted.</summary>
         private void CompleteCrossfade(Deck current)
         {
-            _isCrossfading = false;
-            _crossfadeElapsedSeconds = 0;
-            _crossfadeProgress = 0;
-            if (current.Eq != null) current.Eq.Active = false;
-            if (_next != null)
+            Deck? next;
+            lock (_deckLock)
             {
-                if (_next.Eq != null) { _next.Eq.Active = false; _next.Eq.LowGain = _next.Eq.MidGain = _next.Eq.HighGain = 1f; }
-                if (_next.Gain != null) _next.Gain.Volume = _masterVolumeFraction * _next.LoudnessGain;
+                if (!ReferenceEquals(_current, current)) return;
+                _isCrossfading = false;
+                _crossfadeElapsedSeconds = 0;
+                _crossfadeProgress = 0;
+                next = _next;
             }
-            if (_current != null) PromoteNextDeck(_current);
+            if (current.Eq != null) current.Eq.Active = false;
+            if (next != null)
+            {
+                if (next.Eq != null) { next.Eq.Active = false; next.Eq.LowGain = next.Eq.MidGain = next.Eq.HighGain = 1f; }
+                if (next.Gain != null) next.Gain.Volume = _masterVolumeFraction * next.LoudnessGain;
+            }
+            PromoteNextDeck(current);
             CrossfadeEnded?.Invoke(this, EventArgs.Empty);
         }
 
@@ -638,8 +707,11 @@ namespace SLSKDONET.Services
         public void PreloadNext(string filePath, double? trackLoudnessLufs = null, SLSKDONET.Models.Timeline.TransitionModel? transition = null, double? transitionBpm = null,
             double? sourceTriggerSeconds = null, double? targetTriggerSeconds = null, string? presetName = null)
         {
-            if (_current == null) return;
-            if (_nextFilePath == filePath && _next != null) return; // already preloaded
+            lock (_deckLock)
+            {
+                if (_current == null) return;
+                if (_nextFilePath == filePath && _next != null) return; // already preloaded
+            }
 
             CancelPreload();
 
@@ -658,14 +730,27 @@ namespace SLSKDONET.Services
                     // the incoming track started at 0:00 instead of its mix-in point (ExactSeek).
                     deck.SeekInBackground(targetTriggerSeconds.Value);
                 }
-                _next = deck;
-                _nextFilePath = filePath;
+                lock (_deckLock)
+                {
+                    // A Stop()/Play() may have landed while the file was opening; never park a deck
+                    // the service no longer has a current track for (it would play on promote).
+                    if (_current == null || _next != null)
+                    {
+                        deck.Dispose();
+                        return;
+                    }
+                    _next = deck;
+                    _nextFilePath = filePath;
+                }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[AudioPlayerService] Preload failed for {filePath}: {ex.Message}");
-                _next = null;
-                _nextFilePath = null;
+                lock (_deckLock)
+                {
+                    _next = null;
+                    _nextFilePath = null;
+                }
             }
         }
 
@@ -680,13 +765,21 @@ namespace SLSKDONET.Services
         public void SetPendingTransitionForNext(string filePath, SLSKDONET.Models.Timeline.TransitionModel? transition, double? transitionBpm,
             double? sourceTriggerSeconds = null, double? targetTriggerSeconds = null, string? presetName = null, double? outgoingBpm = null)
         {
-            if (_next == null || _nextFilePath != filePath) return;
-            _next.PendingSourceBpm = outgoingBpm is > 0 ? outgoingBpm : null;
-            _next.PendingTransition = transition;
-            _next.PendingTransitionBpm = transitionBpm is > 0 ? transitionBpm.Value : 128.0;
-            _next.PendingTransitionPresetName = presetName;
-            _next.PendingSourceTriggerSeconds = sourceTriggerSeconds;
-            _next.PendingTargetTriggerSeconds = targetTriggerSeconds;
+            Deck? next;
+            bool crossfading;
+            lock (_deckLock)
+            {
+                if (_next == null || _nextFilePath != filePath) return;
+                next = _next;
+                crossfading = _isCrossfading;
+            }
+
+            next.PendingSourceBpm = outgoingBpm is > 0 ? outgoingBpm : null;
+            next.PendingTransition = transition;
+            next.PendingTransitionBpm = transitionBpm is > 0 ? transitionBpm.Value : 128.0;
+            next.PendingTransitionPresetName = presetName;
+            next.PendingSourceTriggerSeconds = sourceTriggerSeconds;
+            next.PendingTargetTriggerSeconds = targetTriggerSeconds;
 
             // Guarded against re-seeking a deck that's already actively playing: this method is
             // called once the async saved/suggested-transition lookup resolves (see
@@ -699,12 +792,12 @@ namespace SLSKDONET.Services
             // there and stops" right around when the crossfade finished. Once _isCrossfading is
             // true for this deck, it's too late to safely reposition it — better to let it keep
             // playing from wherever it already is than risk killing it.
-            if (!_isCrossfading && targetTriggerSeconds is > 0 && _next.AudioFile != null)
+            if (!crossfading && targetTriggerSeconds is > 0 && next.AudioFile != null)
             {
-                var total = _next.AudioFile.TotalTime.TotalSeconds;
-                if (targetTriggerSeconds.Value < total && _next.Output?.PlaybackState != PlaybackState.Playing)
+                var total = next.AudioFile.TotalTime.TotalSeconds;
+                if (targetTriggerSeconds.Value < total && next.Output?.PlaybackState != PlaybackState.Playing)
                 {
-                    _next.SeekInBackground(targetTriggerSeconds.Value);
+                    next.SeekInBackground(targetTriggerSeconds.Value);
                 }
             }
         }
@@ -712,11 +805,18 @@ namespace SLSKDONET.Services
         /// <summary>Discards any preloaded next track (e.g. the queue changed before it was needed).</summary>
         public void CancelPreload()
         {
-            _next?.Dispose();
-            _next = null;
-            _nextFilePath = null;
-            _isCrossfading = false;
-            _crossfadeElapsedSeconds = 0;
+            Deck? next;
+            lock (_deckLock)
+            {
+                next = _next;
+                _next = null;
+                _nextFilePath = null;
+                _isCrossfading = false;
+                _crossfadeElapsedSeconds = 0;
+            }
+            // Outside the lock: disposing stops the output, which can raise PlaybackStopped on
+            // this very thread (WASAPI does) and re-enter the service's event handler.
+            next?.Dispose();
         }
 
         private void OpenDevice(string filePath, bool autoPlay, double? trackLoudnessLufs = null)
@@ -725,10 +825,14 @@ namespace SLSKDONET.Services
 
             try
             {
-                _current = CreateDeck(filePath, trackLoudnessLufs);
-                _current.Gain!.Volume = _masterVolumeFraction * _current.LoudnessGain;
-                if (autoPlay) _current.Output.Play();
-                LengthChanged?.Invoke(this, (long)_current.AudioFile!.TotalTime.TotalMilliseconds);
+                var deck = CreateDeck(filePath, trackLoudnessLufs);
+                deck.Gain!.Volume = _masterVolumeFraction * deck.LoudnessGain;
+                lock (_deckLock)
+                {
+                    _current = deck;
+                }
+                if (autoPlay) deck.Output!.Play();
+                LengthChanged?.Invoke(this, (long)deck.AudioFile!.TotalTime.TotalMilliseconds);
                 PausableChanged?.Invoke(this, EventArgs.Empty);
             }
             catch (Exception ex)
@@ -787,7 +891,7 @@ namespace SLSKDONET.Services
         /// <summary>Opens <paramref name="deck"/>'s output on the configured device and wires its end-of-track handling.</summary>
         private IWavePlayer OpenDeckOutput(Deck deck)
         {
-            var output = CreateConfiguredOutputDevice(deck.Metering!);
+            var output = OutputFactory?.Invoke(deck.Metering!) ?? CreateConfiguredOutputDevice(deck.Metering!);
             // Never touch output.Volume. On NAudio's WasapiOut that property is the DEVICE's Windows
             // master volume (AudioEndpointVolume), not a per-stream level: "pinning" it to 1.0 here
             // set the user's system volume to 100% on every track change (reported 2026-09-29).
@@ -795,10 +899,23 @@ namespace SLSKDONET.Services
             output.PlaybackStopped += (s, e) =>
             {
                 if (!ReferenceEquals(s, deck.Output)) return; // an output replaced by a device switch
-                if (!ReferenceEquals(_current, deck)) return; // stale event from a deck we've already advanced past
-                if (_isCrossfading) return; // the crossfade timer owns this transition
+                // A deck being torn down on purpose is not "the track ended". WASAPI raises
+                // PlaybackStopped synchronously from Stop(), i.e. from inside Deck.Dispose() while
+                // this deck may still be _current — promoting here would start the preloaded deck
+                // on a track change and then leak it (Stop() clears _current right afterwards), so
+                // it kept playing with nothing left to stop it.
+                if (deck.IsDisposed) return;
 
-                if (_next != null)
+                bool promote;
+                lock (_deckLock)
+                {
+                    if (_stopping) return;
+                    if (!ReferenceEquals(_current, deck)) return; // stale event from a deck we've already advanced past
+                    if (_isCrossfading) return; // the crossfade timer owns this transition
+                    promote = _next != null;
+                }
+
+                if (promote)
                 {
                     PromoteNextDeck(deck);
                 }
@@ -817,7 +934,13 @@ namespace SLSKDONET.Services
         /// </summary>
         public void ApplyOutputSettings()
         {
-            foreach (var deck in new[] { _current, _next })
+            Deck? current, next;
+            lock (_deckLock)
+            {
+                current = _current;
+                next = _next;
+            }
+            foreach (var deck in new[] { current, next })
             {
                 if (deck?.Output == null || deck.Metering == null) continue;
                 try
@@ -916,21 +1039,33 @@ namespace SLSKDONET.Services
             };
 
             deck.Output = OpenDeckOutput(deck);
+            deck.OnDisposed = ForgetDeck;
+            lock (_deckLock)
+            {
+                _liveDecks.Add(deck);
+            }
             return deck;
         }
 
         /// <summary>Makes the preloaded deck the active one and disposes the deck that just finished.</summary>
         private void PromoteNextDeck(Deck finishedDeck)
         {
-            var promoted = _next;
-            _next = null;
-            _nextFilePath = null;
-            if (promoted?.Output == null)
+            Deck? promoted;
+            lock (_deckLock)
             {
-                return;
+                // Only the deck that is actually current may hand over. A PlaybackStopped for an
+                // already-replaced deck must never touch _next: it belongs to whatever plays now.
+                if (!ReferenceEquals(_current, finishedDeck)) return;
+                if (finishedDeck.IsDisposed) return;
+
+                promoted = _next;
+                _next = null;
+                _nextFilePath = null;
+                if (promoted?.Output == null) return;
+
+                _current = promoted;
             }
 
-            _current = promoted;
             if (promoted.Gain != null) promoted.Gain.Volume = _masterVolumeFraction * promoted.LoudnessGain;
             if (promoted.Output.PlaybackState != PlaybackState.Playing)
             {
@@ -1188,16 +1323,22 @@ namespace SLSKDONET.Services
 
         public void Pause()
         {
-            if (_current?.Output == null) return;
+            Deck? current, next;
+            lock (_deckLock)
+            {
+                current = _current;
+                next = _next;
+            }
+            if (current?.Output == null) return;
 
-            bool wasPlaying = _current.Output.PlaybackState == PlaybackState.Playing;
+            bool wasPlaying = current.Output.PlaybackState == PlaybackState.Playing;
             // This method is the toggle behind PlayerViewModel.TogglePlayPause. A deck opened with
             // LoadWithoutPlaying (Cue Forge's "borrow the player" path) is Stopped, not Paused, so
             // the old `else if (Paused)` left it silent — clicking a cue in Cue Forge did nothing
             // unless the track was already playing elsewhere. Stopped must start playback too.
             if (wasPlaying)
             {
-                _current.Output.Pause();
+                current.Output.Pause();
             }
             else
             {
@@ -1207,27 +1348,76 @@ namespace SLSKDONET.Services
                 // as "playback starts before the cue". Waiting here costs only the decode-forward
                 // time (~1 ms per second of audio, ~70 ms at a one-minute cue); a full-track seek is
                 // still bounded by Deck.WaitForSeek's 3-second timeout.
-                _current.WaitForSeek();
-                _current.Output.Play();
+                current.WaitForSeek();
+                current.Output.Play();
             }
 
             // Keep a preloaded/crossfading deck in lockstep so it doesn't keep playing silently
             // (or fail to resume) independently of the current one.
-            if (_next?.Output != null)
+            if (next?.Output != null)
             {
-                if (wasPlaying && _next.Output.PlaybackState == PlaybackState.Playing) _next.Output.Pause();
-                else if (!wasPlaying && _next.Output.PlaybackState == PlaybackState.Paused) _next.Output.Play();
+                if (wasPlaying && next.Output.PlaybackState == PlaybackState.Playing) next.Output.Pause();
+                else if (!wasPlaying && next.Output.PlaybackState == PlaybackState.Paused) next.Output.Play();
             }
 
             PausableChanged?.Invoke(this, EventArgs.Empty);
         }
 
+        /// <summary>
+        /// Stops playback and releases every deck. Detaching the fields <em>before</em> disposing
+        /// matters: disposing an output stops it, and WASAPI reports that stop synchronously
+        /// through PlaybackStopped while this deck is still <c>_current</c>. With the deck already
+        /// detached the handler can't mistake a deliberate stop for an end-of-track, so it no
+        /// longer starts (and then loses track of) the preloaded deck — which used to keep playing
+        /// after a track change with nothing left able to stop it.
+        /// </summary>
         public void Stop()
         {
-            _current?.Dispose();
-            _current = null;
-            CancelPreload();
+            Deck? current, next;
+            List<Deck> strays;
+            lock (_deckLock)
+            {
+                _stopping = true;
+                current = _current;
+                next = _next;
+                _current = null;
+                _next = null;
+                _nextFilePath = null;
+                _isCrossfading = false;
+                _crossfadeElapsedSeconds = 0;
+                _crossfadeProgress = 0;
+
+                // Safety net for the whole bug class: anything this service created and hasn't
+                // disposed yet is stopped too, even if some code path lost its reference.
+                strays = _liveDecks.Where(d => !ReferenceEquals(d, current) && !ReferenceEquals(d, next)).ToList();
+            }
+
+            try
+            {
+                current?.Dispose();
+                next?.Dispose();
+                // Deck.Dispose is idempotent, so a deck already disposed above (or by a racing
+                // path) is a no-op here.
+                foreach (var stray in strays)
+                {
+                    stray.Dispose();
+                }
+            }
+            finally
+            {
+                lock (_deckLock) { _stopping = false; }
+            }
+
             PausableChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>Drops a disposed deck from the live set (called from Deck.Dispose via the service).</summary>
+        private void ForgetDeck(Deck deck)
+        {
+            lock (_deckLock)
+            {
+                _liveDecks.Remove(deck);
+            }
         }
 
         public void Dispose()
