@@ -4,7 +4,9 @@
 self-contained single file.
 
 This is a cumulative alpha covering everything merged into `master` since the 0.10.0-alpha package:
-22 commits, 227 files, +17.3k / −2.3k lines. Three themes run through it:
+23 commits, 231 files, +17.7k / −2.3k lines. The version jumps to **0.20.0** because this is a
+milestone build rather than a patch on 0.10 — it is still an alpha, and it upgrades 0.10.0-alpha in
+place (same installer AppId). Three themes run through it:
 
 1. **Honest analysis.** The Analysis page can finally say a track is *incomplete* — per engine — and
    repair only what is missing. The old page invented analysis data for every row, so "missing"

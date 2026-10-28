@@ -4,7 +4,9 @@
 
 ## [0.20.0-alpha] — 2026-10-28
 
-A cumulative release covering everything merged since 0.10.0-alpha (22 commits, 227 files, +17.3k / −2.3k).
+A cumulative release covering everything merged since 0.10.0-alpha (23 commits, 231 files, +17.7k / −2.3k).
+The version jumps to 0.20.0 because this is a milestone build, not a patch on 0.10 — still alpha, and it
+upgrades 0.10.0-alpha in place.
 Full detail, upgrade notes and known issues: **[DOCS/RELEASE_NOTES_0.20.0-alpha.md](DOCS/RELEASE_NOTES_0.20.0-alpha.md)**.
 
 ### 📊 Analysis: per-engine coverage and honest repairs
