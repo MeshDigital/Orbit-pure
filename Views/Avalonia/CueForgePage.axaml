@@ -364,6 +364,8 @@
                                             </StackPanel>
                                         </Button>
                                         <TextBlock Classes="caption muted" TextWrapping="Wrap" Text="Auto-generate keeps your cues. Generated cues include detection confidence and an explanation in the cue list."/>
+                                        <Button Classes="ghost small" Command="{Binding ClearCuesCommand}" Content="Clear all cues &amp; reset view" HorizontalAlignment="Stretch"
+                                                ToolTip.Tip="One click: remove every cue and reset the waveform to the whole-track view. Ctrl+Z undoes."/>
                                         <TextBlock Classes="section" Text="DROP CUE TEMPLATE"/>
                                         <ComboBox ItemsSource="{x:Static vm:CueEditorSession.DropCountdownModes}" SelectedItem="{Binding Session.DropCountdownMode}" HorizontalAlignment="Stretch"/>
                                         <TextBox Text="{Binding Session.CustomCountdownBars}" IsVisible="{Binding Session.IsCustomTemplate}" Watermark="Bars before the drop, e.g. 32,16,8"/>
@@ -691,13 +693,17 @@
                                              Watermark="Bars before the drop, e.g. 32,16,8"/>
                                     <CheckBox IsChecked="{Binding Session.CountdownsAsMemoryCues}" Content="Countdowns as memory cues"
                                               ToolTip.Tip="Countdown cues ([IN -16], [IN2 -8] …) become memory cues, leaving pads A B D E free; CDJs show a bar countdown to the next memory cue. The drops stay on C and F. Applies to drops you place or generate from now on."/>
-                                    <Button Classes="secondary small" Command="{Binding AutoGenerateCuesCommand}" HorizontalAlignment="Left"
-                                            ToolTip.Tip="Generate structural cues from the analysis. Your own cues are kept; Ctrl+Z undoes.">
-                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <PathIcon Data="{StaticResource sparkles_regular}" Width="12" Height="12"/>
-                                            <TextBlock Text="Auto-generate"/>
-                                        </StackPanel>
-                                    </Button>
+                                    <StackPanel Spacing="6">
+                                        <Button Classes="secondary small" Command="{Binding AutoGenerateCuesCommand}" HorizontalAlignment="Stretch"
+                                                ToolTip.Tip="Generate structural cues from the analysis. Your own cues are kept; Ctrl+Z undoes.">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <PathIcon Data="{StaticResource sparkles_regular}" Width="12" Height="12"/>
+                                                <TextBlock Text="Auto-generate"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Classes="ghost small" Command="{Binding ClearCuesCommand}" Content="Clear cues &amp; reset view" HorizontalAlignment="Stretch"
+                                                ToolTip.Tip="One click: remove every cue and reset the waveform to the whole-track view. Ctrl+Z undoes."/>
+                                    </StackPanel>
                                     <TextBlock Classes="caption muted" TextWrapping="Wrap" Margin="0,8,0,0"
                                                Text="Select a cue on the waveform, in the list or on a pad to rename, recolour, move or delete it."/>
                                 </StackPanel>

@@ -107,8 +107,12 @@ Right-click track → TrackOperationsViewModel.ExecuteOpenInCueForge
   │
   └─ CueForgeViewModel.AutoGenerateCuesAsync
         ├─ ILibraryService.GetAudioFeaturesByHashAsync
-        ├─ BuildAnalysisResultFromFeatures(features) → AnalysisPipelineResult
-        │     (fast path: reconstructs signal bundle from DB cache, no audio re-decode)
+        ├─ ILibraryService.GetPhrasesByHashAsync → PhraseSourceResolver.Resolve
+        │     TrackPhrases rows when present, else PhraseSegmentsJson only when its
+        │     PhraseSegmentsSource is trusted (RekordboxPSSI / Heuristic)
+        ├─ BuildAnalysisResultFromFeatures(features, phrases) → AnalysisPipelineResult
+        │     (fast path: reconstructs signal bundle from DB cache, no audio re-decode;
+        │      also carries HintedDropTimestamp from TimeTillDropSeconds / DropTimeSeconds)
         └─ Engine.Cueing.CueGenerationService.GenerateCues(...)
               │
               ├─ Path 1 (phrase): PhraseSegments.Count >= 2
@@ -122,6 +126,24 @@ Right-click track → TrackOperationsViewModel.ExecuteOpenInCueForge
               └─ Path 3 (Heuristic): transient clustering + IntentClassifier
                     Fallback when no sub-bass signals are available
 ```
+
+**Drop choice is a vote, not a single signal** (`GenerateCuesDsp` → `MergeDropCandidates`):
+phrase drops, the stored drop hint, sub-bass returns, spectral-flux novelty, energy jumps and
+the genre family's own return signal all vote. Votes landing within two bars of each other merge,
+and every agreeing *other* source adds a corroboration bonus, so three weak-but-agreeing
+detections beat one loud false positive. Before this, every sub-bass return scored the same when
+the flux curve was missing from the cache (it always is), so the earliest return in the window
+won — placing `[DROP 1]` 21 s early on TR Tactics — Against The Grain.
+
+**Phrase drops are not bar-snapped.** Phrase starts are already musical boundaries, and the
+detected downbeat's bar phase is not reliable enough to move them: on that same track the
+downbeat sat three beats late, so an 8-bar snap moved a correct 66.21 s drop to 67.24 s. Drops
+are cleaned up at beat resolution instead; DSP drops are only phrase-snapped while that stays
+within ¾ bar. The build-in cues stay exact bar arithmetic back from the chosen drop.
+
+**Clear cues.** The AUTO-GENERATE panel (and the Preparation flyout) has a one-click
+`Clear cues & reset view`: the whole working set is replaced with an empty list as a single undo
+step, and zoom/scroll return to the whole-track view (the playhead returns to 0 when stopped).
 
 ### Cue Snapping
 
@@ -222,6 +244,11 @@ calls `CueEditorSession.PrelistenCue`: select it and play from exactly the cue t
 with `ExactSeek` for FLAC/M4A/AIFF). Clicking the playing cue again, or Space, calls `StopPrelisten`
 (`ICueAudition.Stop`). The decision click vs drag is `MarkerGesture` (4 px); a click never edits.
 Outside Edit cues mode a deck click also makes the cue the mix-out / mix-in point.
+
+Playback starts exactly on the cue: `PlayFrom` seeks first, and the player waits for a pending
+`ExactSeek` decode-forward (FLAC/M4A) to finish before opening the output. Starting the output
+while that background seek was still running let the reader deliver samples from its old position,
+heard as "playback starts before the cue".
 
 ## Transition overlay (Flow Builder)
 

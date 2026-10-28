@@ -101,6 +101,28 @@ public class CueForgeViewModelEditingTests
     }
 
     [Fact]
+    public async Task ClearCues_EmptiesTheSet_ResetsTheView_AndIsUndoable()
+    {
+        var (vm, _, _) = await CreateLoaded();
+        vm.Session.ReplaceAllCues(new[]
+        {
+            new OrbitCue { Timestamp = 10, Name = "[IN -16]", Role = CueRole.Build },
+            new OrbitCue { Timestamp = 21, Name = "[DROP 1]", Role = CueRole.Drop },
+        }, "seeded");
+        vm.WaveformZoom = 4;
+        vm.WaveformScroll = 0.5;
+
+        vm.ClearCuesCommand.Execute().Subscribe();
+
+        Assert.Empty(vm.Session.Cues);
+        Assert.Equal(1.0, vm.WaveformZoom);
+        Assert.Equal(0.0, vm.WaveformScroll);
+        Assert.True(vm.Session.CanUndo);
+        vm.Session.UndoCommand.Execute().Subscribe();
+        Assert.Equal(2, vm.Session.Cues.Count);
+    }
+
+    [Fact]
     public async Task OpeningATrack_DoesNotTakeOverTheSharedPlayer()
     {
         var (vm, _, player) = await CreateLoaded();

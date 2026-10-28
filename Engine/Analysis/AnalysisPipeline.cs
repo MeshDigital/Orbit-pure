@@ -71,6 +71,15 @@ public sealed class AnalysisPipelineResult
     public IReadOnlyList<PhraseSegment> PhraseSegments { get; set; } = Array.Empty<PhraseSegment>();
 
     /// <summary>
+    /// Detected first-drop timestamp reported by the analysis (the value shown as "Time till drop"),
+    /// when one is stored. It is a consensus of the analysis rather than a single raw DSP candidate,
+    /// so <see cref="Cueing.CueGenerationService"/> uses it to corroborate (never to override) the
+    /// phrase and sub-bass candidates — several independent signals landing on the same timestamp is
+    /// what tells them apart from an early false bass return.
+    /// </summary>
+    public double? HintedDropTimestamp { get; set; }
+
+    /// <summary>
     /// Detected (sub-)genre hint, e.g. "DnB", "TechHouse", "MelodicTechno". Used by
     /// <see cref="Cueing.CueGenerationService"/>'s DSP path to weight drop-candidate signals —
     /// continuous-bassline genres (techno, tech house) lean more on the broadband energy-jump

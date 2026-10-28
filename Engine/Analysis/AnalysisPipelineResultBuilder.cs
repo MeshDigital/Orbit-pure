@@ -15,7 +15,7 @@ namespace SLSKDONET.Engine.Analysis;
 /// </summary>
 public static class AnalysisPipelineResultBuilder
 {
-    public static AnalysisPipelineResult Build(AudioFeaturesEntity f)
+    public static AnalysisPipelineResult Build(AudioFeaturesEntity f, IReadOnlyList<PhraseSegment>? phraseSegments = null)
     {
         var result = new AnalysisPipelineResult
         {
@@ -30,55 +30,37 @@ public static class AnalysisPipelineResultBuilder
             Genre = !string.IsNullOrWhiteSpace(f.DetectedSubGenre) ? f.DetectedSubGenre : f.ElectronicSubgenre,
         };
 
-        // Rekordbox's own commercial phrase analysis (PSSI, via RekordboxPssiService) and the rule-based StructuralAnalysisEngine ("Heuristic") are all
-        // trusted as "phrase segments" for GenerateCues' Path-1 priority gate. Heuristic was
-        // previously excluded on the theory that it's the same weak signal the DSP path
-        // (sub-bass/novelty) already improves on — but verified against real Rekordbox-cued
-        // tracks, Heuristic's structural analysis was repeatedly the *correct* answer (e.g. a
-        // track where it placed the real drop within 0.4s of the DJ's own hand-set cue) while the
-        // DSP path it was supposedly deferring to had picked a completely different, wrong
-        // section. CueGenerationService.SanitizeSegments normalizes Heuristic's ordinal-suffixed
-        // labels ("Drop 1", "Drop 5") down to the plain "Drop"/"Build"/etc. vocabulary Rekordbox uses.
-        if (f.PhraseSegmentsSource is "RekordboxPSSI" or "Heuristic")
+        // Phrase source, highest precedence first:
+        //   1. A list the caller resolved itself (Cue Forge and the structural job read the fresh
+        //      TrackPhrases rows, so they pass those in — the legacy JSON column is only rewritten
+        //      when empty and can therefore hold boundaries from an older, wrong-duration analysis).
+        //   2. The legacy PhraseSegmentsJson column, but only when it records a trusted provenance.
+        //      An empty source means the row predates the bridge (or was written by an analysis that
+        //      never finished), and its timestamps cannot be trusted for cue placement.
+        //   3. Nothing — the DSP path scores raw audio signals instead.
+        if (phraseSegments is not null)
         {
-            var phraseSegments = ParsePhraseSegments(f.PhraseSegmentsJson);
-
-            // Sanity gate: verified against the real library (2,157 of 3,375 analyzed tracks —
-            // 64%, overwhelmingly "Heuristic"-sourced), phrase data can describe events well past
-            // where the track actually ends — stale data left over from a track whose
-            // TrackDuration was wrong at analysis time and has since been corrected elsewhere
-            // without the structural analysis ever being re-run against the fix. Trusting it
-            // anyway silently misplaces every downstream cue by however far the old and new
-            // durations disagree, sometimes hundreds of seconds.
-            //
-            // Originally this discarded the WHOLE segment list whenever the last segment ran past
-            // duration — but a segment's Start is a real detected event timestamp, while its
-            // Duration is often an estimate/extrapolation (especially for the last segment in a
-            // list, which sometimes pads to "however long is left"). A track can have perfectly
-            // correct early segments (verified case: a drop placed within 0.4s of the DJ's own
-            // hand-set cue) alongside one bad trailing segment whose claimed Duration runs past
-            // the real end — discarding everything threw away the good data along with the bad.
-            // So instead: drop only segments that START after the track has already ended (those
-            // can never be correct at all), and clamp the Duration of any segment that starts
-            // in-bounds but claims to run past the end, rather than rejecting it outright.
-            if (f.TrackDuration > 0 && phraseSegments.Count > 0)
-            {
-                const double ToleranceSeconds = 5.0;
-                double duration = f.TrackDuration;
-                phraseSegments = phraseSegments
-                    .Where(s => s.Start <= duration + ToleranceSeconds)
-                    .Select(s =>
-                    {
-                        double maxDuration = Math.Max(0, duration - s.Start);
-                        if (s.Duration > maxDuration + ToleranceSeconds)
-                            s.Duration = (float)maxDuration;
-                        return s;
-                    })
-                    .ToList();
-            }
-
-            result.PhraseSegments = phraseSegments;
+            result.PhraseSegments = PhraseSourceResolver.Sanitize(phraseSegments, f.TrackDuration);
         }
+        else if (PhraseSourceResolver.IsTrustedSource(f.PhraseSegmentsSource))
+        {
+            result.PhraseSegments = PhraseSourceResolver.Sanitize(ParsePhraseSegments(f.PhraseSegmentsJson), f.TrackDuration);
+        }
+
+        // Detected first-drop timestamp (the value behind the header's "Time till drop"). It is a
+        // reported consensus of the analysis rather than a single DSP candidate, so the generator
+        // may use it to corroborate a drop candidate — see CueGenerationService's candidate merge.
+        double? hintedDrop = f.TimeTillDropSeconds is > 0
+            ? f.TimeTillDropSeconds
+            : f.DropTimeSeconds is > 0 && f.DropConfidence >= 0.5f ? f.DropTimeSeconds : null;
+        if (hintedDrop is > 0 && (f.TrackDuration <= 0 || hintedDrop < f.TrackDuration - 4))
+            result.HintedDropTimestamp = hintedDrop.Value;
+
+        // Rekordbox's own commercial phrase analysis (PSSI) and the rule-based structural analysis
+        // ("Heuristic") are both trusted provenance for the legacy column; the gate itself lives in
+        // PhraseSourceResolver so the JSON and TrackPhrases routes share one definition. The
+        // per-segment duration clamping that used to live here (a stale analysis can claim a segment
+        // runs past the real end) is part of that resolver's Sanitize step.
 
         // Real multi-candidate drop signals (SubBassDropoutEngine / SpectralFluxNoveltyEngine,
         // computed once at analysis time in AudioAnalysisService). Falls back to the old

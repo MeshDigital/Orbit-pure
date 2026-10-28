@@ -135,7 +135,14 @@ public sealed class AnalyzeTrackStructureJob
             // analysis already ran for every track (into TrackPhrases, which nothing downstream
             // consulted). Marked "Heuristic" so its provenance stays visible — see
             // AnalysisPipelineResultBuilder.Build's PhraseSegmentsSource check.
-            if (sections.Count >= 2 && (string.IsNullOrWhiteSpace(features.PhraseSegmentsJson) || features.PhraseSegmentsJson == "[]"))
+            //
+            // Rewritten on every run, not only when the column is empty: it used to be filled once,
+            // which is how tracks analysed before the half-time BPM correction kept boundaries at
+            // double their real durations forever (verified: Against The Grain — Intro 0-88s instead
+            // of 0-44s, Drop 1 at 132s instead of 66s, Outro running past the end of the file).
+            // Rekordbox's own PSSI segments are never overwritten by heuristic ones.
+            bool keepRekordboxPhrases = string.Equals(features.PhraseSegmentsSource, "RekordboxPSSI", StringComparison.OrdinalIgnoreCase);
+            if (sections.Count >= 2 && !keepRekordboxPhrases)
             {
                 features.PhraseSegmentsJson = JsonSerializer.Serialize(ToPhraseSegments(sections, features.Bpm));
                 features.PhraseSegmentsSource = "Heuristic";
@@ -191,7 +198,15 @@ public sealed class AnalyzeTrackStructureJob
                 // Engine.Cueing.CueGenerationService, built from the features entity's persisted
                 // sub-bass/novelty/energy JSON (not a fresh, independent recompute), the exact same
                 // way Cue Forge's own Auto-Generate button does it.
-                var analysisPipelineResult = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features);
+                // Build the signal bundle from the just-computed phrase sections (unless Rekordbox's
+                // PSSI replaced them above, in which case the builder's trusted-source path uses
+                // those). Passing them explicitly means cue placement never falls back to the legacy
+                // JSON column, which may still describe an older analysis.
+                bool rekordboxPhrases = string.Equals(features.PhraseSegmentsSource, "RekordboxPSSI", StringComparison.OrdinalIgnoreCase);
+                var phrasesForCues = rekordboxPhrases
+                    ? null
+                    : Engine.Analysis.PhraseSourceResolver.FromTrackPhrases(sections);
+                var analysisPipelineResult = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features, phrasesForCues);
                 double downbeatAnchor = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
                 await _cueGenerationService.GenerateAndPersistCuesAsync(
                     trackUniqueHash,
@@ -260,8 +275,16 @@ public sealed class AnalyzeTrackStructureJob
                 return false;
             }
 
-            var analysisPipelineResult = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features);
+            // Same phrase precedence as Auto-generate: TrackPhrases is the current store; the legacy
+            // JSON column is only used when Rekordbox's own analysis wrote it.
+            var storedPhrases = await _databaseService.GetPhrasesByHashAsync(trackUniqueHash);
+            bool rekordboxPhrases = string.Equals(features.PhraseSegmentsSource, "RekordboxPSSI", StringComparison.OrdinalIgnoreCase);
+            var phrases = rekordboxPhrases || storedPhrases.Count < 2
+                ? null
+                : Engine.Analysis.PhraseSourceResolver.FromTrackPhrases(storedPhrases);
+            var analysisPipelineResult = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features, phrases);
             double downbeatAnchor = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
+
             var cues = await _cueGenerationService.GenerateAndPersistCuesAsync(
                 trackUniqueHash,
                 analysisPipelineResult,
