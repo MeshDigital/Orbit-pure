@@ -323,12 +323,20 @@ public class AnalysisQueueService : IDisposable
                 return;
             }
 
-            // Structure and cue rows are produced by the structure job, not by AnalyzeFileAsync,
-            // so a partial run only enters it when it actually asked for that output.
-            if ((evt.Engines & (AnalysisEngine.Structure | AnalysisEngine.Cues)) != 0)
+            // Structure and cue rows are separate outputs. Structure-only runs must not create
+            // cues; Cues-only runs remap existing signals without incrementing StructuralVersion.
+            if (evt.Engines.Has(AnalysisEngine.Structure))
             {
                 PublishProgress(evt.TrackGlobalId, "Computing structure", 75);
-                await _analyzeTrackStructureJob.ExecuteAsync(evt.TrackGlobalId).ConfigureAwait(false);
+                await _analyzeTrackStructureJob.ExecuteAsync(
+                    evt.TrackGlobalId,
+                    generateCues: evt.Engines.Has(AnalysisEngine.Cues)).ConfigureAwait(false);
+            }
+            else if (evt.Engines.Has(AnalysisEngine.Cues))
+            {
+                PublishProgress(evt.TrackGlobalId, "Generating cue points", 75);
+                if (!await _analyzeTrackStructureJob.RegenerateCuesOnlyAsync(evt.TrackGlobalId).ConfigureAwait(false))
+                    throw new InvalidOperationException("Cue generation could not run against the stored analysis data.");
             }
             await UpdateTrackAnalysisStatusAsync(evt.TrackGlobalId, AnalysisStatus.Completed, null).ConfigureAwait(false);
             _eventBus.Publish(new TrackAnalysisUpdatedEvent(evt.TrackGlobalId, DateTime.UtcNow, analysis.Id));

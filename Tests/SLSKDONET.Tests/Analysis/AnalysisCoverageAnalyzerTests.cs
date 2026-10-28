@@ -78,13 +78,72 @@ public sealed class AnalysisCoverageAnalyzerTests
     }
 
     [Fact]
-    public void Detect_BareEnergyCurve_CountsAsStructureButBarePhraseDefaultDoesNot()
+    public void Detect_BareEnergyCurve_IsOnlyStructureInput_NotCompletedStructure()
     {
         var row = EmptyRow();
+        row.EnergyCurveJson = "[0.5]";
         Assert.False(AnalysisCoverageAnalyzer.HasStructure(row));
 
-        row.EnergyCurveJson = "[0.5]";
+        row.StructuralVersion = 1;
         Assert.True(AnalysisCoverageAnalyzer.HasStructure(row));
+    }
+
+    [Fact]
+    public void Detect_StructuralEnergyScoreAlone_DoesNotCompleteMood()
+    {
+        var row = EmptyRow();
+        row.EnergyScore = 5;
+
+        Assert.False(AnalysisCoverageAnalyzer.HasMood(row));
+
+        row.MoodTag = "Happy";
+        row.MoodConfidence = 0.8f;
+        Assert.True(AnalysisCoverageAnalyzer.HasMood(row));
+    }
+
+    [Fact]
+    public void Detect_WaveformSampleCountWithoutBlob_DoesNotCompleteWaveform()
+    {
+        var row = EmptyRow();
+        row.WaveformBlobSampleCount = 900;
+
+        Assert.False(AnalysisCoverageAnalyzer.HasWaveform(row));
+
+        row.WaveformBlob = new byte[] { 1 };
+        Assert.True(AnalysisCoverageAnalyzer.HasWaveform(row));
+    }
+
+    [Fact]
+    public void Detect_InspectorCueCache_DoesNotCompletePipelineCues()
+    {
+        var row = EmptyRow();
+        row.CueDetrJson = "[{\"position\":12.5}]";
+
+        Assert.False(AnalysisCoverageAnalyzer.HasCues(row));
+
+        row.CuePointsJson = "[{\"position\":12.5}]";
+        Assert.True(AnalysisCoverageAnalyzer.HasCues(row));
+    }
+
+    [Fact]
+    public void GetRequests_ReturnsOnlySelectedTracksAndTheirOwnMissingEngines()
+    {
+        var missingKey = new TrackAnalysisCoverage(
+            AnalysisEngine.Pipeline,
+            AnalysisEngine.Pipeline & ~AnalysisEngine.Key);
+        var complete = new TrackAnalysisCoverage(AnalysisEngine.Pipeline, AnalysisEngine.Pipeline);
+        var coverage = new PlaylistAnalysisCoverage(null, "Selected set", new[]
+        {
+            new TrackCoverageEntry("selected-hash", "Artist", "Title", missingKey),
+            new TrackCoverageEntry("SELECTED-HASH", "Artist", "Duplicate", missingKey),
+            new TrackCoverageEntry("complete-hash", "Artist", "Complete", complete),
+        });
+
+        var request = Assert.Single(coverage.GetRequests(AnalysisEngine.Key | AnalysisEngine.Tempo));
+
+        Assert.Equal("selected-hash", request.TrackHash);
+        Assert.Equal(AnalysisEngine.Key, request.Engines);
+        Assert.Empty(coverage.GetRequests(AnalysisEngine.None));
     }
 
     [Fact]

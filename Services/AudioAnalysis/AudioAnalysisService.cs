@@ -176,19 +176,25 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             int pcmSampleRate = 44100;
             int pcmChannels = 2;
             GenreMoodPrediction? onnxGenrePrediction = null;
-            try
+            var needsPcm = (engines & (AnalysisEngine.Loudness | AnalysisEngine.Structure |
+                                       AnalysisEngine.Cues | AnalysisEngine.Tempo | AnalysisEngine.Mood)) != 0;
+            if (needsPcm)
             {
-                (pcmSamples, pcmSampleRate, pcmChannels) = AudioIngestionPipeline.ReadPcmFloat(tempWav);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogWarning(ex,
-                    "[AudioAnalysis] PCM decode failed for {File}; energy curve and drop-signal detection will be skipped.",
-                    Path.GetFileName(filePath));
+                try
+                {
+                    (pcmSamples, pcmSampleRate, pcmChannels) = AudioIngestionPipeline.ReadPcmFloat(tempWav);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex,
+                        "[AudioAnalysis] PCM decode failed for {File}; PCM-backed engine output will be skipped.",
+                        Path.GetFileName(filePath));
+                }
             }
 
             IReadOnlyList<float> rmsCurve = Array.Empty<float>();
             float[] mono = Array.Empty<float>();
+            var needsDropSignals = engines.Has(AnalysisEngine.Structure | AnalysisEngine.Cues);
             if (pcmSamples.Length > 0)
             {
                 // Integrated loudness (BS.1770 / EBU R128) for the inspector and loudness-normalised
@@ -213,6 +219,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 // so those detectors ran against a flat placeholder curve and could only ever "find"
                 // a drop at its artificial edges. Kept in an outer-scoped variable so the novelty
                 // gating step below can reuse it instead of recomputing.
+                if (needsDropSignals)
                 try
                 {
                     rmsCurve = _energyAnalysis.ComputeRawEnergyCurveFromPcm(pcmSamples, pcmSampleRate, pcmChannels);
@@ -230,8 +237,11 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 // DSP drop-scoring path with actual candidate timestamps (every sub-bass
                 // dropout/return, every build-confirmed novelty peak) instead of the single
                 // collapsed DropTimeSeconds/DropConfidence float pair it previously had to work with.
-                // Outer-scoped so the downbeat-phase validation step below can reuse it.
-                mono = ToMono(pcmSamples, pcmChannels);
+                // Mono is also used by tempo downbeat validation and Mood's ONNX classifier.
+                if (needsDropSignals || engines.Has(AnalysisEngine.Tempo | AnalysisEngine.Mood))
+                    mono = ToMono(pcmSamples, pcmChannels);
+
+                if (needsDropSignals)
                 try
                 {
                     var subBassCurve = _subBassEngine.ComputeSubBassEnergyCurve(mono, pcmSampleRate);
@@ -244,12 +254,9 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                     // Genre isn't known yet at this point in analysis, so this runs unconditionally
                     // for every track exactly like sub-bass dropout does; genre-gating happens
                     // downstream in CueGenerationService's DSP path.
-                    if (features.Bpm > 0)
-                    {
-                        var (strippingStarts, strippingReturns) = _structuralStrippingEngine.DetectStructuralStripping(mono, pcmSampleRate);
-                        features.StructuralStrippingStartTimestampsJson = JsonSerializer.Serialize(strippingStarts);
-                        features.StructuralStrippingReturnTimestampsJson = JsonSerializer.Serialize(strippingReturns);
-                    }
+                    var (strippingStarts, strippingReturns) = _structuralStrippingEngine.DetectStructuralStripping(mono, pcmSampleRate);
+                    features.StructuralStrippingStartTimestampsJson = JsonSerializer.Serialize(strippingStarts);
+                    features.StructuralStrippingReturnTimestampsJson = JsonSerializer.Serialize(strippingReturns);
 
                     const int noveltyHopSize = 512;
                     var novelty = _noveltyEngine.ComputeNoveltyFunction(mono, pcmSampleRate);
@@ -284,7 +291,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 if (engines.Has(AnalysisEngine.Mood))
                 try
                 {
-                    var mono16k = EffnetMelSpectrogramExtractor.ResampleTo16k(ToMono(pcmSamples, pcmChannels), pcmSampleRate);
+                    var mono16k = EffnetMelSpectrogramExtractor.ResampleTo16k(mono, pcmSampleRate);
                     var embeddingResult = await _effnetEmbedding.ExtractAsync(mono16k, cancellationToken).ConfigureAwait(false);
                     if (embeddingResult is not null)
                     {
@@ -352,7 +359,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                     // bar-phase produces a systematic, consistent-per-track offset in every cue —
                     // exactly the "close but way off" symptom. Pick whichever of the first few
                     // ticks actually carries the strongest kick/sub-bass energy instead.
-                    if (mono.Length > 0 && !string.IsNullOrWhiteSpace(features.BeatGridJson))
+                    if (engines.Has(AnalysisEngine.Tempo) && mono.Length > 0 && !string.IsNullOrWhiteSpace(features.BeatGridJson))
                     {
                         try
                         {
@@ -370,58 +377,61 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                         }
                     }
 
-                    // LoudnessLUFS is measured from the PCM above (IntegratedLoudnessMeter). Essentia's
-                    // lowlevel.average_loudness is a 0–1 dynamic-range descriptor, not LUFS; storing it
-                    // here showed "0.8 LUFS" and made loudness normalisation cut every track ~15 dB.
-                    if (essentiaOutput.Rhythm?.Danceability is > 0 and var dance)
-                        features.Danceability = dance;
-
-                    // ── Spectral & rhythm quick-reads ──────────────────────────
-                    if (essentiaOutput.LowLevel?.SpectralCentroid?.Mean is > 0 and var sc)
-                        features.SpectralCentroid = sc;
-                    if (essentiaOutput.LowLevel?.SpectralComplexity?.Mean is > 0 and var scx)
-                        features.SpectralComplexity = scx;
-                    if (essentiaOutput.Rhythm?.OnsetRate is > 0 and var onsetRate)
-                        features.OnsetRate = onsetRate;
-
-                    // ── Voice / Instrumental ───────────────────────────────────
-                    var voicePred = essentiaOutput.HighLevel?.VoiceInstrumental;
-                    if (voicePred?.All?.Instrumental is > 0 and var instrProb)
-                        features.InstrumentalProbability = Math.Clamp(instrProb, 0f, 1f);
-                    else if ("instrumental".Equals(voicePred?.Value, StringComparison.OrdinalIgnoreCase))
-                        features.InstrumentalProbability = Math.Clamp(voicePred!.Probability, 0.5f, 1f);
-
-                    // ── Emotion: emomusic regression → Arousal + Valence ──────
-                    // emomusic outputs values on the Russell circumplex (1–9);
-                    // normalise to 0–1 so all consumers use a consistent scale.
-                    var emoClasses = essentiaOutput.HighLevel?.EmoMusic?.All;
-                    if (emoClasses is not null)
+                    if (engines.Has(AnalysisEngine.Mood))
                     {
-                        if (emoClasses.Arousal > 0f)
-                            features.Arousal = Math.Clamp((emoClasses.Arousal - 1f) / 8f, 0f, 1f);
-                        if (emoClasses.Valence > 0f)
-                            features.Valence = Math.Clamp((emoClasses.Valence - 1f) / 8f, 0f, 1f);
-                    }
+                        // LoudnessLUFS is measured from the PCM above (IntegratedLoudnessMeter). Essentia's
+                        // lowlevel.average_loudness is a 0–1 dynamic-range descriptor, not LUFS; storing it
+                        // here showed "0.8 LUFS" and made loudness normalisation cut every track ~15 dB.
+                        if (essentiaOutput.Rhythm?.Danceability is > 0 and var dance)
+                            features.Danceability = dance;
 
-                    // ── Tonality / DJ-tool detection ───────────────────────────
-                    var tonalPred = essentiaOutput.HighLevel?.TonalAtonal;
-                    if (tonalPred?.All is { } tonalClasses)
-                    {
-                        features.TonalProbability = Math.Clamp(tonalClasses.Tonal, 0f, 1f);
-                        features.IsDjTool = tonalClasses.Tonal < 0.35f;
-                    }
-                    else if (!string.IsNullOrWhiteSpace(tonalPred?.Value))
-                    {
-                        bool isAtonal = "atonal".Equals(tonalPred.Value, StringComparison.OrdinalIgnoreCase);
-                        features.IsDjTool         = isAtonal;
-                        features.TonalProbability = isAtonal ? 1f - tonalPred.Probability : tonalPred.Probability;
-                    }
+                        // ── Spectral & rhythm quick-reads ───────────────────────
+                        if (essentiaOutput.LowLevel?.SpectralCentroid?.Mean is > 0 and var sc)
+                            features.SpectralCentroid = sc;
+                        if (essentiaOutput.LowLevel?.SpectralComplexity?.Mean is > 0 and var scx)
+                            features.SpectralComplexity = scx;
+                        if (essentiaOutput.Rhythm?.OnsetRate is > 0 and var onsetRate)
+                            features.OnsetRate = onsetRate;
 
-                    // ── Mood: winner-takes-all across 6 classifiers ────────────
-                    ApplyMoodClassification(essentiaOutput.HighLevel, features);
+                        // ── Voice / Instrumental ────────────────────────────────
+                        var voicePred = essentiaOutput.HighLevel?.VoiceInstrumental;
+                        if (voicePred?.All?.Instrumental is > 0 and var instrProb)
+                            features.InstrumentalProbability = Math.Clamp(instrProb, 0f, 1f);
+                        else if ("instrumental".Equals(voicePred?.Value, StringComparison.OrdinalIgnoreCase))
+                            features.InstrumentalProbability = Math.Clamp(voicePred!.Probability, 0.5f, 1f);
 
-                    // ── Energy score (incorporates Arousal set above) ──────────
-                    _energyScoring.Score(essentiaOutput, features);
+                        // ── Emotion: emomusic regression → Arousal + Valence ────
+                        // emomusic outputs values on the Russell circumplex (1–9);
+                        // normalise to 0–1 so all consumers use a consistent scale.
+                        var emoClasses = essentiaOutput.HighLevel?.EmoMusic?.All;
+                        if (emoClasses is not null)
+                        {
+                            if (emoClasses.Arousal > 0f)
+                                features.Arousal = Math.Clamp((emoClasses.Arousal - 1f) / 8f, 0f, 1f);
+                            if (emoClasses.Valence > 0f)
+                                features.Valence = Math.Clamp((emoClasses.Valence - 1f) / 8f, 0f, 1f);
+                        }
+
+                        // ── Tonality / DJ-tool detection ─────────────────────────
+                        var tonalPred = essentiaOutput.HighLevel?.TonalAtonal;
+                        if (tonalPred?.All is { } tonalClasses)
+                        {
+                            features.TonalProbability = Math.Clamp(tonalClasses.Tonal, 0f, 1f);
+                            features.IsDjTool = tonalClasses.Tonal < 0.35f;
+                        }
+                        else if (!string.IsNullOrWhiteSpace(tonalPred?.Value))
+                        {
+                            bool isAtonal = "atonal".Equals(tonalPred.Value, StringComparison.OrdinalIgnoreCase);
+                            features.IsDjTool         = isAtonal;
+                            features.TonalProbability = isAtonal ? 1f - tonalPred.Probability : tonalPred.Probability;
+                        }
+
+                        // ── Mood: winner-takes-all across 6 classifiers ──────────
+                        ApplyMoodClassification(essentiaOutput.HighLevel, features);
+
+                        // ── Energy score (incorporates Arousal set above) ────────
+                        _energyScoring.Score(essentiaOutput, features);
+                    }
 
                     _logger.LogDebug("[AudioAnalysis] Essentia OK — BPM={Bpm} Key={Key} Mood={Mood} Arousal={Arousal:F1}",
                         features.Bpm, features.Key, features.MoodTag, features.Arousal);

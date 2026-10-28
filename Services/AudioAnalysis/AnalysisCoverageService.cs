@@ -55,7 +55,14 @@ public sealed class AnalysisCoverageService
         var tracks = await db.PlaylistTracks
             .AsNoTracking()
             .Where(t => t.PlaylistId == playlistId)
-            .Select(t => new Candidate(t.TrackUniqueHash, t.Artist, t.Title, t.Status, t.AvailabilityState))
+            .Select(t => new Candidate(
+                t.TrackUniqueHash,
+                t.Artist,
+                t.Title,
+                t.Status == TrackStatus.Downloaded ||
+                    t.AvailabilityState == TrackAvailabilityState.Ready ||
+                    t.AvailabilityState == TrackAvailabilityState.LocalUnanalyzed,
+                t.ResolvedFilePath))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -74,7 +81,13 @@ public sealed class AnalysisCoverageService
 
         var tracks = await db.LibraryEntries
             .AsNoTracking()
-            .Select(e => new Candidate(e.UniqueHash, e.Artist, e.Title, TrackStatus.Downloaded, TrackAvailabilityState.Ready))
+            .Select(e => new Candidate(
+                e.UniqueHash,
+                e.Artist,
+                e.Title,
+                e.AvailabilityState == TrackAvailabilityState.Ready ||
+                    e.AvailabilityState == TrackAvailabilityState.LocalUnanalyzed,
+                e.FilePath))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -87,8 +100,12 @@ public sealed class AnalysisCoverageService
         List<Candidate> candidates,
         CancellationToken cancellationToken)
     {
+        // Availability columns can be stale after a file is moved or deleted. A row only counts
+        // towards offline coverage when its actual audio path still resolves to a file on disk.
         var offline = candidates
-            .Where(c => IsAvailableOffline(c.Status, c.Availability))
+            .Where(c => c.AvailableOffline &&
+                        !string.IsNullOrWhiteSpace(c.FilePath) &&
+                        File.Exists(c.FilePath))
             .ToList();
 
         if (offline.Count == 0) return new List<TrackCoverageEntry>();
@@ -157,8 +174,8 @@ public sealed class AnalysisCoverageService
         string Hash,
         string Artist,
         string Title,
-        TrackStatus Status,
-        TrackAvailabilityState Availability);
+        bool AvailableOffline,
+        string? FilePath);
 }
 
 /// <summary>
@@ -207,6 +224,20 @@ public sealed class PlaylistAnalysisCoverage
     public AnalysisEngine MissingAnywhere =>
         AnalysisCoverageAnalyzer.MissingUnion(Tracks.Select(t => t.Coverage));
 
+    /// <summary>
+    /// The exact per-track work needed for this selection. Complete engines and tracks outside
+    /// the selection are never included; duplicate playlist entries collapse into one request.
+    /// </summary>
+    public IReadOnlyList<TrackCoverageRequest> GetRequests(AnalysisEngine engines) =>
+        Tracks
+            .Select(t => new TrackCoverageRequest(t.TrackHash, t.Coverage.RunnableMissing & engines))
+            .Where(r => r.Engines != AnalysisEngine.None)
+            .GroupBy(r => r.TrackHash, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new TrackCoverageRequest(
+                g.Key,
+                g.Aggregate(AnalysisEngine.None, (mask, request) => mask | request.Engines)))
+            .ToList();
+
     /// <summary>Coverage for one track, or null when the track is not in this selection.</summary>
     public TrackAnalysisCoverage? ForTrack(string trackHash) =>
         Tracks.FirstOrDefault(t => string.Equals(t.TrackHash, trackHash, StringComparison.OrdinalIgnoreCase))?.Coverage;
@@ -225,3 +256,6 @@ public sealed record TrackCoverageEntry(
     string Artist,
     string Title,
     TrackAnalysisCoverage Coverage);
+
+/// <summary>One track and only the requested engines it is still missing.</summary>
+public sealed record TrackCoverageRequest(string TrackHash, AnalysisEngine Engines);

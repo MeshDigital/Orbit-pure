@@ -1212,7 +1212,12 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         RunMissingForTrackCommand = ReactiveCommand.Create<AnalysisTrackItem>(
             item => QueueEngines(new[] { item }, item.RunnableMissingEngines));
         RunEngineForPlaylistCommand = ReactiveCommand.Create<EngineCoverageRow>(
-            row => QueueEngines(LibraryTracks.ToList(), row.Engine));
+            row => QueueCoverageRequests(Coverage?.GetRequests(row.Engine) ?? Array.Empty<TrackCoverageRequest>()));
+
+        _coverageRefreshSubject
+            .Throttle(TimeSpan.FromMilliseconds(500), RxApp.MainThreadScheduler)
+            .Subscribe(unit => { _ = RefreshCoverageAsync(); })
+            .DisposeWith(_disposables);
 
         if (_coverageService is not null)
             _ = LoadCoveragePlaylistsAsync();
@@ -1583,6 +1588,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
     private async Task OnTrackAnalysisCompletedAsync(TrackAnalysisCompletedEvent evt)
     {
+        if (evt.Success)
+            _coverageRefreshSubject.OnNext(Unit.Default);
+
         var track = FindTrack(evt.TrackGlobalId);
         if (track is null)
         {
@@ -2029,27 +2037,6 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                     Relaxed = 100 - energyPercent,
                     Party = Math.Clamp((energyPercent + valencePercent) / 2.0, 0, 100)
                 },
-                Genres = genrePredictions,
-                Stems = new StemData { AreGenerated = false }
-            };
-        }
-
-        if (analysisData == null)
-        {
-            analysisData = new AnalysisData
-            {
-                Mechanics = new MechanicsData
-                {
-                    Bpm = entry.BPM ?? entry.SpotifyBPM ?? 0,
-                    KeyScale = entry.MusicalKey ?? entry.SpotifyKey ?? string.Empty,
-                    TonalProbability = Math.Clamp(entry.KeyConfidence ?? entry.QualityConfidence ?? 0.55, 0.1, 1.0)
-                },
-                Affective = new AffectiveData
-                {
-                    Arousal = 0,
-                    Valence = 0
-                },
-                Moods = new MoodData(),
                 Genres = genrePredictions,
                 Stems = new StemData { AreGenerated = false }
             };
@@ -2522,9 +2509,11 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     // AnalysisData and therefore always looked complete.
 
     private readonly AnalysisCoverageService? _coverageService;
+    private readonly System.Reactive.Subjects.Subject<Unit> _coverageRefreshSubject = new();
     private PlaylistAnalysisCoverage? _coverage;
     private bool _isCoverageLoading;
     private string? _coverageError;
+    private int _coverageRefreshVersion;
 
     /// <summary>Playlists offered in the picker, plus a "whole library" entry at the top.</summary>
     public ObservableCollection<PlaylistChoice> CoveragePlaylists { get; } = new();
@@ -2564,7 +2553,11 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public bool IsCoverageLoading
     {
         get => _isCoverageLoading;
-        private set => this.RaiseAndSetIfChanged(ref _isCoverageLoading, value);
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _isCoverageLoading, value);
+            this.RaisePropertyChanged(nameof(CanRunMissingForPlaylist));
+        }
     }
 
     public string? CoverageError
@@ -2579,7 +2572,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
     public bool HasCoverageError => !string.IsNullOrWhiteSpace(CoverageError);
 
-    public bool HasCoverageData => Coverage is { TotalTracks: > 0 };
+    public bool HasCoverageData => Coverage is not null;
 
     /// <summary>"92 of 140 tracks fully analysed" — the one number this card exists to show.</summary>
     public string CoverageHeadline => Coverage is null
@@ -2591,7 +2584,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         ? string.Empty
         : Coverage switch
         {
-            { TotalTracks: 0 } => "No downloaded tracks in this playlist yet.",
+            { TotalTracks: 0 } => "No tracks with audio on disk in this selection yet.",
             { IsComplete: true } => "Nothing missing — every engine has output for every track.",
             _ => $"{Coverage.PartiallyAnalyzedTracks} partially analysed · {Coverage.UnanalysedTracks} not analysed at all",
         };
@@ -2614,26 +2607,36 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     {
         if (_coverageService is null) return;
 
+        var version = ++_coverageRefreshVersion;
+        var selection = SelectedCoveragePlaylist;
         IsCoverageLoading = true;
         CoverageError = null;
         try
         {
-            var selection = SelectedCoveragePlaylist;
-            Coverage = selection?.PlaylistId is { } playlistId
-                ? await _coverageService.GetPlaylistCoverageAsync(playlistId, selection.Name)
-                : await _coverageService.GetLibraryCoverageAsync();
+            var coverage = selection?.PlaylistId is { } playlistId
+                ? await _coverageService.GetPlaylistCoverageAsync(playlistId, selection.Name).ConfigureAwait(true)
+                : await _coverageService.GetLibraryCoverageAsync().ConfigureAwait(true);
 
+            // A slower response for an old playlist must not overwrite the newer selection.
+            if (version != _coverageRefreshVersion || !ReferenceEquals(selection, SelectedCoveragePlaylist))
+                return;
+
+            Coverage = coverage;
             RebuildCoverageRows();
             ApplyCoverageToTracks();
         }
         catch (Exception ex)
         {
-            CoverageError = ex.Message;
+            if (version == _coverageRefreshVersion)
+                CoverageError = ex.Message;
         }
         finally
         {
-            IsCoverageLoading = false;
-            this.RaisePropertyChanged(nameof(CanRunMissingForPlaylist));
+            if (version == _coverageRefreshVersion)
+            {
+                IsCoverageLoading = false;
+                this.RaisePropertyChanged(nameof(CanRunMissingForPlaylist));
+            }
         }
     }
 
@@ -2659,30 +2662,63 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             item.Coverage = Coverage.ForTrack(item.TrackId);
     }
 
+    /// <summary>Queues only the selected coverage population and each track's own missing engines.</summary>
+    private void QueueCoverageRequests(IEnumerable<TrackCoverageRequest> requests)
+    {
+        foreach (var request in requests)
+        {
+            var item = LibraryTracks.FirstOrDefault(t =>
+                string.Equals(t.TrackId, request.TrackHash, StringComparison.OrdinalIgnoreCase));
+
+            if (item is null)
+            {
+                // The selected playlist can contain tracks outside the currently loaded page.
+                // The normal request handler resolves the real library entry instead of inventing one.
+                _eventBus.Publish(new TrackAnalysisRequestedEvent(
+                    request.TrackHash, AnalysisTier.Tier1, false, request.Engines));
+                continue;
+            }
+
+            QueueEngineRequest(item, request.Engines);
+        }
+
+        NotifyAnalysisQueueChanged();
+    }
+
     /// <summary>Queues the given engines for a set of tracks, reusing the normal analysis queue.</summary>
     private void QueueEngines(IEnumerable<AnalysisTrackItem> tracks, AnalysisEngine engines)
     {
         if (engines == AnalysisEngine.None) return;
 
         foreach (var item in tracks)
+            QueueEngineRequest(item, engines);
+
+        NotifyAnalysisQueueChanged();
+    }
+
+    private void QueueEngineRequest(AnalysisTrackItem item, AnalysisEngine engines)
+    {
+        var requested = item.HasCoverage ? item.RunnableMissingEngines & engines : engines;
+        if (requested == AnalysisEngine.None) return;
+
+        if (!AnalysisQueue.Contains(item))
         {
-            var requested = item.HasCoverage ? item.RunnableMissingEngines & engines : engines;
-            if (requested == AnalysisEngine.None) continue;
-
-            if (!AnalysisQueue.Contains(item))
-            {
-                item.AnalysisStatus = AnalysisRunStatus.Queued;
-                AnalysisQueue.Add(item);
-            }
-
-            item.IsInQueue = true;
-            _eventBus.Publish(new TrackAnalysisRequestedEvent(item.TrackId, AnalysisTier.Tier1, false, requested));
+            item.AnalysisStatus = AnalysisRunStatus.Queued;
+            AnalysisQueue.Add(item);
         }
 
+        item.IsInQueue = true;
+        _eventBus.Publish(new TrackAnalysisRequestedEvent(item.TrackId, AnalysisTier.Tier1, false, requested));
+    }
+
+    private void NotifyAnalysisQueueChanged()
+    {
         this.RaisePropertyChanged(nameof(QueueTrackCount));
         this.RaisePropertyChanged(nameof(IsQueueEmpty));
         RefreshComputedStateInternal();
-    }    /// <summary>Loads the playlist picker, then the coverage for the current selection.</summary>
+    }
+
+    /// <summary>Loads the playlist picker, then the coverage for the current selection.</summary>
     private async Task LoadCoveragePlaylistsAsync()
     {
         try
@@ -2712,7 +2748,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     /// <summary>Queues every engine that is missing anywhere in the selected playlist.</summary>
     private Task RunMissingForPlaylistAsync()
     {
-        QueueEngines(LibraryTracks.ToList(), PlaylistMissingEngines);
+        QueueCoverageRequests(Coverage?.GetRequests(PlaylistMissingEngines) ?? Array.Empty<TrackCoverageRequest>());
         return Task.CompletedTask;
     }
 

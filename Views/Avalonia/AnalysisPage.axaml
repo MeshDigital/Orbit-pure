@@ -197,6 +197,10 @@
                                         </DataTemplate>
                                     </ComboBox.ItemTemplate>
                                 </ComboBox>
+                                <Button Classes="secondary small" Content="Refresh"
+                                        Command="{Binding RefreshCoverageCommand}"
+                                        IsEnabled="{Binding !IsCoverageLoading}"
+                                        ToolTip.Tip="Re-read stored analysis output and on-disk availability for this selection."/>
                                 <Button Classes="primary small" Content="Fill missing"
                                         Command="{Binding RunMissingForPlaylistCommand}"
                                         IsEnabled="{Binding CanRunMissingForPlaylist}"

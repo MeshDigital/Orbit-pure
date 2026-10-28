@@ -59,12 +59,11 @@ public static class AnalysisCoverageAnalyzer
         new(mask, Detect(features, cuePointCount, hasFingerprint));
 
     /// <summary>
-    /// Waveform blobs, or at least the sample count the extractor records with them. Either
-    /// proves the extractor ran; a zero-length blob with a positive count means a truncated
-    /// write, which still counts as present so the user is not asked to re-run it forever.
+    /// Waveform counts only when the extracted blob exists. A positive sample count without its
+    /// blob is a truncated write, not usable output, and must remain eligible for a repair run.
     /// </summary>
     public static bool HasWaveform(AudioFeaturesEntity features) =>
-        features.WaveformBlob is { Length: > 0 } || features.WaveformBlobSampleCount > 0;
+        features.WaveformBlob is { Length: > 0 };
 
     /// <summary>
     /// Integrated loudness. 0 is the "not measured" sentinel (the column is NOT NULL) — a measured
@@ -86,27 +85,30 @@ public static class AnalysisCoverageAnalyzer
         (!string.IsNullOrWhiteSpace(features.Key) && features.KeyConfidence > 0);
 
     /// <summary>
-    /// Mood/genre counts as done only when something beyond the constructor defaults was written:
-    /// an EnergyScore or a real genre distribution. Valence/arousal cannot be used — the entity
-    /// initialises both to 0.5f, which is also a legitimate measured value, so it proves nothing.
+    /// Mood requires mood/genre output, not the structural energy score. Structure always writes
+    /// EnergyScore (including a neutral fallback), while valence/arousal have measured-looking
+    /// constructor defaults; none of those prove the Mood engine ran.
     /// </summary>
     public static bool HasMood(AudioFeaturesEntity features) =>
-        features.EnergyScore > 0 ||
-        !IsEmptyJson(features.GenreDistributionJson);
+        !IsEmptyJson(features.GenreDistributionJson) ||
+        features.EmbeddingBlob is { Length: > 0 } ||
+        (!string.IsNullOrWhiteSpace(features.MoodTag) && features.MoodConfidence > 0);
 
-    /// <summary>Structure is present when phrases, an energy curve or a drop time was written.</summary>
+    /// <summary>
+    /// Structure requires versioned structural analysis or its phrase/drop output. The raw energy
+    /// curve is an input to that job, so it cannot prove that structural analysis completed.
+    /// </summary>
     public static bool HasStructure(AudioFeaturesEntity features) =>
+        features.StructuralVersion > 0 ||
         !IsEmptyJson(features.PhraseSegmentsJson) ||
-        !IsEmptyJson(features.EnergyCurveJson) ||
         features.DropTimeSeconds is not null;
 
     /// <summary>
-    /// Cues exist when the track has cue rows, or when a legacy pipeline left points in the JSON
-    /// columns. The live pipeline persists <c>CuePoints</c> rows, so the row count is the real check.
+    /// Cues exist when the track has cue rows, or when a legacy pipeline left points in the legacy
+    /// JSON column. CUE-DETR's inspector cache is a separate output and does not prove pipeline cues.
     /// </summary>
     public static bool HasCues(AudioFeaturesEntity features, int cuePointCount = -1) =>
-        cuePointCount > 0 ||
-        (!IsEmptyJson(features.CuePointsJson) || !IsEmptyJson(features.CueDetrJson));
+        cuePointCount > 0 || !IsEmptyJson(features.CuePointsJson);
 
     /// <summary>
     /// A fingerprint is a non-empty string once built, or a fingerprint file written by
