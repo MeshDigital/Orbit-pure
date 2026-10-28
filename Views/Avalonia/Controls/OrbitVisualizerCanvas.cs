@@ -210,6 +210,14 @@ public sealed class OrbitVisualizerCanvas : Control
         _time += dt * speed;
         _hueDrift = (float)((_hueDrift + dt * 4) % 360);
 
+        // Continuous, never-quite-repeating "life" signal. Three incommensurate sines make the
+        // modulation drift organically instead of looping on a fixed period, and the beat + overall
+        // level keep it tied to the music. Every preset reads this, so the whole picture slowly
+        // evolves (hue, rotation speed, warp, scale) instead of holding a static shape.
+        float morph = (float)(
+            Math.Sin(_time * 0.31) * Math.Sin(_time * 0.127 + 1.7) * Math.Sin(_time * 0.053 + 0.4)
+            * (0.5 + 0.5 * _beat) * (0.6 + 0.4 * _bands.Overall));
+
         var preset = EffectivePreset();
         switch (preset)
         {
@@ -222,7 +230,7 @@ public sealed class OrbitVisualizerCanvas : Control
         }
 
         _frame = new Frame(
-            preset, _time, energy, _beat, AlbumHueOrDrift(energy),
+            preset, _time, energy, _beat, AlbumHueOrDrift(energy), morph,
             (float[])_bands.Levels.Clone(), (float[])_bands.Peaks.Clone(),
             _bands.Bass, _bands.Mid, _bands.Treble, _bands.Overall,
             playing,
@@ -263,7 +271,7 @@ public sealed class OrbitVisualizerCanvas : Control
         for (int i = 0; i < burst && _particles.Count < target * 2; i++) _particles.Add(Particle.Spawn(_rng, fromCentre: true));
         while (_particles.Count < target) _particles.Add(Particle.Spawn(_rng, fromCentre: false));
 
-        float push = (float)(dt * (0.4 + _bands.Bass * 2.5));
+        float push = (float)(dt * (0.4 + _bands.Bass * 2.5 + energy * 0.5));
         for (int i = _particles.Count - 1; i >= 0; i--)
         {
             var p = _particles[i];
@@ -280,9 +288,13 @@ public sealed class OrbitVisualizerCanvas : Control
 
     private void StepRipples(double dt)
     {
-        if (_beat > 0.9f && _time - _lastRippleTime > 0.18)
+        if (_beat > 0.8f && _time - _lastRippleTime > 0.15)
         {
-            _ripples.Add(new Ripple { Radius = 0.02f, Alpha = 1f, Speed = 0.35f + _bands.Bass * 0.6f });
+            float speed = 0.35f + _bands.Bass * 0.6f;
+            _ripples.Add(new Ripple { Radius = 0.02f, Alpha = 1f, Speed = speed });
+            // A loud low end throws a second, slower ring for a layered "thump".
+            if (_bands.Bass > 0.55f)
+                _ripples.Add(new Ripple { Radius = 0.02f, Alpha = 0.7f, Speed = speed * 0.7f });
             _lastRippleTime = _time;
         }
         for (int i = _ripples.Count - 1; i >= 0; i--)
@@ -360,7 +372,7 @@ public sealed class OrbitVisualizerCanvas : Control
     // ── Snapshot types ───────────────────────────────────────────────────────
 
     private sealed record Frame(
-        VisualizerPreset Preset, double Time, float Energy, float Beat, float Hue,
+        VisualizerPreset Preset, double Time, float Energy, float Beat, float Hue, float Morph,
         float[] Levels, float[] Peaks, float Bass, float Mid, float Treble, float Overall,
         bool Playing,
         float[][]? Scope,
@@ -459,7 +471,7 @@ public sealed class OrbitVisualizerCanvas : Control
         }
 
         private SKColor Hsv(float hueOffset, float s, float v, float alpha = 1f) =>
-            SKColor.FromHsv(((_f.Hue + hueOffset) % 360 + 360) % 360, s * 100, v * 100, (byte)Math.Clamp(alpha * 255, 0, 255));
+            SKColor.FromHsv(((_f.Hue + _f.Morph * 45f + hueOffset) % 360 + 360) % 360, s * 100, v * 100, (byte)Math.Clamp(alpha * 255, 0, 255));
 
         private float Level(float t)
         {
@@ -478,8 +490,8 @@ public sealed class OrbitVisualizerCanvas : Control
             float gap = Math.Max(2, w / bars * 0.22f);
             float barW = w / bars - gap;
             float baseY = h * 0.68f;
-            float maxH = h * 0.55f;
-            float lift = 1f + _f.Beat * 0.12f;
+            float maxH = h * (0.45f + _f.Bass * 0.15f + _f.Overall * 0.08f);
+            float lift = 1f + _f.Beat * 0.18f + _f.Bass * 0.25f;
 
             using var glow = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill, ImageFilter = SKImageFilter.CreateBlur(10, 10) };
             using var bar = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
@@ -523,15 +535,16 @@ public sealed class OrbitVisualizerCanvas : Control
         private void DrawCircularWave(SKCanvas canvas, float w, float h)
         {
             float cx = w / 2, cy = h / 2;
-            float radius = Math.Min(w, h) * 0.2f * (1 + _f.Beat * 0.05f);
-            float reach = Math.Min(w, h) * 0.24f;
+            float pulse = 1f + _f.Beat * 0.06f + _f.Bass * 0.35f;
+            float radius = Math.Min(w, h) * 0.2f * pulse;
+            float reach = Math.Min(w, h) * (0.2f + _f.Energy * 0.1f + _f.Bass * 0.12f);
             const int Spokes = 180;
 
             using var spoke = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeCap = SKStrokeCap.Round, StrokeWidth = Math.Max(2, radius * 2 * MathF.PI / Spokes * 0.55f) };
             using var outline = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 2.5f, Color = Hsv(40, 0.5f, 1f, 0.8f), ImageFilter = SKImageFilter.CreateBlur(2, 2) };
             using var path = new SKPath();
 
-            float rotation = (float)(_f.Time * 0.15);
+            float rotation = (float)(_f.Time * (0.12 + _f.Energy * 0.12 + _f.Bass * 0.35 + _f.Morph * 0.1));
             for (int i = 0; i <= Spokes; i++)
             {
                 // Mirror the spectrum around the circle so bass sits at the top and bottom.
@@ -615,10 +628,10 @@ public sealed class OrbitVisualizerCanvas : Control
         {
             float cx = w / 2, cy = h / 2;
             float inner = Math.Min(w, h) * 0.06f;
-            float outer = Math.Max(w, h) * 0.55f;
+            float outer = Math.Max(w, h) * (0.5f + _f.Bass * 0.12f + _f.Beat * 0.06f);
             const int Spokes = 144;
             using var paint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeCap = SKStrokeCap.Round, StrokeWidth = 2 };
-            float rot = (float)(_f.Time * 0.12);
+            float rot = (float)(_f.Time * (0.1 + _f.Energy * 0.1 + _f.Bass * 0.3 + _f.Morph * 0.08));
             for (int i = 0; i < Spokes; i++)
             {
                 float t = i < Spokes / 2 ? (float)i / (Spokes / 2) : (float)(Spokes - i) / (Spokes / 2);
@@ -643,7 +656,7 @@ public sealed class OrbitVisualizerCanvas : Control
         {
             float t = (float)_f.Time;
             float cell = Math.Max(18, Math.Min(w, h) / 36);
-            float warp = 6 + _f.Bass * 10;
+            float warp = 6 + _f.Bass * 10 + _f.Morph * 3f;
             using var paint = new SKPaint { IsAntialias = false, Style = SKPaintStyle.Fill };
             for (float y = 0; y < h; y += cell)
                 for (float x = 0; x < w; x += cell)
@@ -667,14 +680,15 @@ public sealed class OrbitVisualizerCanvas : Control
             float[] drive = { _f.Bass, _f.Mid, _f.Treble, _f.Mid, _f.Bass };
             for (int b = 0; b < drive.Length; b++)
             {
-                float amp = h * (0.08f + drive[b] * 0.22f);
+                float amp = h * (0.08f + drive[b] * 0.22f) * (1f + _f.Morph * 0.15f);
                 float baseY = h * (0.3f + b * 0.1f);
+                float phase = b + _f.Morph * 2f;
                 using var path = new SKPath();
                 path.MoveTo(0, h);
                 for (float x = 0; x <= w; x += 12)
                 {
                     float nx = x / w;
-                    float y = baseY + MathF.Sin(nx * 5 + t * (0.6f + b * 0.15f) + b) * amp + MathF.Sin(nx * 11 - t * 0.8f) * amp * 0.35f;
+                    float y = baseY + MathF.Sin(nx * 5 + t * (0.6f + b * 0.15f) + phase) * amp + MathF.Sin(nx * 11 - t * 0.8f + phase) * amp * 0.35f;
                     path.LineTo(x, y);
                 }
                 path.LineTo(w, h);
@@ -791,7 +805,7 @@ public sealed class OrbitVisualizerCanvas : Control
             using (var glow = new SKPaint { IsAntialias = true, Shader = shader })
                 canvas.DrawCircle(cx, cy, r, glow);
 
-            float ox = cx + MathF.Cos(t * 0.21f) * maxR * 0.35f, oy = cy + MathF.Sin(t * 0.17f) * maxR * 0.25f;
+            float ox = cx + MathF.Cos(t * 0.21f + _f.Morph * 2f) * maxR * 0.35f, oy = cy + MathF.Sin(t * 0.17f + _f.Morph * 2f) * maxR * 0.25f;
             using (var shader = SKShader.CreateRadialGradient(new SKPoint(ox, oy), r * 0.5f, new[] { Hsv(60, 0.5f, 1f, 0.22f), SKColors.Transparent }, null, SKShaderTileMode.Clamp))
             using (var orb = new SKPaint { IsAntialias = true, Shader = shader, BlendMode = SKBlendMode.Plus })
                 canvas.DrawCircle(ox, oy, r * 0.5f, orb);
