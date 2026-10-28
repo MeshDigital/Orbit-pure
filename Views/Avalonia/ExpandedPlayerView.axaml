@@ -287,6 +287,11 @@
                             <StackPanel Spacing="2">
                                 <TextBlock Classes="section" Text="UP NEXT"/>
                                 <TextBlock Classes="caption" Text="{Binding UpNextSummary}"/>
+                                <!-- Flow is choosing the order: name the pick and why, so the queue
+                                     below is understandable instead of just "next row" -->
+                                <TextBlock Classes="caption accent" TextWrapping="Wrap"
+                                           Text="{Binding FlowModeState.NextTrackReason}"
+                                           IsVisible="{Binding IsFlowMode}"/>
                             </StackPanel>
                             <Button Grid.Column="1" Classes="glass" Padding="6" Command="{Binding ToggleExpandedQueueCommand}" ToolTip.Tip="Hide (Q)">
                                 <PathIcon Data="{StaticResource icon_close}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>

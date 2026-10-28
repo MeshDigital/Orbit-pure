@@ -2,6 +2,36 @@
 
 ---
 
+## [Unreleased] — 2026-10-28
+
+### ▶️ Flow Mode now actually plans — and explains itself
+
+The player's **Flow** toggle was a built engine (`FlowModeService`, scoring energy/BPM/key) with **no caller**:
+`RebuildFlowPathAsync` was never invoked, so with Flow on the Now Playing card went blank — no next track, no reason.
+Fixed and extended:
+
+- Flow plans on every track change, queue change, preset change and energy-nudge change, from the queue being played.
+- Scoring lives in `Services/Entertainment/FlowPathPlanner` (pure, unit-tested): Camelot-wheel distance, ratio-aware tempo
+  matching (2:1 / 1:2 / 3:2, so 87 next to 174 BPM is a match), energy ramp toward the target, mood/genre affinity,
+  repeat/same-artist damping, and a stable tie-break so identical inputs always produce the same path. It plans 5 hops,
+  each scored against the hop before it.
+- The plan drives playback: `PeekNextIndex` (preload/crossfade), the Next button, and the has-next guards all consult it.
+  Turning shuffle on stands Flow down, and activating Flow switches shuffle off.
+- Now Playing shows the next track (BPM / key / energy), a bar plus real numbers per axis ("8A → 8B · Compatible (+1)"),
+  the crossfade length, the next four hops, an *Optimise for* preset picker and an energy slider; the fullscreen overlay's
+  UP NEXT column names the pick.
+- Every blocked state explains itself (no analysis / nothing queued / nothing analysed), and the service is DB-free again,
+  so a plan is ready before the next deck preloads.
+
+### 🖥️ Fullscreen player: the controls stop coming back on their own
+
+The overlay fades its chrome after 3.5 s of inactivity, then un-faded itself ~2–3 s later, faded again, and repeated.
+Avalonia re-raises `PointerMoved` when the element under a **stationary** cursor changes (the seek thumb slides on every
+position tick; the queue scrolls on track change), and every one of those counted as user activity. Idle detection now
+compares pointer positions (sub-pixel moves are ignored), fading is idempotent, and chrome never fades while paused.
+
+---
+
 ## [0.10.0-alpha] — 2026-10-24
 
 A large hardening release: a single design system across the whole app, rebuilt core pages, new DJ tools,

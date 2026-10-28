@@ -44,10 +44,10 @@ namespace SLSKDONET.Models.Musical
 
         public static string ToDescription(this VibePreset preset) => preset switch
         {
-            VibePreset.SilkySmooth => "Prioritizes harmonic compatibility for seamless blends",
-            VibePreset.ClubBanger => "Prioritizes energy alignment for high-impact drops",
-            VibePreset.RadioPerfect => "Strict vocal protection to prevent lyric clashes",
-            VibePreset.GenreBender => "Prioritizes rhythm for genre-crossing creativity",
+            VibePreset.SilkySmooth => "Follows the Camelot wheel for seamless harmonic blends",
+            VibePreset.ClubBanger => "Chases the energy target — high-impact picks over subtle blends",
+            VibePreset.RadioPerfect => "Balanced key and tempo, with gentle energy moves",
+            VibePreset.GenreBender => "Tempo first and genre-blind — jumps between styles",
             _ => string.Empty
         };
     }

@@ -1,33 +1,34 @@
+using System;
+using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
-using SLSKDONET.Data;
 using SLSKDONET.Models.Entertainment;
 using SLSKDONET.Models.Musical;
-using SLSKDONET.Data.Entities;
-using Microsoft.EntityFrameworkCore;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services.Entertainment;
 
 /// <summary>
 /// Implements ORBIT's Flow Mode engine — scores and selects upcoming tracks
 /// for a seamless, DJ-like continuous playback experience.
+///
+/// The maths lives in <see cref="FlowPathPlanner"/>; this class owns the runtime state, the last
+/// assembled path and the change notification. It holds no database dependency: Flow plans over the
+/// cues the player already has (the queue), which is what lets it re-plan synchronously the instant a
+/// track starts — the previous async, DB-backed version was never actually called, so Flow showed a
+/// toggle and an empty panel.
 /// </summary>
-public sealed class FlowModeService : IFlowModeService, IDisposable
+public sealed class FlowModeService : IFlowModeService
 {
     private readonly ILogger<FlowModeService> _logger;
-    private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private FlowModeState _state = new();
-    private bool _disposed;
 
     public FlowModeState State => _state;
 
     public event EventHandler<FlowModeState>? StateChanged;
 
-    public FlowModeService(
-        ILogger<FlowModeService> logger,
-        IDbContextFactory<AppDbContext> dbFactory)
+    public FlowModeService(ILogger<FlowModeService> logger)
     {
         _logger = logger;
-        _dbFactory = dbFactory;
     }
 
     public void Activate(VibePreset preset = VibePreset.SilkySmooth, double energyNudge = 0.0)
@@ -36,17 +37,30 @@ public sealed class FlowModeService : IFlowModeService, IDisposable
         {
             IsActive = true,
             ActivePreset = preset,
-            EnergyNudge = energyNudge
+            EnergyNudge = Math.Clamp(energyNudge, -1.0, 1.0),
+            Status = FlowPlanStatus.Off,
+            StatusMessage = string.Empty,
         };
+
         _logger.LogInformation("Flow Mode activated (preset: {Preset}, nudge: {Nudge:+0.0;-0.0;0})",
-            preset, energyNudge);
+            preset, _state.EnergyNudge);
         RaiseStateChanged();
     }
 
     public void Deactivate()
     {
         if (!_state.IsActive) return;
-        _state = _state with { IsActive = false };
+
+        _state = _state with
+        {
+            IsActive = false,
+            Status = FlowPlanStatus.Off,
+            StatusMessage = string.Empty,
+            FlowPath = [],
+            NextTrackReason = string.Empty,
+            CrossfadeDurationSeconds = 4.0,
+        };
+
         _logger.LogInformation("Flow Mode deactivated.");
         RaiseStateChanged();
     }
@@ -60,169 +74,101 @@ public sealed class FlowModeService : IFlowModeService, IDisposable
     public void SetEnergyNudge(double nudge)
     {
         nudge = Math.Clamp(nudge, -1.0, 1.0);
+        if (Math.Abs(nudge - _state.EnergyNudge) < 0.0005) return;
+
         _state = _state with { EnergyNudge = nudge };
         RaiseStateChanged();
     }
 
     public void SetPreset(VibePreset preset)
     {
+        if (preset == _state.ActivePreset) return;
+
         _state = _state with { ActivePreset = preset };
+        _logger.LogInformation("Flow Mode preset changed to {Preset}", preset);
         RaiseStateChanged();
     }
 
-    public async Task RebuildFlowPathAsync(
-        string currentTrackHash,
-        IEnumerable<string> candidateHashes,
-        CancellationToken cancellationToken = default)
+    public void RebuildFlowPath(
+        FlowCandidate? current,
+        IReadOnlyList<FlowCandidate> candidates,
+        IReadOnlyCollection<string>? recentlyPlayed = null)
     {
+        // While Flow is off there is nothing to plan; the UI shows the "what Flow does" copy instead.
         if (!_state.IsActive) return;
 
         try
         {
-            await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
-
-            // Fetch audio features for the current track
-            var currentFeatures = await db.AudioFeatures
-                .AsNoTracking()
-                .FirstOrDefaultAsync(f => f.TrackUniqueHash == currentTrackHash, cancellationToken);
-
-            if (currentFeatures is null)
-            {
-                _logger.LogDebug("Flow Mode: no audio features for current track '{Hash}' — skipping rebuild.",
-                    currentTrackHash);
-                return;
-            }
-
-            var candidateList = candidateHashes.ToList();
-            if (candidateList.Count == 0) return;
-
-            // Fetch features for candidates (batch, up to 200)
-            var candidates = await db.AudioFeatures
-                .AsNoTracking()
-                .Where(f => candidateList.Contains(f.TrackUniqueHash) && f.TrackUniqueHash != currentTrackHash)
-                .ToListAsync(cancellationToken);
-
             var weights = _state.ActivePreset.ToSettings();
-            double targetEnergy = Math.Clamp(currentFeatures.Energy + _state.EnergyNudge * 0.3, 0.0, 1.0);
 
-            // Score each candidate
-            var scored = candidates
-                .Select(c => (features: c, score: ScoreCandidate(currentFeatures, c, weights, targetEnergy)))
-                .OrderByDescending(x => x.score)
-                .Take(5)
-                .ToList();
+            var result = FlowPathPlanner.Plan(
+                current,
+                candidates,
+                weights,
+                _state.EnergyNudge,
+                FlowPathPlanner.DefaultMaxSteps,
+                recentlyPlayed);
 
-            // Resolve titles from library entries
-            var topHashes = scored.Select(x => x.features.TrackUniqueHash).ToList();
-            var libraryMap = await db.LibraryEntries
-                .AsNoTracking()
-                .Where(e => topHashes.Contains(e.UniqueHash))
-                .ToDictionaryAsync(e => e.UniqueHash, e => $"{e.Artist} — {e.Title}", cancellationToken);
-
-            var titles = scored
-                .Select(x => libraryMap.TryGetValue(x.features.TrackUniqueHash, out var t) ? t : x.features.TrackUniqueHash)
-                .ToList();
-
-            var energies = scored.Select(x => (double)x.features.Energy).ToList();
-
-            // Determine crossfade duration from BPM proximity
-            var nextFeatures = scored.FirstOrDefault().features;
-            double crossfade = nextFeatures is not null
-                ? ComputeCrossfadeDuration(currentFeatures.Bpm, nextFeatures.Bpm)
-                : 4.0;
-
-            string reason = scored.Count > 0
-                ? BuildReason(currentFeatures, scored[0].features, weights)
-                : "No suitable candidates found.";
+            var next = result.Steps.Count > 0 ? result.Steps[0] : null;
 
             _state = _state with
             {
-                FlowPathTitles = titles,
-                FlowPathEnergies = energies,
-                CrossfadeDurationSeconds = crossfade,
-                NextTrackReason = reason
+                Status = result.Status,
+                StatusMessage = result.Message,
+                FlowPath = result.Steps,
+                PlannedFromName = current?.DisplayName ?? string.Empty,
+                EvaluatedCandidates = result.EvaluatedCandidates,
+                AnalysedCandidates = result.AnalysedCandidates,
+                CrossfadeDurationSeconds = next?.CrossfadeSeconds ?? 4.0,
+                NextTrackReason = BuildNextReason(next, result),
+                PlannedAt = DateTime.UtcNow,
             };
 
-            _logger.LogDebug("Flow Mode: rebuilt path with {Count} candidates. Next: {Title}",
-                scored.Count, titles.FirstOrDefault() ?? "—");
+            if (result.Status == FlowPlanStatus.Ready)
+            {
+                _logger.LogDebug(
+                    "Flow Mode: planned {Count} hop(s) from {Current} within {Analysed}/{Total} analysed queued track(s). Next: {Next} ({Score})",
+                    result.Steps.Count, current?.DisplayName, result.AnalysedCandidates, result.EvaluatedCandidates,
+                    next?.DisplayName, next?.ScoreText);
+            }
+            else
+            {
+                _logger.LogDebug("Flow Mode: no path — {Status}: {Message}", result.Status, result.Message);
+            }
 
             RaiseStateChanged();
         }
-        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Flow Mode: error rebuilding flow path.");
+            // A throwing planner must not take the player down with it, but it must not fail silently
+            // either: the panel shows the reason and it lands in the log.
+            _logger.LogError(ex, "Flow Mode: planning failed.");
+
+            _state = _state with
+            {
+                Status = FlowPlanStatus.Faulted,
+                StatusMessage = "Flow could not plan the next tracks. See the log for details.",
+                FlowPath = [],
+                NextTrackReason = "Flow could not plan the next tracks.",
+            };
+            RaiseStateChanged();
         }
     }
 
-    // ── Scoring ─────────────────────────────────────────────────────────────
-
-    private static double ScoreCandidate(
-        AudioFeaturesEntity current,
-        AudioFeaturesEntity candidate,
-        FlowWeightSettings weights,
-        double targetEnergy)
+    /// <summary>
+    /// The one line under the visualizer. When a path exists it names the pick and why; otherwise it
+    /// carries the reason the path is empty (so the UI is never just blank).
+    /// </summary>
+    private static string BuildNextReason(FlowStep? next, FlowPlanResult result)
     {
-        double score = 0;
+        if (next is null) return result.Message;
 
-        // Energy proximity (weighted)
-        double energyDiff = Math.Abs(candidate.Energy - targetEnergy);
-        score += weights.EnergyWeight * (1.0 - Math.Min(energyDiff / 0.5, 1.0));
+        var reason = string.IsNullOrWhiteSpace(next.ReasonSummary)
+            ? string.Empty
+            : NumFormat.Ui($" — {next.ReasonSummary}");
 
-        // BPM proximity (weighted)
-        double bpmRatio = current.Bpm > 0 && candidate.Bpm > 0
-            ? Math.Abs(current.Bpm - candidate.Bpm) / Math.Max(current.Bpm, candidate.Bpm)
-            : 0.5;
-        score += weights.BpmWeight * (1.0 - Math.Min(bpmRatio, 1.0));
-
-        // Harmonic compatibility (simplified: same key = high score)
-        bool sameKey = string.Equals(current.Key, candidate.Key, StringComparison.OrdinalIgnoreCase);
-        score += weights.HarmonicWeight * (sameKey ? 1.0 : 0.3);
-
-        return score;
+        return NumFormat.Ui($"Flow next: {next.DisplayName}") + reason;
     }
 
-    private static double ComputeCrossfadeDuration(float bpmA, float bpmB)
-    {
-        if (bpmA <= 0 || bpmB <= 0) return 4.0;
-        double bpmDiff = Math.Abs(bpmA - bpmB);
-        // Large BPM diff → longer fade to mask the mismatch
-        return Math.Clamp(4.0 + (bpmDiff / 10.0), 2.0, 12.0);
-    }
-
-    private static string BuildReason(
-        AudioFeaturesEntity current,
-        AudioFeaturesEntity next,
-        FlowWeightSettings weights)
-    {
-        var parts = new List<string>();
-
-        if (weights.HarmonicWeight >= 0.7 &&
-            string.Equals(current.Key, next.Key, StringComparison.OrdinalIgnoreCase))
-            parts.Add("same key");
-
-        if (weights.EnergyWeight >= 0.6)
-        {
-            double diff = Math.Abs(current.Energy - next.Energy);
-            parts.Add(diff < 0.1 ? "matching energy" : "energy transition");
-        }
-
-        if (weights.BpmWeight >= 0.5 && current.Bpm > 0 && next.Bpm > 0)
-        {
-            double bpmDiff = Math.Abs(current.Bpm - next.Bpm);
-            parts.Add(bpmDiff < 5 ? $"near-identical BPM ({next.Bpm:F0})" : $"BPM drift ({next.Bpm:F0})");
-        }
-
-        return parts.Count > 0
-            ? "Selected for: " + string.Join(", ", parts)
-            : "Best available match.";
-    }
-
-    private void RaiseStateChanged() =>
-        StateChanged?.Invoke(this, _state);
-
-    public void Dispose()
-    {
-        _disposed = true;
-    }
+    private void RaiseStateChanged() => StateChanged?.Invoke(this, _state);
 }

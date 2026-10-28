@@ -528,6 +528,142 @@ namespace SLSKDONET.ViewModels
             set => SetProperty(ref _isFlowMode, value);
         }
 
+        // ── Flow Mode controls ───────────────────────────────────────────────────────────────
+        // The Now Playing card exposes what Flow is optimising for (preset), which direction the set
+        // should move (energy nudge), and the plan itself. Without these the toggle was the only
+        // Flow control in the app and the engine's weights were unreachable.
+
+        /// <summary>The four Flow weightings offered in the Now Playing card.</summary>
+        public IReadOnlyList<FlowPresetOption> FlowPresets => FlowPresetOption.All;
+
+        private FlowPresetOption? _selectedFlowPreset;
+        /// <summary>The weighting Flow currently scores with; changing it re-plans immediately.</summary>
+        public FlowPresetOption SelectedFlowPreset
+        {
+            get => _selectedFlowPreset ??= FlowPresetOption.For(FlowModeState.ActivePreset);
+            set
+            {
+                if (value is null || ReferenceEquals(value, _selectedFlowPreset)) return;
+                if (!SetProperty(ref _selectedFlowPreset, value)) return;
+
+                _flowModeService?.SetPreset(value.Preset);
+                OnPropertyChanged(nameof(SelectedFlowPresetDescription));
+                PlanFlowPath();
+            }
+        }
+
+        /// <summary>One-line explanation of the selected preset, shown under the picker.</summary>
+        public string SelectedFlowPresetDescription => SelectedFlowPreset.Description;
+
+        /// <summary>
+        /// Energy nudge as a −100…+100 slider (the service takes −1…+1). Moving it re-plans the path
+        /// so the arc bends toward the new target instead of only affecting the next rebuild.
+        /// </summary>
+        public double FlowEnergyNudgePercent
+        {
+            get => Math.Round(FlowModeState.EnergyNudge * 100.0);
+            set
+            {
+                var nudge = Math.Clamp(value / 100.0, -1.0, 1.0);
+                if (Math.Abs(nudge - FlowModeState.EnergyNudge) < 0.004) return;
+
+                _flowModeService?.SetEnergyNudge(nudge);
+                OnPropertyChanged();
+                PlanFlowPath();
+            }
+        }
+
+        /// <summary>Queue hashes played recently (newest first), so Flow doesn't loop straight back.</summary>
+        private readonly LinkedList<string> _flowRecentlyPlayed = new();
+        private const int FlowHistoryLength = 8;
+
+        /// <summary>Re-plans Flow from the current track and every other playable queued track.</summary>
+        internal void PlanFlowPath()
+        {
+            if (_flowModeService is null || !IsFlowMode) return;
+
+            var current = CurrentTrack is null ? null : ToFlowCandidate(CurrentTrack);
+
+            var candidates = new List<FlowCandidate>(Queue.Count);
+            for (int i = 0; i < Queue.Count; i++)
+            {
+                // The playing row is excluded by hash inside the planner too; skipping it here keeps
+                // a duplicate hash elsewhere in the queue from being treated as "not the current".
+                if (i == CurrentQueueIndex) continue;
+
+                // Deliberately a path check, not File.Exists: planning runs on every track change and
+                // stat-ing a 500-row queue on the UI thread would stall the handover. The pick is
+                // validated for real in PeekFlowNextIndex before anything is preloaded.
+                if (string.IsNullOrEmpty(Queue[i].Model?.ResolvedFilePath)) continue;
+
+                candidates.Add(ToFlowCandidate(Queue[i]));
+            }
+
+            _flowModeService.RebuildFlowPath(current, candidates, _flowRecentlyPlayed.ToList());
+
+            // Mirror the fresh snapshot immediately instead of waiting for the service's event: the
+            // very next thing that happens is SchedulePreloadNext reading FlowModeState.NextStep,
+            // and it must never read a stale plan.
+            SyncFlowState(_flowModeService.State);
+        }
+
+        /// <summary>Coalesces burst queue mutations (bulk loads add row by row) into one re-plan.</summary>
+        private bool _flowPlanScheduled;
+        private void ScheduleFlowPlan()
+        {
+            if (_flowPlanScheduled || !IsFlowMode) return;
+            _flowPlanScheduled = true;
+            Dispatcher.UIThread.Post(() =>
+            {
+                _flowPlanScheduled = false;
+                PlanFlowPath();
+            }, DispatcherPriority.Background);
+        }
+
+        private void RememberFlowHistory(PlaylistTrackViewModel? track)
+        {
+            var hash = track?.GlobalId;
+            if (string.IsNullOrWhiteSpace(hash)) return;
+
+            _flowRecentlyPlayed.Remove(hash);
+            _flowRecentlyPlayed.AddFirst(hash);
+            while (_flowRecentlyPlayed.Count > FlowHistoryLength)
+                _flowRecentlyPlayed.RemoveLast();
+        }
+
+        /// <summary>Flattens a queued row into the feature set Flow scores on.</summary>
+        private static FlowCandidate ToFlowCandidate(PlaylistTrackViewModel track)
+        {
+            var camelot = track.CamelotDisplay;
+
+            return new FlowCandidate
+            {
+                Hash = track.GlobalId ?? string.Empty,
+                Artist = track.Artist ?? string.Empty,
+                Title = track.Title ?? string.Empty,
+                Bpm = track.BPM,
+                CamelotKey = camelot == "—" ? string.Empty : camelot,
+                // PlaylistTrackViewModel.Energy collapses "no analysis" to 0; Flow needs to tell the
+                // two apart, so 0 becomes the "unknown" sentinel here.
+                Energy = track.Energy > 0 ? track.Energy : -1.0,
+                Mood = track.HasMood ? track.MoodTag ?? string.Empty : string.Empty,
+                Genre = track.PrimaryGenre ?? string.Empty,
+            };
+        }
+
+        /// <summary>Mirrors a Flow state snapshot into the bindable properties.</summary>
+        private void SyncFlowState(FlowModeState state)
+        {
+            FlowModeState = state;
+            IsFlowMode = state.IsActive;
+
+            _selectedFlowPreset = FlowPresetOption.For(state.ActivePreset);
+            OnPropertyChanged(nameof(SelectedFlowPreset));
+            OnPropertyChanged(nameof(SelectedFlowPresetDescription));
+            OnPropertyChanged(nameof(FlowEnergyNudgePercent));
+            (NextTrackCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        }
+
         private bool _isMetadataDrivenVisuals;
         /// <summary>True when the visualizer adapts dynamically based on track metadata.</summary>
         public bool IsMetadataDrivenVisuals
@@ -804,12 +940,13 @@ namespace SLSKDONET.ViewModels
             {
                 _flowModeService.StateChanged += (_, state) =>
                 {
-                    Dispatcher.UIThread.Post(() =>
-                    {
-                        FlowModeState = state;
-                        IsFlowMode = state.IsActive;
-                    });
+                    if (Dispatcher.UIThread.CheckAccess()) SyncFlowState(state);
+                    else Dispatcher.UIThread.Post(() => SyncFlowState(state));
                 };
+
+                // A queue that grows or shrinks changes what Flow may pick; coalesced because a
+                // playlist load adds rows one at a time.
+                Queue.CollectionChanged += (_, _) => ScheduleFlowPlan();
             }
             
             _saveQueueTimer = new System.Threading.Timer(_ => 
@@ -1156,9 +1293,28 @@ namespace SLSKDONET.ViewModels
             ToggleFlowModeCommand = new RelayCommand(() =>
             {
                 if (_flowModeService is not null)
+                {
                     _flowModeService.Toggle();
-                else
-                    IsFlowMode = !IsFlowMode;
+
+                    // The service raises StateChanged (queued onto the dispatcher); mirror it here
+                    // first so PlanFlowPath below sees the new state instead of planning on stale
+                    // IsFlowMode.
+                    SyncFlowState(_flowModeService.State);
+
+                    if (_flowModeService.State.IsActive)
+                    {
+                        // Flow owns the order while it runs — leaving shuffle on would silently
+                        // override every pick, which is exactly the "it does nothing" impression
+                        // this mode had.
+                        if (IsShuffling) IsShuffling = false;
+                        PlanFlowPath();
+                    }
+
+                    return;
+                }
+
+                IsFlowMode = !IsFlowMode;
+                if (IsFlowMode) PlanFlowPath();
             });
             ToggleMetadataDrivenVisualsCommand = new RelayCommand(() =>
             {
@@ -1838,6 +1994,12 @@ namespace SLSKDONET.ViewModels
                 // Repeat current track
                 nextIndex = CurrentQueueIndex;
             }
+            else if (PeekFlowNextIndex() is int flowNext)
+            {
+                // Flow is driving: "next" is the track it planned, which may be anywhere in the
+                // queue (flowing back to an earlier track is legal), not just the following row.
+                nextIndex = flowNext;
+            }
             else if (IsShuffling)
             {
                 nextIndex = GetRandomTrackIndex();
@@ -1971,6 +2133,11 @@ namespace SLSKDONET.ViewModels
             // crossfade advance for the rest of the session.
             TrackTitle = track.Title ?? "Unknown";
             TrackArtist = track.Artist ?? "Unknown";
+
+            // Flow plans from the track that just started, BEFORE PlayTrackAtIndex asks for the next
+            // preload — a plan that lands after SchedulePreloadNext would pick the wrong deck.
+            RememberFlowHistory(track);
+            PlanFlowPath();
 
             // Phase 9.2 & 9.3: Set album artwork and like status
             Dispatcher.UIThread.Post(async () =>
@@ -2234,7 +2401,35 @@ namespace SLSKDONET.ViewModels
             if (IsShuffling) return null;
             if (RepeatMode == RepeatMode.One) return CurrentQueueIndex;
 
+            // Flow plans the order while it is active, so the deck preloaded for the crossfade is the
+            // track Flow actually picked — not merely "whatever came next in the queue".
+            if (PeekFlowNextIndex() is int flowIndex) return flowIndex;
+
             return NextPlayableIndex(CurrentQueueIndex + 1, wrap: RepeatMode == RepeatMode.All);
+        }
+
+        /// <summary>
+        /// The queue row Flow wants to play next, or null when Flow is off/has no plan/the planned
+        /// track is gone from the queue. The hash (not the index) is the contract: the queue can be
+        /// edited between planning and playback.
+        /// </summary>
+        private int? PeekFlowNextIndex()
+        {
+            if (!IsFlowMode) return null;
+
+            var next = FlowModeState.NextStep;
+            if (next is null || string.IsNullOrWhiteSpace(next.Hash)) return null;
+
+            for (int i = 0; i < Queue.Count; i++)
+            {
+                if (string.Equals(Queue[i].GlobalId, next.Hash, StringComparison.OrdinalIgnoreCase) &&
+                    IsPlayableQueueItem(i))
+                {
+                    return i;
+                }
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -2268,6 +2463,9 @@ namespace SLSKDONET.ViewModels
         private bool HasNextTrack()
         {
             if (!Queue.Any()) return false;
+            // Flow can pick a track that sits before the current one in the queue, so the plain
+            // "is there a row after this one" test does not describe it.
+            if (IsFlowMode && PeekFlowNextIndex() is not null) return true;
             if (RepeatMode != RepeatMode.Off) return true;
             return CurrentQueueIndex < Queue.Count - 1;
         }
@@ -2310,6 +2508,23 @@ namespace SLSKDONET.ViewModels
             if (!IsShuffling)
             {
                 _shuffleHistory.Clear();
+                return;
+            }
+
+            // Shuffle and Flow both decide the play order; the one the user just switched on wins.
+            // Leaving both on would make Flow look broken (its picks silently ignored) — so turning
+            // shuffle on stands Flow down and the Flow chip visibly goes off.
+            if (IsFlowMode)
+            {
+                if (_flowModeService is not null)
+                {
+                    _flowModeService.Deactivate();
+                    SyncFlowState(_flowModeService.State);
+                }
+                else
+                {
+                    IsFlowMode = false;
+                }
             }
         }
         

@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:ent="clr-namespace:SLSKDONET.Models.Entertainment"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
              x:Class="SLSKDONET.Views.Avalonia.NowPlayingPage"
@@ -41,7 +42,8 @@
             </StackPanel>
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                 <ToggleButton Classes="chip" Content="Flow" IsChecked="{Binding IsFlowMode, Mode=OneWay}"
-                              Command="{Binding ToggleFlowModeCommand}" ToolTip.Tip="Flow mode: smart auto-mixing"/>
+                              Command="{Binding ToggleFlowModeCommand}"
+                              ToolTip.Tip="Flow: picks the next tracks from the queue by key, tempo, energy and mood"/>
                 <ToggleButton Classes="chip" Content="Ambient" IsChecked="{Binding IsAmbientMode, Mode=OneWay}"
                               Command="{Binding ToggleAmbientModeCommand}" ToolTip.Tip="Slow, calm visuals"/>
                 <Border Classes="divider vertical" Height="20" Margin="4,0"/>
@@ -128,7 +130,8 @@
                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,16" Spacing="4">
                             <TextBlock Classes="body-sm" Text="{Binding CurrentVisualizerPreset}" HorizontalAlignment="Center"/>
                             <TextBlock Classes="caption" Text="{Binding FlowModeState.NextTrackReason}" MaxWidth="420"
-                                       TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center"/>
+                                       TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center"
+                                       IsVisible="{Binding IsFlowMode}"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -232,15 +235,128 @@
                     </Grid>
                     <Border Classes="divider" Margin="0,8"/>
                     <TextBlock Classes="section" Text="FLOW PATH"/>
-                    <ItemsControl ItemsSource="{Binding FlowModeState.FlowPathTitles}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="x:String">
-                                <TextBlock Classes="body-sm" Text="{Binding}" Margin="0,2" TextTrimming="CharacterEllipsis"/>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <TextBlock Classes="caption" Text="Turn on Flow to plan the next tracks automatically."
-                               IsVisible="{Binding !IsFlowMode}"/>
+
+                    <!-- Off: what Flow actually does, so the toggle is not a mystery switch -->
+                    <StackPanel Spacing="8" IsVisible="{Binding !IsFlowMode}">
+                        <TextBlock Classes="caption" TextWrapping="Wrap"
+                                   Text="Flow orders what plays next from the queue: Camelot key, tempo (half and double time included), energy and mood. It hands each track over with a crossfade of its own length."/>
+                        <Button Classes="secondary small" Content="Turn on Flow" HorizontalAlignment="Left"
+                                Command="{Binding ToggleFlowModeCommand}"
+                                ToolTip.Tip="Let Flow choose and mix the next tracks"/>
+                    </StackPanel>
+
+                    <StackPanel Spacing="12" IsVisible="{Binding IsFlowMode}">
+
+                        <!-- No path: say exactly why instead of leaving an empty panel -->
+                        <Border Classes="callout" IsVisible="{Binding FlowModeState.IsBlocked}">
+                            <StackPanel Spacing="4">
+                                <TextBlock Classes="body-sm" TextWrapping="Wrap"
+                                           Text="{Binding FlowModeState.StatusMessage}"/>
+                                <TextBlock Classes="caption muted" TextWrapping="Wrap"
+                                           Text="{Binding FlowModeState.CandidateCoverageText}"
+                                           IsVisible="{Binding FlowModeState.CandidateCoverageText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Next pick + the four scores that produced it -->
+                        <StackPanel Spacing="8" IsVisible="{Binding FlowModeState.HasPath}">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="caption" Text="NEXT" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Classes="caption mono accent" VerticalAlignment="Center"
+                                           Text="{Binding FlowModeState.NextStep.ScoreText}"
+                                           ToolTip.Tip="Overall fit for this hop"/>
+                            </Grid>
+
+                            <StackPanel Spacing="2">
+                                <TextBlock Classes="body" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                           Text="{Binding FlowModeState.NextStep.Title}"/>
+                                <TextBlock Classes="caption" TextTrimming="CharacterEllipsis"
+                                           Text="{Binding FlowModeState.NextStep.Artist}"/>
+                                <TextBlock Classes="caption mono muted" Text="{Binding FlowModeState.NextStep.MetaLine}"/>
+                            </StackPanel>
+
+                            <!-- Key -->
+                            <StackPanel Spacing="2">
+                                <TextBlock Classes="caption" TextTrimming="CharacterEllipsis"
+                                           Text="{Binding FlowModeState.NextStep.KeyRowText}"/>
+                                <ProgressBar Classes="meter" Maximum="1" Value="{Binding FlowModeState.NextStep.KeyScore}"/>
+                            </StackPanel>
+
+                            <!-- Tempo -->
+                            <StackPanel Spacing="2">
+                                <TextBlock Classes="caption" TextTrimming="CharacterEllipsis"
+                                           Text="{Binding FlowModeState.NextStep.TempoRowText}"/>
+                                <ProgressBar Classes="meter" Maximum="1" Value="{Binding FlowModeState.NextStep.TempoScore}"/>
+                            </StackPanel>
+
+                            <!-- Energy -->
+                            <StackPanel Spacing="2">
+                                <TextBlock Classes="caption" TextTrimming="CharacterEllipsis"
+                                           Text="{Binding FlowModeState.NextStep.EnergyRowText}"/>
+                                <ProgressBar Classes="meter" Maximum="1" Value="{Binding FlowModeState.NextStep.EnergyScore}"/>
+                            </StackPanel>
+
+                            <!-- Mood / genre -->
+                            <StackPanel Spacing="2">
+                                <TextBlock Classes="caption" TextTrimming="CharacterEllipsis"
+                                           Text="{Binding FlowModeState.NextStep.VibeRowText}"/>
+                                <ProgressBar Classes="meter" Maximum="1" Value="{Binding FlowModeState.NextStep.VibeScore}"/>
+                            </StackPanel>
+
+                            <Grid ColumnDefinitions="Auto,*">
+                                <TextBlock Classes="caption" Text="Crossfade"/>
+                                <TextBlock Grid.Column="1" Classes="caption mono muted" HorizontalAlignment="Right"
+                                           Text="{Binding FlowModeState.NextStep.CrossfadeText}"/>
+                            </Grid>
+                        </StackPanel>
+
+                        <!-- The rest of the planned path -->
+                        <StackPanel Spacing="6" IsVisible="{Binding FlowModeState.HasPath}">
+                            <TextBlock Classes="caption" Text="THEN"
+                                       ToolTip.Tip="Each score is the fit to the track before it, not to the track playing now"/>    
+                            <ItemsControl ItemsSource="{Binding FlowModeState.LaterSteps}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="ent:FlowStep">
+                                        <Grid ColumnDefinitions="16,*,Auto" Margin="0,2">
+                                            <TextBlock Classes="caption mono muted" Text="{Binding Rank}"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Classes="body-sm" TextTrimming="CharacterEllipsis"
+                                                       Text="{Binding DisplayName}" ToolTip.Tip="{Binding ReasonSummary}"/>
+                                            <TextBlock Grid.Column="2" Classes="caption mono muted" VerticalAlignment="Center"
+                                                       Text="{Binding ScoreText}"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+
+                        <!-- What Flow optimises for + where the set should head -->
+                        <StackPanel Spacing="8" IsVisible="{Binding FlowModeState.HasPath}">
+                            <Border Classes="divider"/>
+                            <TextBlock Classes="caption" Text="Optimise for"/>
+                            <ComboBox HorizontalAlignment="Stretch" SelectedItem="{Binding SelectedFlowPreset, Mode=TwoWay}"
+                                      ItemsSource="{Binding FlowPresets}"
+                                      ToolTip.Tip="{Binding SelectedFlowPresetDescription}">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="ent:FlowPresetOption">
+                                        <TextBlock Text="{Binding Name}"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                <TextBlock Classes="caption" Text="Energy" VerticalAlignment="Center"/>
+                                <Slider Grid.Column="1" Minimum="-100" Maximum="100" TickFrequency="25"
+                                        Value="{Binding FlowEnergyNudgePercent, Mode=TwoWay}"
+                                        Margin="8,0" VerticalAlignment="Center"
+                                        ToolTip.Tip="Bend the whole path calmer or more energetic"/>
+                                <TextBlock Grid.Column="2" Classes="caption mono muted" VerticalAlignment="Center"
+                                           Text="{Binding FlowModeState.EnergyNudgeText}"/>
+                            </Grid>
+                            <TextBlock Classes="caption muted" TextWrapping="Wrap"
+                                       Text="{Binding FlowModeState.CandidateCoverageText}"
+                                       IsVisible="{Binding FlowModeState.CandidateCoverageText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        </StackPanel>
+                    </StackPanel>
                 </StackPanel>
             </Border>
 

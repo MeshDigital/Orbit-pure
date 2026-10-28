@@ -114,6 +114,25 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 
 - **Edit Lab**: stem-based DJ edits. Layer vocals/drums/bass/other from any number of tracks on a bar grid, with switchable auto tempo/key matching and per-clip overrides, editable templates, live preview, and rendering to WAV/FLAC as a new library track with provenance
 
+### Flow Mode (the player's Flow toggle)
+Flow picks what plays next out of the queue instead of following track order, and shows its reasoning.
+- **What it scores each next track on:** Camelot-wheel key distance, tempo (1:1, 2:1, 1:2 and 3:2 ratios, so
+  87 BPM next to 174 BPM counts as a match, not a clash), closeness to its energy target, and mood/genre
+  affinity. Tracks played in the last few hops and repeats by the same artist are deprioritised.
+- **A path, not a guess:** each hop is scored against the track before it, so the five listed tracks form a
+  run rather than five independent "similar to the current track" picks.
+- **Why it picked that one:** the Now Playing card names the next track with its BPM, key and energy, then
+  shows a bar per axis (Key / Tempo / Energy / Mood) with the actual numbers ("8A → 8B · Compatible (+1)",
+  "128.0 → 174.0 BPM · 2:3 ratio (±12.0)"), plus the crossfade length it will use and the four tracks after it.
+- **Tuning it:** *Optimise for* switches between Silky Smooth (harmony), Club Banger (energy), Radio Perfect
+  (balanced) and Genre Bender (tempo-first). The Energy slider bends the whole arc calmer or more energetic.
+- **It drives playback:** Preload, the Next button and the automatic hand-over at the end of a track all follow
+  the plan, so the crossfade lands on the track Flow chose. Turning shuffle on stands Flow down (both decide
+  the order — the one you just switched on wins), and Flow switches shuffle off when you turn it on.
+- **Never a blank panel:** with Flow off the card explains what it does; with nothing to work from it says why
+  ("This track has no BPM, key or energy yet…", "Nothing else is queued…", "None of the other queued tracks
+  are analysed yet…") along with how many queued tracks it could use.
+
 ### Mix & Cue Workspace (Flow Builder)
 - **Transition designer with overlay**: both tracks drawn on one tempo-matched timeline with the overlap, gain curves and bar numbers; drag B to shift the mix-in (undoable); the auto plan prefers A's outro and B's intro regions
 - **Intro end / Outro section markers** in Cue Forge and the Flow Builder decks (Shift+I / Shift+O or a phrase-based suggestion), exported to Rekordbox as memory cues
