@@ -2,6 +2,50 @@
 
 ---
 
+## [0.2.1] — 2026-10-29
+
+Patch on the 0.2 early-stable line (six commits since 0.2.0, no migration). Cue placement accuracy,
+playlist hand-back after editing, exact cue playback, a one-click clear, and update notices that can
+see early builds. Full detail: **[DOCS/RELEASE_NOTES_0.2.1.md](DOCS/RELEASE_NOTES_0.2.1.md)**.
+
+### 🎯 Cues land on the actual drop
+- Auto-generate now reads the fresh `TrackPhrases` analysis instead of the stale, half-time
+  `PhraseSegmentsJson` column (which was only written when empty and had an empty source, so the
+  phrase path was skipped entirely and Cue Forge's phrase map/suggestion showed the old boundaries).
+- Drop placement is a **vote**: phrase drops, the stored drop hint, sub-bass returns, spectral-flux
+  novelty, energy jumps and the genre family's signal; votes within two bars merge and corroborating
+  sources add a bonus. Tied sub-bass returns previously let the earliest one win — 21 s early on
+  *TR Tactics — Against The Grain*.
+- Drops are cleaned up at **beat** resolution (a three-beats-late downbeat could drag a correct drop a
+  full bar); `[IN -16]`/`[IN -8]` stay exact bar arithmetic back from the drop.
+- The structural job rewrites `PhraseSegmentsJson` every run, so re-analysis repairs old rows.
+
+### 🔁 Playlist continues after editing
+- Prelistening pauses the playlist track; **saving or leaving Cue Forge now hands the player back at the
+  old position and resumes it** when it was playing. The queue's `CurrentTrack` is never replaced.
+
+### ⏱ Exact cue playback
+- Play waits for the FLAC/M4A `ExactSeek` decode-forward before starting the output, so a cue click no
+  longer plays a moment from the reader's previous position.
+
+### 🧹 Clear cues & reset view
+- One click in AUTO-GENERATE / Preparation removes every cue (single undo step) and returns the waveform
+  to the whole-track view.
+
+### 🧭 Cue Forge opens on the right track (in progress)
+- Opening the page follows the playing track; explicit "Open in Cue Forge" / "Fix in Cue Forge" keep
+  their track for the visit; `[CueForge] LastTrack*` now persists through `ConfigManager`; rebuilding the
+  docked browser no longer reports its transient first-row selection as a click.
+
+### ▶️ Player and update check
+- A stopped deck can no longer keep playing: `Stop()` detaches the decks before disposing, so WASAPI's
+  synchronous `PlaybackStopped` no longer promotes the preloaded deck into an unreachable playback.
+- Update check reads the full releases list and classifies stable vs early (alpha/beta/RC), orders by
+  publication date (handles the 0.10 → 0.2 version-line reset), and opens the matching release page
+  from a clickable toast.
+
+---
+
 ## [0.2.0] — 2026-10-28
 
 A cumulative release covering everything merged since 0.10.0-alpha (23 commits, 231 files, +17.7k / −2.3k).

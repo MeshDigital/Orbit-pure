@@ -12,7 +12,7 @@ removed and why). Every link below was verified to point at a file that actually
 | [FEATURES.md](FEATURES.md) | User-facing feature list |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System design — layers, data flow, the major subsystems |
 | [RECENT_CHANGES.md](RECENT_CHANGES.md) | Chronological changelog — the most reliably up to date doc in the repo |
-| [DOCS/RELEASE_NOTES_0.2.0.md](DOCS/RELEASE_NOTES_0.2.0.md) | Release notes for the current build: what changed, upgrade notes, known issues, artifacts |
+| [DOCS/RELEASE_NOTES_0.2.1.md](DOCS/RELEASE_NOTES_0.2.1.md) | Release notes for the current build (0.2.1): what changed, upgrade notes, known issues, artifacts |
 | [DOCS/OPEN_WORK_PLAN_2026-09-27.md](DOCS/OPEN_WORK_PLAN_2026-09-27.md) | **Current open-work plan** (replaces TODO.md, now archived) |
 | [USER_MANUAL.md](USER_MANUAL.md) | End-user usage guide |
 | [BETA_TESTER_GUIDE.md](BETA_TESTER_GUIDE.md) | Onboarding for beta testers |
