@@ -84,8 +84,8 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         IncomingEditor = new TrackCueEditorViewModel("Incoming", cuePointService, libraryPreviewPlayer, editorLogger, cueSessions);
         // Every edit (add, drag, rename, delete, undo, reload…) bumps CueRevision: republish the
         // decks' cues so the waveforms and the mix-out / mix-in cue choices follow live.
-        OutgoingEditor.Session.WhenAnyValue(s => s.CueRevision).Subscribe(_ => { OutgoingCues = OutgoingEditor.Session.Cues.ToList(); RefreshMissingCues(); });
-        IncomingEditor.Session.WhenAnyValue(s => s.CueRevision).Subscribe(_ => { IncomingCues = IncomingEditor.Session.Cues.ToList(); RefreshMissingCues(); });
+        OutgoingEditor.Session.WhenAnyValue(s => s.CueRevision).Subscribe(_ => RefreshCueViews());
+        IncomingEditor.Session.WhenAnyValue(s => s.CueRevision).Subscribe(_ => RefreshCueViews());
         OutgoingEditor.TriggerRequested += (_, t) => { RecordMixPointUndo(); NudgeSeconds = 0; SourceTriggerSeconds = t; };
         IncomingEditor.TriggerRequested += (_, t) => { RecordMixPointUndo(); TargetTriggerSeconds = t; };
         // Moving the cue a trigger sits on moves the trigger with it.
@@ -223,6 +223,8 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         ZoomOutCommand = ReactiveCommand.Create(() => { WaveformZoomLevel /= 1.5; });
         SaveOutgoingBpmCommand = ReactiveCommand.CreateFromTask(() => SaveBpmAsync(isOutgoing: true));
         SaveIncomingBpmCommand = ReactiveCommand.CreateFromTask(() => SaveBpmAsync(isOutgoing: false));
+        ShareMixOutCommand = ReactiveCommand.CreateFromTask(() => ShareMixPointAsync(isOutgoing: true));
+        ShareMixInCommand = ReactiveCommand.CreateFromTask(() => ShareMixPointAsync(isOutgoing: false));
     }
 
     /// <summary>Raised when the user dismisses the editor (Cancel/Dismiss button).</summary>
@@ -581,6 +583,32 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     private IEnumerable<OrbitCue> _incomingCues = Array.Empty<OrbitCue>();
     public IEnumerable<OrbitCue> IncomingCues { get => _incomingCues; private set => this.RaiseAndSetIfChanged(ref _incomingCues, value); }
 
+    private bool _mixCuesOnly = true;
+    /// <summary>Focused transition view: show only shared Mix-In / Mix-Out cues (including legacy
+    /// generated labels). All Workstation cues remain intact and return in edit mode or on toggle.</summary>
+    public bool MixCuesOnly
+    {
+        get => _mixCuesOnly;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _mixCuesOnly, value);
+            this.RaisePropertyChanged(nameof(CueFilterButtonText));
+            RefreshCueViews();
+        }
+    }
+
+    public string CueFilterButtonText => MixCuesOnly ? "Mix cues only" : "All cues";
+
+    private void RefreshCueViews()
+    {
+        OutgoingCues = VisibleCues(OutgoingEditor.Session.Cues).ToList();
+        IncomingCues = VisibleCues(IncomingEditor.Session.Cues).ToList();
+        RefreshMissingCues();
+    }
+
+    private IEnumerable<OrbitCue> VisibleCues(IEnumerable<OrbitCue> cues) =>
+        MixCuesOnly && !IsCueEditMode ? cues.Where(c => c.IsMixPoint) : cues;
+
     // ── In-place cue editing ─────────────────────────────────────────────────────────────
     public TrackCueEditorViewModel OutgoingEditor { get; }
     public TrackCueEditorViewModel IncomingEditor { get; }
@@ -595,11 +623,14 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         {
             this.RaiseAndSetIfChanged(ref _isCueEditMode, value);
             this.RaisePropertyChanged(nameof(CueFlagTip));
+            RefreshCueViews();
             if (!value) { OutgoingEditor.EndAudition(); IncomingEditor.EndAudition(); }
         }
     }
 
     public ReactiveCommand<Unit, Unit> ToggleCueEditModeCommand { get; }
+    public ReactiveCommand<Unit, Unit> ShareMixOutCommand { get; }
+    public ReactiveCommand<Unit, Unit> ShareMixInCommand { get; }
 
     /// <summary>The deck whose cue was selected last — the one the arrow keys fine-tune.</summary>
     public TrackCueEditorViewModel? ActiveEditor { get; private set; }
@@ -715,7 +746,8 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         Overlay = TransitionOverlayModel.Build(
             OutgoingBpm, IncomingBpm, EffectiveSourceTriggerSeconds, TargetTriggerSeconds, TransitionWindowSeconds,
             PreviewLeadInSeconds, OutgoingDurationSeconds, IncomingDurationSeconds, IncomingEditor.Session.GridOffset,
-            OutgoingAutomationCurve as IReadOnlyList<float>, IncomingAutomationCurve as IReadOnlyList<float>, OverlayMarkers());
+            OutgoingAutomationCurve as IReadOnlyList<float>, IncomingAutomationCurve as IReadOnlyList<float>, OverlayMarkers(),
+            IncomingPlaybackRate);
         this.RaisePropertyChanged(nameof(OverlaySummary));
     }
 
@@ -998,12 +1030,12 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
             // trigger points are the user's own prior choice, not an algorithm suggestion.
             if (suggestion.SelectedSourceCue != null)
             {
-                var match = OutgoingCues.FirstOrDefault(c => Math.Abs(c.Timestamp - suggestion.SelectedSourceCue.TimestampInSeconds) < 0.01);
+                var match = OutgoingEditor.Session.Cues.FirstOrDefault(c => Math.Abs(c.Timestamp - suggestion.SelectedSourceCue.TimestampInSeconds) < 0.01);
                 if (match != null) match.IsSuggested = true;
             }
             if (suggestion.SelectedTargetCue != null)
             {
-                var match = IncomingCues.FirstOrDefault(c => Math.Abs(c.Timestamp - suggestion.SelectedTargetCue.TimestampInSeconds) < 0.01);
+                var match = IncomingEditor.Session.Cues.FirstOrDefault(c => Math.Abs(c.Timestamp - suggestion.SelectedTargetCue.TimestampInSeconds) < 0.01);
                 if (match != null) match.IsSuggested = true;
             }
             this.RaisePropertyChanged(nameof(OutgoingCues));
@@ -1195,7 +1227,7 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
             return;
         }
 
-        var projectBpm = OutgoingTrack.Model.BPM is > 0 ? OutgoingTrack.Model.BPM.Value : 128.0;
+        var projectBpm = ProjectBpm;
 
         // Only one audio source at a time — a waveform click-preview must not keep playing
         // underneath the real crossfade preview.
@@ -1208,12 +1240,13 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         _activePreviewSourceSeconds = EffectiveSourceTriggerSeconds;
         _activePreviewTargetSeconds = TargetTriggerSeconds;
         _activePreviewWindowSeconds = TransitionWindowSeconds;
+        _activePreviewIncomingRate = IncomingPlaybackRate;
         try
         {
             await _previewPlayer.StartTransitionPreviewAsync(
                 OutgoingTrack.Title, OutgoingTrack.Model.ResolvedFilePath, EffectiveSourceTriggerSeconds,
                 IncomingTrack.Title, IncomingTrack.Model.ResolvedFilePath, TargetTriggerSeconds,
-                LiveModel, projectBpm, default, leadIn, PreviewLeadInSeconds);
+                LiveModel, projectBpm, default, leadIn, PreviewLeadInSeconds, IncomingPlaybackRate);
             StatusMessage = $"Previewing {SelectedPreset} from {PreviewLeadInBars} bars before the mix-out";
             StartPreviewPositionPoll();
         }
@@ -1229,6 +1262,7 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     private IDisposable? _previewPositionPoll;
     private double? _previewPositionSeconds;
     private double _activePreviewLeadInSeconds, _activePreviewSourceSeconds, _activePreviewTargetSeconds, _activePreviewWindowSeconds;
+    private double _activePreviewIncomingRate = 1.0;
 
     public static IReadOnlyList<int> LeadInBarOptions { get; } = new[] { 4, 8, 16 };
 
@@ -1270,15 +1304,15 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
 
     /// <summary>Where the preview playhead is in the incoming track, or null when B isn't sounding yet.</summary>
     public double? PreviewPlayheadIncomingSeconds => _previewPositionSeconds is double p
-        ? MapPreviewToIncoming(p, _activePreviewLeadInSeconds, _activePreviewTargetSeconds)
+        ? MapPreviewToIncoming(p, _activePreviewLeadInSeconds, _activePreviewTargetSeconds, _activePreviewIncomingRate)
         : null;
 
     /// <summary>Preview timeline: [lead-in: A alone][window: A+B][tail: B alone].</summary>
     public static double? MapPreviewToOutgoing(double previewSeconds, double leadIn, double sourceTrigger, double window) =>
         previewSeconds <= leadIn + window ? sourceTrigger - leadIn + previewSeconds : null;
 
-    public static double? MapPreviewToIncoming(double previewSeconds, double leadIn, double targetTrigger) =>
-        previewSeconds >= leadIn ? targetTrigger + (previewSeconds - leadIn) : null;
+    public static double? MapPreviewToIncoming(double previewSeconds, double leadIn, double targetTrigger, double incomingPlaybackRate = 1.0) =>
+        previewSeconds >= leadIn ? targetTrigger + (previewSeconds - leadIn) * incomingPlaybackRate : null;
 
     private void StartPreviewPositionPoll()
     {
@@ -1309,7 +1343,7 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
 
     public double TransitionWindowSeconds => LiveModel.DurationBeats * BeatSeconds(ProjectBpm);
     public double OutgoingRegionEndSeconds => EffectiveSourceTriggerSeconds + TransitionWindowSeconds;
-    public double IncomingRegionEndSeconds => TargetTriggerSeconds + TransitionWindowSeconds;
+    public double IncomingRegionEndSeconds => TargetTriggerSeconds + TransitionWindowSeconds * IncomingPlaybackRate;
     public double OutgoingDurationSeconds => WaveformDataA?.DurationSeconds is > 0 and var d ? d : OutgoingTrack?.Model?.Duration ?? 0;
     public double IncomingDurationSeconds => WaveformDataB?.DurationSeconds is > 0 and var d ? d : IncomingTrack?.Model?.Duration ?? 0;
     public string TransitionWindowDisplay => NumFormat.Seconds(TransitionWindowSeconds);
@@ -1331,13 +1365,26 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         ? NumFormat.SignedPercent((IncomingBpm - OutgoingBpm) / OutgoingBpm * 100)
         : "-";
 
-    /// <summary>More than 6 % apart: the preview (native tempo) will drift audibly.</summary>
-    public bool HasTempoWarning => OutgoingBpm > 0 && IncomingBpm > 0 && Math.Abs(IncomingBpm - OutgoingBpm) / OutgoingBpm > 0.06;
+    /// <summary>The exact varispeed ratio shared by live playback, the overlay and offline preview.</summary>
+    public double IncomingPlaybackRate => AudioPlayerService.TempoSyncRatio(OutgoingBpm, IncomingBpm);
+
+    public string TempoSyncDisplay => OutgoingBpm <= 0 || IncomingBpm <= 0
+        ? "Tempo sync unavailable · set both BPM values"
+        : HasTempoWarning
+            ? $"B at {NumFormat.F(IncomingPlaybackRate, 3)}× · outside the ±6% sync range"
+            : $"B at {NumFormat.F(IncomingPlaybackRate, 3)}× · preview and MIX synchronized";
+
+    /// <summary>Outside live playback's ±6% sync range: B intentionally remains at native tempo.</summary>
+    public bool HasTempoWarning => OutgoingBpm > 0 && IncomingBpm > 0 &&
+        Math.Abs(IncomingPlaybackRate - 1.0) < 0.000001 &&
+        Math.Abs(IncomingBpm - OutgoingBpm) / OutgoingBpm > 0.06;
 
     private void RaiseTempoChanged()
     {
         this.RaisePropertyChanged(nameof(TempoDeltaDisplay));
         this.RaisePropertyChanged(nameof(HasTempoWarning));
+        this.RaisePropertyChanged(nameof(IncomingPlaybackRate));
+        this.RaisePropertyChanged(nameof(TempoSyncDisplay));
         this.RaisePropertyChanged(nameof(ProjectBpm));
         this.RaisePropertyChanged(nameof(PreviewLeadInSeconds));
         RaiseRegionChanged();
@@ -1409,8 +1456,8 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     private string _missingCuesMessage = string.Empty;
     /// <summary>"No cues on X yet" when a deck has nothing to pick a mix point from.</summary>
     public string MissingCuesMessage { get => _missingCuesMessage; private set => this.RaiseAndSetIfChanged(ref _missingCuesMessage, value); }
-    public bool OutgoingHasNoCues => HasLoadedPair && !OutgoingCues.Any();
-    public bool IncomingHasNoCues => HasLoadedPair && !IncomingCues.Any();
+    public bool OutgoingHasNoCues => HasLoadedPair && OutgoingEditor.Session.Cues.Count == 0;
+    public bool IncomingHasNoCues => HasLoadedPair && IncomingEditor.Session.Cues.Count == 0;
 
     private void RefreshMissingCues()
     {
@@ -1440,6 +1487,35 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         "Custom" => "Your own echo, filter, EQ-swap and loop settings.",
         _ => string.Empty,
     };
+
+    /// <summary>Publishes the current pair-specific trigger as a reusable track-level memory cue.
+    /// Explicit by design: another playlist using this track keeps its own saved transition timing.</summary>
+    private async Task ShareMixPointAsync(bool isOutgoing)
+    {
+        if (!HasLoadedPair) return;
+        var editor = isOutgoing ? OutgoingEditor : IncomingEditor;
+        var role = isOutgoing ? CueRole.MixOut : CueRole.MixIn;
+        double seconds = isOutgoing ? EffectiveSourceTriggerSeconds : TargetTriggerSeconds;
+        var cue = editor.Session.SetMixMarker(role, seconds);
+        if (cue == null || !await editor.Session.SaveAsync())
+        {
+            StatusMessage = $"Couldn't save the shared {(isOutgoing ? "Mix-Out" : "Mix-In")} cue.";
+            return;
+        }
+
+        // Use the snapped cue position for this pair too, so the marker and audible transition agree.
+        if (isOutgoing)
+        {
+            NudgeSeconds = 0;
+            SourceTriggerSeconds = cue.Timestamp;
+        }
+        else
+        {
+            TargetTriggerSeconds = cue.Timestamp;
+        }
+        RefreshCueViews();
+        StatusMessage = $"✓ {cue.Name} saved at {FormatTimestamp(cue.Timestamp)} · reusable in Workstation and Cue Forge";
+    }
 
     private async Task SaveAsync()
     {

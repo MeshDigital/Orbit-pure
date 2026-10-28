@@ -34,8 +34,8 @@ public partial class WorkstationDeckRow : UserControl
 
     private void ApplyDensityMode()
     {
-        var renderScaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
-        var compact = renderScaling >= 1.35;
+        // Inherit the page's space-based density. Physical DPI must not shrink deck controls.
+        var compact = this.FindAncestorOfType<WorkstationPage>()?.Classes.Contains(DensityCompactClass) == true;
 
         Classes.Set(DensityCompactClass, compact);
         Classes.Set(DensityNormalClass, !compact);

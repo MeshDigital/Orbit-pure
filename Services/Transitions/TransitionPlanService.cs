@@ -67,6 +67,8 @@ public sealed class TransitionPlanService
             Energy = Math.Clamp(f.Energy, 0, 1),
             IntroEndMarker = ordered.FirstOrDefault(c => c.Type == CuePointType.IntroEnd)?.TimestampInSeconds,
             OutroStartMarker = ordered.LastOrDefault(c => c.Type == CuePointType.OutroStart)?.TimestampInSeconds,
+            MixInMarker = ordered.FirstOrDefault(c => c.Type == CuePointType.MixIn)?.TimestampInSeconds,
+            MixOutMarker = ordered.LastOrDefault(c => c.Type == CuePointType.MixOut)?.TimestampInSeconds,
         };
     }
 

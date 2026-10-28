@@ -102,14 +102,19 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
     }
 
     private bool _nextNeedsAnalysis;
+    private bool _nextNeedsAttention;
+
     /// <summary>This track or the next one has no waveform/cues yet.</summary>
-    public bool PairNeedsAnalysis
-    {
-        get => _nextNeedsAnalysis || NeedsAnalysis;
-    }
+    public bool PairNeedsAnalysis => _nextNeedsAnalysis || NeedsAnalysis;
+
+    /// <summary>This track or the next one cannot currently open a transition.</summary>
+    public bool PairNeedsAttention => _nextNeedsAttention || NeedsAttention;
 
     /// <summary>No waveform or cues yet: mix points can't be picked on phrases.</summary>
     public bool NeedsAnalysis { get; }
+
+    /// <summary>Any readiness issue, including unavailable audio or missing analysis.</summary>
+    public bool NeedsAttention { get; }
     public string ReadinessHint { get; }
 
     private FlowBridgeInfo? _bridge;
@@ -181,7 +186,8 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         NeedsAnalysis = issue is SLSKDONET.ViewModels.Workstation.WorkstationTrackEligibilityIssue.MissingWaveform
             or SLSKDONET.ViewModels.Workstation.WorkstationTrackEligibilityIssue.MissingCues
             or SLSKDONET.ViewModels.Workstation.WorkstationTrackEligibilityIssue.MissingAnalysis;
-        ReadinessHint = NeedsAnalysis
+        NeedsAttention = issue != SLSKDONET.ViewModels.Workstation.WorkstationTrackEligibilityIssue.None;
+        ReadinessHint = NeedsAttention
             ? SLSKDONET.ViewModels.Workstation.WorkstationDeckViewModel.GetTrackLoadReadinessMessage(track)
             : string.Empty;
         DurationDisplay = track.CanonicalDuration.HasValue
@@ -250,7 +256,9 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         TransitionStyleResult? transitionStyle = null)
     {
         _nextNeedsAnalysis = next?.NeedsAnalysis ?? false;
+        _nextNeedsAttention = next?.NeedsAttention ?? false;
         this.RaisePropertyChanged(nameof(PairNeedsAnalysis));
+        this.RaisePropertyChanged(nameof(PairNeedsAttention));
         if (next == null) { Bridge = null; return; }
 
         // BpmDisplay is written invariantly ("174.0"); a culture parse would read it as 1740 on nl-BE.

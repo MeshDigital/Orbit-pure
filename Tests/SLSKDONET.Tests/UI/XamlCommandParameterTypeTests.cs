@@ -35,6 +35,27 @@ public class XamlCommandParameterTypeTests
         Assert.Equal(5, Regex.Matches(xaml, @"<x:Int32>\d+</x:Int32>").Count);
     }
 
+    [Fact]
+    public void ReactiveDoubleCommand_RejectsStringParameter()
+    {
+        ICommand command = ReactiveCommand.Create<double>(_ => { });
+
+        Assert.Throws<InvalidOperationException>(() => command.Execute("1.5"));
+    }
+
+    [Fact]
+    public void CueForge_NumericCommandParameters_AreTyped()
+    {
+        var path = FindRepoFile(Path.Combine("Views", "Avalonia", "CueForgePage.axaml"));
+        var xaml = File.ReadAllText(path);
+
+        // Waveform gain (double), beat jump (int), and quick-loop lengths (int) must never fall
+        // back to XAML string literals: ReactiveCommand's explicit ICommand.Execute rejects them.
+        Assert.DoesNotMatch(new Regex(@"CommandParameter=""-?\d+(?:\.\d+)?"""), xaml);
+        Assert.Equal(14, Regex.Matches(xaml, @"<x:Int32>-?\d+</x:Int32>").Count);
+        Assert.Equal(3, Regex.Matches(xaml, @"<x:Double>\d+(?:\.\d+)?</x:Double>").Count);
+    }
+
     private static string FindRepoFile(string relative)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

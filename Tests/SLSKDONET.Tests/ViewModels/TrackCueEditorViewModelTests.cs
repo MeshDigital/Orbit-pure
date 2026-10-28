@@ -366,7 +366,7 @@ public class TrackCueEditorViewModelTests
         editor.LastAuditionSeconds = 65;
         s.SetNumberedDropAtPlayheadCommand.Execute(1).Subscribe();
 
-        Assert.Equal(new[] { ("[IN -16]", 0), ("[IN -8]", 1), ("[DROP 1]", 2), ("[IN -16]", 3), ("[IN -8]", 4), ("[DROP 2]", 5), ("[OUT]", 6) },
+        Assert.Equal(new[] { ("[IN -16]", 0), ("[IN -8]", 1), ("[DROP 1]", 2), ("[IN2 -16]", 3), ("[IN2 -8]", 4), ("[DROP 2]", 5), ("[OUT]", 6) },
             s.Cues.Select(c => (c.Name, c.SlotIndex)));
     }
 

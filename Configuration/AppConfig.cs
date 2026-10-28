@@ -195,6 +195,10 @@ public class AppConfig
     /// <summary>Bars before the drop for the "Custom" cue template, e.g. "32,16,8".</summary>
     public string CustomCountdownBars { get; set; } = "32,16,8";
 
+    /// <summary>Countdown cues ([IN -16] …) become memory cues instead of hot cues, leaving pads A B D E
+    /// free; the drops keep C and F. [Cues] CountdownsAsMemoryCues.</summary>
+    public bool CountdownsAsMemoryCues { get; set; }
+
     /// <summary>Playlist Discover panel sources (public Beatport pages / Deezer API).</summary>
     public bool DiscoverUseBeatport { get; set; } = true;
 
@@ -294,9 +298,10 @@ public class AppConfig
     // Waveform appearance — the RGB tri-band renderer/overlays already existed but had zero
     // user-facing settings (colors/overlays were compiled-in constants).
     public string WaveformPalette { get; set; } = "NeonRgb"; // "NeonRgb" or "ClassicRgb"
-    public bool WaveformShowEnergyCurve { get; set; } = true;
-    public bool WaveformShowVocalGhost { get; set; } = true;
-    public bool WaveformShowPhraseSections { get; set; } = true;
+    public bool WaveformShowEnergyCurve { get; set; } = false;
+    public bool WaveformShowOnsetDensity { get; set; } = false;
+    public bool WaveformShowVocalGhost { get; set; } = false;
+    public bool WaveformShowPhraseSections { get; set; } = false;
     public bool WaveformShowBeatGrid { get; set; } = true;
     public float WaveformGain { get; set; } = 1.0f;
 

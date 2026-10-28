@@ -19,6 +19,8 @@ public partial class LibraryPage : UserControl
     private readonly ILogger<LibraryPage>? _logger;
     private LibraryViewModel? _boundLibraryViewModel;
     private Point? _playlistDragStartPoint;
+    private TreeViewItem? _playlistDragSource;
+    private TreeViewItem? _playlistDropTarget;
 
     public LibraryPage()
     {
@@ -35,6 +37,7 @@ public partial class LibraryPage : UserControl
 
         // Drag-drop onto the playlist tree (tracks into a playlist, playlists/folders into a folder)
         AddHandler(DragDrop.DragOverEvent, OnPlaylistDragOver);
+        AddHandler(DragDrop.DragLeaveEvent, OnPlaylistDragLeave);
         AddHandler(DragDrop.DropEvent, OnPlaylistDrop);
 
         // Playlist Folder Tree: drag-initiation for reorganizing playlists/folders
@@ -133,12 +136,44 @@ public partial class LibraryPage : UserControl
 
     private void OnPlaylistDragOver(object? sender, DragEventArgs e)
     {
-        // Reorganizing the tree itself: moving a playlist or folder into another folder
-        if (e.Data.Contains(DragContext.PlaylistCardNodeFormat) || e.Data.Contains(DragContext.PlaylistFolderNodeFormat))
+        var treeViewItem = (e.Source as Control)?.FindAncestorOfType<TreeViewItem>();
+        var isPlaylistDrag = e.Data.Contains(DragContext.PlaylistCardNodeFormat);
+        var isFolderDrag = e.Data.Contains(DragContext.PlaylistFolderNodeFormat);
+
+        if (isPlaylistDrag || isFolderDrag)
         {
-            e.DragEffects = DragDropEffects.Move;
+            if (isPlaylistDrag && treeViewItem?.DataContext is PlaylistTreeCardNodeViewModel targetCard)
+            {
+                var draggedId = e.Data.Get(DragContext.PlaylistCardNodeFormat) as string;
+                var isSelfDrop = string.Equals(draggedId, targetCard.Card.Model.Id.ToString(), StringComparison.Ordinal);
+                if (isSelfDrop)
+                {
+                    ClearPlaylistDropTarget();
+                }
+                else
+                {
+                    SetPlaylistDropTarget(treeViewItem, IsPlaylistInsertionAfter(e, treeViewItem));
+                }
+
+                e.DragEffects = DragDropEffects.Move;
+            }
+            else if (treeViewItem?.DataContext is PlaylistTreeFolderNodeViewModel)
+            {
+                SetFolderDropTarget(treeViewItem);
+                e.DragEffects = DragDropEffects.Move;
+            }
+            else
+            {
+                ClearPlaylistDropTarget();
+                // Empty tree space remains a valid move-to-root target. A folder cannot be
+                // inserted between playlists, so don't advertise a drop that would do nothing.
+                e.DragEffects = treeViewItem is null ? DragDropEffects.Move : DragDropEffects.None;
+            }
+
             return;
         }
+
+        ClearPlaylistDropTarget();
 
         // Accept tracks from library or queue, to be added to the playlist dropped onto
         if (e.Data.Contains(DragContext.LibraryTrackFormat) || e.Data.Contains(DragContext.QueueTrackFormat))
@@ -151,86 +186,140 @@ public partial class LibraryPage : UserControl
         }
     }
 
-    private void OnPlaylistDrop(object? sender, DragEventArgs e)
+    private async void OnPlaylistDrop(object? sender, DragEventArgs e)
     {
         var treeViewItem = (e.Source as Control)?.FindAncestorOfType<TreeViewItem>();
 
-        // Reorganizing the tree: moving a dragged playlist/folder into the folder dropped on
-        // (or to root level, if dropped on empty tree space).
-        if (e.Data.Contains(DragContext.PlaylistCardNodeFormat) || e.Data.Contains(DragContext.PlaylistFolderNodeFormat))
+        try
         {
-            if (DataContext is not LibraryViewModel libVm)
+            // Playlist rows are insertion targets; folder rows and empty tree space retain their
+            // original move-into-folder / move-to-root behavior.
+            if (e.Data.Contains(DragContext.PlaylistCardNodeFormat) || e.Data.Contains(DragContext.PlaylistFolderNodeFormat))
+            {
+                if (DataContext is not LibraryViewModel libVm)
+                    return;
+
+                if (e.Data.Get(DragContext.PlaylistCardNodeFormat) is string playlistIdStr &&
+                    Guid.TryParse(playlistIdStr, out var playlistId))
+                {
+                    if (treeViewItem?.DataContext is PlaylistTreeCardNodeViewModel targetCardNode)
+                    {
+                        await libVm.Projects.ReorderPlaylistAsync(
+                            playlistId,
+                            targetCardNode.Card.Model.Id,
+                            IsPlaylistInsertionAfter(e, treeViewItem));
+                        e.Handled = true;
+                        return;
+                    }
+
+                    if (!TryResolveFolderDropTarget(treeViewItem, out var targetFolderId))
+                        return;
+
+                    await libVm.Projects.MovePlaylistToFolderAsync(playlistId, targetFolderId);
+                    e.Handled = true;
+                }
+                else if (e.Data.Get(DragContext.PlaylistFolderNodeFormat) is string folderIdStr &&
+                         Guid.TryParse(folderIdStr, out var draggedFolderId) &&
+                         TryResolveFolderDropTarget(treeViewItem, out var targetFolderId))
+                {
+                    await libVm.Projects.MoveFolderAsync(draggedFolderId, targetFolderId);
+                    e.Handled = true;
+                }
+
+                return;
+            }
+
+            // Adding a track to the playlist dropped onto
+            if (treeViewItem?.DataContext is not PlaylistTreeCardNodeViewModel targetCard)
+                return;
+            var targetPlaylist = targetCard.Card.Model;
+
+            string? trackGlobalId = null;
+            if (e.Data.Contains(DragContext.LibraryTrackFormat))
+            {
+                trackGlobalId = e.Data.Get(DragContext.LibraryTrackFormat) as string;
+            }
+            else if (e.Data.Contains(DragContext.QueueTrackFormat))
+            {
+                trackGlobalId = e.Data.Get(DragContext.QueueTrackFormat) as string;
+            }
+
+            if (string.IsNullOrEmpty(trackGlobalId) || DataContext is not LibraryViewModel libraryViewModel)
                 return;
 
-            Guid? targetFolderId;
-            if (treeViewItem?.DataContext is PlaylistTreeFolderNodeViewModel targetFolderNode)
-            {
-                targetFolderId = targetFolderNode.Folder.Id;
-            }
-            else if (treeViewItem != null)
-            {
-                // Dropped on a playlist row - not a valid folder target
-                return;
-            }
-            else
-            {
-                targetFolderId = null; // Empty tree space -> move to root
-            }
-
-            if (e.Data.Get(DragContext.PlaylistCardNodeFormat) is string playlistIdStr &&
-                Guid.TryParse(playlistIdStr, out var playlistId))
-            {
-                _ = libVm.Projects.MovePlaylistToFolderAsync(playlistId, targetFolderId);
-            }
-            else if (e.Data.Get(DragContext.PlaylistFolderNodeFormat) is string folderIdStr &&
-                     Guid.TryParse(folderIdStr, out var draggedFolderId))
-            {
-                _ = libVm.Projects.MoveFolderAsync(draggedFolderId, targetFolderId);
-            }
-
-            return;
-        }
-
-        // Adding a track to the playlist dropped onto
-        if (treeViewItem?.DataContext is not PlaylistTreeCardNodeViewModel targetCardNode)
-            return;
-        var targetPlaylist = targetCardNode.Card.Model;
-
-        // Get the dragged track GlobalId
-        string? trackGlobalId = null;
-        if (e.Data.Contains(DragContext.LibraryTrackFormat))
-        {
-            trackGlobalId = e.Data.Get(DragContext.LibraryTrackFormat) as string;
-        }
-        else if (e.Data.Contains(DragContext.QueueTrackFormat))
-        {
-            trackGlobalId = e.Data.Get(DragContext.QueueTrackFormat) as string;
-        }
-
-        if (string.IsNullOrEmpty(trackGlobalId))
-            return;
-
-        // Find the track in the library
-        if (DataContext is not LibraryViewModel libraryViewModel)
-            return;
-
-        var sourceTrack = libraryViewModel.CurrentProjectTracks
-            .FirstOrDefault(t => t.GlobalId == trackGlobalId);
-
-        if (sourceTrack == null)
-        {
-            // Try to find in player queue
-            var playerViewModel = libraryViewModel.PlayerViewModel;
-
-            sourceTrack = playerViewModel?.Queue
+            var sourceTrack = libraryViewModel.CurrentProjectTracks
                 .FirstOrDefault(t => t.GlobalId == trackGlobalId);
+
+            if (sourceTrack == null)
+            {
+                sourceTrack = libraryViewModel.PlayerViewModel?.Queue
+                    .FirstOrDefault(t => t.GlobalId == trackGlobalId);
+            }
+
+            if (sourceTrack != null && targetPlaylist != null)
+            {
+                // Use existing AddToPlaylist method (includes deduplication)
+                libraryViewModel.AddToPlaylist(targetPlaylist, sourceTrack);
+            }
+        }
+        finally
+        {
+            ClearPlaylistDropTarget();
+        }
+    }
+
+    private static bool IsPlaylistInsertionAfter(DragEventArgs e, TreeViewItem target) =>
+        e.GetPosition(target).Y >= target.Bounds.Height / 2;
+
+    private static bool TryResolveFolderDropTarget(TreeViewItem? treeViewItem, out Guid? folderId)
+    {
+        if (treeViewItem is null)
+        {
+            folderId = null;
+            return true;
         }
 
-        if (sourceTrack != null && targetPlaylist != null)
+        if (treeViewItem.DataContext is PlaylistTreeFolderNodeViewModel folderNode)
         {
-            // Use existing AddToPlaylist method (includes deduplication)
-            libraryViewModel.AddToPlaylist(targetPlaylist, sourceTrack);
+            folderId = folderNode.Folder.Id;
+            return true;
         }
+
+        folderId = null;
+        return false;
+    }
+
+    private void SetPlaylistDropTarget(TreeViewItem target, bool insertAfter)
+    {
+        if (!ReferenceEquals(_playlistDropTarget, target))
+            ClearPlaylistDropTarget();
+
+        _playlistDropTarget = target;
+        target.Classes.Set("folder-drop-target", false);
+        target.Classes.Set("drop-before", !insertAfter);
+        target.Classes.Set("drop-after", insertAfter);
+    }
+
+    private void SetFolderDropTarget(TreeViewItem target)
+    {
+        if (!ReferenceEquals(_playlistDropTarget, target))
+            ClearPlaylistDropTarget();
+
+        _playlistDropTarget = target;
+        target.Classes.Set("drop-before", false);
+        target.Classes.Set("drop-after", false);
+        target.Classes.Set("folder-drop-target", true);
+    }
+
+    private void OnPlaylistDragLeave(object? sender, RoutedEventArgs e) => ClearPlaylistDropTarget();
+
+    private void ClearPlaylistDropTarget()
+    {
+        if (_playlistDropTarget is null) return;
+        _playlistDropTarget.Classes.Set("drop-before", false);
+        _playlistDropTarget.Classes.Set("drop-after", false);
+        _playlistDropTarget.Classes.Set("folder-drop-target", false);
+        _playlistDropTarget = null;
     }
 
     private void OnPlaylistTreeItemPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -241,6 +330,9 @@ public partial class LibraryPage : UserControl
             if (item?.DataContext is PlaylistTreeFolderNodeViewModel or PlaylistTreeCardNodeViewModel)
             {
                 _playlistDragStartPoint = e.GetPosition(this);
+                // Keep the pressed row: the pointer can move onto an expander, icon or adjacent
+                // row before the threshold is reached, but that must not change the drag source.
+                _playlistDragSource = item;
             }
         }
     }
@@ -254,7 +346,7 @@ public partial class LibraryPage : UserControl
 
             if (Math.Abs(diff.X) > 5 || Math.Abs(diff.Y) > 5)
             {
-                var item = (e.Source as Control)?.FindAncestorOfType<TreeViewItem>();
+                var item = _playlistDragSource;
                 var data = new DataObject();
 
                 if (item?.DataContext is PlaylistTreeCardNodeViewModel cardNode)
@@ -268,11 +360,23 @@ public partial class LibraryPage : UserControl
                 else
                 {
                     _playlistDragStartPoint = null;
+                    _playlistDragSource = null;
                     return;
                 }
 
                 _playlistDragStartPoint = null;
-                await DragDrop.DoDragDrop(e, data, DragDropEffects.Move);
+                item.Classes.Set("drag-source", true);
+                try
+                {
+                    await DragDrop.DoDragDrop(e, data, DragDropEffects.Move);
+                }
+                finally
+                {
+                    item.Classes.Set("drag-source", false);
+                    if (ReferenceEquals(_playlistDragSource, item))
+                        _playlistDragSource = null;
+                    ClearPlaylistDropTarget();
+                }
             }
         }
     }
@@ -280,6 +384,8 @@ public partial class LibraryPage : UserControl
     private void OnPlaylistTreeItemPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
         _playlistDragStartPoint = null;
+        if (_playlistDragSource?.Classes.Contains("drag-source") != true)
+            _playlistDragSource = null;
     }
 
     protected override void OnDataContextChanged(EventArgs e)

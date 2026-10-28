@@ -158,6 +158,8 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
 
     public ICommand ImportLikedSongsCommand { get; }
     public ICommand SelectCsvFileCommand { get; }
+    /// <summary>Saves an example CSV with the columns ORBIT expects, for the user to fill in.</summary>
+    public ICommand DownloadCsvTemplateCommand { get; }
     public ICommand SearchCommand { get; }
     public ICommand ClearSearchCommand { get; }
     public ICommand SyncAllPlaylistsCommand { get; }
@@ -374,6 +376,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
         
         ImportLikedSongsCommand = new AsyncRelayCommand(ExecuteImportLikedSongsAsync, () => IsAuthenticated);
         SelectCsvFileCommand = new AsyncRelayCommand(ExecuteSelectCsvFileAsync);
+        DownloadCsvTemplateCommand = new AsyncRelayCommand(ExecuteDownloadCsvTemplateAsync);
         SearchCommand = new AsyncRelayCommand(ExecuteSearchAsync, () => IsAuthenticated);
         ClearSearchCommand = new RelayCommand(ClearSearch);
         SyncAllPlaylistsCommand = new AsyncRelayCommand(ExecuteSyncAllPlaylistsAsync, () => IsAuthenticated && UserPlaylists.Count > 0);
@@ -411,6 +414,26 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
         {
             _logger.LogError(ex, "Failed to process dropped CSV");
             SetStatus($"Couldn't import the CSV: {ex.Message}", isError: true);
+        }
+    }
+
+    private async Task ExecuteDownloadCsvTemplateAsync()
+    {
+        try
+        {
+            var path = await _fileInteractionService.SaveFileDialogAsync("Save CSV template", "ORBIT-import-template.csv", "csv");
+            if (string.IsNullOrWhiteSpace(path)) return;
+
+            // UTF-8 with BOM so Excel opens accents correctly.
+            await System.IO.File.WriteAllTextAsync(path, Services.InputParsers.CsvInputSource.TemplateCsv, new System.Text.UTF8Encoding(true));
+            _logger.LogInformation("Saved CSV import template to {Path}", path);
+            SetStatus("Template saved. Replace the example rows with your tracks, then drop the file here.", isError: false);
+            _fileInteractionService.RevealFileInExplorer(path);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save the CSV template");
+            SetStatus($"Couldn't save the template: {ex.Message}", isError: true);
         }
     }
 

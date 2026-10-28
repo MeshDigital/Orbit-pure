@@ -50,7 +50,8 @@ namespace SLSKDONET.Services.Audio
             double projectBpm,
             CancellationToken ct = default,
             double leadInSeconds = 0,
-            double tailSeconds = 0);
+            double tailSeconds = 0,
+            double incomingPlaybackRate = 1.0);
     }
 
     public class SurgicalProcessingService : ISurgicalProcessingService
@@ -236,12 +237,13 @@ namespace SLSKDONET.Services.Audio
             double projectBpm,
             CancellationToken ct = default,
             double leadInSeconds = 0,
-            double tailSeconds = 0)
+            double tailSeconds = 0,
+            double incomingPlaybackRate = 1.0)
         {
             return Task.Run(() =>
             {
-                _logger.LogInformation("Rendering preset-driven transition preview ({Preset} DSP, {Bpm:0} BPM), A@{TailStart}s B@{HeadStart}s, lead-in {LeadIn}s, tail {Tail}s",
-                    model.Type, projectBpm, trackATailStartSeconds, trackBStartSeconds, leadInSeconds, tailSeconds);
+                _logger.LogInformation("Rendering preset-driven transition preview ({Preset} DSP, {Bpm:0} BPM), A@{TailStart}s B@{HeadStart}s, lead-in {LeadIn}s, tail {Tail}s, B rate {Rate:0.000}x",
+                    model.Type, projectBpm, trackATailStartSeconds, trackBStartSeconds, leadInSeconds, tailSeconds, incomingPlaybackRate);
 
                 string outputPath = Path.Combine(_surgicalWorkDir, $"TransitionPreset_{Guid.NewGuid():N}.wav");
 
@@ -258,7 +260,8 @@ namespace SLSKDONET.Services.Audio
                 // routinely differ in sample rate/channel count, so normalize B onto A's format.
                 var target = readerA.WaveFormat;
                 NAudio.Wave.ISampleProvider outgoing = readerA;
-                NAudio.Wave.ISampleProvider incoming = NormalizeFormat(readerB, target);
+                NAudio.Wave.ISampleProvider incoming = NormalizeFormat(
+                    ApplyPlaybackRate(readerB, incomingPlaybackRate), target);
 
                 using var writer = new NAudio.Wave.WaveFileWriter(outputPath, target);
                 var buffer = new float[target.Channels * 4096];
@@ -299,6 +302,30 @@ namespace SLSKDONET.Services.Audio
                 writer.WriteSamples(buffer, 0, read);
                 written += read / channels;
             }
+        }
+
+        /// <summary>Offline equivalent of the live deck's varispeed provider. WDL performs the
+        /// resampling; the wrapper keeps the original output format so N samples are consumed at
+        /// the original output rate, making playback faster or slower by the requested ratio.</summary>
+        internal static NAudio.Wave.ISampleProvider ApplyPlaybackRate(NAudio.Wave.ISampleProvider source, double playbackRate)
+        {
+            if (playbackRate is not > 0 || double.IsNaN(playbackRate) || double.IsInfinity(playbackRate) || Math.Abs(playbackRate - 1.0) < 0.000001)
+                return source;
+            int resampledRate = (int)Math.Clamp(Math.Round(source.WaveFormat.SampleRate / playbackRate), 1000, 384000);
+            var resampled = new NAudio.Wave.SampleProviders.WdlResamplingSampleProvider(source, resampledRate);
+            return new OriginalFormatSampleProvider(resampled, source.WaveFormat);
+        }
+
+        private sealed class OriginalFormatSampleProvider : NAudio.Wave.ISampleProvider
+        {
+            private readonly NAudio.Wave.ISampleProvider _source;
+            public OriginalFormatSampleProvider(NAudio.Wave.ISampleProvider source, NAudio.Wave.WaveFormat format)
+            {
+                _source = source;
+                WaveFormat = format;
+            }
+            public NAudio.Wave.WaveFormat WaveFormat { get; }
+            public int Read(float[] buffer, int offset, int count) => _source.Read(buffer, offset, count);
         }
 
         private static NAudio.Wave.ISampleProvider NormalizeFormat(NAudio.Wave.ISampleProvider source, NAudio.Wave.WaveFormat target)

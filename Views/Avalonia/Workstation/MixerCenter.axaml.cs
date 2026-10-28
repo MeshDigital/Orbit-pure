@@ -16,8 +16,8 @@ public partial class MixerCenter : UserControl
 
     private void ApplyDensityMode()
     {
-        var compactFromAncestor = this.FindAncestorOfType<WorkstationPage>()?.Classes.Contains(DensityCompactClass) == true;
-        var compact = compactFromAncestor || (TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0) >= 1.35;
+        // Follow the Workstation's available-space decision without a second DPI-based override.
+        var compact = this.FindAncestorOfType<WorkstationPage>()?.Classes.Contains(DensityCompactClass) == true;
 
         Classes.Set(DensityCompactClass, compact);
         Classes.Set(DensityNormalClass, !compact);

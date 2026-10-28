@@ -73,7 +73,43 @@ namespace SLSKDONET.ViewModels
                     5 => SidebarTab.Discover,
                     _ => SidebarTab.Inspector,
                 };
-                if (newTab != ActiveTab) ActiveTab = newTab;
+                if (newTab != ActiveTab)
+                {
+                    ActiveTab = newTab;
+                    OpenPanelForTab(newTab);
+                }
+            }
+        }
+
+        /// <summary>A click on the actual tab strip must update the service as well as the selected
+        /// header. Otherwise Playing → Inspector leaves CurrentPanelVm pointing at the player and
+        /// renders the "nothing to inspect" fallback instead of the last real inspector.</summary>
+        private void OpenPanelForTab(SidebarTab tab)
+        {
+            switch (tab)
+            {
+                case SidebarTab.Inspector:
+                    if (_lastInspectorContent != null)
+                        _rightPanelService.OpenPanel(_lastInspectorContent, "TRACK INSPECTOR", "🔬");
+                    else
+                        _rightPanelService.IsPanelOpen = true;
+                    break;
+                case SidebarTab.Similarity:
+                    SimilarTracksVm.PrimeFromInspectorContext(_lastInspectorContent ?? CurrentContent);
+                    _rightPanelService.OpenPanel(SimilarTracksVm, "SIMILAR TRACKS", "🔗");
+                    break;
+                case SidebarTab.Player:
+                    _rightPanelService.OpenPanel(PlayerVm, "NOW PLAYING", "🎵");
+                    break;
+                case SidebarTab.Notifications:
+                    _rightPanelService.OpenPanel(NotificationCenter, "NOTIFICATIONS", "🔔");
+                    break;
+                case SidebarTab.Mix:
+                    _rightPanelService.OpenPanel(MixTransitionVm, "MIX", "🎛");
+                    break;
+                case SidebarTab.Discover:
+                    _rightPanelService.OpenPanel(DiscoveryVm, "DISCOVER", "✨");
+                    break;
             }
         }
 

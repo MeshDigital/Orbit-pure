@@ -1,0 +1,106 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vmDiag="clr-namespace:SLSKDONET.ViewModels.Diagnostics"
+        x:Class="SLSKDONET.Views.Avalonia.Dialogs.FeedbackDialog"
+        x:DataType="vmDiag:FeedbackDialogViewModel"
+        Title="Send feedback" Width="480" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="{StaticResource BrushBg2}" TransparencyLevelHint="AcrylicBlur"
+        ExtendClientAreaToDecorationsHint="True">
+
+    <StackPanel Margin="24" Spacing="16">
+
+        <!-- Step 1: describe the problem -->
+        <StackPanel Spacing="16" IsVisible="{Binding IsComposing}">
+            <StackPanel Spacing="4">
+                <TextBlock Classes="h2" Text="Send feedback"/>
+                <TextBlock Classes="body-sm muted" TextWrapping="Wrap"
+                           Text="ORBIT puts a screenshot of this window, the last 15 minutes of its log and some system info into one zip. Nothing leaves your PC until you send it."/>
+            </StackPanel>
+
+            <StackPanel Spacing="4">
+                <TextBlock Classes="caption" Text="What were you doing, and what went wrong?"/>
+                <TextBox Text="{Binding Note}" AcceptsReturn="True" TextWrapping="Wrap" Height="96"
+                         VerticalContentAlignment="Top"
+                         Watermark="e.g. Connected Spotify, the browser said Success, but the import still failed"/>
+            </StackPanel>
+
+            <Grid ColumnDefinitions="Auto,*" IsVisible="{Binding HasScreenshot}">
+                <Border Width="128" Height="80" CornerRadius="4" ClipToBounds="True"
+                        BorderBrush="{StaticResource BrushBorder1}" BorderThickness="1"
+                        Background="{StaticResource BrushBg0}">
+                    <Image Source="{Binding ScreenshotPreview}" Stretch="UniformToFill"/>
+                </Border>
+                <StackPanel Grid.Column="1" Margin="12,0,0,0" Spacing="4" VerticalAlignment="Center">
+                    <CheckBox IsChecked="{Binding IncludeScreenshot}" Content="Include screenshot"/>
+                    <TextBlock Classes="caption" TextWrapping="Wrap"
+                               Text="Uncheck it if the window shows something private."/>
+                </StackPanel>
+            </Grid>
+
+            <TextBlock Classes="caption" TextWrapping="Wrap"
+                       Text="Passwords, sign-in tokens and your Windows user name are removed from the log."/>
+        </StackPanel>
+
+        <!-- Step 2: hand the zip to WhatsApp / mail -->
+        <StackPanel Spacing="16" IsVisible="{Binding IsReportReady}">
+            <StackPanel Spacing="4">
+                <TextBlock Classes="h2" Text="Report ready"/>
+                <TextBlock Classes="body-sm muted" TextWrapping="Wrap"
+                           Text="Send it to the ORBIT developer. WhatsApp and mail can't pick up a file on their own, so ORBIT copies the zip for you to paste."/>
+            </StackPanel>
+
+            <Border Classes="card">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <PathIcon Data="{StaticResource icon_file}" Width="16" Height="16"
+                              Foreground="{StaticResource BrushText2}"/>
+                    <TextBlock Grid.Column="1" Classes="mono" Margin="8,0" VerticalAlignment="Center"
+                               Text="{Binding ReportFileName}" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Grid.Column="2" Classes="caption mono" VerticalAlignment="Center"
+                               Text="{Binding ReportSize}"/>
+                </Grid>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Classes="secondary" Command="{Binding ShareWhatsAppCommand}"
+                        ToolTip.Tip="Copies the zip and opens WhatsApp">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="{StaticResource icon_chat}" Width="14" Height="14"/>
+                        <TextBlock Text="WhatsApp" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button Classes="secondary" Command="{Binding ShareEmailCommand}"
+                        ToolTip.Tip="Copies the zip and opens a new mail">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="{StaticResource icon_send}" Width="14" Height="14"/>
+                        <TextBlock Text="Email" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button Classes="secondary" Command="{Binding ShowInFolderCommand}"
+                        ToolTip.Tip="Opens the folder with the zip selected">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="{StaticResource icon_folder}" Width="14" Height="14"/>
+                        <TextBlock Text="Show in folder" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </StackPanel>
+
+        <TextBlock Classes="body-sm" Classes.error="{Binding StatusIsError}" TextWrapping="Wrap"
+                   Text="{Binding StatusText}" IsVisible="{Binding HasStatus}"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Classes="ghost" Content="Cancel" Command="{Binding CloseCommand}"
+                    IsVisible="{Binding IsComposing}"/>
+            <Button Classes="primary" Command="{Binding CreateReportCommand}" IsVisible="{Binding IsComposing}">
+                <Panel>
+                    <TextBlock Text="Create report" IsVisible="{Binding !IsBusy}"/>
+                    <TextBlock Text="Creating…" IsVisible="{Binding IsBusy}"/>
+                </Panel>
+            </Button>
+            <Button Classes="primary" Content="Done" Command="{Binding CloseCommand}"
+                    IsVisible="{Binding IsReportReady}"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

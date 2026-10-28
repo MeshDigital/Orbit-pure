@@ -159,6 +159,8 @@
                                           ToolTip.Tip="Build-in cues placed before every drop: DnB / Bass −16 −8, Long Blend / House −32 −16, Quick Mix / Hip-Hop −8 −4, Custom, or Auto (picked from the genre)."/>
                                 <TextBox Text="{Binding Session.CustomCountdownBars}" IsVisible="{Binding Session.IsCustomTemplate}"
                                          FontFamily="{StaticResource FontMono}" Watermark="Bars before the drop, e.g. 32,16,8"/>
+                                <CheckBox IsChecked="{Binding Session.CountdownsAsMemoryCues}" Content="Countdowns as memory cues"
+                                          ToolTip.Tip="Countdown cues ([IN -16], [IN2 -8] …) become memory cues, leaving pads A B D E free; CDJs show a bar countdown to the next memory cue. The drops stay on C and F. Applies to drops you place or generate from now on."/>
                                 <TextBlock Classes="caption" Text="{Binding Session.TemplateHint}"/>
                                 <TextBlock Classes="caption" TextWrapping="Wrap" Text="App-wide: shared with Cue Forge and cue generation."/>
                                 <Border Classes="divider" Margin="0,4"/>

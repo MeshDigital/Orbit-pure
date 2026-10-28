@@ -141,6 +141,12 @@ public sealed class CueDetrService : IDisposable
         {
             if (_loadAttempted) return;
             _loadAttempted = true;
+            if (!SLSKDONET.Services.Platform.HardwareCapabilities.Allows(SLSKDONET.Services.Platform.HardwareFeature.AiTagging))
+            {
+                _logger.LogWarning("[CueDetr] AI cue points are switched off on this machine: {Reason}",
+                    SLSKDONET.Services.Platform.HardwareCapabilities.Current.VerdictFor(SLSKDONET.Services.Platform.HardwareFeature.AiTagging).Reason);
+                return;
+            }
             if (!File.Exists(_modelPath))
             {
                 _logger.LogWarning("[CueDetr] Model not found at {Path}; AI cue points are disabled.", _modelPath);

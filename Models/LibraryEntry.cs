@@ -141,6 +141,7 @@ public class LibraryEntry
     public double? LoudnessLufs { get; set; }
     public double? DropTimeSeconds { get; set; }
     public double? DropConfidence { get; set; }
+    public double? TimeTillDropSeconds { get; set; }
     public string? EnergyCurveJson { get; set; }
     public string? SegmentedEnergyJson { get; set; }
     public string? GenreDistributionJson { get; set; }

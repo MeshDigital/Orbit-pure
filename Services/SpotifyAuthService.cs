@@ -303,7 +303,9 @@ public class SpotifyAuthService
             // Exchange
             if (!string.IsNullOrEmpty(code))
             {
-                 await ExchangeCodeForTokensAsync(code);
+                 // The exchange must repeat the exact redirect URI the browser was sent to,
+                 // including a fallback port, or Spotify rejects it.
+                 await ExchangeCodeForTokensAsync(code, uri);
                  return true;
             }
             
@@ -330,7 +332,7 @@ public class SpotifyAuthService
     /// <summary>
     /// Exchanges the authorization code for access and refresh tokens.
     /// </summary>
-    private async Task ExchangeCodeForTokensAsync(string authCode)
+    private async Task ExchangeCodeForTokensAsync(string authCode, Uri redirectUri)
     {
         if (string.IsNullOrEmpty(_currentCodeVerifier))
             throw new InvalidOperationException("Code verifier not set. Call StartAuthorizationAsync first.");
@@ -338,7 +340,7 @@ public class SpotifyAuthService
         if (string.IsNullOrEmpty(_config.SpotifyClientId))
             throw new InvalidOperationException("Spotify Client ID is not configured.");
 
-        var tokenRequest = new PKCETokenRequest(_config.SpotifyClientId, authCode, new Uri(_config.SpotifyRedirectUri), _currentCodeVerifier);
+        var tokenRequest = new PKCETokenRequest(_config.SpotifyClientId, authCode, redirectUri, _currentCodeVerifier);
 
         var config = SpotifyClientConfig.CreateDefault();
         var oauthClient = new OAuthClient(config);
@@ -346,6 +348,23 @@ public class SpotifyAuthService
         // Add 30-second timeout to token exchange
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var tokenResponse = await oauthClient.RequestToken(tokenRequest).WaitAsync(cts.Token);
+
+        // Create authenticated client with PKCEAuthenticator for immediate auto-refresh support
+        // This ensures the very first client instance can handle long-running imports/enrichment
+        var authenticator = new PKCEAuthenticator(_config.SpotifyClientId, tokenResponse);
+        var configWithAuth = SpotifyClientConfig
+            .CreateDefault()
+            .WithAuthenticator(authenticator)
+            .WithRetryHandler(new SimpleRetryHandler()
+            {
+                RetryAfter = TimeSpan.FromSeconds(1),
+                RetryTimes = 3
+            });
+        var client = new SpotifyClient(configWithAuth);
+
+        // The browser shows "Success!" even for an account the Client ID won't serve; find out
+        // now instead of on the first import, and don't store a token that can't be used.
+        await EnsureAccountCanUseApiAsync(client);
 
         _currentTokenResponse = tokenResponse;
         _tokenExpiresAt = DateTime.UtcNow.AddSeconds(tokenResponse.ExpiresIn);
@@ -357,28 +376,39 @@ public class SpotifyAuthService
             _logger.LogInformation("Refresh token stored securely");
         }
 
-        // Save the successful callback port to config for deterministic RedirectUri
-        // This ensures future auth attempts use the same port that worked
-        _config.SpotifyCallbackPort = new Uri(_config.SpotifyRedirectUri).Port;
-        _logger.LogInformation("Saved Spotify callback port {Port} for future auth attempts", _config.SpotifyCallbackPort);
+        _config.SpotifyCallbackPort = redirectUri.Port;
+        _logger.LogInformation("Spotify sign-in completed via callback port {Port}", redirectUri.Port);
 
-        // Create authenticated client with PKCEAuthenticator for immediate auto-refresh support
-        // This ensures the very first client instance can handle long-running imports/enrichment
-        var authenticator = new PKCEAuthenticator(_config.SpotifyClientId, tokenResponse);
-        var configWithAuth = SpotifyClientConfig
-            .CreateDefault()
-            .WithAuthenticator(authenticator)
-            .WithRetryHandler(new SimpleRetryHandler() 
-            { 
-                RetryAfter = TimeSpan.FromSeconds(1), 
-                RetryTimes = 3
-            });
-            
-        _authenticatedClient = new SpotifyClient(configWithAuth);
+        _authenticatedClient = client;
         IsAuthenticated = true;
 
         _logger.LogInformation("Successfully exchanged authorization code for tokens and initialized client with PKCE auto-refresh");
     }
+
+    private async Task EnsureAccountCanUseApiAsync(SpotifyClient client)
+    {
+        try
+        {
+            var user = await client.UserProfile.Current();
+            _logger.LogInformation("Spotify account verified after sign-in: {User}", user.DisplayName ?? user.Id);
+        }
+        catch (Exception ex) when (ImportProviders.SpotifyImportErrors.IsAccountNotAllowlisted(ex))
+        {
+            var usingDefaultId = string.Equals(_config.SpotifyClientId, DefaultClientId, StringComparison.Ordinal);
+            _logger.LogWarning(
+                "Spotify sign-in succeeded but the API refuses this account: it isn't allowlisted on Client ID {ClientId} ({Kind}), which is in development mode. Spotify said: {Message}",
+                _config.SpotifyClientId, usingDefaultId ? "ORBIT's built-in ID" : "custom ID", ex.Message);
+            throw new ImportProviders.SpotifyAccountNotAllowlistedException(ex);
+        }
+        catch (Exception ex)
+        {
+            // A network blip here shouldn't undo a good sign-in; the first real call will report it.
+            _logger.LogWarning(ex, "Couldn't verify the Spotify account right after sign-in; keeping the session");
+        }
+    }
+
+    /// <summary>The Client ID ORBIT fills in when the user hasn't entered their own.</summary>
+    public const string DefaultClientId = "67842a599c6f45edbf3de3d84231deb4";
 
     /// <summary>
     /// Refreshes the access token using the stored refresh token.

@@ -57,6 +57,17 @@ try {
         -p:EnableCompressionInSingleFile=true `
         -o $publishRoot
 
+    # Rekordbox library reader (separate process with its own SQLCipher engine), self-contained
+    # because testers may not have a .NET runtime installed.
+    dotnet publish (Join-Path $repoRoot "Companions\RekordboxBridge\RekordboxBridge.csproj") `
+        -c $Configuration `
+        -r $Runtime `
+        --self-contained true `
+        -p:PublishSingleFile=true `
+        -p:IncludeNativeLibrariesForSelfExtract=true `
+        -o (Join-Path $publishRoot "Tools\RekordboxBridge")
+    if ($LASTEXITCODE -ne 0) { throw "Publishing RekordboxBridge failed." }
+
     Get-ChildItem -Path $publishRoot -Filter *.pdb -Recurse | Remove-Item -Force
 
     if ($Lite)

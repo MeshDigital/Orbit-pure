@@ -28,6 +28,10 @@ public sealed record TrackStructure
     /// <summary>The track's "Outro" section marker; trusted over the analysed Outro cue and the
     /// 32-bars-after-the-last-drop estimate.</summary>
     public double? OutroStartMarker { get; init; }
+    /// <summary>Explicit track-level Mix-In cue shared with Flow Builder and DJ preparation.</summary>
+    public double? MixInMarker { get; init; }
+    /// <summary>Explicit track-level Mix-Out cue shared with Flow Builder and DJ preparation.</summary>
+    public double? MixOutMarker { get; init; }
 }
 
 /// <summary>Mixxx-style regions, derived from a <see cref="TrackStructure"/>.</summary>
@@ -143,6 +147,8 @@ public static class TransitionPlanner
         // ...unless the DJ marked the outro earlier than that (a Rolling mix starts up to 16 bars before it).
         if (outgoing.OutroStartMarker is { } marked)
             minSource = Math.Min(minSource, Math.Max(0, Math.Min(marked, o.OutroStart) - 16 * o.BarSeconds));
+        if (outgoing.MixOutMarker is { } mixOut)
+            minSource = Math.Min(minSource, Math.Max(0, mixOut));
         var played = candidates.Where(c => c.SourceTriggerSeconds >= minSource - 0.01).ToList();
         if (played.Count == 0)
             played.Add(LateRelaxed(outgoing, incoming, o, i, minSource, shortOnly: !tempoLocked));
@@ -251,6 +257,18 @@ public static class TransitionPlanner
     {
         source = SnapToGrid(source, out_.FirstDownbeat, bar);
         target = Math.Max(0, SnapToGrid(target, in_.FirstDownbeat, BarSeconds(in_.Bpm)));
+        // A shared mix cue is an explicit DJ decision, not another structural hint. It wins over
+        // the planner's estimate while the pair-specific saved transition can still override it.
+        if (out_.MixOutMarker is { } mixOut)
+        {
+            source = Math.Clamp(mixOut, 0, Math.Max(0, out_.DurationSeconds));
+            reason += " · shared Mix-Out";
+        }
+        if (in_.MixInMarker is { } mixIn)
+        {
+            target = Math.Clamp(mixIn, 0, Math.Max(0, in_.DurationSeconds));
+            reason += " · shared Mix-In";
+        }
         double seconds = bars * bar;
         bool clash = VocalsOverlap(out_, source, seconds) && VocalsOverlap(in_, target, seconds * 0.5);
         return new TransitionPlan(kind, source, target, bars, seconds, clash, reason);

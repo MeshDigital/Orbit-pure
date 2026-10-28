@@ -3,6 +3,7 @@
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              x:Class="SLSKDONET.Views.Avalonia.FlowBuilderView"
+             x:Name="FlowRoot"
              x:DataType="vm:FlowBuilderViewModel"
              x:CompileBindings="True">
 
@@ -46,26 +47,35 @@
     <Grid RowDefinitions="Auto,Auto,Auto,*">
 
         <!-- ── Header ─────────────────────────────────────────────────────── -->
-        <Border Grid.Row="0" Padding="{StaticResource PaddingPage}"
+        <Border Grid.Row="0" Padding="16,6"
                 BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
             <Grid ColumnDefinitions="*,Auto">
-                <StackPanel VerticalAlignment="Center" Spacing="2">
+                <StackPanel VerticalAlignment="Center" Spacing="2" IsVisible="{Binding !#FlowRoot.IsEmbedded}">
                     <TextBlock Classes="h1" Text="Flow Builder"/>
                     <TextBlock Classes="subtitle" Text="{Binding HeaderSubtitle}" TextTrimming="CharacterEllipsis"/>
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <ComboBox Width="260"
+                    <Border Classes="chip" Padding="8,4" IsVisible="{Binding #FlowRoot.IsEmbedded}"
+                            ToolTip.Tip="Saved transitions are used by ORBIT playlist playback when MIX is enabled. They are not included in Rekordbox XML or deck-source mixdowns.">
+                        <TextBlock Classes="caption" Text="IN-APP MIX" VerticalAlignment="Center"/>
+                    </Border>
+                    <ComboBox Width="240" Classes="small"
                               ItemsSource="{Binding Playlists}"
                               SelectedItem="{Binding PickedPlaylist}"
                               PlaceholderText="Choose a playlist"
                               IsEnabled="{Binding IsNotLoading}"
+                              IsVisible="{Binding !#FlowRoot.IsEmbedded}"
                               ToolTip.Tip="Playlist to design transitions for"/>
-                    <Button Classes="secondary" Content="Save order"
+                    <Button Classes="secondary small" Content="Suggest order"
+                            Command="{Binding SuggestFlowCommand}"
+                            IsVisible="{Binding #FlowRoot.IsEmbedded}"
+                            ToolTip.Tip="Suggest a harmonic and tempo order. Energy-arc options are under More actions."/>
+                    <Button Classes="secondary small" Content="Save order"
                             Command="{Binding SaveOrderToPlaylistCommand}"
                             IsVisible="{Binding IsOrderDirty}"
                             ToolTip.Tip="Write this order back to the playlist (bridge tracks from other playlists are added). Playback only uses a saved transition when its two tracks are adjacent in the playlist."/>
-                    <Button Classes="icon" ToolTip.Tip="More actions">
+                    <Button Classes="icon small" ToolTip.Tip="More actions">
                         <PathIcon Data="{StaticResource icon_more}" Width="16" Height="16"/>
                         <Button.Flyout>
                             <MenuFlyout Placement="BottomEdgeAlignedRight">
@@ -93,7 +103,7 @@
         <ProgressBar Grid.Row="1" Classes="meter" IsIndeterminate="True" IsVisible="{Binding IsLoading}"/>
 
         <!-- ── A10 order proposal (only after "Suggest flow order") ───────── -->
-        <Border Grid.Row="2" Classes="card" Margin="24,12,24,0" IsVisible="{Binding HasSuggestedFlow}">
+        <Border Grid.Row="2" Classes="card" Margin="16,8,16,0" IsVisible="{Binding HasSuggestedFlow}">
             <Grid ColumnDefinitions="*,Auto">
                 <StackPanel Spacing="4">
                     <StackPanel Orientation="Horizontal" Spacing="8">
@@ -120,11 +130,11 @@
                 <PathIcon Data="{StaticResource icon_waves}"/>
                 <TextBlock Classes="h3" Text="Choose a playlist to design its transitions"/>
                 <TextBlock Classes="caption" TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center"
-                           Text="Pick a playlist in the header. Its downloaded tracks load in playlist order; select any pair to set the mix-out and mix-in, preview the blend and save it."/>
+                           Text="Pick a playlist in the header. Every track stays visible in playlist order; select any available pair to set its mix points for ORBIT playback with MIX enabled."/>
                 <TextBlock Classes="caption" Text="{Binding StatusText}" TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center"/>
             </StackPanel>
 
-            <Grid ColumnDefinitions="320,*" IsVisible="{Binding HasTracks}">
+            <Grid ColumnDefinitions="200,*" IsVisible="{Binding HasTracks}" ClipToBounds="True">
 
                 <!-- The set -->
                 <Border Grid.Column="0" Classes="panel" BorderThickness="0,0,1,0">
@@ -163,7 +173,7 @@
                                                     </StackPanel>
                                                     <PathIcon Grid.Column="3" Data="{StaticResource icon_alert}" Width="12" Height="12"
                                                               Foreground="{StaticResource BrushWarning}" Margin="4,0"
-                                                              IsVisible="{Binding NeedsAnalysis}"
+                                                              IsVisible="{Binding NeedsAttention}"
                                                               ToolTip.Tip="{Binding ReadinessHint}"/>
                                                     <StackPanel Grid.Column="4" VerticalAlignment="Center" Margin="8,0" Spacing="0">
                                                         <TextBlock Classes="mono" Text="{Binding BpmDisplay}" TextAlignment="Right"/>
@@ -205,11 +215,11 @@
                                                     </StackPanel>
                                                     <PathIcon Grid.Column="3" Data="{StaticResource icon_alert}" Width="12" Height="12"
                                                               Foreground="{StaticResource BrushWarning}" Margin="4,0"
-                                                              IsVisible="{Binding PairNeedsAnalysis}"
-                                                              ToolTip.Tip="One of these tracks has no cues yet"/>
+                                                              IsVisible="{Binding PairNeedsAttention}"
+                                                              ToolTip.Tip="One of these tracks needs attention. Unavailable audio must be repaired before opening this pair."/>
                                                     <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"
                                                                 IsVisible="{Binding HasSavedTransition}"
-                                                                ToolTip.Tip="Transition saved: playback uses it for this pair">
+                                                                ToolTip.Tip="Saved for ORBIT playlist playback with MIX enabled when these tracks are adjacent">
                                                         <Ellipse Classes="status-dot success"/>
                                                         <TextBlock Classes="caption" Text="Saved"/>
                                                     </StackPanel>

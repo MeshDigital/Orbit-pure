@@ -47,6 +47,13 @@ public sealed class StructuralAnalysisResult
         = Array.Empty<(double, float)>();
 
     /// <summary>
+    /// Earliest structurally valid drop, measured from the start of the audio. Unlike
+    /// <see cref="Drops"/>, this is not limited to the three strongest candidates, so an early
+    /// drop cannot disappear merely because a later drop scored higher.
+    /// </summary>
+    public (double TimestampSeconds, float Confidence)? FirstDrop { get; init; }
+
+    /// <summary>
     /// Higher-level structural sections inferred from phrase windows and local energy.
     /// These are persisted to TrackPhrases and used by the bridge / transition systems.
     /// </summary>
@@ -212,7 +219,15 @@ public sealed class StructuralAnalysisEngine
         IReadOnlyList<float> energyCurve,
         IReadOnlyList<double> phraseBoundaries,
         float bpm,
-        double energyWindowSeconds = EnergyWindowSeconds)
+        double energyWindowSeconds = EnergyWindowSeconds) =>
+        FindDropsCore(energyCurve, phraseBoundaries, bpm, energyWindowSeconds, MaxDrops);
+
+    private static IReadOnlyList<(double TimestampSeconds, float Confidence)> FindDropsCore(
+        IReadOnlyList<float> energyCurve,
+        IReadOnlyList<double> phraseBoundaries,
+        float bpm,
+        double energyWindowSeconds,
+        int maxDrops)
     {
         if (energyCurve == null || energyCurve.Count == 0)
             return Array.Empty<(double, float)>();
@@ -286,7 +301,7 @@ public sealed class StructuralAnalysisEngine
 
         foreach (var (ts, idx, score) in scoredCandidates)
         {
-            if (drops.Count >= MaxDrops) break;
+            if (drops.Count >= maxDrops) break;
 
             // Check sustained energy for SustainedEnergyMinBars bars after the candidate
             int sustainWindows = (int)Math.Ceiling(sustainDuration / energyWindowSeconds);
@@ -603,12 +618,14 @@ public sealed class StructuralAnalysisEngine
 
         var (beats, phrases) = ComputePhraseBoundaries(bpm, durationSeconds);
 
-        IReadOnlyList<(double, float)> drops = Array.Empty<(double, float)>();
+        IReadOnlyList<(double TimestampSeconds, float Confidence)> allDrops =
+            Array.Empty<(double, float)>();
         if (energyCurve != null && energyCurve.Count > 0)
         {
-            drops = FindDrops(energyCurve, phrases, bpm, EnergyWindowSeconds);
+            allDrops = FindDropsCore(energyCurve, phrases, bpm, EnergyWindowSeconds, int.MaxValue);
         }
 
+        var drops = allDrops.Take(MaxDrops).ToArray();
         var sections = BuildSections(phrases, durationSeconds, energyCurve, drops);
 
         return new StructuralAnalysisResult
@@ -620,6 +637,9 @@ public sealed class StructuralAnalysisEngine
             EnergyCurve = energyCurve ?? Array.Empty<float>(),
             EnergyWindowSeconds = EnergyWindowSeconds,
             Drops = drops,
+            FirstDrop = allDrops.Count == 0
+                ? null
+                : allDrops.OrderBy(drop => drop.TimestampSeconds).First(),
             Sections = sections,
         };
     }

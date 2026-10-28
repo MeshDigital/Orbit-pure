@@ -14,28 +14,15 @@
              KeyDown="OnCockpitKeyDown"
              Background="{DynamicResource BrushBg1}">
 
-    <!-- Workstation (DJ cockpit). Layout contract (WorkstationTimelineLayoutGuardTests):
-         row 0 header + toolbar · row 1 timeline + inspector · row 2 splitter · row 3 Flow Drawer.
-         Everything here uses Themes/ tokens and classes; the only page-local styles are the
-         CDJ hot-cue pads (data colours) and the overlay size presets driven by code-behind. -->
+    <!-- Professional DJ preparation. In-app MIX transitions live in Flow Builder. -->
+    <UserControl.Resources>
+        <wsViews:TrackReadinessConverter x:Key="TrackReadiness"/>
+        <!-- Responsive defaults; ApplyResponsiveLayout increases these on roomy desktops. -->
+        <x:Double x:Key="WsDeckRowHeight">64</x:Double>
+        <x:Double x:Key="WsPlaylistRowHeight">34</x:Double>
+        <x:Double x:Key="WsPlaylistActionHeight">26</x:Double>
+    </UserControl.Resources>
     <UserControl.Styles>
-        <!-- Track-list overlay size presets (toggled from code-behind) -->
-        <Style Selector="Border.overlay-panel">
-            <Setter Property="Margin" Value="48"/>
-            <Setter Property="Padding" Value="{DynamicResource PaddingPanel}"/>
-            <Setter Property="HorizontalAlignment" Value="Stretch"/>
-            <Setter Property="VerticalAlignment" Value="Stretch"/>
-        </Style>
-        <Style Selector="Border.overlay-panel.size-compact">
-            <Setter Property="Margin" Value="120,72"/>
-        </Style>
-        <Style Selector="Border.overlay-panel.size-comfort">
-            <Setter Property="Margin" Value="72,48"/>
-        </Style>
-        <Style Selector="Border.overlay-panel.size-full">
-            <Setter Property="Margin" Value="16"/>
-        </Style>
-
         <!-- Inspector section rhythm -->
         <Style Selector="StackPanel.ws-section">
             <Setter Property="Spacing" Value="8"/>
@@ -86,7 +73,7 @@
         </Style>
     </UserControl.Styles>
 
-    <Grid x:Name="CockpitGrid" RowDefinitions="Auto,*,Auto,280">
+    <Grid x:Name="CockpitGrid" RowDefinitions="Auto,*,Auto,Auto" ClipToBounds="True">
 
         <!-- ═══ Row 0: header + the one toolbar row ═══ -->
         <StackPanel Grid.Row="0">
@@ -94,8 +81,7 @@
                     BorderBrush="{DynamicResource BrushBorder0}"
                     BorderThickness="0,0,0,1"
                     Padding="16,8">
-                <Grid ColumnDefinitions="Auto,Auto,*,Auto">
-                    <!-- Title + set context -->
+                <Grid ColumnDefinitions="Auto,*,Auto">
                     <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center" MaxWidth="520">
                         <TextBlock Classes="h2" Text="Workstation"/>
                         <TextBlock Classes="subtitle"
@@ -103,69 +89,67 @@
                                    TextTrimming="CharacterEllipsis"/>
                     </StackPanel>
 
-                    <!-- Workspace switch: PREP / SET PLAN -->
-                    <Border Grid.Column="1" Classes="segmented" Margin="24,0,0,0" VerticalAlignment="Center">
-                        <ItemsControl ItemsSource="{Binding ToolOptions}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <StackPanel Orientation="Horizontal" Spacing="2"/>
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="vm:WorkstationToolOptionViewModel">
-                                    <RadioButton Classes="chip" GroupName="WorkstationMode"
-                                                 IsChecked="{Binding IsSelected, Mode=OneWay}"
-                                                 IsEnabled="{Binding IsAvailable}"
-                                                 Command="{Binding #PageRoot.DataContext.SetModeCommand}"
-                                                 CommandParameter="{Binding Mode}"
-                                                 ToolTip.Tip="{Binding StatusText}"
-                                                 Content="{Binding ShortLabel}"/>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                    <!-- One glance at the professional prep pipeline; hidden on narrow headers. -->
+                    <Border Grid.Column="1" x:Name="PrepWorkflowStrip" Classes="inset"
+                            Padding="12,4" Margin="20,0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Grid ColumnDefinitions="Auto,16,Auto,16,Auto">
+                            <StackPanel Grid.Column="0" Spacing="1" MaxWidth="150"
+                                        ToolTip.Tip="BPM, key, waveform and structure analysis">
+                                <TextBlock Classes="section" Text="1  ANALYZE"/>
+                                <TextBlock Classes="caption" Text="{Binding AnalysisWorkflowStatus}" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                            <PathIcon Grid.Column="1" Data="{StaticResource icon_chevron_right}" Width="12" Height="12"
+                                      Foreground="{DynamicResource BrushText3}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <StackPanel Grid.Column="2" Spacing="1" MaxWidth="150"
+                                        ToolTip.Tip="Load a deck to verify beat grids, hot cues and loops">
+                                <TextBlock Classes="section" Text="2  PREPARE"/>
+                                <TextBlock Classes="caption" Text="{Binding PreparationWorkflowStatus}" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                            <PathIcon Grid.Column="3" Data="{StaticResource icon_chevron_right}" Width="12" Height="12"
+                                      Foreground="{DynamicResource BrushText3}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <StackPanel Grid.Column="4" Spacing="1" MaxWidth="150"
+                                        ToolTip.Tip="Rekordbox XML handoff. Missing or unreadable files block export; incomplete grids and cues are reported as prep warnings before export.">
+                                <TextBlock Classes="section" Text="3  EXPORT"/>
+                                <TextBlock Classes="caption" Text="{Binding ExportWorkflowStatus}" TextTrimming="CharacterEllipsis"
+                                           Classes.warning="{Binding HasPlaylistAttention}"
+                                           Classes.success="{Binding IsPlaylistReadyForExport}"/>
+                            </StackPanel>
+                        </Grid>
                     </Border>
 
-                    <!-- Status + the one primary action -->
-                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                        <Button Classes="ghost small"
-                                Foreground="{DynamicResource BrushWarning}"
-                                Command="{Binding ReanalyzeAllIncompleteCommand}"
-                                IsVisible="{Binding HasIncompleteAnalysisTracks}"
-                                ToolTip.Tip="{Binding IncompleteAnalysisSummary}">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <PathIcon Data="{StaticResource icon_alert}" Width="14" Height="14"/>
-                                <TextBlock Text="Reanalyze incomplete"/>
-                            </StackPanel>
-                        </Button>
-                        <Button Classes="primary small" ToolTip.Tip="Export the prepared set">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <PathIcon Data="{StaticResource icon_export}" Width="14" Height="14"/>
-                                <TextBlock Text="Export"/>
-                                <PathIcon Data="{StaticResource icon_chevron_down}" Width="12" Height="12"/>
-                            </StackPanel>
-                            <Button.Flyout>
-                                <MenuFlyout Placement="BottomEdgeAlignedRight">
-                                    <MenuItem Header="Rekordbox XML"
-                                              Command="{Binding ExportRekordboxCommand}"
-                                              ToolTip.Tip="Finish prep: export the active playlist with all saved hot cues and loops as Rekordbox XML"/>
-                                    <MenuItem Header="Session bundle (.orbsession)"
-                                              Command="{Binding ExportOrbSessionCommand}"
-                                              ToolTip.Tip="Export this session (decks, cues, loops, playlist order) as a .orbsession bundle"/>
-                                    <Separator/>
-                                    <MenuItem Header="Render mix…"
-                                              Command="{Binding ExportMixCommand}"
-                                              IsEnabled="{Binding CanUseExportLaneActions}"
-                                              ToolTip.Tip="{Binding ExportLaneActionHint}"/>
-                                </MenuFlyout>
-                            </Button.Flyout>
-                        </Button>
-                    </StackPanel>
+                    <Button Grid.Column="2" Classes="primary small" ToolTip.Tip="Export the prepared tracks">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <PathIcon Data="{StaticResource icon_export}" Width="14" Height="14"/>
+                            <TextBlock Text="Export"/>
+                            <PathIcon Data="{StaticResource icon_chevron_down}" Width="12" Height="12"/>
+                        </StackPanel>
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                <MenuItem Header="Rekordbox XML"
+                                          Command="{Binding ExportRekordboxCommand}"
+                                          ToolTip.Tip="Finish prep: export the active playlist with available beat grids, hot cues and loops as Rekordbox XML"/>
+                                <MenuItem Header="Session bundle (.orbsession)"
+                                          Command="{Binding ExportOrbSessionCommand}"
+                                          ToolTip.Tip="Export this session (decks, cues, loops, playlist order) as a .orbsession bundle"/>
+                                <Separator/>
+                                <MenuItem Header="Open playlist in Flow Builder (in-app MIX)"
+                                          Command="{Binding OpenFlowBuilderCommand}"
+                                          IsEnabled="{Binding HasActivePlaylist}"
+                                          ToolTip.Tip="Open the separate in-app MIX transition workspace for this playlist"/>
+                                <Separator/>
+                                <MenuItem Header="Render mix…"
+                                          Command="{Binding ExportMixCommand}"
+                                          IsEnabled="{Binding CanUseExportLaneActions}"
+                                          ToolTip.Tip="{Binding ExportLaneActionHint}"/>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
                 </Grid>
             </Border>
 
             <!-- Toolbar: edit history · viewport · timeline position · drawer -->
-            <Border Classes="toolbar">
-                <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto">
+            <Border Classes="toolbar" IsVisible="{Binding IsWaveformMode}">
+                <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto">
                     <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                         <Button Classes="icon small" Command="{Binding UndoCommand}" ToolTip.Tip="Undo (Ctrl+Z)">
                             <PathIcon Data="{StaticResource icon_undo}" Width="14" Height="14"/>
@@ -198,15 +182,20 @@
                             ToolTip.Tip="Timeline viewport position"/>
                     <Button Grid.Column="4" Classes="icon small"
                             Click="OnToggleDrawerClick"
-                            ToolTip.Tip="Show or hide the Flow Drawer (more room for waveforms)">
+                            ToolTip.Tip="Show or hide the Prep Playlist (more room for waveforms)">
                         <PathIcon Data="{StaticResource icon_panel_bottom}" Width="14" Height="14"/>
                     </Button>
+                    <Button Grid.Column="5" x:Name="CompactInspectorToggle" Classes="secondary small"
+                            Content="Inspector" Margin="8,0,0,0" IsVisible="False"
+                            Click="OnToggleInspectorClick"
+                            ToolTip.Tip="Open the deck inspector without reducing the waveform width"/>
                 </Grid>
             </Border>
         </StackPanel>
 
         <!-- ═══ Row 1: timeline + inspector ═══ -->
-        <Grid Grid.Row="1" ColumnDefinitions="*,276" RowDefinitions="Auto,*,Auto">
+        <Grid Grid.Row="1" x:Name="PrepWorkspaceGrid" ColumnDefinitions="*,276" RowDefinitions="Auto,*,Auto"
+              IsVisible="{Binding IsWaveformMode}" ClipToBounds="True">
 
             <!-- Ruler: aligned to the 200px deck strip + 8px waveform padding -->
             <Border Grid.Row="0" Grid.Column="0"
@@ -216,7 +205,7 @@
                     Padding="8,4">
                 <Grid ColumnDefinitions="192,*">
                     <TextBlock Grid.Column="0" Classes="section" Text="DECKS" VerticalAlignment="Center"/>
-                    <Canvas Grid.Column="1" Margin="8,0,0,0" ClipToBounds="True">
+                    <Canvas Grid.Column="1" x:Name="TimelineTickCanvas" Margin="8,0,0,0" ClipToBounds="True">
                         <TextBlock Classes="mono muted" FontSize="{DynamicResource TextSizeCaption}" Text="{Binding TimelineTick0}" Canvas.Left="0"/>
                         <TextBlock Classes="mono muted" FontSize="{DynamicResource TextSizeCaption}" Text="{Binding TimelineTick1}" Canvas.Left="140"/>
                         <TextBlock Classes="mono muted" FontSize="{DynamicResource TextSizeCaption}" Text="{Binding TimelineTick2}" Canvas.Left="280"/>
@@ -505,7 +494,7 @@
                             <TextBlock Classes="section" Text="EMPTY TIMELINE"/>
                             <TextBlock Classes="body" Text="{Binding TimelineEmptyCanvasSummary}" TextWrapping="Wrap"/>
                             <TextBlock Classes="caption"
-                                       Text="Waveforms and transition overlays appear here once the first track is loaded. Pick a playlist in the Flow Drawer below."
+                                       Text="Waveforms and transition overlays appear here once the first track is loaded. Pick a playlist in the Prep Playlist below."
                                        TextWrapping="Wrap"/>
                         </StackPanel>
                     </Grid>
@@ -514,11 +503,13 @@
 
             <wsViews:MixerCenter Grid.Row="2" Grid.Column="0"/>
 
-            <!-- ═══ Inspector ═══ -->
+            <!-- Inline on wide screens; a right-side drawer on compact screens. -->
             <Border Grid.Row="0"
                     Grid.RowSpan="2"
                     Grid.Column="1"
+                    x:Name="PrepInspector"
                     Classes="panel"
+                    Background="{DynamicResource BrushBg1}"
                     BorderThickness="1,0,0,0">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Spacing="16" Margin="12">
@@ -536,7 +527,7 @@
                                 <PathIcon Data="{StaticResource icon_music}"/>
                                 <TextBlock Classes="h3" Text="No deck loaded"/>
                                 <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center"
-                                           Text="Load a track from the Flow Drawer (F loads the focused deck, A / B a specific one) or drag it onto a deck. Hot cues, loops, stems and tempo show up here."/>
+                                           Text="Load a track from the Prep Playlist (F loads the focused deck, A / B a specific one) or drag it onto a deck. Hot cues, loops, stems and tempo show up here."/>
                             </StackPanel>
 
                             <StackPanel Spacing="16" IsVisible="{Binding FocusedDeck.IsLoaded, FallbackValue=False}">
@@ -869,24 +860,26 @@
 
         <GridSplitter Grid.Row="2"
                       Classes="shell-splitter"
+                      IsVisible="{Binding IsWaveformMode}"
                       ResizeDirection="Rows"
                       ResizeBehavior="PreviousAndNext"
                       Background="{DynamicResource BrushBorder0}"
                       Height="{StaticResource WsSplitterHeight}"
                       HorizontalAlignment="Stretch"
-                      ToolTip.Tip="Drag to resize the Flow Drawer. Double-click to reset"
+                      ToolTip.Tip="Drag to resize the Prep Playlist. Double-click to reset"
                       DoubleTapped="OnDrawerSplitterDoubleTapped"/>
 
-        <!-- ═══ Row 3: Flow Drawer ═══ -->
-        <Border Grid.Row="3" Background="{DynamicResource BrushBg1}" BorderBrush="{DynamicResource BrushBorder0}" BorderThickness="0,1,0,0">
+        <!-- ═══ Row 3: Prep playlist ═══ -->
+        <Border Grid.Row="3" IsVisible="{Binding IsWaveformMode}"
+                Background="{DynamicResource BrushBg1}" BorderBrush="{DynamicResource BrushBorder0}" BorderThickness="0,1,0,0">
             <Grid RowDefinitions="Auto,Auto,*">
                 <Border Grid.Row="0" Classes="panel-header" Background="{DynamicResource BrushBg1}" Padding="16,4">
                     <Grid ColumnDefinitions="Auto,12,Auto,*,Auto">
-                        <TextBlock Grid.Column="0" Classes="section" Text="FLOW DRAWER" VerticalAlignment="Center"/>
-                        <ComboBox Grid.Column="2" Classes="small" x:Name="PlaylistSelector" Width="260"
+                        <TextBlock Grid.Column="0" Classes="section" Text="PREP PLAYLIST" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="2" Classes="small" x:Name="PlaylistSelector" Width="240"
                                   ItemsSource="{Binding Playlists}" SelectedItem="{Binding ActivePlaylist}"
                                   PlaceholderText="Choose a playlist"
-                                  VerticalAlignment="Center" ToolTip.Tip="Playlist feeding the decks and the set plan">
+                                  VerticalAlignment="Center" ToolTip.Tip="Playlist used for professional DJ track preparation">
                             <ComboBox.ItemTemplate>
                                 <DataTemplate x:DataType="models:PlaylistJob">
                                     <TextBlock Text="{Binding SourceTitle}" TextTrimming="CharacterEllipsis"/>
@@ -897,24 +890,26 @@
                             <Button Classes="secondary small"
                                     Command="{Binding AnalyzePlaylistCuesCommand}"
                                     IsEnabled="{Binding !IsAnalyzing}"
-                                    ToolTip.Tip="Auto-detect drops, builds and phrase markers for every track in this playlist that has no cues yet">
+                                    ToolTip.Tip="Analyze local tracks with missing cue data">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <PathIcon Data="{StaticResource icon_wand}" Width="14" Height="14"/>
                                     <TextBlock Text="Analyze cues"/>
                                 </StackPanel>
                             </Button>
-                            <Button Classes="icon small" Click="OnOpenTrackListOverlayClick" ToolTip.Tip="Open the track list in a large overlay">
-                                <PathIcon Data="{StaticResource icon_expand}" Width="14" Height="14"/>
-                            </Button>
-                            <Button Classes="icon small" ToolTip.Tip="More drawer actions">
+                            <Button Classes="icon small" ToolTip.Tip="More prep actions">
                                 <PathIcon Data="{StaticResource icon_more}" Width="14" Height="14"/>
                                 <Button.Flyout>
                                     <MenuFlyout Placement="BottomEdgeAlignedRight">
                                         <MenuItem Header="Analyze selected rows only"
                                                   IsEnabled="{Binding !IsAnalyzing}"
                                                   Click="OnAnalyzeSelectedClick"
-                                                  ToolTip.Tip="Auto-detect cues only for the selected rows (skips tracks that already have cues)"/>
-                                        <MenuItem Header="Open track list overlay" Click="OnOpenTrackListOverlayClick"/>
+                                                  ToolTip.Tip="Analyze local selected rows with missing cue data"/>
+                                        <MenuItem Header="Reanalyze incomplete tracks"
+                                                  Command="{Binding ReanalyzeAllIncompleteCommand}"
+                                                  IsVisible="{Binding HasIncompleteAnalysisTracks}"
+                                                  ToolTip.Tip="{Binding IncompleteAnalysisSummary}"/>
+                                        <MenuItem Header="Acquire missing tracks" Click="OnDownloadTracksCtaClick"/>
+                                        <MenuItem Header="Import or locate local files" Click="OnImportLocalFilesCtaClick"/>
                                     </MenuFlyout>
                                 </Button.Flyout>
                             </Button>
@@ -934,219 +929,78 @@
                     </Grid>
                 </Border>
 
-                <!-- Idle: eligibility + next-step CTAs -->
-                <Border Grid.Row="1" IsVisible="{Binding !IsAnalyzing}" Padding="16,4">
-                    <StackPanel Spacing="2">
-                        <TextBlock Classes="caption" Text="{Binding AnalysisStatusText}" IsVisible="{Binding AnalysisStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                        <TextBlock Classes="caption" Foreground="{DynamicResource BrushText1}" Text="{Binding WorkstationEligibilitySummary}" TextWrapping="Wrap"/>
-                        <TextBlock Classes="caption" Text="{Binding HiddenEligibilityBreakdown}" TextWrapping="Wrap" IsVisible="{Binding HiddenEligibilityBreakdown, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                        <TextBlock Classes="caption" Text="{Binding FlowCtaStateSummary}" TextWrapping="Wrap"/>
-                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0" IsVisible="{Binding ShouldShowSelectPlaylistCta}">
-                            <Button Classes="primary small" Click="OnFocusPlaylistCtaClick" ToolTip.Tip="{Binding SelectPlaylistCtaHint}">Select playlist</Button>
-                            <Button Classes="secondary small" Click="OnImportLocalFilesCtaClick" ToolTip.Tip="{Binding ImportLocalFilesCtaHint}">Import local files</Button>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0" IsVisible="{Binding ShouldShowAcquireCtas}">
-                            <Button Classes="primary small" Click="OnDownloadTracksCtaClick" IsVisible="{Binding ShouldShowDownloadTracksCta}" ToolTip.Tip="{Binding DownloadTracksCtaHint}">Download tracks</Button>
-                            <Button Classes="secondary small" Click="OnImportLocalFilesCtaClick" IsVisible="{Binding ShouldShowImportLocalFilesCta}" ToolTip.Tip="{Binding ImportLocalFilesCtaHint}">Import local files</Button>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0" IsVisible="{Binding ShouldShowReadyTrackCtas}">
-                            <Button Classes="primary small" Click="OnLoadIntoWorkstationCtaClick" IsEnabled="{Binding HasReadyPlaylistTracks}" ToolTip.Tip="{Binding LoadIntoWorkstationCtaHint}">Load into Workstation</Button>
-                        </StackPanel>
-                    </StackPanel>
+                <!-- One compact readiness line; repair actions stay on their track rows. -->
+                <Border Grid.Row="1" IsVisible="{Binding !IsAnalyzing}" Padding="16,3"
+                        ToolTip.Tip="{Binding WorkstationEligibilitySummary}">
+                    <Grid ColumnDefinitions="*,12,Auto">
+                        <TextBlock Grid.Column="0" Classes="caption" VerticalAlignment="Center"
+                                   Text="{Binding AnalysisStatusText}" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Grid.Column="1" Classes="caption warning" VerticalAlignment="Center"
+                                   Text="{Binding HiddenEligibilityBreakdown}" TextTrimming="CharacterEllipsis"
+                                   IsVisible="{Binding HiddenEligibilityBreakdown, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                    </Grid>
                 </Border>
 
-                <Grid Grid.Row="2" ColumnDefinitions="2*,*" Margin="16,4,16,8">
-                    <TabControl Grid.Column="0" x:Name="DrawerTabs" Classes="tabs-underline" Padding="0" BorderThickness="0" Background="Transparent" TabStripPlacement="Top" SelectionChanged="OnDrawerTabsSelectionChanged" SelectedIndex="0">
-                        <TabItem Header="Track list">
-                            <StackPanel>
-                                <ctrl:VirtualGridHeader>
-                                    <ctrl:VirtualGridHeader.HeaderContent>
-                                        <Grid ColumnDefinitions="40,2*,3*,56,56,96">
-                                            <TextBlock Grid.Column="0" Classes="section" Text="#" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            <TextBlock Grid.Column="1" Classes="section" Text="ARTIST" VerticalAlignment="Center" Margin="8,0"/>
-                                            <TextBlock Grid.Column="2" Classes="section" Text="TITLE" VerticalAlignment="Center" Margin="8,0"/>
-                                            <TextBlock Grid.Column="3" Classes="section" Text="KEY" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            <TextBlock Grid.Column="4" Classes="section" Text="BPM" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            <TextBlock Grid.Column="5" Classes="section" Text="LOAD" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <Grid Grid.Row="2" RowDefinitions="Auto,*" Margin="16,2,16,8">
+                    <ctrl:VirtualGridHeader Grid.Row="0">
+                        <ctrl:VirtualGridHeader.HeaderContent>
+                            <Grid ColumnDefinitions="36,2*,3*,48,48,140,76">
+                                <TextBlock Grid.Column="0" Classes="section" Text="#" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Classes="section" Text="ARTIST" VerticalAlignment="Center" Margin="8,0"/>
+                                <TextBlock Grid.Column="2" Classes="section" Text="TITLE" VerticalAlignment="Center" Margin="8,0"/>
+                                <TextBlock Grid.Column="3" Classes="section" Text="KEY" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="4" Classes="section" Text="BPM" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="5" Classes="section" Text="STATUS" VerticalAlignment="Center" Margin="8,0"/>
+                                <TextBlock Grid.Column="6" Classes="section" Text="ACTION" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Grid>
+                        </ctrl:VirtualGridHeader.HeaderContent>
+                    </ctrl:VirtualGridHeader>
+                    <ctrl:VirtualGrid Grid.Row="1" x:Name="FlowTrackGrid"
+                                      ItemsSource="{Binding PlaylistTracks}"
+                                      SelectionMode="Multiple"
+                                      PointerPressed="OnFlowTrackGridPointerPressed"
+                                      PointerMoved="OnFlowTrackGridPointerMoved">
+                        <ctrl:VirtualGrid.ItemTemplate>
+                            <DataTemplate DataType="models:PlaylistTrack">
+                                <Border Classes="track-row" Height="{DynamicResource WsPlaylistRowHeight}" Focusable="True"
+                                        DoubleTapped="OnPrepTrackDoubleTapped"
+                                        ToolTip.Tip="Double-click to load a ready track or repair a flagged track">
+                                    <Grid ColumnDefinitions="36,2*,3*,48,48,140,76">
+                                        <TextBlock Grid.Column="0" Classes="mono muted" Text="{Binding TrackNumber}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding Artist}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Classes="body-sm" Text="{Binding Title}" Foreground="{DynamicResource BrushText0}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="3" Classes="mono" Text="{Binding Key}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                        <TextBlock Grid.Column="4" Classes="mono" Text="{Binding BPM, StringFormat='{}{0:F0}'}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                        <Grid Grid.Column="5" ColumnDefinitions="16,*" Margin="8,0" VerticalAlignment="Center"
+                                              ToolTip.Tip="{Binding Converter={StaticResource TrackReadiness}, ConverterParameter=Hint}">
+                                            <PathIcon Grid.Column="0" Width="13" Height="13" VerticalAlignment="Center"
+                                                      Data="{StaticResource icon_check}" Foreground="{DynamicResource BrushSuccess}"
+                                                      IsVisible="{Binding Converter={StaticResource TrackReadiness}, ConverterParameter=IsReady}"/>
+                                            <PathIcon Grid.Column="0" Width="13" Height="13" VerticalAlignment="Center"
+                                                      Data="{StaticResource icon_alert}" Foreground="{DynamicResource BrushWarning}"
+                                                      IsVisible="{Binding Converter={StaticResource TrackReadiness}, ConverterParameter=NeedsRepair}"/>
+                                            <TextBlock Grid.Column="1" Classes="caption" Margin="6,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                       Classes.warning="{Binding Converter={StaticResource TrackReadiness}, ConverterParameter=NeedsRepair}"
+                                                       Text="{Binding Converter={StaticResource TrackReadiness}, ConverterParameter=Status}"/>
                                         </Grid>
-                                    </ctrl:VirtualGridHeader.HeaderContent>
-                                </ctrl:VirtualGridHeader>
-                                <ctrl:VirtualGrid x:Name="FlowTrackGrid"
-                                                  ItemsSource="{Binding PlaylistTracks}"
-                                                  SelectionMode="Multiple"
-                                                  Height="200"
-                                                  PointerPressed="OnFlowTrackGridPointerPressed"
-                                                  PointerMoved="OnFlowTrackGridPointerMoved">
-                                    <ctrl:VirtualGrid.ItemTemplate>
-                                        <DataTemplate DataType="models:PlaylistTrack">
-                                            <Border Classes="track-row" Height="32" Focusable="True">
-                                                <Grid ColumnDefinitions="40,2*,3*,56,56,96">
-                                                    <TextBlock Grid.Column="0" Classes="mono muted" Text="{Binding TrackNumber}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                                                    <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding Artist}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Grid.Column="2" Classes="body-sm" Text="{Binding Title}" Foreground="{DynamicResource BrushText0}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Grid.Column="3" Classes="mono" Text="{Binding Key}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                                                    <TextBlock Grid.Column="4" Classes="mono" Text="{Binding BPM, StringFormat='{}{0:F0}'}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                                                    <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="2" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                        <Button Classes="icon small" FontFamily="{DynamicResource FontMono}" Content="F" Command="{Binding #PageRoot.DataContext.LoadToFocusedDeckCommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to the focused deck"/>
-                                                        <Button Classes="icon small" FontFamily="{DynamicResource FontMono}" Content="A" Command="{Binding #PageRoot.DataContext.LoadToDeckACommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to Deck A"/>
-                                                        <Button Classes="icon small" FontFamily="{DynamicResource FontMono}" Content="B" Command="{Binding #PageRoot.DataContext.LoadToDeckBCommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to Deck B"/>
-                                                    </StackPanel>
-                                                </Grid>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ctrl:VirtualGrid.ItemTemplate>
-                                </ctrl:VirtualGrid>
-                            </StackPanel>
-                        </TabItem>
-                    </TabControl>
-
-                    <Border Grid.Column="1" Classes="card" Margin="12,0,0,0" Padding="8">
-                        <Grid RowDefinitions="Auto,Auto,*">
-                            <StackPanel Grid.Row="0" Spacing="2" Margin="0,0,0,8">
-                                <TextBlock Classes="section" Text="TRACK POOL"/>
-                                <TextBlock Classes="caption" Text="The playlist stays in view while you edit the flow. Use the track list or its overlay for bulk work." TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <ctrl:VirtualGridHeader Grid.Row="1">
-                                <ctrl:VirtualGridHeader.HeaderContent>
-                                    <Grid ColumnDefinitions="32,*,48,32">
-                                        <TextBlock Grid.Column="0" Classes="section" Text="#" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="1" Classes="section" Text="TRACK" VerticalAlignment="Center" Margin="8,0"/>
-                                        <TextBlock Grid.Column="2" Classes="section" Text="BPM" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Grid Grid.Column="6" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                            <Button Classes="secondary small" Content="Load" Height="{DynamicResource WsPlaylistActionHeight}" Padding="8,2"
+                                                    Command="{Binding #PageRoot.DataContext.LoadToFocusedDeckCommand}" CommandParameter="{Binding}"
+                                                    IsVisible="{Binding Converter={StaticResource TrackReadiness}, ConverterParameter=IsReady}"
+                                                    ToolTip.Tip="Load into the focused deck (or double-click the row)"/>
+                                            <Button Classes="secondary small" Height="{DynamicResource WsPlaylistActionHeight}" Padding="8,2"
+                                                    Content="{Binding Converter={StaticResource TrackReadiness}, ConverterParameter=Action}"
+                                                    Command="{Binding #PageRoot.DataContext.RepairTrackCommand}" CommandParameter="{Binding}"
+                                                    IsVisible="{Binding Converter={StaticResource TrackReadiness}, ConverterParameter=NeedsRepair}"
+                                                    ToolTip.Tip="{Binding Converter={StaticResource TrackReadiness}, ConverterParameter=Hint}"/>
+                                        </Grid>
                                     </Grid>
-                                </ctrl:VirtualGridHeader.HeaderContent>
-                            </ctrl:VirtualGridHeader>
-                            <ctrl:VirtualGrid Grid.Row="2"
-                                              ItemsSource="{Binding PlaylistTracks}"
-                                              SelectionMode="Single">
-                                <ctrl:VirtualGrid.ItemTemplate>
-                                    <DataTemplate DataType="models:PlaylistTrack">
-                                        <Border Classes="track-row" Height="32" Focusable="True">
-                                            <Grid ColumnDefinitions="32,*,48,32">
-                                                <TextBlock Grid.Column="0" Classes="mono muted" Text="{Binding TrackNumber}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                                                <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding Title}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Grid.Column="2" Classes="mono" Text="{Binding BPM, StringFormat='{}{0:F0}'}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                                                <Button Grid.Column="3" Classes="icon small" FontFamily="{DynamicResource FontMono}" Content="F" Command="{Binding #PageRoot.DataContext.LoadToFocusedDeckCommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to the focused deck" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ctrl:VirtualGrid.ItemTemplate>
-                            </ctrl:VirtualGrid>
-                        </Grid>
-                    </Border>
+                                </Border>
+                            </DataTemplate>
+                        </ctrl:VirtualGrid.ItemTemplate>
+                    </ctrl:VirtualGrid>
                 </Grid>
             </Grid>
-        </Border>
-
-        <!-- ═══ Track-list overlay ═══ -->
-        <Border x:Name="TrackListOverlay"
-                Grid.Row="0"
-                Grid.RowSpan="4"
-                IsVisible="False"
-                ZIndex="180"
-                Background="{DynamicResource BrushScrim}"
-                PointerPressed="OnTrackListOverlayBackdropPressed">
-            <Border x:Name="TrackListOverlayPanel"
-                    Classes="overlay-panel size-comfort"
-                    CornerRadius="{DynamicResource RadiusXl}"
-                    BoxShadow="{DynamicResource ShadowLg}"
-                    Background="{DynamicResource BrushBg2}"
-                    BorderBrush="{DynamicResource BrushBorder1}"
-                    BorderThickness="1">
-                <Grid RowDefinitions="Auto,*,Auto">
-                    <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,12">
-                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                            <TextBlock Classes="h2" Text="Track list"/>
-                            <TextBlock Classes="subtitle" Text="{Binding ActivePlaylist.SourceTitle, FallbackValue='No playlist selected', TargetNullValue='No playlist selected'}"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                            <Button Classes="ghost small" ToolTip.Tip="Overlay size">
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <TextBlock Text="Size"/>
-                                    <PathIcon Data="{StaticResource icon_chevron_down}" Width="12" Height="12"/>
-                                </StackPanel>
-                                <Button.Flyout>
-                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
-                                        <MenuItem Header="Auto (fit window)" Click="OnSetOverlayAutoSizeClick"/>
-                                        <Separator/>
-                                        <MenuItem Header="Compact" Click="OnSetOverlayCompactSizeClick"/>
-                                        <MenuItem Header="Comfort" Click="OnSetOverlayComfortSizeClick"/>
-                                        <MenuItem Header="Full" Click="OnSetOverlayFullSizeClick"/>
-                                    </MenuFlyout>
-                                </Button.Flyout>
-                            </Button>
-                            <Button Classes="icon small" Click="OnCloseTrackListOverlayClick" ToolTip.Tip="Close (Esc)">
-                                <PathIcon Data="{StaticResource icon_close}" Width="14" Height="14"/>
-                            </Button>
-                        </StackPanel>
-                    </Grid>
-
-                    <Grid Grid.Row="1" RowDefinitions="Auto,*">
-                        <ctrl:VirtualGridHeader Grid.Row="0">
-                            <ctrl:VirtualGridHeader.HeaderContent>
-                                <Grid ColumnDefinitions="44,2*,3*,72,72,112">
-                                    <TextBlock Grid.Column="0" Classes="section" Text="#" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" Classes="section" Text="ARTIST" VerticalAlignment="Center" Margin="8,0"/>
-                                    <TextBlock Grid.Column="2" Classes="section" Text="TITLE" VerticalAlignment="Center" Margin="8,0"/>
-                                    <TextBlock Grid.Column="3" Classes="section" Text="KEY" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="4" Classes="section" Text="BPM" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="5" Classes="section" Text="LOAD" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Grid>
-                            </ctrl:VirtualGridHeader.HeaderContent>
-                        </ctrl:VirtualGridHeader>
-                        <ctrl:VirtualGrid Grid.Row="1" x:Name="OverlayTrackGrid"
-                                          ItemsSource="{Binding PlaylistTracks}"
-                                          SelectionMode="Multiple"
-                                          PointerPressed="OnFlowTrackGridPointerPressed"
-                                          PointerMoved="OnFlowTrackGridPointerMoved">
-                            <ctrl:VirtualGrid.ItemTemplate>
-                                <DataTemplate DataType="models:PlaylistTrack">
-                                    <Border Classes="track-row" Height="40" Focusable="True">
-                                        <Grid ColumnDefinitions="44,2*,3*,72,72,112">
-                                            <TextBlock Grid.Column="0" Classes="mono muted" Text="{Binding TrackNumber}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                                            <TextBlock Grid.Column="1" Classes="body" Text="{Binding Artist}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Grid.Column="2" Classes="body" Text="{Binding Title}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Grid.Column="3" Classes="mono" Text="{Binding Key}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                                            <TextBlock Grid.Column="4" Classes="mono" Text="{Binding BPM, StringFormat='{}{0:F0}'}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                                            <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="2" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                <Button Classes="icon small" FontFamily="{DynamicResource FontMono}" Content="F" Command="{Binding #PageRoot.DataContext.LoadToFocusedDeckCommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to the focused deck"/>
-                                                <Button Classes="icon small" FontFamily="{DynamicResource FontMono}" Content="A" Command="{Binding #PageRoot.DataContext.LoadToDeckACommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to Deck A"/>
-                                                <Button Classes="icon small" FontFamily="{DynamicResource FontMono}" Content="B" Command="{Binding #PageRoot.DataContext.LoadToDeckBCommand}" CommandParameter="{Binding}" ToolTip.Tip="Load to Deck B"/>
-                                            </StackPanel>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ctrl:VirtualGrid.ItemTemplate>
-                        </ctrl:VirtualGrid>
-                    </Grid>
-
-                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <TextBlock Classes="caption" Text="Drag the corner to fine-tune the size. Double-click it to reset." VerticalAlignment="Center"/>
-                            <Border x:Name="OverlayResizeGuidePill" Classes="fact" IsVisible="False">
-                                <TextBlock x:Name="OverlayResizeGuideText" Text="" Foreground="{DynamicResource BrushAccent}"/>
-                            </Border>
-                        </StackPanel>
-                        <Border Grid.Column="1"
-                                x:Name="OverlayResizeGrip"
-                                Width="24"
-                                Height="24"
-                                CornerRadius="{DynamicResource RadiusSm}"
-                                Cursor="BottomRightCorner"
-                                Background="{DynamicResource BrushBg3}"
-                                BorderBrush="{DynamicResource BrushBorder1}"
-                                BorderThickness="1"
-                                ToolTip.Tip="Drag to resize the overlay. Double-click to reset"
-                                PointerPressed="OnOverlayResizeGripPressed"
-                                PointerMoved="OnOverlayResizeGripMoved"
-                                PointerReleased="OnOverlayResizeGripReleased"
-                                DoubleTapped="OnOverlayResizeGripDoubleTapped">
-                            <PathIcon Data="{StaticResource icon_resize}" Width="12" Height="12"
-                                      Foreground="{DynamicResource BrushText2}"
-                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                    </Grid>
-                </Grid>
-            </Border>
         </Border>
 
         <ctrl:KeyboardOverlayView Grid.Row="0" Grid.RowSpan="4"

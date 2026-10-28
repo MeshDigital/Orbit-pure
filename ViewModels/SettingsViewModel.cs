@@ -94,7 +94,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
     // Hardcoded public client ID provided by user/project
     // Ideally this would be in a secured config, but for this desktop app scenario it's acceptable as a default.
-    private const string DefaultSpotifyClientId = "67842a599c6f45edbf3de3d84231deb4";
+    private const string DefaultSpotifyClientId = SpotifyAuthService.DefaultClientId;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -1102,10 +1102,82 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>
+    /// The user's own Spotify app Client ID; empty means ORBIT's built-in one (which only serves
+    /// accounts on its development-mode allowlist).
+    /// </summary>
     public string SpotifyClientId
     {
-        get => _config.SpotifyClientId ?? "";
-        set { _config.SpotifyClientId = value; OnPropertyChanged(); SaveSettings(); }
+        get => IsUsingBuiltInSpotifyClientId ? "" : _config.SpotifyClientId ?? "";
+        set
+        {
+            var clientId = string.IsNullOrWhiteSpace(value) ? DefaultSpotifyClientId : value.Trim();
+            if (clientId == _config.SpotifyClientId) return;
+
+            _config.SpotifyClientId = clientId;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsUsingBuiltInSpotifyClientId));
+            SaveSettings();
+
+            // Tokens belong to the app that issued them; the old session can't refresh under the new ID.
+            if (_spotifyAuthService.IsAuthenticated)
+                _ = SignOutAfterClientIdChangeAsync();
+        }
+    }
+
+    public bool IsUsingBuiltInSpotifyClientId =>
+        string.IsNullOrWhiteSpace(_config.SpotifyClientId) || _config.SpotifyClientId == DefaultSpotifyClientId;
+
+    /// <summary>What to register as the Redirect URI in the user's own Spotify app.</summary>
+    public string SpotifyRedirectUri => _config.SpotifyRedirectUri;
+
+    private async Task SignOutAfterClientIdChangeAsync()
+    {
+        try
+        {
+            await _spotifyAuthService.SignOutAsync();
+            _eventBus.Publish(new ToastRequestedEvent("Spotify Client ID changed",
+                "Connect Spotify again to sign in with the new app.", NotificationType.Information, TimeSpan.FromSeconds(5)));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Signing out of Spotify after a Client ID change failed");
+        }
+    }
+
+    private void OpenSpotifyDashboard()
+    {
+        const string url = "https://developer.spotify.com/dashboard/create";
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = url, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not open the Spotify developer dashboard");
+            _eventBus.Publish(new ToastRequestedEvent("Couldn't open browser", $"Open {url} manually.", NotificationType.Warning, TimeSpan.FromSeconds(6)));
+        }
+    }
+
+    private async Task CopySpotifyRedirectUriAsync()
+    {
+        try
+        {
+            if (Avalonia.Application.Current?.ApplicationLifetime is
+                    Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop
+                && desktop.MainWindow?.Clipboard is { } clipboard)
+            {
+                await clipboard.SetTextAsync(SpotifyRedirectUri);
+                _eventBus.Publish(new ToastRequestedEvent("Redirect URI copied", SpotifyRedirectUri, NotificationType.Success, TimeSpan.FromSeconds(3)));
+                return;
+            }
+            _eventBus.Publish(new ToastRequestedEvent("Clipboard unavailable", $"Type {SpotifyRedirectUri} into the Spotify dashboard.", NotificationType.Warning, TimeSpan.FromSeconds(6)));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Copying the Spotify redirect URI failed");
+            _eventBus.Publish(new ToastRequestedEvent("Copy failed", $"Type {SpotifyRedirectUri} into the Spotify dashboard.", NotificationType.Warning, TimeSpan.FromSeconds(6)));
+        }
     }
     
     public string SpotifyClientSecret
@@ -1550,6 +1622,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public ICommand RestartSpotifyAuthCommand { get; }
     public ICommand CheckFfmpegCommand { get; } // Phase 8: Dependency validation
     public ICommand OpenFfmpegDownloadPageCommand { get; }
+    public ICommand OpenSpotifyDashboardCommand { get; }
+    public ICommand CopySpotifyRedirectUriCommand { get; }
     public ICommand ResetDatabaseCommand { get; }
     public ICommand BackupLibraryNowCommand { get; }
     public ICommand OpenBackupsFolderCommand { get; }
@@ -1961,6 +2035,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         RevokeAndReAuthCommand = new AsyncRelayCommand(RevokeAndReAuthAsync);
         CheckFfmpegCommand = new AsyncRelayCommand(CheckFfmpegAsync); // Phase 8
         OpenFfmpegDownloadPageCommand = new RelayCommand(OpenFfmpegDownloadPage);
+        OpenSpotifyDashboardCommand = new RelayCommand(OpenSpotifyDashboard);
+        CopySpotifyRedirectUriCommand = new AsyncRelayCommand(CopySpotifyRedirectUriAsync);
         RestartSpotifyAuthCommand = new AsyncRelayCommand(RestartSpotifyAuthAsync, () => IsSpotifyConnecting);
         ResetDatabaseCommand = new AsyncRelayCommand(ResetDatabaseAsync);
         BackupLibraryNowCommand = new AsyncRelayCommand(BackupLibraryNowAsync);
@@ -2261,6 +2337,12 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             }
         }
 
+        catch (SLSKDONET.Services.ImportProviders.SpotifyAccountNotAllowlistedException)
+        {
+            // Already logged with the full explanation by SpotifyAuthService.
+            SpotifyDisplayName = "This Spotify account isn't allowlisted for this Client ID";
+            SpotifyState = SpotifyAuthStatus.Disconnected;
+        }
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Spotify connection flow cancelled");

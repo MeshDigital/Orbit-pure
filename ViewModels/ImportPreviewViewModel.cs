@@ -468,6 +468,19 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     private bool _errorRequiresSignIn;
     public bool ErrorRequiresSignIn { get => _errorRequiresSignIn; private set => Set(ref _errorRequiresSignIn, value); }
 
+    private string? _sourceNotice;
+    /// <summary>How the source was read (CSV columns used, rows skipped); shown above the list.</summary>
+    public string? SourceNotice
+    {
+        get => _sourceNotice;
+        set
+        {
+            if (Set(ref _sourceNotice, string.IsNullOrWhiteSpace(value) ? null : value))
+                OnPropertyChanged(nameof(HasSourceNotice));
+        }
+    }
+    public bool HasSourceNotice => SourceNotice != null;
+
     public bool ShowLoadingState => IsLoading && TotalCount == 0 && !HasError;
     public bool ShowErrorState => HasError && TotalCount == 0;
     public bool ShowErrorBanner => HasError && TotalCount > 0;
@@ -705,6 +718,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
         RaiseFilterFlags();
 
         SourceOwner = null;
+        SourceNotice = null;
         SourceType = sourceType;
         SourceTitle = sourceTitle;
         SetPlaylistName(sourceTitle, userEdit: false);

@@ -54,6 +54,7 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     private string? _transitionCacheKey;
     private IReadOnlyDictionary<(string FromHash, string ToHash), PlaylistRecommendation>? _transitionCache;
     private IReadOnlyList<Guid> _persistedOrder = Array.Empty<Guid>();
+    private Guid? _loadedPlaylistId;
     private SuggestedFlowStyleImpact _currentSuggestedFlowImpact = SuggestedFlowStyleImpact.Empty;
 
     // ── Playlist selector ─────────────────────────────────────────────────────
@@ -68,6 +69,8 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         get => _selectedPlaylist;
         set
         {
+            if (_selectedPlaylist?.Id != value?.Id)
+                _loadedPlaylistId = null;
             this.RaiseAndSetIfChanged(ref _selectedPlaylist, value);
             this.RaisePropertyChanged(nameof(PickedPlaylist));
             this.RaisePropertyChanged(nameof(HeaderSubtitle));
@@ -699,6 +702,39 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Opens a playlist from the Workstation's shared playlist context without going through the
+    /// standalone picker. Repeated mode switches do not reload an already open set.
+    /// </summary>
+    public async Task OpenPlaylistAsync(PlaylistJob playlist)
+    {
+        ArgumentNullException.ThrowIfNull(playlist);
+        if (SelectedPlaylist?.Id == playlist.Id &&
+            (IsLoading || _loadedPlaylistId == playlist.Id))
+        {
+            return;
+        }
+
+        if (IsLoading)
+        {
+            StatusText = "Finish loading the current set before opening another playlist.";
+            return;
+        }
+
+        SelectedPlaylist = playlist;
+        await LoadSelectedPlaylistAsync();
+    }
+
+    /// <summary>Reloads readiness and metadata after Prep analysis without changing the playlist.</summary>
+    public async Task ReloadPlaylistAsync(PlaylistJob playlist)
+    {
+        ArgumentNullException.ThrowIfNull(playlist);
+        if (IsLoading) return;
+        SelectedPlaylist = playlist;
+        _loadedPlaylistId = null;
+        await LoadSelectedPlaylistAsync();
+    }
+
     private async Task LoadSelectedPlaylistAsync()
     {
         if (SelectedPlaylist == null) return;
@@ -710,28 +746,27 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
             var tracks = await _library.GetPagedPlaylistTracksAsync(
                 SelectedPlaylist.Id, skip: 0, take: 500);
 
-            // Playlist order, not an optimizer re-sort: transitions are saved per adjacent pair and
-            // playback follows the playlist order, so what you design here must be that order.
-            // Reordering is explicit (drag, Suggest flow order) and saved with Save order.
-            var playable = tracks.Where(IsPlayable).ToList();
-            var hiddenCount = tracks.Count - playable.Count;
-
+            // Keep the exact saved playlist order, including rows that still need Prep. Hiding an
+            // unavailable track would silently turn its neighbours into a different MIX pair.
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 IsTransitionEditorOpen = false;
                 ActiveTransitionIndex = -1;
                 Tracks.Clear();
-                foreach (var t in playable)
+                foreach (var t in tracks)
                     Tracks.Add(BuildCard(t));
                 _persistedOrder = Tracks.Select(t => t.Model.Id).ToList();
+                _loadedPlaylistId = SelectedPlaylist?.Id;
 
+                var needsAttention = Tracks.Count(t => t.NeedsAttention);
                 var needsAnalysis = Tracks.Count(t => t.NeedsAnalysis);
+                var unavailable = needsAttention - needsAnalysis;
                 var notes = new List<string>();
-                if (hiddenCount > 0) notes.Add($"{hiddenCount} not downloaded (hidden)");
-                if (needsAnalysis > 0) notes.Add($"{needsAnalysis} need analysis for cues");
+                if (unavailable > 0) notes.Add($"{unavailable} unavailable — repair in Prep Tracks");
+                if (needsAnalysis > 0) notes.Add($"{needsAnalysis} need analysis");
                 StatusText = Tracks.Count == 0
-                    ? "No downloaded tracks in this playlist yet."
-                    : notes.Count > 0 ? $"Loaded {Tracks.Count} tracks · {string.Join(" · ", notes)}" : $"Loaded {Tracks.Count} tracks";
+                    ? "This playlist is empty. Add tracks before designing its in-app MIX transitions."
+                    : notes.Count > 0 ? $"Loaded all {Tracks.Count} tracks · {string.Join(" · ", notes)}" : $"Loaded all {Tracks.Count} tracks";
 
                 InvalidateFlowCaches(clearSuggestedFlow: true);
                 RaiseHeaderChanged();
@@ -739,8 +774,17 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
 
             await RefreshBridgesAsync();
             await RefreshSavedTransitionsAsync();
-            if (Tracks.Count >= 2 && !IsTransitionEditorOpen)
-                await Dispatcher.UIThread.InvokeAsync(() => OpenTransition(Tracks[0]));
+            FlowTrackCardViewModel? firstPlayablePair = null;
+            for (var i = 0; i < Tracks.Count - 1; i++)
+            {
+                if (IsPlayable(Tracks[i].Model) && IsPlayable(Tracks[i + 1].Model))
+                {
+                    firstPlayablePair = Tracks[i];
+                    break;
+                }
+            }
+            if (firstPlayablePair != null && !IsTransitionEditorOpen)
+                await Dispatcher.UIThread.InvokeAsync(() => OpenTransition(firstPlayablePair));
         }
         catch (Exception ex)
         {
@@ -988,6 +1032,12 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
             return;
         }
 
+        if (Tracks.Any(card => !IsPlayable(card.Model)))
+        {
+            StatusText = "Repair unavailable tracks in Prep Tracks before suggesting an order; no tracks will be hidden or dropped.";
+            return;
+        }
+
         IsLoading = true;
         StatusText = "A10 is proposing a cleaner flow...";
         try
@@ -1097,6 +1147,10 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         if (!confirmed) return;
 
         Tracks.Clear();
+        _loadedPlaylistId = null;
+        _activeOutgoingCard = null;
+        _activeIncomingCard = null;
+        ActiveTransitionIndex = -1;
         InvalidateFlowCaches(clearSuggestedFlow: true);
         RaiseTrackCollectionChanged();
     }
@@ -1293,6 +1347,13 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         }
 
         var nextCard = Tracks[currentIndex + 1];
+        if (!IsPlayable(currentCard.Model) || !IsPlayable(nextCard.Model))
+        {
+            var unavailable = !IsPlayable(currentCard.Model) ? currentCard : nextCard;
+            StatusText = $"Cannot open this pair: {unavailable.Artist} — {unavailable.Title} is unavailable. Repair it in Prep Tracks; it remains in the playlist order.";
+            return;
+        }
+
         _activeOutgoingCard = currentCard;
         _activeIncomingCard = nextCard;
         IsTransitionEditorOpen = true;

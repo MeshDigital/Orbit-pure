@@ -10,10 +10,19 @@ namespace SLSKDONET.Views.Avalonia;
 
 public partial class FlowBuilderView : UserControl
 {
+    public static readonly StyledProperty<bool> IsEmbeddedProperty =
+        AvaloniaProperty.Register<FlowBuilderView, bool>(nameof(IsEmbedded));
+
+    public bool IsEmbedded
+    {
+        get => GetValue(IsEmbeddedProperty);
+        set => SetValue(IsEmbeddedProperty, value);
+    }
+
     public FlowBuilderView()
     {
         InitializeComponent();
-        if (!Design.IsDesignMode &&
+        if (!Design.IsDesignMode && DataContext == null &&
             Application.Current is App app && app.Services != null)
         {
             DataContext = app.Services.GetService(typeof(FlowBuilderViewModel))

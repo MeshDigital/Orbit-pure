@@ -14,6 +14,7 @@ public class MainViewModelNavigationTests
     [InlineData(typeof(SLSKDONET.Views.Avalonia.SearchPage), PageType.Search)]
     [InlineData(typeof(SLSKDONET.Views.Avalonia.NowPlayingPage), PageType.NowPlaying)]
     [InlineData(typeof(SLSKDONET.Views.Avalonia.WorkstationPage), PageType.Workstation)]
+    [InlineData(typeof(SLSKDONET.Views.Avalonia.CueForgePage), PageType.CueForge)] // was missing: the menu kept the previous page highlighted
     public void ResolvePageType_MapsKnownViews(Type pageType, PageType expected)
     {
         var resolved = MainViewModel.ResolvePageType(pageType, PageType.Home);

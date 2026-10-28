@@ -45,6 +45,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private readonly ConfigManager? _configManager;
     private readonly IDialogService? _dialogService;
     private readonly IEventBus? _eventBus;
+    private readonly Services.Rekordbox.RekordboxLibraryService? _rekordbox;
     private readonly Func<Action, Task> _ui;
     private readonly CompositeDisposable _disposables = new();
 
@@ -84,7 +85,66 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         {
             this.RaiseAndSetIfChanged(ref _waveformMissing, value);
             this.RaisePropertyChanged(nameof(IsWaveformLoading));
+            RaiseWaveformRefreshStateChanged();
         }
+    }
+
+    private bool _isWaveformOutdated;
+    /// <summary>The cached blob predates full-duration, shared-scale tri-band extraction.</summary>
+    public bool IsWaveformOutdated
+    {
+        get => _isWaveformOutdated;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _isWaveformOutdated, value);
+            RaiseWaveformRefreshStateChanged();
+        }
+    }
+
+    private bool _isWaveformRefreshPending;
+    public bool IsWaveformRefreshPending
+    {
+        get => _isWaveformRefreshPending;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _isWaveformRefreshPending, value);
+            RaiseWaveformRefreshStateChanged();
+        }
+    }
+
+    private string? _waveformRefreshError;
+    private string _waveformRefreshStatus = "";
+    /// <summary>Live queue/progress detail, or the reason a manually requested analysis failed.</summary>
+    public string WaveformRefreshStatus
+    {
+        get => _waveformRefreshStatus;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _waveformRefreshStatus, value);
+            this.RaisePropertyChanged(nameof(WaveformRefreshNoticeText));
+        }
+    }
+
+    public bool HasWaveformRefreshNotice => IsWaveformOutdated || IsWaveformRefreshPending || _waveformRefreshError != null;
+    public bool ShowWaveformRefreshAction => !IsWaveformRefreshPending && (IsWaveformOutdated || _waveformRefreshError != null);
+    public string WaveformRefreshActionLabel => IsWaveformRefreshPending ? "Analysing…"
+        : IsWaveformOutdated || IsWaveformMissing ? "Refresh full analysis" : "Re-analyse track";
+    public string WaveformRefreshNoticeText => IsWaveformRefreshPending || _waveformRefreshError != null
+        ? WaveformRefreshStatus
+        : "This waveform uses the old analysis. Refresh the full analysis for accurate timing, bass detail and drop contrast.";
+
+    private void RaiseWaveformRefreshStateChanged()
+    {
+        this.RaisePropertyChanged(nameof(HasWaveformRefreshNotice));
+        this.RaisePropertyChanged(nameof(ShowWaveformRefreshAction));
+        this.RaisePropertyChanged(nameof(WaveformRefreshActionLabel));
+        this.RaisePropertyChanged(nameof(WaveformRefreshNoticeText));
+    }
+
+    private void SetWaveformRefreshError(string? error)
+    {
+        _waveformRefreshError = error;
+        RaiseWaveformRefreshStateChanged();
     }
 
     private string _trackTitle = "No track loaded";
@@ -184,6 +244,90 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private float[]? _onsetDensityCurveData;
     public float[]? OnsetDensityCurveData { get => _onsetDensityCurveData; set => this.RaiseAndSetIfChanged(ref _onsetDensityCurveData, value); }
 
+    // ── Waveform layers / workspace ────────────────────────────────────────
+
+    private double? _timeTillDropSeconds;
+    public double? TimeTillDropSeconds
+    {
+        get => _timeTillDropSeconds;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _timeTillDropSeconds, value);
+            this.RaisePropertyChanged(nameof(TimeTillDropBars));
+            this.RaisePropertyChanged(nameof(TimeTillDropDisplay));
+            this.RaisePropertyChanged(nameof(HasTimeTillDrop));
+        }
+    }
+
+    public double? TimeTillDropBars => IntroTiming.CalculateBars(TimeTillDropSeconds, GridBpm);
+    public bool HasTimeTillDrop => TimeTillDropSeconds.HasValue && TimeTillDropBars.HasValue;
+    public string TimeTillDropDisplay => TimeTillDropSeconds is { } seconds && TimeTillDropBars is { } bars
+        ? Utils.NumFormat.Ui($"{seconds:0.#} s · ≈{bars:0.#} bars")
+        : "—";
+
+    private bool _showEnergyCurve;
+    public bool ShowEnergyCurve
+    {
+        get => _showEnergyCurve;
+        set { if (_showEnergyCurve == value) return; this.RaiseAndSetIfChanged(ref _showEnergyCurve, value); SaveWaveformPreferences(); }
+    }
+
+    private bool _showOnsetDensity;
+    public bool ShowOnsetDensity
+    {
+        get => _showOnsetDensity;
+        set { if (_showOnsetDensity == value) return; this.RaiseAndSetIfChanged(ref _showOnsetDensity, value); SaveWaveformPreferences(); }
+    }
+
+    private bool _showVocalGhost;
+    public bool ShowVocalGhost
+    {
+        get => _showVocalGhost;
+        set { if (_showVocalGhost == value) return; this.RaiseAndSetIfChanged(ref _showVocalGhost, value); SaveWaveformPreferences(); }
+    }
+
+    private bool _showPhraseSections;
+    public bool ShowPhraseSections
+    {
+        get => _showPhraseSections;
+        set { if (_showPhraseSections == value) return; this.RaiseAndSetIfChanged(ref _showPhraseSections, value); SaveWaveformPreferences(); }
+    }
+
+    private bool _showBeatGrid;
+    public bool ShowBeatGrid
+    {
+        get => _showBeatGrid;
+        set { if (_showBeatGrid == value) return; this.RaiseAndSetIfChanged(ref _showBeatGrid, value); SaveWaveformPreferences(); }
+    }
+
+    private double _waveformGain = 1.0;
+    public double WaveformGain
+    {
+        get => _waveformGain;
+        private set => this.RaiseAndSetIfChanged(ref _waveformGain, value);
+    }
+
+    public ReactiveCommand<double, Unit> SetWaveformGainCommand { get; }
+
+    private bool _isPreparationDockOpen = true;
+    public bool IsPreparationDockOpen { get => _isPreparationDockOpen; set => this.RaiseAndSetIfChanged(ref _isPreparationDockOpen, value); }
+    public ReactiveCommand<Unit, Unit> TogglePreparationDockCommand { get; }
+
+    private bool _isGridModeOpen;
+    public bool IsGridModeOpen { get => _isGridModeOpen; set => this.RaiseAndSetIfChanged(ref _isGridModeOpen, value); }
+
+    private void SaveWaveformPreferences()
+    {
+        _config.WaveformShowEnergyCurve = ShowEnergyCurve;
+        _config.WaveformShowOnsetDensity = ShowOnsetDensity;
+        _config.WaveformShowVocalGhost = ShowVocalGhost;
+        _config.WaveformShowPhraseSections = ShowPhraseSections;
+        _config.WaveformShowBeatGrid = ShowBeatGrid;
+        _config.WaveformGain = (float)WaveformGain;
+        try { _configManager?.Save(_config); }
+        catch (Exception ex) { _logger.LogWarning(ex, "CueForge: couldn't save waveform appearance preferences"); }
+    }
+
     // ── Harmonic / Vocal Context ───────────────────────────────────────────
 
     private string _currentCamelotKey = "—";
@@ -240,6 +384,72 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     private readonly List<CueBrowserItem> _allPlaylistTracks = new();
     public ObservableCollection<CueBrowserItem> BrowserTracks { get; } = new();
+
+    private bool _isBrowserOpen = true;
+    /// <summary>The docked track browser on the left (playlist + its tracks, current one highlighted).</summary>
+    public bool IsBrowserOpen { get => _isBrowserOpen; set => this.RaiseAndSetIfChanged(ref _isBrowserOpen, value); }
+
+    /// <summary>The open track's row in the browser list (highlighted), or null when it isn't in the
+    /// playlist. Selecting another row opens that track.</summary>
+    public CueBrowserItem? CurrentBrowserItem
+    {
+        get => BrowserTracks.FirstOrDefault(t => string.Equals(t.GlobalId, TrackHash, StringComparison.OrdinalIgnoreCase));
+        set
+        {
+            if (value == null || string.Equals(value.GlobalId, TrackHash, StringComparison.OrdinalIgnoreCase)) return;
+            LoadFromBrowserCommand.Execute(value);
+        }
+    }
+
+    public ReactiveCommand<Unit, Unit> ToggleBrowserCommand { get; }
+
+    /// <summary>"Track 3 of 24", or why previous/next can't step.</summary>
+    public string BrowserPosition
+    {
+        get
+        {
+            if (SelectedPlaylist == null || _allPlaylistTracks.Count == 0) return "";
+            int idx = _allPlaylistTracks.FindIndex(t => string.Equals(t.GlobalId, TrackHash, StringComparison.OrdinalIgnoreCase));
+            return idx < 0
+                ? string.Create(CultureInfo.InvariantCulture, $"{_allPlaylistTracks.Count} tracks · the open track isn't in this playlist")
+                : string.Create(CultureInfo.InvariantCulture, $"Track {idx + 1} of {_allPlaylistTracks.Count}");
+        }
+    }
+
+    private void RaiseBrowserPosition()
+    {
+        this.RaisePropertyChanged(nameof(CurrentBrowserItem));
+        this.RaisePropertyChanged(nameof(BrowserPosition));
+    }
+
+    /// <summary>
+    /// After a track opens from outside the browser (restored session, Library, player): show a
+    /// playlist that contains it, so previous / next step through that playlist. Keeps the current
+    /// playlist when it already holds the track.
+    /// </summary>
+    private async Task SelectPlaylistContainingAsync(string trackHash)
+    {
+        if (_libraryService == null) return;
+        if (_allPlaylistTracks.Any(t => string.Equals(t.GlobalId, trackHash, StringComparison.OrdinalIgnoreCase)))
+        {
+            await _ui(RaiseBrowserPosition);
+            return;
+        }
+        try
+        {
+            var ids = await _libraryService.GetPlaylistIdsContainingTrackAsync(trackHash);
+            await _ui(() =>
+            {
+                var match = Playlists.Where(p => ids.Contains(p.Id)).OrderByDescending(p => p.CreatedAt).FirstOrDefault();
+                if (match != null) SelectedPlaylist = match;
+                else RaiseBrowserPosition();
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "CueForge: couldn't look up the playlists of {Hash}", trackHash);
+        }
+    }
 
     private string _browserQuery = "";
     public string BrowserQuery
@@ -309,6 +519,11 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 foreach (var job in jobs.OrderByDescending(j => j.CreatedAt))
                     Playlists.Add(job);
                 if (Playlists.Count == 0) BrowserStatus = "No playlists yet. Import or create one in the Library.";
+            });
+            // Open on a playlist that holds the open track; otherwise the newest one.
+            if (TrackHash is { } open) await SelectPlaylistContainingAsync(open);
+            await _ui(() =>
+            {
                 if (Playlists.Count > 0 && SelectedPlaylist == null)
                     SelectedPlaylist = Playlists[0];
             });
@@ -369,6 +584,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 : _allPlaylistTracks.Count == 0 ? "No downloaded tracks in this playlist."
                 : "No tracks match the filter.";
             this.RaisePropertyChanged(nameof(HasBrowserStatus));
+            RaiseBrowserPosition();
         });
     }
 
@@ -386,6 +602,39 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     // ── Commands (host: transport, view, generation) ───────────────────────
 
     public ReactiveCommand<Unit, Unit> AutoGenerateCuesCommand { get; }
+
+    /// <summary>Replaces a legacy cached waveform through the normal high-priority analysis queue.</summary>
+    public ReactiveCommand<Unit, Unit> RefreshWaveformCommand { get; }
+
+    /// <summary>Loads this track's hot and memory cues from Rekordbox's own library (read-only).</summary>
+    public ReactiveCommand<Unit, Unit> ImportRekordboxCuesCommand { get; }
+
+    /// <summary>Only offered when a Rekordbox 6/7 library and the reader are present.</summary>
+    public bool CanImportRekordbox => _rekordbox?.IsAvailable == true;
+
+    /// <summary>Beat jump: moves the playhead by <see cref="BeatJumpBars"/> bars (parameter −1 / +1),
+    /// so "[IN -16] + 16 bars lands on the drop" can be checked without listening through the build.</summary>
+    public ReactiveCommand<int, Unit> BeatJumpCommand { get; }
+    public static IReadOnlyList<int> BeatJumpSizes { get; } = new[] { 1, 4, 8, 16, 32 };
+
+    private int _beatJumpBars = 16;
+    public int BeatJumpBars
+    {
+        get => _beatJumpBars;
+        set => this.RaiseAndSetIfChanged(ref _beatJumpBars, BeatJumpSizes.Contains(value) ? value : 16);
+    }
+
+    /// <summary>Makes the grid beat nearest the playhead the "1" of a bar (fixes a downbeat on beat 3).</summary>
+    public ReactiveCommand<Unit, Unit> SetDownbeatAtPlayheadCommand { get; }
+    /// <summary>Slips the whole grid by 10 ms ("-" earlier, "+" later).</summary>
+    public ReactiveCommand<string, Unit> SlipGridCommand { get; }
+    /// <summary>Puts the downbeat back where the analysis had it when the track was opened.</summary>
+    public ReactiveCommand<Unit, Unit> ResetGridCommand { get; }
+
+    private double _analysedDownbeat;
+    private bool _isGridEdited;
+    public bool IsGridEdited { get => _isGridEdited; private set => this.RaiseAndSetIfChanged(ref _isGridEdited, value); }
+
     public ReactiveCommand<Unit, Unit> ZoomInCommand { get; }
     public ReactiveCommand<Unit, Unit> ZoomOutCommand { get; }
     public ReactiveCommand<Unit, Unit> ZoomToFitCommand { get; }
@@ -414,7 +663,10 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         }
     }
 
-    public string ZoomDisplay => $"{WaveformZoom.ToString("F1", CultureInfo.InvariantCulture)}×";
+    /// <summary>"Fit" when the whole track shows, else the zoom factor (between the zoom buttons).</summary>
+    public string ZoomDisplay => WaveformZoom <= CueForgeGrid.MinZoom + 0.001
+        ? "Fit"
+        : $"{WaveformZoom.ToString("F1", CultureInfo.InvariantCulture)}×";
 
     private double _waveformScroll;
     /// <summary>Fraction of the track at the left edge of the detail view.</summary>
@@ -472,10 +724,11 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         DatabaseService databaseService,
         IDialogService dialogService,
         IEventBus eventBus,
-        CueSessionRegistry cueSessions)
+        CueSessionRegistry cueSessions,
+        Services.Rekordbox.RekordboxLibraryService rekordbox)
         : this(cueService, new PlayerViewModelCueForgeTransport(playerViewModel, databaseService), config,
                libraryService, engineCueService, camelotKeyService, logger, configManager, dialogService, eventBus,
-               cueSessions, ui: null, restoreSession: true)
+               cueSessions, ui: null, restoreSession: true, rekordbox: rekordbox)
     {
     }
 
@@ -494,7 +747,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         IEventBus? eventBus = null,
         CueSessionRegistry? cueSessions = null,
         Func<Action, Task>? ui = null,
-        bool restoreSession = false)
+        bool restoreSession = false,
+        Services.Rekordbox.RekordboxLibraryService? rekordbox = null)
     {
         _cueService = cueService;
         _transport = transport;
@@ -506,7 +760,14 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         _configManager = configManager;
         _dialogService = dialogService;
         _eventBus = eventBus;
+        _rekordbox = rekordbox;
         _ui = ui ?? RunOnUiThread;
+        _showEnergyCurve = config.WaveformShowEnergyCurve;
+        _showOnsetDensity = config.WaveformShowOnsetDensity;
+        _showVocalGhost = config.WaveformShowVocalGhost;
+        _showPhraseSections = config.WaveformShowPhraseSections;
+        _showBeatGrid = config.WaveformShowBeatGrid;
+        WaveformGain = Math.Clamp((double)config.WaveformGain, 1.0, 2.0);
 
         Session = new CueEditorSession(cueService, new SharedPlayerAudition(this),
             cueSessions ?? new CueSessionRegistry(config, configManager), _logger)
@@ -521,9 +782,18 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
         var hasTrack = this.WhenAnyValue(x => x.TrackHash, h => !string.IsNullOrEmpty(h));
         var notGenerating = this.WhenAnyValue(x => x.IsGenerating, g => !g);
+        var notRefreshing = this.WhenAnyValue(x => x.IsWaveformRefreshPending, p => !p);
         var canAct = hasTrack.CombineLatest(notGenerating, (h, g) => h && g);
+        var canRefresh = hasTrack.CombineLatest(notRefreshing, (h, r) => h && r);
 
         AutoGenerateCuesCommand = ReactiveCommand.CreateFromTask(AutoGenerateCuesAsync, canAct);
+        RefreshWaveformCommand = ReactiveCommand.CreateFromTask(RefreshWaveformAsync, canRefresh);
+        ImportRekordboxCuesCommand = ReactiveCommand.CreateFromTask(ImportRekordboxCuesAsync, canAct);
+
+        BeatJumpCommand = ReactiveCommand.Create<int>(dir => BeatJump(dir), hasTrack);
+        SetDownbeatAtPlayheadCommand = ReactiveCommand.CreateFromTask(SetDownbeatAtPlayheadAsync, canAct);
+        SlipGridCommand = ReactiveCommand.CreateFromTask<string>(SlipGridAsync, canAct);
+        ResetGridCommand = ReactiveCommand.CreateFromTask(ResetGridAsync, this.WhenAnyValue(x => x.IsGridEdited));
 
         ZoomInCommand     = ReactiveCommand.Create(() => ZoomAroundPlayhead(1.5));
         ZoomOutCommand    = ReactiveCommand.Create(() => ZoomAroundPlayhead(1 / 1.5));
@@ -536,12 +806,19 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         AuditionCueCommand = ReactiveCommand.Create<OrbitCue>(AuditionCue);
         PlayPauseCommand = ReactiveCommand.Create(TogglePlayPause, hasTrack);
         CueButtonCommand = ReactiveCommand.Create(CueButton, hasTrack);
+        SetWaveformGainCommand = ReactiveCommand.Create<double>(gain =>
+        {
+            WaveformGain = Math.Clamp(gain, 1.0, 2.0);
+            SaveWaveformPreferences();
+        });
+        TogglePreparationDockCommand = ReactiveCommand.Create(() => { IsPreparationDockOpen = !IsPreparationDockOpen; });
 
         LoadFromBrowserCommand = new Views.AsyncRelayCommand<CueBrowserItem>(async item =>
         {
             if (item == null) return;
             await LoadTrackAsync(item.GlobalId, item.Title, item.Artist);
         });
+        ToggleBrowserCommand = ReactiveCommand.Create(() => { IsBrowserOpen = !IsBrowserOpen; });
         PreviousTrackCommand = ReactiveCommand.CreateFromTask(() => StepTrackAsync(-1), hasTrack);
         NextTrackCommand = ReactiveCommand.CreateFromTask(() => StepTrackAsync(1), hasTrack);
 
@@ -563,6 +840,22 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             .Subscribe(p => OnPlayerPosition(p.Fraction, p.LengthSeconds))
             .DisposeWith(_disposables);
 
+        if (_eventBus != null)
+        {
+            _eventBus.GetEvent<TrackAnalysisUpdatedEvent>()
+                .ObserveOn(RxApp.MainThreadScheduler)
+                .Subscribe(evt => _ = OnWaveformRefreshCompletedAsync(evt))
+                .DisposeWith(_disposables);
+            _eventBus.GetEvent<TrackAnalysisFailedEvent>()
+                .ObserveOn(RxApp.MainThreadScheduler)
+                .Subscribe(OnWaveformRefreshFailed)
+                .DisposeWith(_disposables);
+            _eventBus.GetEvent<AnalysisProgressEvent>()
+                .ObserveOn(RxApp.MainThreadScheduler)
+                .Subscribe(OnWaveformRefreshProgress)
+                .DisposeWith(_disposables);
+        }
+
         if (libraryService != null) _ = LoadAllPlaylistsAsync();
         else BrowserStatus = "";
 
@@ -582,6 +875,65 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     {
         if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess()) { action(); return Task.CompletedTask; }
         return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(action).GetTask();
+    }
+
+    private Task RefreshWaveformAsync()
+    {
+        if (TrackHash == null || IsWaveformRefreshPending) return Task.CompletedTask;
+        if (_eventBus == null)
+        {
+            const string message = "Full analysis isn't available in this session.";
+            WaveformRefreshStatus = message;
+            SetWaveformRefreshError(message);
+            Session.SetStatus(message, isError: true);
+            return Task.CompletedTask;
+        }
+
+        SetWaveformRefreshError(null);
+        WaveformRefreshStatus = "Queued for full analysis…";
+        IsWaveformRefreshPending = true;
+        Session.SetStatus("Full analysis queued: waveform, loudness, tempo/key/grid, cues and available AI metrics. Your ORBIT cues stay local; nothing is written to Rekordbox.");
+        _eventBus.Publish(new TrackAnalysisRequestedEvent(TrackHash, AnalysisTier.Tier1, IsHighPriority: true));
+        return Task.CompletedTask;
+    }
+
+    private void OnWaveformRefreshProgress(AnalysisProgressEvent evt)
+    {
+        if (!IsWaveformRefreshPending || TrackHash == null ||
+            !string.Equals(evt.TrackGlobalId, TrackHash, StringComparison.OrdinalIgnoreCase)) return;
+        WaveformRefreshStatus = $"{evt.CurrentStep} · {evt.ProgressPercent}%";
+    }
+
+    private async Task OnWaveformRefreshCompletedAsync(TrackAnalysisUpdatedEvent evt)
+    {
+        if (!IsWaveformRefreshPending || TrackHash == null ||
+            !string.Equals(evt.TrackGlobalId, TrackHash, StringComparison.OrdinalIgnoreCase)) return;
+
+        // Reloading the track also reloads its cue session. Save a draft first, exactly as a manual
+        // track switch would; if saving fails, keep the current editor and its unsaved work intact.
+        if (Session.IsDirty && !await Session.SaveAsync())
+        {
+            IsWaveformRefreshPending = false;
+            const string message = "Analysis finished, but Cue Forge couldn't reload it because saving your cue edits failed.";
+            WaveformRefreshStatus = message;
+            SetWaveformRefreshError(message);
+            return;
+        }
+
+        SetWaveformRefreshError(null);
+        IsWaveformRefreshPending = false;
+        await LoadTrackAsync(TrackHash, TrackName, TrackArtist);
+        Session.SetStatus("Full analysis refreshed: waveform, loudness, tempo/key/grid, cues and available AI metrics.");
+    }
+
+    private void OnWaveformRefreshFailed(TrackAnalysisFailedEvent evt)
+    {
+        if (!IsWaveformRefreshPending || TrackHash == null ||
+            !string.Equals(evt.TrackGlobalId, TrackHash, StringComparison.OrdinalIgnoreCase)) return;
+        IsWaveformRefreshPending = false;
+        WaveformRefreshStatus = $"Full analysis failed: {evt.Error}";
+        SetWaveformRefreshError(evt.Error);
+        Session.SetStatus(WaveformRefreshStatus, isError: true);
     }
 
     /// <summary>Revert is undoable, but it still throws away a working set the user may not expect
@@ -644,8 +996,13 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
         WaveformLow = null; WaveformMid = null; WaveformHigh = null;
         IsWaveformMissing = false;
+        IsWaveformOutdated = false;
+        IsWaveformRefreshPending = false;
+        SetWaveformRefreshError(null);
+        WaveformRefreshStatus = "";
         WaveformZoom = 1.0; WaveformScroll = 0;
         CurrentPlayPosition = 0;
+        TimeTillDropSeconds = null;
         _trackFilePath = null;
         _durationKnown = false;
         TrackLoadError = null;
@@ -678,15 +1035,24 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 Bpm = (int)Math.Round(Math.Max(60, features.Bpm));
                 _preciseBpm = features.Bpm > 0 ? features.Bpm : Bpm;
                 _downbeat = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
+                _analysedDownbeat = _downbeat;
+                IsGridEdited = false;
                 genre = !string.IsNullOrWhiteSpace(features.DetectedSubGenre) ? features.DetectedSubGenre : features.ElectronicSubgenre;
                 _durationKnown = features.TrackDuration > 0;
                 TrackDuration = features.TrackDuration > 0 ? features.TrackDuration : 300.0;
                 TrackEnergyScore = features.EnergyScore;
+                TimeTillDropSeconds = features.TimeTillDropSeconds is { } firstDrop && float.IsFinite(firstDrop) && firstDrop >= 0
+                    ? firstDrop
+                    : null;
 
                 // Decode waveform blob: [low₀…lowN | mid₀…midN | high₀…highN]
                 if (features.WaveformBlob is { Length: > 0 } blob && features.WaveformBlobSampleCount > 0 &&
                     blob.Length >= features.WaveformBlobSampleCount * 3)
                 {
+                    IsWaveformOutdated = !string.Equals(
+                        features.AnalysisVersion,
+                        Services.AudioAnalysis.WaveformExtractionService.CurrentWaveformVersion,
+                        StringComparison.Ordinal);
                     int n = features.WaveformBlobSampleCount;
                     var low = new byte[n]; var mid = new byte[n]; var high = new byte[n];
                     Buffer.BlockCopy(blob, 0, low, 0, n);
@@ -722,7 +1088,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 UpdateCamelotKeyDisplay("");
                 EnergyCurveData = null; VocalDensityCurveData = null; OnsetDensityCurveData = null;
                 await _ui(() => PhraseSegments.Clear());
-                TrackLoadError = "This track hasn't been analysed yet, so there's no waveform, tempo or key. Analyse it from the Library, then reopen it here.";
+                TrackLoadError = "This track hasn't been analysed yet. Use Analyse track now below, or Re-analyse track in Preparation, to generate its complete analysis here.";
             }
             RaiseGridChanged();
 
@@ -743,6 +1109,9 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             _config.CueForgeLastTrackArtist = artist;
             try { _configManager?.Save(_config); }
             catch (Exception ex) { _logger.LogWarning(ex, "CueForge: couldn't remember the last opened track"); }
+
+            // The browser follows the open track (its playlist, highlighted row, "Track 3 of 24").
+            if (Playlists.Count > 0) await SelectPlaylistContainingAsync(trackHash);
         }
         catch (Exception ex)
         {
@@ -758,6 +1127,9 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(GridOffset));
         this.RaisePropertyChanged(nameof(BpmDisplay));
         this.RaisePropertyChanged(nameof(CurrentBarBeatDisplay));
+        this.RaisePropertyChanged(nameof(TimeTillDropBars));
+        this.RaisePropertyChanged(nameof(TimeTillDropDisplay));
+        this.RaisePropertyChanged(nameof(HasTimeTillDrop));
     }
 
     public void UpdateCamelotKeyDisplay(string camelotKey)
@@ -878,6 +1250,73 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     /// <summary>Waveform click / scrub: moves the playhead. Seeks the player only if it already
     /// holds this track — clicking never interrupts other playback.</summary>
+    private double BarSeconds => GridBpm > 0 ? 240.0 / GridBpm : 0;
+
+    internal void BeatJump(int direction)
+    {
+        if (BarSeconds <= 0 || direction == 0) return;
+        SetPlayhead(CurrentPlayPosition + Math.Sign(direction) * BeatJumpBars * BarSeconds);
+        if (WaveformZoom > CueForgeGrid.MinZoom) WaveformScroll = CueForgeGrid.CenterOn(CurrentPlayPosition / TrackDuration, WaveformZoom);
+    }
+
+    /// <summary>
+    /// The grid beat nearest the playhead becomes a downbeat: the grid's phase moves by whole beats,
+    /// its tempo and beat positions stay. Bar 1 stays where the analysis put it (where the music
+    /// starts, which the generator anchors the Intro cue on), moved by less than a bar to the new phase.
+    /// </summary>
+    internal async Task SetDownbeatAtPlayheadAsync()
+    {
+        if (GridBpm <= 0) return;
+        double beat = 60.0 / GridBpm, bar = beat * 4;
+        double nearestBeat = _downbeat + Math.Round((CurrentPlayPosition - _downbeat) / beat) * beat;
+        double barOne = nearestBeat + Math.Round((_analysedDownbeat - nearestBeat) / bar) * bar;
+        if (barOne < 0) barOne += bar;
+        await ApplyGridAsync(barOne, $"The beat at {CueForgeGrid.FormatTime(nearestBeat)} is now the 1 of its bar. Re-run Auto-generate to re-place the auto cues.");
+    }
+
+    internal Task SlipGridAsync(string direction)
+    {
+        double delta = direction == "-" ? -0.010 : 0.010;
+        double next = _downbeat + delta;
+        if (next < 0) next += BarSeconds;
+        return ApplyGridAsync(next, $"Grid moved {(delta < 0 ? "10 ms earlier" : "10 ms later")}.");
+    }
+
+    internal Task ResetGridAsync() => ApplyGridAsync(_analysedDownbeat, "Beat grid back to the analysed downbeat.");
+
+    /// <summary>Saves the corrected downbeat to the track's analysis, so exports, mixing and the next
+    /// auto-generate all use it. Cues are left where they are.</summary>
+    private async Task ApplyGridAsync(double downbeat, string status)
+    {
+        if (TrackHash is not { } hash || _libraryService == null) return;
+        try
+        {
+            var features = await _libraryService.GetAudioFeaturesByHashAsync(hash);
+            if (features is null)
+            {
+                Session.SetStatus("This track has no analysis to store a beat grid in. Analyse it first.", isError: true);
+                return;
+            }
+            features.DownbeatOffsetSeconds = downbeat;
+            await _libraryService.UpdateAudioFeaturesAsync(features);
+            _logger.LogInformation("CueForge: downbeat for {Hash} set to {Downbeat:F4}s (analysed {Analysed:F4}s)", hash, downbeat, _analysedDownbeat);
+
+            await _ui(() =>
+            {
+                _downbeat = downbeat;
+                IsGridEdited = Math.Abs(downbeat - _analysedDownbeat) > 1e-4;
+                RaiseGridChanged();
+                Session.UpdateGrid(downbeat);
+                Session.SetStatus(status);
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "CueForge: saving the beat grid failed for {Hash}", hash);
+            Session.SetStatus("Couldn't save the beat grid change; nothing was changed. See the log for details.", isError: true);
+        }
+    }
+
     private void SetPlayhead(double seconds)
     {
         seconds = Math.Clamp(seconds, 0, TrackDuration);
@@ -937,6 +1376,42 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     // ── Auto-generate ──────────────────────────────────────────────────────
 
+    internal async Task ImportRekordboxCuesAsync()
+    {
+        if (_rekordbox == null || Session.TrackHash is null) return;
+        if (string.IsNullOrEmpty(_trackFilePath))
+        {
+            Session.SetStatus("This track's file location is unknown, so it can't be matched in Rekordbox.", isError: true);
+            return;
+        }
+        try
+        {
+            var read = await _rekordbox.ReadCuesAsync();
+            if (!read.Success)
+            {
+                Session.SetStatus(read.Message, isError: true);
+                return;
+            }
+            var track = await _rekordbox.FindByPathAsync(_trackFilePath);
+            if (track is not { Cues.Count: > 0 })
+            {
+                Session.SetStatus("Rekordbox has no cues for this file (matched by file path).");
+                return;
+            }
+            var imported = Services.Rekordbox.RekordboxCueImport.ToOrbitCues(track);
+            int hot = imported.Count(c => c.SlotIndex >= 0), loops = imported.Count(c => c.IsLoop);
+            await _ui(() => Session.ReplaceAllCues(
+                Services.Rekordbox.RekordboxCueImport.Merge(Session.Cues.ToList(), imported),
+                $"Loaded {imported.Count} cues from Rekordbox ({hot} hot, {imported.Count - hot - loops} memory, {loops} loops). Save to keep them; Ctrl+Z undoes."));
+            _logger.LogInformation("CueForge: imported {Count} Rekordbox cues for {Hash}", imported.Count, TrackHash);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "CueForge: importing Rekordbox cues failed for {Hash}", TrackHash);
+            Session.SetStatus("Couldn't load cues from Rekordbox; your cues are unchanged. See the log for details.", isError: true);
+        }
+    }
+
     private async Task AutoGenerateCuesAsync()
     {
         if (TrackHash is null || Session.TrackHash is null) return;
@@ -976,7 +1451,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                     bool conflicts = !u.IsSectionMarker && merged.Any(c => !c.IsLoop && Math.Abs(c.Timestamp - u.Timestamp) < 1.0);
                     if (!conflicts) merged.Add(u);
                 }
-                AssignSlotsByRolePriority(merged);
+                ResolvePadConflicts(merged);
                 ApplyRekordboxColors(merged);
                 Session.ReplaceAllCues(merged, $"Generated {generatedEntities.Count} cues. Your own cues were kept. Ctrl+Z to undo.");
             });
@@ -991,30 +1466,25 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         finally { IsGenerating = false; }
     }
 
-    /// <summary>Generated cues get pads by structural importance; your own cues keep theirs.</summary>
-    private static void AssignSlotsByRolePriority(List<OrbitCue> cues)
+    /// <summary>
+    /// Generated cues keep the pads the shared drop layout gave them (A B C / D E F / G, or no pad for
+    /// countdowns routed to memory cues), so Cue Forge, the background generator and the other editors
+    /// agree. Your own cues win a contested pad; the generated cue then becomes a memory cue.
+    /// (This used to re-pack every generated cue by role, putting the drops on A and B here only.)
+    /// </summary>
+    internal static void ResolvePadConflicts(List<OrbitCue> cues)
     {
-        foreach (var c in cues.Where(c => c.Source == CueSource.Auto && !c.IsLoop))
+        var userPads = cues.Where(c => c.Source == CueSource.User && !c.IsLoop && c.SlotIndex >= 0)
+            .Select(c => c.SlotIndex).ToHashSet();
+        foreach (var c in cues.Where(c => c.Source == CueSource.Auto && !c.IsLoop && userPads.Contains(c.SlotIndex)))
             c.SlotIndex = -1;
-
-        var rolePriority = new[] { CueRole.Drop, CueRole.Breakdown, CueRole.Build, CueRole.Intro, CueRole.KickIn, CueRole.Outro, CueRole.Vocals, CueRole.Custom };
-        int slot = 0;
-        foreach (var role in rolePriority)
-        {
-            foreach (var cue in cues.Where(c => c.Source == CueSource.Auto && c.Role == role && !c.IsLoop).OrderBy(c => c.Timestamp))
-            {
-                while (slot < 8 && cues.Any(c => c.Source == CueSource.User && !c.IsLoop && c.SlotIndex == slot))
-                    slot++;
-                if (slot >= 8) break;
-                cue.SlotIndex = slot++;
-            }
-            if (slot >= 8) break;
-        }
     }
 
+    /// <summary>Role colours for generated cues, except drops, countdowns and [OUT], which keep the
+    /// layout's per-drop colours (Drop 1 and Drop 2 groups stay distinguishable).</summary>
     private static void ApplyRekordboxColors(List<OrbitCue> cues)
     {
-        foreach (var c in cues.Where(c => c.Source == CueSource.Auto))
+        foreach (var c in cues.Where(c => c.Source == CueSource.Auto && !Engine.Cueing.DropCountdownCues.IsLayoutCue(c.Name)))
             c.Color = CueEditorSession.RekordboxColorForRole(c.Role);
     }
 

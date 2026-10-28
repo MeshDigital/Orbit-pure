@@ -1035,27 +1035,13 @@ public partial class LibraryViewModel
     {
         try
         {
-            var selectedModels = Tracks.SelectedTracks
-                .Select(t => t.Model)
-                .Where(m => m != null)
-                .Select(m => m!)
-                .ToList();
-
-            if (selectedModels.Count > 0)
-            {
-                _eventBus.Publish(new AddToTimelineRequestEvent(selectedModels));
-                _notificationService.Show(
-                    "Flow Builder",
-                    $"Sent {selectedModels.Count} selected track(s) to the flow timeline.",
-                    NotificationType.Success);
-                return;
-            }
-
-            _navigationService.NavigateTo("FlowBuilder");
-            _notificationService.Show(
-                "Flow Builder",
-                "Opened Flow Builder.",
-                NotificationType.Information);
+            // Flow Builder edits the selected playlist's in-app MIX transitions. It is not a
+            // Workstation timeline handoff and a temporary track selection must not change that.
+            var playlist = SelectedProject;
+            var playlistId = playlist?.Id ?? Guid.Empty;
+            // The actual Flow Builder handler reports the outcome after the playlist has loaded.
+            // Publishing the request is not itself proof that the handoff succeeded.
+            _eventBus.Publish(new OpenFlowBuilderForPlaylistEvent(playlistId));
         }
         catch (Exception ex)
         {
@@ -1856,6 +1842,26 @@ public partial class LibraryViewModel
 
     private sealed record SmartInsertResult(bool Success, string Message, NotificationType Type);
 
+    private async Task<bool> ConfirmRekordboxOverwriteAsync(
+        Services.Library.Rekordbox.RekordboxExportConflictReport report)
+    {
+        var details = string.Join(Environment.NewLine, report.Tracks.Take(5).Select(track =>
+            $"• {track.TrackLabel}: {string.Join(", ", track.Fields)}"));
+        var remainder = report.Tracks.Count > 5
+            ? $"{Environment.NewLine}• …and {report.Tracks.Count - 5} more track(s)."
+            : string.Empty;
+        var rekordboxEdits = report.TracksWithRekordboxCueEdits > 0
+            ? $"{Environment.NewLine}{Environment.NewLine}Warning: {report.TracksWithRekordboxCueEdits} track(s) also have cue changes made in Rekordbox since ORBIT's last export. Replacing them will discard those changes from this XML."
+            : string.Empty;
+        var message =
+            $"ORBIT has different values for {report.Tracks.Count} track(s) already present in this Rekordbox XML.{Environment.NewLine}{Environment.NewLine}" +
+            $"{details}{remainder}{rekordboxEdits}{Environment.NewLine}{Environment.NewLine}" +
+            "Choose ‘Replace with ORBIT data’ only if you intend to change those existing Rekordbox values when this XML is imported. " +
+            "Choose ‘Keep Rekordbox data’ to preserve every existing value and export only new tracks and empty fields.";
+        return await _dialogService.ConfirmAsync(
+            "Update existing Rekordbox data?", message, "Replace with ORBIT data", "Keep Rekordbox data");
+    }
+
     private async Task ExecuteExportPlaylistAsync(object? param)
     {
         if (param is not PlaylistJob project) return;
@@ -1893,7 +1899,7 @@ public partial class LibraryViewModel
                 await _exportOrchestrator.ExportAsync(
                     project.SourceTitle, tracks, folder,
                     Services.Export.ExportMode.FilesAndXml,
-                    progressHandler, folderId: project.FolderId);
+                    progressHandler, folderId: project.FolderId, confirmOverwrite: ConfirmRekordboxOverwriteAsync);
 
                 // Use the orchestrator's own final tally rather than re-deriving "skipped" by
                 // re-checking File.Exists here — that only ever caught missing-file skips, silently
@@ -1923,7 +1929,7 @@ public partial class LibraryViewModel
                 _notificationService.Show("Exporting", $"Saving '{project.SourceTitle}' to Rekordbox XML…", NotificationType.Information);
                 await _exportOrchestrator.ExportAsync(
                     project.SourceTitle, tracks, path,
-                    Services.Export.ExportMode.XmlOnly, folderId: project.FolderId);
+                    Services.Export.ExportMode.XmlOnly, folderId: project.FolderId, confirmOverwrite: ConfirmRekordboxOverwriteAsync);
                 _notificationService.Show("Export Successful",
                     $"Playlist exported to {Path.GetFileName(path)}", NotificationType.Success);
             }

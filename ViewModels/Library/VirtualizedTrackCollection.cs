@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using SLSKDONET.Models;
@@ -573,6 +574,40 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     public bool HasMoreItems => _count == -1 || _loadedItems.Count < _count;
+
+    /// <summary>
+    /// Loads every page intersecting an explicit selection range and yields only the requested
+    /// rows, one page at a time. Unlike indexed selection loops, awaiting each page keeps the UI
+    /// responsive and lets the caller add rows progressively without blocking on the whole range.
+    /// </summary>
+    internal async IAsyncEnumerable<IReadOnlyList<PlaylistTrackViewModel>> LoadRangeForSelectionAsync(
+        int startIndex,
+        int endIndex,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        if (_disposed || startIndex < 0 || endIndex < startIndex || _count <= 0) yield break;
+
+        var lastIndex = Math.Min(endIndex, _count - 1);
+        var firstPage = startIndex / _pageSize;
+        var lastPage = lastIndex / _pageSize;
+
+        for (var pageIndex = firstPage; pageIndex <= lastPage; pageIndex++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await LoadPageAsync(pageIndex);
+            if (!_pages.TryGetValue(pageIndex, out var pageInfo)) continue;
+
+            var pageStart = pageIndex * _pageSize;
+            var selectedRows = pageInfo.Items
+                .Where((_, offset) =>
+                {
+                    var sourceIndex = pageStart + offset;
+                    return sourceIndex >= startIndex && sourceIndex <= lastIndex;
+                })
+                .ToArray();
+            if (selectedRows.Length > 0) yield return selectedRows;
+        }
+    }
 
     /// <summary>
     /// Loads a page, or — if that page is already loading — returns the in-flight load so callers

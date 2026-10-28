@@ -194,7 +194,21 @@ public partial class LibraryPlaylistTrackSurface : UserControl
     private void OnTrackScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
         if (DataContext is TrackListViewModel vm)
+        {
+            if (sender is ScrollViewer scroller) vm.OnListScrolled(scroller.Offset.Y);
             RefreshInsertGapStates(vm);
+        }
+    }
+
+    private void OnTrackColumnResizeDelta(object? sender, VectorEventArgs e)
+    {
+        if (DataContext is TrackListViewModel vm && sender is Control { Tag: string column })
+            vm.ResizeColumn(column, e.Vector.X);
+    }
+
+    private void OnTrackColumnResizeCompleted(object? sender, VectorEventArgs e)
+    {
+        if (DataContext is TrackListViewModel vm) vm.SaveViewStateNow();
     }
 
     private void OnRootKeyDown(object? sender, KeyEventArgs e)
@@ -372,7 +386,10 @@ public partial class LibraryPlaylistTrackSurface : UserControl
     {
         AttachToVm(DataContext as TrackListViewModel);
         if (DataContext is TrackListViewModel vm)
+        {
             RefreshInsertGapStates(vm);
+            RestoreScrollOffset(vm.ListScrollOffset);
+        }
     }
 
     private void OnUnloaded(object? sender, RoutedEventArgs e)
@@ -391,11 +408,15 @@ public partial class LibraryPlaylistTrackSurface : UserControl
     private void AttachToVm(TrackListViewModel? nextVm)
     {
         if (ReferenceEquals(_boundVm, nextVm))
+        {
+            if (nextVm is not null) RestoreScrollOffset(nextVm.ListScrollOffset);
             return;
+        }
 
         if (_boundVm is not null)
         {
             _boundVm.PropertyChanged -= OnVmPropertyChanged;
+            _boundVm.ScrollRestoreRequested -= OnScrollRestoreRequested;
             if (_boundFilteredCollection is not null)
                 _boundFilteredCollection.CollectionChanged -= OnFilteredTracksCollectionChanged;
             _boundFilteredCollection = null;
@@ -406,10 +427,20 @@ public partial class LibraryPlaylistTrackSurface : UserControl
         if (_boundVm is not null)
         {
             _boundVm.PropertyChanged += OnVmPropertyChanged;
+            _boundVm.ScrollRestoreRequested += OnScrollRestoreRequested;
             _boundFilteredCollection = _boundVm.FilteredTracks as INotifyCollectionChanged;
             if (_boundFilteredCollection is not null)
                 _boundFilteredCollection.CollectionChanged += OnFilteredTracksCollectionChanged;
+            RestoreScrollOffset(_boundVm.ListScrollOffset);
         }
+    }
+
+    private void OnScrollRestoreRequested(object? sender, double offsetY) => RestoreScrollOffset(offsetY);
+
+    private void RestoreScrollOffset(double offsetY)
+    {
+        if (this.FindControl<ScrollViewer>("TrackScrollViewer") is { } scroller)
+            ScrollPositionRestorer.Restore(scroller, offsetY);
     }
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)

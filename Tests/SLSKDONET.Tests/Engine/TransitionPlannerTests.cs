@@ -217,4 +217,35 @@ public class TransitionPlannerTests
 
         Assert.Equal(new[] { 86.6, 198.6 }, TransitionPlanService.DistinctDrops(cues, 174));
     }
+
+    [Fact]
+    public void Plan_SharedMixCuesOverrideStructuralEstimatesIncludingAnEarlyMixOut()
+    {
+        var outgoing = Dnb() with { MixOutMarker = 73.25 };
+        var incoming = Dnb() with { MixInMarker = 18.75 };
+
+        var plan = TransitionPlanner.Plan(outgoing, incoming, compatibility: 80);
+
+        Assert.Equal(73.25, plan.SourceTriggerSeconds, 9);
+        Assert.Equal(18.75, plan.TargetTriggerSeconds, 9);
+        Assert.Contains("shared Mix-Out", plan.Reason);
+        Assert.Contains("shared Mix-In", plan.Reason);
+    }
+
+    [Fact]
+    public void BuildStructure_LoadsSharedMixCues()
+    {
+        var features = new AudioFeaturesEntity { Bpm = 174, TrackDuration = 300, DownbeatOffsetSeconds = 0.5 };
+        var cues = new List<CuePointEntity>
+        {
+            new() { TimestampInSeconds = 18.75, Type = CuePointType.MixIn },
+            new() { TimestampInSeconds = 73.25, Type = CuePointType.MixOut },
+            new() { TimestampInSeconds = 90, Type = CuePointType.MixOut, IsLoop = true },
+        };
+
+        var structure = TransitionPlanService.BuildStructure(features, cues);
+
+        Assert.Equal(18.75, structure.MixInMarker);
+        Assert.Equal(73.25, structure.MixOutMarker);
+    }
 }

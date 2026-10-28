@@ -230,6 +230,13 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
         if (_loadAttempted) return;
         _loadAttempted = true;
 
+        if (!SLSKDONET.Services.Platform.HardwareCapabilities.Allows(SLSKDONET.Services.Platform.HardwareFeature.AiTagging))
+        {
+            _logger.LogWarning("[EmbeddingExtractor] AI tagging is switched off on this machine: {Reason}",
+                SLSKDONET.Services.Platform.HardwareCapabilities.Current.VerdictFor(SLSKDONET.Services.Platform.HardwareFeature.AiTagging).Reason);
+            return;
+        }
+
         if (!File.Exists(_modelPath))
         {
             _logger.LogWarning(

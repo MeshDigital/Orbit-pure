@@ -344,6 +344,51 @@ public class CueGenerationServiceTests
 
     // ── Fixtures ─────────────────────────────────────────────────────────────
 
+    [Fact]
+    public void GenerateCues_SecondDropInTheLastBars_IsLeftOut_NotSqueezedIntoTheOutro()
+    {
+        // Flux Pavilion - Emotional (MUST DIE! Remix), 150 BPM, 4:03: the phrase data tagged a
+        // "Drop" in the last seconds. It used to be clamped to duration − 8 bars, giving [DROP 2]
+        // at 3:50 with [IN -16]/[IN -8] counting into the outro and [OUT] 0.4 s after the drop.
+        var service = CreateService();
+        var analysis = new AnalysisPipelineResult
+        {
+            Bpm = 150f,
+            DurationSeconds = 243.2,
+            PhraseSegments = new List<PhraseSegment>
+            {
+                new() { Label = "Intro", Start = 0f, Duration = 32f, Confidence = 0.9f },
+                new() { Label = "Drop", Start = 32.4f, Duration = 51f, Confidence = 0.9f },
+                new() { Label = "Breakdown", Start = 83.4f, Duration = 60f, Confidence = 0.9f },
+                new() { Label = "Outro", Start = 143.4f, Duration = 92f, Confidence = 0.9f },
+                new() { Label = "Drop", Start = 235.4f, Duration = 7.8f, Confidence = 0.9f },
+            },
+        };
+
+        var cues = service.GenerateCues("hash", analysis, 0.4076);
+
+        Assert.Contains(cues, c => c.Label == "[DROP 1]");
+        Assert.DoesNotContain(cues, c => c.Label == "[DROP 2]");
+        Assert.DoesNotContain(cues, c => c.SlotIndex is 3 or 4 or 5); // pads D–F stay free
+        double bar = 240.0 / 150;
+        var drops = cues.Where(c => c.Type == CuePointType.Drop).Select(c => c.TimestampInSeconds).ToList();
+        Assert.All(cues.Where(c => c.Label == "[OUT]"),
+            o => Assert.All(drops, d => Assert.True(Math.Abs(o.TimestampInSeconds - d) > 4 * bar)));
+    }
+
+    [Fact]
+    public void GenerateCues_DspDropNearTheEnd_IsLeftOut()
+    {
+        var service = CreateService();
+        var analysis = DspAnalysis(subBassReturnSeconds: 60.0);
+        analysis.SubBassReturnTimestamps = new List<double> { 60.0, DurationSeconds - 5.0 };
+
+        var cues = service.GenerateCues("hash", analysis, DownbeatAnchor);
+
+        Assert.All(cues.Where(c => c.Label == "[DROP 2]"),
+            d => Assert.True(d.TimestampInSeconds <= DurationSeconds - 16 * 240.0 / Bpm));
+    }
+
     private static AnalysisPipelineResult MlAnalysis(double dropStartSeconds = 150.0) => new()
     {
         Bpm = (float)Bpm,

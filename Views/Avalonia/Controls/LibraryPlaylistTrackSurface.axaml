@@ -84,28 +84,55 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <!-- Spacers for the status dot (8) and the queue button (26 + 8,0 margin). -->
                 <Panel Grid.Column="0" Width="8"/>
                 <Panel Grid.Column="1" Width="42" IsVisible="{Binding ShowQueueAction}"/>
-                <Panel Grid.Column="2" Width="150" IsVisible="{Binding ShowArtistColumn}">
+                <Panel Grid.Column="2" Width="{Binding ArtistColumnWidth}" IsVisible="{Binding ShowArtistColumn}">
                     <TextBlock Classes="col" Text="ARTIST"/>
+                    <Thumb Tag="Artist" Width="6" HorizontalAlignment="Right" Background="Transparent"
+                                  Cursor="SizeWestEast" DragDelta="OnTrackColumnResizeDelta" DragCompleted="OnTrackColumnResizeCompleted"
+                                  ToolTip.Tip="Drag to resize Artist"/>
                 </Panel>
                 <TextBlock Grid.Column="3" Classes="col" Text="TITLE"/>
-                <Panel Grid.Column="4" Width="90" IsVisible="{Binding ShowEnergyColumn}">
+                <Panel Grid.Column="4" Width="{Binding EnergyColumnWidth}" IsVisible="{Binding ShowEnergyColumn}">
                     <TextBlock Classes="col" Text="ENERGY"/>
+                    <Thumb Tag="Energy" Width="6" HorizontalAlignment="Right" Background="Transparent"
+                                  Cursor="SizeWestEast" DragDelta="OnTrackColumnResizeDelta" DragCompleted="OnTrackColumnResizeCompleted"
+                                  ToolTip.Tip="Drag to resize Energy"/>
                 </Panel>
                 <TextBlock Grid.Column="5" Classes="col" Text="BPM / KEY"/>
-                <Panel Grid.Column="6" Width="100" IsVisible="{Binding ShowFormatColumn}">
+                <Panel Grid.Column="6" Width="{Binding FormatColumnWidth}" IsVisible="{Binding ShowFormatColumn}">
                     <TextBlock Classes="col" Text="FORMAT"/>
+                    <Thumb Tag="Format" Width="6" HorizontalAlignment="Right" Background="Transparent"
+                                  Cursor="SizeWestEast" DragDelta="OnTrackColumnResizeDelta" DragCompleted="OnTrackColumnResizeCompleted"
+                                  ToolTip.Tip="Drag to resize Format"/>
                 </Panel>
-                <Panel Grid.Column="7" Width="120" IsVisible="{Binding ShowForensicsColumn}">
+                <Panel Grid.Column="7" Width="{Binding ForensicsColumnWidth}" IsVisible="{Binding ShowForensicsColumn}">
                     <TextBlock Classes="col" Text="INTEGRITY"/>
+                    <Thumb Tag="Forensics" Width="6" HorizontalAlignment="Right" Background="Transparent"
+                                  Cursor="SizeWestEast" DragDelta="OnTrackColumnResizeDelta" DragCompleted="OnTrackColumnResizeCompleted"
+                                  ToolTip.Tip="Drag to resize Integrity"/>
                 </Panel>
-                <Panel Grid.Column="8" Width="80" IsVisible="{Binding ShowDurationColumn}">
+                <Panel Grid.Column="8" Width="{Binding DurationColumnWidth}" IsVisible="{Binding ShowDurationColumn}">
                     <TextBlock Classes="mono muted" Text="{Binding FilteredTracks.Count, StringFormat='{}{0} tracks'}" HorizontalAlignment="Right"/>
+                    <Thumb Tag="Duration" Width="6" HorizontalAlignment="Right" Background="Transparent"
+                                  Cursor="SizeWestEast" DragDelta="OnTrackColumnResizeDelta" DragCompleted="OnTrackColumnResizeCompleted"
+                                  ToolTip.Tip="Drag to resize Time"/>
                 </Panel>
-                <Panel Grid.Column="9" Width="84" IsVisible="{Binding ShowRatingColumn}"/>
+                <Panel Grid.Column="9" Width="{Binding RatingColumnWidth}" IsVisible="{Binding ShowRatingColumn}">
+                    <Thumb Tag="Rating" Width="6" HorizontalAlignment="Right" Background="Transparent"
+                                  Cursor="SizeWestEast" DragDelta="OnTrackColumnResizeDelta" DragCompleted="OnTrackColumnResizeCompleted"
+                                  ToolTip.Tip="Drag to resize Rating"/>
+                </Panel>
+                <Panel Grid.Column="10" Width="{Binding PreparationColumnWidth}" IsVisible="{Binding ShowPreparationColumn}">
+                    <TextBlock Classes="col" Text="PREP"
+                               ToolTip.Tip="File, analysis, beat-grid and cue readiness. Select a repair action directly in the row."/>
+                    <Thumb Tag="Preparation" Width="6" HorizontalAlignment="Right" Background="Transparent"
+                                  Cursor="SizeWestEast" DragDelta="OnTrackColumnResizeDelta" DragCompleted="OnTrackColumnResizeCompleted"
+                                  ToolTip.Tip="Drag to resize Prep"/>
+                </Panel>
             </Grid>
         </Border>
 
@@ -132,7 +159,7 @@
             <Button Classes="secondary" Content="Clear filters" Command="{Binding ClearFiltersCommand}" IsVisible="{Binding HasActiveFilters}"/>
         </StackPanel>
 
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" ScrollChanged="OnTrackScrollChanged"
+        <ScrollViewer Name="TrackScrollViewer" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" ScrollChanged="OnTrackScrollChanged"
                       IsVisible="{Binding !HasTrackLoadError}">
             <ItemsRepeater ItemsSource="{Binding FilteredTracks}">
                 <ItemsRepeater.Layout>
@@ -163,6 +190,7 @@
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <Ellipse Grid.Column="0" Width="8" Height="8" VerticalAlignment="Center"
                                              Fill="{Binding State, Converter={StaticResource TrackStateToColorConverter}}"
@@ -178,7 +206,7 @@
                                         </Button>
                                     </Panel>
 
-                                    <Panel Grid.Column="2" Width="150" IsVisible="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.ShowArtistColumn}">
+                                    <Panel Grid.Column="2" Width="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.ArtistColumnWidth}" IsVisible="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.ShowArtistColumn}">
                                         <TextBlock Text="{Binding Artist}"
                                                    Margin="0,0,8,0"
                                                    VerticalAlignment="Center"
@@ -200,7 +228,7 @@
                                                    IsVisible="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.ShowArtistUnderTitle}"/>
                                     </StackPanel>
 
-                                    <Panel Grid.Column="4" Width="90" IsVisible="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.ShowEnergyColumn}">
+                                    <Panel Grid.Column="4" Width="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.EnergyColumnWidth}" IsVisible="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.ShowEnergyColumn}">
                                         <controls:SparklineControl Points="{Binding EnergyCurvePoints}"
                                                                    LineBrush="{StaticResource BrushAccent}"
                                                                    FillBrush="{StaticResource BrushAccentSubtle}"
@@ -225,7 +253,7 @@
                                         </Border>
                                     </StackPanel>
 
-                                    <Panel Grid.Column="6" Width="100" IsVisible="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.ShowFormatColumn}">
+                                    <Panel Grid.Column="6" Width="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.FormatColumnWidth}" IsVisible="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.ShowFormatColumn}">
                                         <Border Background="{StaticResource BrushBg3}"
                                                 BorderBrush="{StaticResource BrushBorder1}"
                                                 BorderThickness="1"
@@ -239,7 +267,7 @@
                                         </Border>
                                     </Panel>
 
-                                    <Panel Grid.Column="7" Width="120" IsVisible="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.ShowForensicsColumn}">
+                                    <Panel Grid.Column="7" Width="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.ForensicsColumnWidth}" IsVisible="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.ShowForensicsColumn}">
                                         <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,0,8,0"
                                                     Background="Transparent" ToolTip.Tip="{Binding ForensicHudText}">
                                             <Ellipse Classes="status-dot" Classes.success="{Binding IsIntegrityTrusted}" Classes.warning="{Binding IsIntegritySuspicious}"/>
@@ -247,14 +275,14 @@
                                         </StackPanel>
                                     </Panel>
 
-                                    <Panel Grid.Column="8" Width="80" IsVisible="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.ShowDurationColumn}">
+                                    <Panel Grid.Column="8" Width="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.DurationColumnWidth}" IsVisible="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.ShowDurationColumn}">
                                         <TextBlock Text="{Binding DurationDisplay}"
                                                    Classes="mono"
                                                    VerticalAlignment="Center"
                                                    HorizontalAlignment="Right"/>
                                     </Panel>
 
-                                    <StackPanel Grid.Column="9" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="12,0,0,0" Width="72"
+                                    <StackPanel Grid.Column="9" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="12,0,0,0" Width="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.RatingColumnWidth}"
                                                 IsVisible="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.ShowRatingColumn}">
                                         <controls:StarRatingControl Rating="{Binding Rating, Mode=TwoWay}" StarSize="11"/>
                                         <ToggleButton IsChecked="{Binding IsLiked, Mode=TwoWay}"
@@ -266,6 +294,19 @@
                                             </Panel>
                                         </ToggleButton>
                                     </StackPanel>
+
+                                    <Panel Grid.Column="10" Width="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.PreparationColumnWidth}" Margin="12,0,0,0" VerticalAlignment="Center"
+                                           IsVisible="{Binding $parent[controls:LibraryPlaylistTrackSurface].DataContext.ShowPreparationColumn}">
+                                        <Button Classes="secondary small" Content="{Binding PreparationStatus}"
+                                                Command="{Binding PreparationRepairCommand}"
+                                                IsVisible="{Binding HasPreparationRepairAction}"
+                                                ToolTip.Tip="{Binding PreparationTooltip}"/>
+                                        <TextBlock Text="{Binding PreparationStatus}" Classes="caption"
+                                                   Foreground="{Binding PreparationColor}"
+                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                   IsVisible="{Binding !HasPreparationRepairAction}"
+                                                   ToolTip.Tip="{Binding PreparationTooltip}"/>
+                                    </Panel>
                                 </Grid>
                             </Border>
 

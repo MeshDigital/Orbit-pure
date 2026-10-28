@@ -60,4 +60,25 @@ public class PlaylistTrackViewModelColorTagTests
 
         mockLibraryService.Verify(s => s.UpdateColorTagAsync(It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
     }
+
+    [Fact]
+    public void ColorTagSaveFailure_RaisesErrorToast()
+    {
+        var bus = new Mock<IEventBus>();
+        var library = new Mock<ILibraryService>();
+        library.Setup(s => s.UpdateColorTagAsync("hash-123", "#FF0000"))
+            .ThrowsAsync(new System.InvalidOperationException("database locked"));
+        using var vm = new PlaylistTrackViewModel(new PlaylistTrack
+        {
+            TrackUniqueHash = "hash-123",
+            Title = "Test Track",
+            Artist = "Test Artist",
+        }, bus.Object, library.Object);
+
+        vm.ColorTag = "#FF0000";
+
+        bus.Verify(b => b.Publish(It.Is<ToastRequestedEvent>(e =>
+            e.Type == SLSKDONET.Views.NotificationType.Error &&
+            e.Title.Contains("colour tag"))), Times.Once);
+    }
 }

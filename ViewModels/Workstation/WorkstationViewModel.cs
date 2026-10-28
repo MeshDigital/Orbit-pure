@@ -353,6 +353,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     private readonly SLSKDONET.Services.Library.PlaylistExportService? _playlistExporter;
     private readonly IDialogService? _dialogService;
     private readonly INotificationService? _notificationService;
+    private readonly IFileInteractionService? _fileInteractionService;
     private readonly BpmSyncService           _bpmSync = new();
     private readonly Dictionary<string, double> _flowTransitionLengthOverrides = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _flowTransitionPhraseMarkerOverrides = new(StringComparer.Ordinal);
@@ -401,13 +402,21 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         get => _activePlaylist;
         set
         {
+            if (ReferenceEquals(_activePlaylist, value)) return;
             this.RaiseAndSetIfChanged(ref _activePlaylist, value);
             this.RaisePropertyChanged(nameof(ActivePlaylistFlowSummary));
             _appConfig.WorkstationActivePlaylistId = value?.Id.ToString();
             _ = _configManager.SaveAsync(_appConfig);
             RaiseLaneActionProperties();
             if (value != null)
-                _ = LoadPlaylistTracksAsync(value);
+            {
+                _ = LoadPlaylistTracksSafelyAsync(value);
+            }
+            else
+            {
+                PlaylistTracks.Clear();
+                _lastHiddenTracks = new();
+            }
         }
     }
 
@@ -527,8 +536,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public string MasterBpmDisplay => MasterBpm > 0 ? NumFormat.Ui($"{MasterBpm:F1}") : "—";
     public string DeckStatusSummary => BuildDeckStatusSummary(Decks.Count(d => d.IsLoaded), Decks.Count, FocusedDeck?.DeckLabel, MasterBpm);
     public string DeckFocusSummary => BuildDeckFocusSummary(Decks.Select(d => d.DeckLabel), Decks.Where(d => d.IsLoaded).Select(d => d.DeckLabel), FocusedDeck?.DeckLabel);
-    public string ActivePlaylistFlowSummary => BuildPlaylistFlowSummary(ActivePlaylist?.SourceTitle, PlaylistTracks.Count, Decks.Count(d => d.IsLoaded), ActiveMode);
-    public string WorkstationEligibilitySummary => "Workstation view shows only downloaded + analyzed tracks that can load deck waveform and cues. Library keeps all tracks.";
+    public string ActivePlaylistFlowSummary => BuildPlaylistFlowSummary(ActivePlaylist?.SourceTitle, ReadyPlaylistTrackCount, Decks.Count(d => d.IsLoaded), ActiveMode);
+    public string WorkstationEligibilitySummary => "Every playlist track stays visible. Double-click a ready row to load it or a flagged row to repair missing files and analysis in place.";
     private string _analysisQueueSummary = "Analysis lane idle • queue prep jobs from the player or flow drawer";
     public string AnalysisQueueSummary
     {
@@ -622,34 +631,65 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public string FocusedDeckActionSummary => BuildFocusedDeckActionSummary(FocusedDeck?.DeckLabel, FocusedDeck?.IsLoaded == true, FocusedDeck?.CueEditor.Cues.Any() == true, FocusedDeck?.StemsVisible == true);
     public string MixCoachSummary => BuildMixCoachSummary(FocusedDeck?.DeckLabel, FocusedDeck?.HarmonicSuggestionText, FocusedDeck?.TransitionStatusText);
     public bool HasActivePlaylist => ActivePlaylist != null;
-    public bool HasReadyPlaylistTracks => PlaylistTracks.Count > 0;
+    public int ReadyPlaylistTrackCount => PlaylistTracks.Count(WorkstationDeckViewModel.IsTrackReadyForWorkstation);
+    public int PlaylistAttentionTrackCount => Math.Max(0, PlaylistTracks.Count - ReadyPlaylistTrackCount);
+    public bool HasPlaylistAttention => PlaylistAttentionTrackCount > 0;
+    public int PlaylistFileIssueCount => PlaylistTracks.Count(track =>
+        WorkstationDeckViewModel.GetTrackEligibilityIssue(track) is
+            WorkstationTrackEligibilityIssue.NoTrack or
+            WorkstationTrackEligibilityIssue.NotDownloaded or
+            WorkstationTrackEligibilityIssue.MissingFile);
+    public int PlaylistPrepOnlyIssueCount => PlaylistTracks.Count(track =>
+        WorkstationDeckViewModel.GetTrackEligibilityIssue(track) is
+            WorkstationTrackEligibilityIssue.MissingHash or
+            WorkstationTrackEligibilityIssue.MissingWaveform or
+            WorkstationTrackEligibilityIssue.MissingCues or
+            WorkstationTrackEligibilityIssue.MissingAnalysis);
+    public bool IsPlaylistReadyForExport => HasActivePlaylist && PlaylistTracks.Count > 0 && !HasPlaylistAttention;
+    public string AnalysisWorkflowStatus => IsAnalyzing
+        ? $"Analyzing {AnalysisProgress}%"
+        : IncompleteAnalysisTrackCount > 0
+            ? $"{IncompleteAnalysisTrackCount} need analysis"
+            : "Analysis checked";
+    public string PreparationWorkflowStatus => HasLoadedDecks
+        ? "Cues & grids in prep"
+        : ReadyPlaylistTrackCount > 0
+            ? $"{ReadyPlaylistTrackCount} ready to prep"
+            : "Repair tracks first";
+    public string ExportWorkflowStatus => !HasActivePlaylist
+        ? "Select a playlist"
+        : PlaylistTracks.Count == 0
+            ? "Playlist is empty"
+            : PlaylistFileIssueCount > 0
+                ? $"{PlaylistFileIssueCount} need file repair"
+                : PlaylistPrepOnlyIssueCount > 0
+                    ? $"{PlaylistPrepOnlyIssueCount} prep warnings"
+                    : "Rekordbox prep complete";
+    public bool HasReadyPlaylistTracks => ReadyPlaylistTrackCount > 0;
     public bool HasLoadedDecks => Decks.Any(d => d.IsLoaded);
     public bool ShouldShowSelectPlaylistCta => !HasActivePlaylist;
     public bool ShouldShowAcquireCtas => HasActivePlaylist && !HasReadyPlaylistTracks;
     public bool ShouldShowDownloadTracksCta => HasActivePlaylist && !HasReadyPlaylistTracks;
     public bool ShouldShowImportLocalFilesCta => !HasReadyPlaylistTracks;
-    public bool ShouldShowReadyTrackCtas => HasReadyPlaylistTracks;
+    public bool ShouldShowReadyTrackCtas => HasActivePlaylist;
     public string FlowCtaStateSummary => HasReadyPlaylistTracks
-        ? "Ready tracks detected. Analyze structure and load into workstation decks."
+        ? "Load ready rows into decks. Export reports missing files separately from incomplete cue preparation."
         : HasActivePlaylist
-            ? "No workstation-ready tracks yet. Acquire missing tracks or import local files."
-            : "Select a playlist to begin flow prep, then acquire or import tracks.";
+            ? "Repair the flagged rows here so every track is ready for professional DJ preparation."
+            : "Select a playlist to verify files, analysis, beat grids, cues and loops.";
     public string TimelineEmptyCanvasSummary => HasReadyPlaylistTracks
-        ? "Timeline canvas is ready. Load the first ready track from the drawer to place the opening block."
+        ? "Deck workspace is ready. Load the first ready track from the Prep Playlist to inspect and prepare it."
         : HasActivePlaylist
-            ? "Timeline canvas is ready. Acquire or import tracks from the drawer, then load the first track into the mix."
-            : "Timeline canvas is ready. Select a playlist in the drawer to begin arranging the mix.";
+            ? "Deck workspace is ready. Acquire or import tracks from the Prep Playlist, then load one for preparation."
+            : "Deck workspace is ready. Select a playlist in the Prep Playlist to begin professional DJ preparation.";
     public string FlowLaneReadinessSummary => HasReadyPlaylistTracks
-        ? $"{PlaylistTracks.Count} ready track{(PlaylistTracks.Count == 1 ? string.Empty : "s")} • {AnalysisQueueSummary}"
+        ? $"{ReadyPlaylistTrackCount} ready track{(ReadyPlaylistTrackCount == 1 ? string.Empty : "s")} • {AnalysisQueueSummary}"
         : FlowCtaStateSummary;
-    public string SelectPlaylistCtaHint => "Open and focus the playlist selector in the flow drawer.";
+    public string SelectPlaylistCtaHint => "Open and focus the playlist selector in the prep drawer.";
     public string DownloadTracksCtaHint => HasActivePlaylist
         ? "Open Downloads to fetch missing tracks for the active playlist."
         : "Select a playlist first, then download its missing tracks.";
-    public string ImportLocalFilesCtaHint => "Open Import to add local files and make them available for workstation flow prep.";
-    public string LoadIntoWorkstationCtaHint => HasReadyPlaylistTracks
-        ? "Open track list overlay for focused loading into workstation decks."
-        : "Load into Workstation is available once ready tracks are present.";
+    public string ImportLocalFilesCtaHint => "Open Import to add local files and make them available for professional DJ preparation.";
     public bool CanAnalyzePlaylistFromLane => HasReadyPlaylistTracks && !IsAnalyzing;
     public bool CanOpenTrackOverlayFromLane => HasReadyPlaylistTracks;
     public bool CanUseFocusedDeckLaneActions => FocusedDeck?.IsLoaded == true;
@@ -736,6 +776,10 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         get => _activeMode;
         set
         {
+            // Workstation has one job: professional DJ preparation. Legacy Flow mode requests
+            // and restored sessions fold back to Prep; in-app MIX lives in Flow Builder.
+            value = WorkstationMode.Waveform;
+            if (_activeMode == value) return;
             this.RaiseAndSetIfChanged(ref _activeMode, value);
             this.RaisePropertyChanged(nameof(IsWaveformMode));
             this.RaisePropertyChanged(nameof(IsFlowMode));
@@ -788,6 +832,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit>          ExportRekordboxCommand { get; }
     /// <summary>Load a playlist track into the focused deck (or Deck A if none focused).</summary>
     public ReactiveCommand<PlaylistTrack, Unit> LoadToFocusedDeckCommand { get; }
+    /// <summary>Runs the appropriate local repair or acquisition route for one track row.</summary>
+    public ReactiveCommand<PlaylistTrack, Unit> RepairTrackCommand { get; }
     public ReactiveCommand<string, Unit>        FocusDeckCommand      { get; }
     /// <summary>Load a playlist track into Deck A.</summary>
     public ReactiveCommand<PlaylistTrack, Unit> LoadToDeckACommand    { get; }
@@ -807,8 +853,10 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit>          Loop8Command          { get; }
     /// <summary>Exit the active loop on the focused deck.</summary>
     public ReactiveCommand<Unit, Unit>          ExitLoopFocusedCommand { get; }
-    /// <summary>Switch to a Workstation mode (Waveform / Flow).</summary>
+    /// <summary>Compatibility command for callers that still request a legacy workstation mode.</summary>
     public ReactiveCommand<WorkstationMode, Unit> SetModeCommand      { get; }
+    /// <summary>Open the active playlist in the separate in-app MIX transition workspace.</summary>
+    public ReactiveCommand<Unit, Unit> OpenFlowBuilderCommand { get; }
     public ReactiveCommand<FlowTransitionOverlayViewModel, Unit> SelectFlowTransitionCommand { get; }
     public ReactiveCommand<Unit, Unit>          ClearFlowTransitionSelectionCommand { get; }
     public ReactiveCommand<string, Unit>        ApplyFlowPresetCommand  { get; }
@@ -839,7 +887,11 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public int AnalysisProgress
     {
         get => _analysisProgress;
-        private set => this.RaiseAndSetIfChanged(ref _analysisProgress, value);
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _analysisProgress, value);
+            this.RaisePropertyChanged(nameof(AnalysisWorkflowStatus));
+        }
     }
 
     private string _hiddenEligibilityBreakdown = string.Empty;
@@ -883,12 +935,14 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         ILogger<WorkstationViewModel>? logger = null,
         SLSKDONET.Services.Library.PlaylistExportService? playlistExporter = null,
         IDialogService? dialogService = null,
-        INotificationService? notificationService = null)
+        INotificationService? notificationService = null,
+        IFileInteractionService? fileInteractionService = null)
     {
         _logger = logger;
         _playlistExporter = playlistExporter;
         _dialogService = dialogService;
         _notificationService = notificationService;
+        _fileInteractionService = fileInteractionService;
         _library           = library;
         _deckPair          = deckPair;
         _stemSeparator     = stemSeparator;
@@ -904,8 +958,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         _configManager     = configManager;
         _dbFactory         = dbFactory;
 
-        ToolOptions.Add(new WorkstationToolOptionViewModel("Prep", "Prep", "Decks, waveforms, hot cues, loops, and the stem rack — get tracks performance-ready.", WorkstationMode.Waveform, isAvailable: true));
-        ToolOptions.Add(new WorkstationToolOptionViewModel("Set Plan", "Set Planning", "Playlist order, transition compatibility scores, and energy arc — plan the set.", WorkstationMode.Flow, isAvailable: true));
+        ToolOptions.Add(new WorkstationToolOptionViewModel("Prep Tracks", "Prep Tracks", "Decks, waveforms, hot cues, loops, and stems — repair and prepare each track.", WorkstationMode.Waveform, isAvailable: true));
         SynchronizeToolSelection();
 
         ExportPanel = new ExportDialogViewModel(mixdown);
@@ -1052,6 +1105,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             await LoadTrackIntoDeckAsync(target, t);
         });
 
+        RepairTrackCommand = ReactiveCommand.CreateFromTask<PlaylistTrack>(RepairTrackAsync);
+
         FocusDeckCommand = ReactiveCommand.Create<string>(deckLabel =>
         {
             var targetDeck = Decks.FirstOrDefault(deck => string.Equals(deck.DeckLabel, deckLabel, StringComparison.OrdinalIgnoreCase));
@@ -1128,11 +1183,12 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         SetModeCommand = ReactiveCommand.Create<WorkstationMode>(mode =>
         {
             ActiveMode = mode;
-            if (mode != WorkstationMode.Flow)
-            {
-                SelectedFlowTransitionKey = null;
-            }
             _ = SaveSessionAsync();
+        });
+
+        OpenFlowBuilderCommand = ReactiveCommand.Create(() =>
+        {
+            _eventBus.Publish(new OpenFlowBuilderForPlaylistEvent(ActivePlaylist?.Id ?? Guid.Empty));
         });
 
         SelectFlowTransitionCommand = ReactiveCommand.Create<FlowTransitionOverlayViewModel>(transition =>
@@ -3116,6 +3172,13 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     private void RaiseLaneActionProperties()
     {
         this.RaisePropertyChanged(nameof(HasActivePlaylist));
+        this.RaisePropertyChanged(nameof(ReadyPlaylistTrackCount));
+        this.RaisePropertyChanged(nameof(PlaylistAttentionTrackCount));
+        this.RaisePropertyChanged(nameof(HasPlaylistAttention));
+        this.RaisePropertyChanged(nameof(IsPlaylistReadyForExport));
+        this.RaisePropertyChanged(nameof(AnalysisWorkflowStatus));
+        this.RaisePropertyChanged(nameof(PreparationWorkflowStatus));
+        this.RaisePropertyChanged(nameof(ExportWorkflowStatus));
         this.RaisePropertyChanged(nameof(HasReadyPlaylistTracks));
         this.RaisePropertyChanged(nameof(HasLoadedDecks));
         this.RaisePropertyChanged(nameof(ShouldShowSelectPlaylistCta));
@@ -3137,7 +3200,6 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(SelectPlaylistCtaHint));
         this.RaisePropertyChanged(nameof(DownloadTracksCtaHint));
         this.RaisePropertyChanged(nameof(ImportLocalFilesCtaHint));
-        this.RaisePropertyChanged(nameof(LoadIntoWorkstationCtaHint));
         this.RaisePropertyChanged(nameof(CanAnalyzePlaylistFromLane));
         this.RaisePropertyChanged(nameof(CanOpenTrackOverlayFromLane));
         this.RaisePropertyChanged(nameof(CanUseFocusedDeckLaneActions));
@@ -3280,11 +3342,9 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         {
             try
             {
-                // Sessions saved before the 6→2 mode collapse may carry indexes 2-5 (Stems/Export/
-                // Automation/Samples) — fold anything out of range back to Prep.
-                ActiveMode            = session.ActiveModeIndex == (int)WorkstationMode.Flow
-                    ? WorkstationMode.Flow
-                    : WorkstationMode.Waveform;
+                // Legacy sessions may point at Flow or other retired modes. Workstation always
+                // restores professional DJ prep; Flow Builder keeps its own independent state.
+                ActiveMode = WorkstationMode.Waveform;
                 _pendingActivePlaylistId = session.ActivePlaylistId;
                 TimelineOffsetSeconds = session.TimelineOffsetSeconds;
                 TimelineWindowSeconds = session.TimelineWindowSeconds;
@@ -3327,6 +3387,19 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         });
     }
 
+    private async Task LoadPlaylistTracksSafelyAsync(PlaylistJob playlist)
+    {
+        try
+        {
+            await LoadPlaylistTracksAsync(playlist);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Failed to load Workstation playlist {PlaylistId}", playlist.Id);
+            AnalysisStatusText = $"Could not load playlist tracks: {ex.Message}";
+        }
+    }
+
     private async Task LoadPlaylistsAsync()
     {
         var jobs = await _library.LoadAllPlaylistJobsAsync();
@@ -3365,7 +3438,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         });
     }
 
-    private async Task LoadPlaylistTracksAsync(PlaylistJob job)
+    private async Task LoadPlaylistTracksAsync(PlaylistJob job, string? completionStatus = null)
     {
         var tracks = await _library.GetPagedPlaylistTracksAsync(
             job.Id, skip: 0, take: 1000);
@@ -3373,31 +3446,113 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         var readyTracks = tracks
             .Where(WorkstationDeckViewModel.IsTrackReadyForWorkstation)
             .ToList();
-
-        var hiddenTracks = tracks
+        var attentionTracks = tracks
             .Where(track => !WorkstationDeckViewModel.IsTrackReadyForWorkstation(track))
             .ToList();
-
-        var hiddenCount = Math.Max(0, tracks.Count - readyTracks.Count);
-        var hiddenBreakdown = BuildHiddenEligibilityBreakdown(hiddenTracks);
+        var attentionBreakdown = BuildHiddenEligibilityBreakdown(attentionTracks);
 
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
-            _lastHiddenTracks = hiddenTracks;
+            if (ActivePlaylist?.Id != job.Id) return;
+
+            _lastHiddenTracks = attentionTracks;
             PlaylistTracks.Clear();
-            foreach (var t in readyTracks) PlaylistTracks.Add(t);
+            foreach (var track in tracks) PlaylistTracks.Add(track);
             this.RaisePropertyChanged(nameof(ActivePlaylistFlowSummary));
-            HiddenEligibilityBreakdown = hiddenBreakdown;
+            HiddenEligibilityBreakdown = attentionBreakdown;
             this.RaisePropertyChanged(nameof(IncompleteAnalysisTrackCount));
             this.RaisePropertyChanged(nameof(HasIncompleteAnalysisTracks));
             this.RaisePropertyChanged(nameof(IncompleteAnalysisSummary));
 
-            AnalysisStatusText = readyTracks.Count == 0
-                ? "No ready tracks in this playlist. Next: open Track List, download missing tracks, then run Analyze Playlist."
-                : hiddenCount > 0
-                    ? $"{readyTracks.Count} workstation-ready tracks shown • {hiddenCount} hidden (missing local file, waveform, cues, or library hash)."
-                    : $"{readyTracks.Count} tracks ready for workstation.";
+            AnalysisStatusText = completionStatus ?? (tracks.Count == 0
+                ? "This playlist is empty. Import or acquire tracks to begin."
+                : readyTracks.Count == 0
+                    ? $"{tracks.Count} tracks need attention. Use each row's repair action; nothing has been hidden."
+                    : attentionTracks.Count > 0
+                        ? $"{readyTracks.Count} of {tracks.Count} tracks ready • {attentionTracks.Count} need attention below."
+                        : $"{readyTracks.Count} tracks ready for Workstation.");
         });
+    }
+
+    private async Task RepairTrackAsync(PlaylistTrack track)
+    {
+        var issue = WorkstationDeckViewModel.GetTrackEligibilityIssue(track);
+        switch (issue)
+        {
+            case WorkstationTrackEligibilityIssue.MissingFile:
+                await RelinkMissingTrackAsync(track);
+                break;
+            case WorkstationTrackEligibilityIssue.MissingWaveform:
+            case WorkstationTrackEligibilityIssue.MissingCues:
+            case WorkstationTrackEligibilityIssue.MissingAnalysis:
+                await RunCueAnalysisAsync(new List<PlaylistTrack> { track });
+                break;
+            case WorkstationTrackEligibilityIssue.NotDownloaded:
+                _eventBus.Publish(new NavigateToPageEvent("Projects"));
+                break;
+            case WorkstationTrackEligibilityIssue.NoTrack:
+                _eventBus.Publish(new NavigateToPageEvent("Library"));
+                break;
+            default:
+                _eventBus.Publish(new NavigateToPageEvent("Import"));
+                break;
+        }
+    }
+
+    private async Task RelinkMissingTrackAsync(PlaylistTrack track)
+    {
+        if (_fileInteractionService == null)
+        {
+            AnalysisStatusText = "Locate is unavailable in this session. The track has not been changed.";
+            return;
+        }
+
+        try
+        {
+            var result = await WorkstationTrackRelink.RelinkAsync(track, _library, _fileInteractionService);
+            switch (result.Outcome)
+            {
+                case TrackRelinkOutcome.Cancelled:
+                    AnalysisStatusText = $"Locate cancelled for {track.Artist} — {track.Title}; no changes were made.";
+                    return;
+                case TrackRelinkOutcome.InvalidFile:
+                    AnalysisStatusText = "The selected file no longer exists. No library records were changed.";
+                    if (_dialogService != null)
+                        await _dialogService.ShowAlertAsync("Invalid file", "The selected file does not exist. Choose the moved audio file and try again.");
+                    return;
+                case TrackRelinkOutcome.MissingIdentity:
+                    AnalysisStatusText = "This row needs its library identity rebuilt before it can be relinked safely.";
+                    if (_dialogService != null)
+                        await _dialogService.ShowAlertAsync("Relink unavailable", "This track has no stable library hash. Rebuild its library metadata before locating the file; no records were changed.");
+                    return;
+            }
+
+            var successStatus = $"Relinked {track.Artist} — {track.Title}. Existing cues, grids, and analysis were preserved.";
+            if (ActivePlaylist is { } playlist)
+            {
+                await LoadPlaylistTracksAsync(playlist, successStatus);
+            }
+            else
+            {
+                track.ResolvedFilePath = result.FilePath!;
+                track.Status = TrackStatus.Downloaded;
+                if (track.AvailabilityState is TrackAvailabilityState.Ghost
+                    or TrackAvailabilityState.QueuedForDownload
+                    or TrackAvailabilityState.Downloading)
+                {
+                    track.AvailabilityState = TrackAvailabilityState.LocalUnanalyzed;
+                }
+                RaiseLaneActionProperties();
+                AnalysisStatusText = successStatus;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to relink Workstation track {TrackId}", track.Id);
+            AnalysisStatusText = $"Could not relink {track.Artist} — {track.Title}: {ex.Message}";
+            if (_dialogService != null)
+                await _dialogService.ShowAlertAsync("Relink failed", $"The library could not be updated: {ex.Message}");
+        }
     }
 
     private async Task LoadTrackIntoDeckAsync(WorkstationDeckViewModel? deck, PlaylistTrack track)
@@ -3474,7 +3629,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
 
         return segments.Count == 0
             ? string.Empty
-            : $"Hidden breakdown: {string.Join(" • ", segments)}.";
+            : $"Needs attention: {string.Join(" • ", segments)}.";
     }
 
     private static bool IsReanalysisCandidate(PlaylistTrack track)
@@ -3526,28 +3681,25 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
 
     private async Task HandleFlowLaunchRequestAsync(AddToTimelineRequestEvent request)
     {
-        var tracks = request.Tracks?.Where(track => track != null).ToList();
-        if (tracks == null || tracks.Count == 0)
+        var track = request.Tracks?.FirstOrDefault(item => item != null);
+        if (track == null)
         {
             return;
         }
 
-        ActiveMode = WorkstationMode.Flow;
-
-        var targetDeck = FocusedDeck ?? Decks.FirstOrDefault(deck => deck.DeckLabel == "A") ?? Decks.FirstOrDefault();
-        if (targetDeck != null)
+        // A deck-preparation request loads the first selected track for inspection. It must not
+        // open or modify Flow Builder, whose transitions belong to in-app playlist playback.
+        ActiveMode = WorkstationMode.Waveform;
+        var targetDeck = FocusedDeck
+            ?? Decks.FirstOrDefault(deck => deck.DeckLabel == "A")
+            ?? Decks.FirstOrDefault();
+        if (targetDeck == null)
         {
-            FocusedDeck = targetDeck;
-
-            if (!targetDeck.IsLoaded)
-            {
-                await LoadTrackIntoDeckAsync(targetDeck, tracks[0]);
-            }
-
-            AnalysisStatusText = tracks.Count == 1
-                ? $"Flow launch ready for {tracks[0].Artist} — {tracks[0].Title} on Deck {targetDeck.DeckLabel}."
-                : $"Flow launch ready for {tracks.Count} selected tracks.";
+            return;
         }
+
+        FocusedDeck = targetDeck;
+        await LoadTrackIntoDeckAsync(targetDeck, track);
     }
 
     private async Task HandleWorkspaceOpenRequestAsync(OpenStemWorkspaceRequestEvent request)
@@ -3559,6 +3711,14 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
 
         // The stem rack lives inside the Prep workspace now, so both paths land on Prep.
         ActiveMode = WorkstationMode.Waveform;
+
+        // Keep the Library's playlist context with the track. This makes the prep list, readiness
+        // counts, relink refresh, and Rekordbox preflight refer to the playlist the user came from.
+        var sourcePlaylist = Playlists.FirstOrDefault(playlist => playlist.Id == request.Track.PlaylistId);
+        if (sourcePlaylist != null && ActivePlaylist?.Id != sourcePlaylist.Id)
+        {
+            ActivePlaylist = sourcePlaylist;
+        }
 
         var targetDeck = !string.IsNullOrWhiteSpace(request.PreferredDeck)
             ? Decks.FirstOrDefault(deck => string.Equals(deck.DeckLabel, request.PreferredDeck, StringComparison.OrdinalIgnoreCase))
@@ -3592,23 +3752,86 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
 
         try
         {
-            AnalysisStatusText = $"Exporting \"{playlist.SourceTitle}\" to Rekordbox XML…";
+            AnalysisStatusText = $"Checking \"{playlist.SourceTitle}\" for Rekordbox export…";
 
             // Export the playlist's saved order, not just the workstation-ready subset —
             // the handoff to DJ software should carry the whole crate.
             var tracks = await _library.LoadPlaylistTracksAsync(playlist.Id);
             var ordered = tracks.OrderBy(t => t.SortOrder).ThenBy(t => t.TrackNumber).ToList();
-            await SLSKDONET.Services.Export.TrackExportPreflight.ValidateAsync(ordered);
+            if (ordered.Count == 0)
+            {
+                AnalysisStatusText = "Rekordbox export blocked: this playlist is empty.";
+                return;
+            }
+
+            var audioPreflight = await SLSKDONET.Services.Export.TrackExportPreflight.ScanAsync(ordered);
+            if (audioPreflight.Problems.Count > 0)
+            {
+                var details = string.Join(Environment.NewLine, audioPreflight.Problems.Take(6).Select(problem => $"• {problem}"));
+                var remainder = audioPreflight.Problems.Count > 6
+                    ? $"{Environment.NewLine}• …and {audioPreflight.Problems.Count - 6} more."
+                    : string.Empty;
+                var message = $"{ordered.Count} tracks checked; {audioPreflight.ValidTracks.Count} readable; {audioPreflight.Problems.Count} need attention.{Environment.NewLine}{Environment.NewLine}{details}{remainder}{Environment.NewLine}{Environment.NewLine}Nothing was exported. Repair the listed files and try again.";
+                AnalysisStatusText = $"Rekordbox export blocked: {audioPreflight.Problems.Count} of {ordered.Count} tracks need attention.";
+                if (_dialogService != null)
+                    await _dialogService.ShowAlertAsync("Rekordbox export preflight", message);
+                return;
+            }
+
+            var integrity = await _playlistExporter.PreflightRekordboxExportAsync(ordered);
+            if (!integrity.CanExport)
+            {
+                var details = string.Join(Environment.NewLine, integrity.Blockers.Take(8).Select(problem => $"• {problem}"));
+                var remainder = integrity.Blockers.Count > 8
+                    ? $"{Environment.NewLine}• …and {integrity.Blockers.Count - 8} more."
+                    : string.Empty;
+                var message = $"{integrity.Blockers.Count} integrity issue(s) would lose or corrupt saved preparation data.{Environment.NewLine}{Environment.NewLine}{details}{remainder}{Environment.NewLine}{Environment.NewLine}Nothing was exported. Repair the listed tracks in the Prep Playlist and try again.";
+                AnalysisStatusText = $"Rekordbox export blocked: {integrity.Blockers.Count} grid, cue, or file integrity issue(s).";
+                if (_dialogService != null)
+                    await _dialogService.ShowAlertAsync("Rekordbox export blocked", message);
+                return;
+            }
 
             var safeName = string.Join("_", playlist.SourceTitle.Split(System.IO.Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries)).Trim();
             if (safeName.Length == 0) safeName = "orbit-playlist";
             var outputPath = System.IO.Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
                 $"{safeName}-rekordbox-{DateTime.Now:yyyyMMdd-HHmmss}.xml");
+            var needsCuePrep = ordered.Count(track => WorkstationDeckViewModel.GetTrackEligibilityIssue(track) is
+                WorkstationTrackEligibilityIssue.MissingWaveform or
+                WorkstationTrackEligibilityIssue.MissingCues or
+                WorkstationTrackEligibilityIssue.MissingAnalysis);
+            var warningDetails = integrity.Warnings.Count == 0
+                ? "No export warnings."
+                : $"{integrity.Warnings.Count} explicit export warning(s):{Environment.NewLine}" +
+                  string.Join(Environment.NewLine, integrity.Warnings.Take(4).Select(warning => $"• {warning}")) +
+                  (integrity.Warnings.Count > 4 ? $"{Environment.NewLine}• …and {integrity.Warnings.Count - 4} more." : string.Empty);
+            var confirmation = $"Playlist: {playlist.SourceTitle}{Environment.NewLine}" +
+                $"Included: {ordered.Count} playlist entries / {integrity.UniqueTrackCount} unique readable files, in saved order.{Environment.NewLine}" +
+                $"Needs cue preparation: {needsCuePrep} tracks.{Environment.NewLine}" +
+                $"{warningDetails}{Environment.NewLine}{Environment.NewLine}" +
+                $"Destination: {outputPath}{Environment.NewLine}{Environment.NewLine}" +
+                "Not included: Flow Builder transition designs. Those are used only by ORBIT playlist playback with MIX enabled.";
+            if (_dialogService != null && !await _dialogService.ConfirmAsync(
+                    "Export Rekordbox XML", confirmation, "Export XML", "Cancel"))
+            {
+                AnalysisStatusText = "Rekordbox export cancelled.";
+                return;
+            }
 
+            AnalysisStatusText = $"Exporting {ordered.Count} playlist entries to Rekordbox XML…";
             await _playlistExporter.ExportToRekordboxXmlAsync(playlist.SourceTitle, ordered, outputPath, folderId: playlist.FolderId);
 
-            AnalysisStatusText = $"Rekordbox XML exported with cues → {outputPath}";
+            AnalysisStatusText = integrity.Warnings.Count == 0
+                ? $"Rekordbox XML exported and verified → {outputPath}"
+                : $"Rekordbox XML exported with {integrity.Warnings.Count} acknowledged warning(s) → {outputPath}";
+        }
+        catch (SLSKDONET.Services.Export.RekordboxExportIntegrityException ex)
+        {
+            _logger?.LogWarning(ex, "Rekordbox export integrity guard stopped playlist {Playlist}", playlist.SourceTitle);
+            AnalysisStatusText = "Rekordbox export blocked by the final integrity guard; nothing was overwritten.";
+            if (_dialogService != null)
+                await _dialogService.ShowAlertAsync("Rekordbox export blocked", ex.Message);
         }
         catch (Exception ex)
         {
@@ -3619,15 +3842,42 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
 
     private async Task OpenExportDialogAsync()
     {
+        var loadedDecks = Decks.Where(deck => deck.IsLoaded).ToList();
+        if (loadedDecks.Count == 0)
+        {
+            const string message = "Load at least one track onto a Prep Tracks deck before rendering. Render Mix does not render a Flow Builder playlist or its in-app MIX transitions.";
+            AnalysisStatusText = message;
+            if (_dialogService != null)
+                await _dialogService.ShowAlertAsync("Render Mix", message);
+            return;
+        }
+
+        var deckSummary = string.Join(", ", loadedDecks.Select(deck => $"Deck {deck.DeckLabel}"));
+        if (_dialogService != null && !await _dialogService.ConfirmAsync(
+                "Render loaded deck sources",
+                $"Render the current audio and deck settings from: {deckSummary}.{Environment.NewLine}{Environment.NewLine}" +
+                "This is not a Flow Builder render: playlist order and in-app MIX transition designs are not included.",
+                "Continue", "Cancel"))
+        {
+            AnalysisStatusText = "Mix rendering cancelled.";
+            return;
+        }
+
         var vm = new ExportDialogViewModel(_mixdown);
-        vm.SetDecks(Decks);
-        // Show from UI thread — caller must be on UI thread (ReactiveCommand is)
-        var owner = Avalonia.Application.Current?.ApplicationLifetime
-            is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime lt
-            ? lt.MainWindow : null;
-        if (owner != null)
-            await Views.Avalonia.Workstation.ExportDialog.ShowForWorkstationAsync(owner, vm);
-        vm.Dispose();
+        try
+        {
+            vm.SetDecks(Decks);
+            // Show from UI thread — caller must be on UI thread (ReactiveCommand is)
+            var owner = Avalonia.Application.Current?.ApplicationLifetime
+                is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime lt
+                ? lt.MainWindow : null;
+            if (owner != null)
+                await Views.Avalonia.Workstation.ExportDialog.ShowForWorkstationAsync(owner, vm);
+        }
+        finally
+        {
+            vm.Dispose();
+        }
     }
 
     private async Task ExportOrbSessionAsync()
@@ -3706,7 +3956,19 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     /// </summary>
     private async Task RunCueAnalysisAsync(List<PlaylistTrack> tracks)
     {
-        if (tracks.Count == 0) return;
+        tracks = tracks
+            .Where(track => !string.IsNullOrWhiteSpace(track.TrackUniqueHash))
+            .Where(track => WorkstationDeckViewModel.GetTrackEligibilityIssue(track) is not
+                (WorkstationTrackEligibilityIssue.NoTrack
+                 or WorkstationTrackEligibilityIssue.NotDownloaded
+                 or WorkstationTrackEligibilityIssue.MissingFile
+                 or WorkstationTrackEligibilityIssue.MissingHash))
+            .ToList();
+        if (tracks.Count == 0)
+        {
+            AnalysisStatusText = "No local, hash-valid tracks in this selection can be analyzed. Acquire or import them first.";
+            return;
+        }
 
         _analysisCts?.Cancel();
         _analysisCts?.Dispose();
@@ -3744,7 +4006,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
                     continue;
                 }
 
-                AnalysisStatusText = $"Analyzing {track.Title ?? hash[..8]}… ({done + 1}/{total})";
+                var shortHash = hash.Length > 8 ? hash[..8] : hash;
+                AnalysisStatusText = $"Analyzing {track.Title ?? shortHash}… ({done + 1}/{total})";
 
                 await _analyzeJob.ExecuteAsync(hash, ct).ConfigureAwait(false);
 
@@ -3755,6 +4018,12 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             AnalysisStatusText = ct.IsCancellationRequested
                 ? $"Cancelled — {done} processed"
                 : $"Done — {done - skipped} analyzed · {skipped} already had cues";
+
+            if (ActivePlaylist is { } playlist)
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(
+                    () => LoadPlaylistTracksSafelyAsync(playlist));
+            }
         }
         finally
         {

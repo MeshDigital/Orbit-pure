@@ -50,12 +50,25 @@ public sealed class SettingsAudioSetupGateway : IAudioSetupGateway
 {
     private readonly SettingsViewModel _settings;
     private readonly ILogger<SettingsAudioSetupGateway> _logger;
+    private readonly SLSKDONET.Services.Platform.FfmpegInstallerService? _ffmpegInstaller;
 
-    public SettingsAudioSetupGateway(SettingsViewModel settings, ILogger<SettingsAudioSetupGateway> logger)
+    public SettingsAudioSetupGateway(SettingsViewModel settings, ILogger<SettingsAudioSetupGateway> logger,
+        SLSKDONET.Services.Platform.FfmpegInstallerService? ffmpegInstaller = null)
     {
         _settings = settings;
         _logger = logger;
+        _ffmpegInstaller = ffmpegInstaller;
     }
+
+    public SLSKDONET.Services.Platform.HardwareProfile Hardware => SLSKDONET.Services.Platform.HardwareCapabilities.Current;
+
+    public bool CanInstallFfmpeg => _ffmpegInstaller != null && SLSKDONET.Services.Platform.FfmpegInstallerService.CanAutoInstall;
+
+    public string ManualFfmpegHint => SLSKDONET.Services.Platform.FfmpegInstallerService.ManualInstallHint;
+
+    public Task<SLSKDONET.Services.Platform.FfmpegInstallResult> InstallFfmpegAsync(IProgress<double>? progress) =>
+        _ffmpegInstaller?.InstallAsync(progress)
+        ?? Task.FromResult(new SLSKDONET.Services.Platform.FfmpegInstallResult(false, ManualFfmpegHint));
 
     public IReadOnlyList<string> OutputModes => SettingsViewModel.AvailableAudioOutputModes;
 

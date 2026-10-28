@@ -10,23 +10,25 @@
     <Border Background="{DynamicResource BrushBg1}"
             BorderBrush="{DynamicResource BrushBorder0}"
             BorderThickness="0,1,0,0"
-            Padding="16,8">
-        <Grid ColumnDefinitions="Auto,*,Auto">
-
-            <!-- Left: crossfader -->
-            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            Padding="16,4"
+            ClipToBounds="True">
+        <!-- Each group keeps its controls together; groups wrap instead of forcing the whole
+             workstation wider than the available content area. -->
+        <WrapPanel>
+            <!-- Crossfader -->
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,4,24,4">
                 <TextBlock Classes="section" Text="XFADE" VerticalAlignment="Center"/>
                 <TextBlock Classes="mono muted" Text="A" VerticalAlignment="Center"/>
                 <Slider Minimum="0" Maximum="1"
                         Value="{Binding CrossfaderPosition, Mode=TwoWay}"
-                        Width="160" VerticalAlignment="Center"
+                        Width="120" VerticalAlignment="Center"
                         ToolTip.Tip="Crossfader: left = Deck A, right = Deck B"/>
                 <TextBlock Classes="mono muted" Text="B" VerticalAlignment="Center"/>
             </StackPanel>
 
-            <!-- Center: master transport + beat loops -->
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4"
-                        VerticalAlignment="Center" HorizontalAlignment="Center">
+            <!-- Master transport + beat loops -->
+            <StackPanel Orientation="Horizontal" Spacing="4"
+                        VerticalAlignment="Center" Margin="0,4,24,4">
                 <Button Classes="icon" Command="{Binding StopAllCommand}" ToolTip.Tip="Stop all decks and return to start">
                     <PathIcon Data="{StaticResource icon_skip_previous}" Width="16" Height="16"/>
                 </Button>
@@ -59,12 +61,12 @@
                 </Button>
             </StackPanel>
 
-            <!-- Right: master tempo + grid toggles -->
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8"
-                        VerticalAlignment="Center">
+            <!-- Master tempo + grid toggles -->
+            <StackPanel Orientation="Horizontal" Spacing="8"
+                        VerticalAlignment="Center" Margin="0,4,0,4">
                 <TextBlock Classes="section" Text="BPM" VerticalAlignment="Center"/>
                 <TextBox Classes="small"
-                         Width="72"
+                         Width="64"
                          Text="{Binding MasterBpm, Mode=TwoWay, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:F1}'}"
                          FontFamily="{DynamicResource FontMono}"
                          HorizontalContentAlignment="Center"
@@ -82,6 +84,6 @@
                               IsChecked="{Binding IsQuantizeEnabled, Mode=TwoWay}"
                               ToolTip.Tip="Quantize hot-cue triggers to beat boundaries">Quantize</ToggleButton>
             </StackPanel>
-        </Grid>
+        </WrapPanel>
     </Border>
 </UserControl>

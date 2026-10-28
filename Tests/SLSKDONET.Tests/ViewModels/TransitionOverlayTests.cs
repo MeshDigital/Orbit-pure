@@ -164,6 +164,7 @@ public class TransitionOverlayTests
             new() { TrackUniqueHash = "hash-B", TimestampInSeconds = 48, Type = CuePointType.Drop, Label = "[DROP 1]", SlotIndex = 2 },
         };
         var vm = await LoadedEditorAsync(preview.Object, cueRows);
+        vm.MixCuesOnly = false;
 
         var drop = vm.IncomingCues.Single(c => c.Name == "[DROP 1]");
         vm.IncomingCueChipCommand.Execute(drop).Subscribe();
@@ -172,6 +173,60 @@ public class TransitionOverlayTests
         Assert.Same(drop, vm.IncomingEditor.Session.SelectedCue);
         preview.Verify(p => p.RequestPreview("C:/music/B.flac", It.IsAny<double?>(), 48), Times.Once);
         Assert.True(vm.CanUndoMixPoint);
+    }
+
+    [Fact]
+    public async Task TempoCorrection_UsesTheLivePlaybackRateInOverlayRegionsAndPlayheadMapping()
+    {
+        var vm = await LoadedEditorAsync();
+        vm.IncomingBpm = 132;
+
+        double expectedRate = 128.0 / 132.0;
+        Assert.Equal(expectedRate, vm.IncomingPlaybackRate, 9);
+        Assert.Equal(expectedRate, vm.Overlay!.IncomingRate, 9);
+        Assert.Equal(vm.TargetTriggerSeconds + vm.TransitionWindowSeconds * expectedRate,
+            vm.IncomingRegionEndSeconds, 9);
+        Assert.Equal(vm.TargetTriggerSeconds + 10 * expectedRate,
+            MixTransitionViewModel.MapPreviewToIncoming(8 + 10, 8, vm.TargetTriggerSeconds, expectedRate)!.Value, 9);
+        Assert.False(vm.HasTempoWarning);
+    }
+
+    [Fact]
+    public async Task TempoCorrection_OutsideLiveRange_KeepsIncomingAudioNativeAndWarns()
+    {
+        var vm = await LoadedEditorAsync();
+        vm.IncomingBpm = 160;
+
+        Assert.Equal(1.0, vm.IncomingPlaybackRate, 9);
+        Assert.Equal(1.0, vm.Overlay!.IncomingRate, 9);
+        Assert.Equal(vm.TargetTriggerSeconds + vm.TransitionWindowSeconds, vm.IncomingRegionEndSeconds, 9);
+        Assert.True(vm.HasTempoWarning);
+        Assert.Contains("outside the ±6% sync range", vm.TempoSyncDisplay);
+    }
+
+    [Fact]
+    public async Task FocusedCueView_HidesWorkstationCuesWithoutDeletingThem()
+    {
+        var cueRows = new List<CuePointEntity>
+        {
+            new() { TrackUniqueHash = "hash-B", TimestampInSeconds = 12, Type = CuePointType.MixIn, Label = "Mix-In", SlotIndex = -1 },
+            new() { TrackUniqueHash = "hash-B", TimestampInSeconds = 48, Type = CuePointType.Drop, Label = "[DROP 1]", SlotIndex = 2 },
+        };
+        var vm = await LoadedEditorAsync(cueRows: cueRows);
+
+        Assert.Equal(CueRole.MixIn, Assert.Single(vm.IncomingCues).Role);
+        Assert.Equal(2, vm.IncomingEditor.Session.Cues.Count);
+
+        vm.MixCuesOnly = false;
+        Assert.Equal(2, vm.IncomingCues.Count());
+
+        vm.MixCuesOnly = true;
+        vm.IsCueEditMode = true;
+        Assert.Equal(2, vm.IncomingCues.Count());
+
+        vm.IsCueEditMode = false;
+        Assert.Equal(CueRole.MixIn, Assert.Single(vm.IncomingCues).Role);
+        Assert.Equal(2, vm.IncomingEditor.Session.Cues.Count);
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────────────

@@ -43,6 +43,72 @@ public class PlaylistExportService
         _fileWriteService = fileWriteService;
     }
 
+    /// <summary>
+    /// Inspects every playlist entry before any output file is touched. The final export guard uses
+    /// the same inspection, so Library and USB callers cannot bypass malformed-data or missing-file blocks.
+    /// </summary>
+    public async Task<RekordboxExportPreflightResult> PreflightRekordboxExportAsync(
+        IEnumerable<PlaylistTrack> tracks,
+        IReadOnlyDictionary<string, string>? pathMap = null)
+    {
+        ArgumentNullException.ThrowIfNull(tracks);
+        var sourceTracks = tracks.ToList();
+        var uniqueTracks = DeduplicateTracks(sourceTracks);
+        var hashes = uniqueTracks.Select(t => t.TrackUniqueHash).Where(h => !string.IsNullOrEmpty(h)).Distinct().ToList();
+        Dictionary<string, List<CuePointEntity>> cuesByHash = new(StringComparer.Ordinal);
+        Dictionary<string, AudioFeaturesEntity> beatDataByHash = new(StringComparer.Ordinal);
+
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        if (hashes.Count > 0)
+        {
+            var cues = await db.CuePoints
+                .AsNoTracking()
+                .Where(c => hashes.Contains(c.TrackUniqueHash))
+                .OrderBy(c => c.TimestampInSeconds)
+                .ToListAsync();
+            foreach (var cue in cues)
+            {
+                if (!cuesByHash.TryGetValue(cue.TrackUniqueHash, out var bucket))
+                {
+                    bucket = new List<CuePointEntity>();
+                    cuesByHash[cue.TrackUniqueHash] = bucket;
+                }
+                bucket.Add(cue);
+            }
+
+            var beatData = await db.AudioFeatures
+                .AsNoTracking()
+                .Where(a => hashes.Contains(a.TrackUniqueHash))
+                .ToListAsync();
+            foreach (var features in beatData)
+                beatDataByHash.TryAdd(features.TrackUniqueHash, features);
+        }
+
+        return RekordboxExportIntegrity.Validate(
+            sourceTracks,
+            uniqueTracks,
+            cuesByHash,
+            beatDataByHash,
+            track => GetEffectivePath(track, pathMap));
+    }
+
+    private static List<PlaylistTrack> DeduplicateTracks(IReadOnlyCollection<PlaylistTrack> tracks) =>
+        tracks.GroupBy(GetTrackIdentityKey, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
+
+    private static string GetTrackIdentityKey(PlaylistTrack track) =>
+        string.IsNullOrEmpty(track.ResolvedFilePath)
+            ? track.TrackUniqueHash ?? track.Id.ToString()
+            : track.ResolvedFilePath;
+
+    private static string? GetEffectivePath(
+        PlaylistTrack track,
+        IReadOnlyDictionary<string, string>? pathMap) =>
+        pathMap != null && pathMap.TryGetValue(track.ResolvedFilePath ?? "", out var mapped)
+            ? mapped
+            : track.ResolvedFilePath;
+
     /// <param name="pathMap">
     /// Optional override map: local source path → destination path.
     /// When supplied (USB/folder export) the XML Location attribute uses the
@@ -53,35 +119,42 @@ public class PlaylistExportService
     /// When supplied, the exported &lt;PLAYLISTS&gt; tree mirrors the real folder chain up to
     /// ROOT instead of placing the playlist directly under ROOT.
     /// </param>
+    /// <param name="confirmOverwrite">
+    /// Optional UI callback invoked only when non-empty Rekordbox values differ from ORBIT's export.
+    /// Return true to replace those values, or false to keep Rekordbox's values and only fill empty
+    /// fields. Without a callback the safe preserve behavior is always used.
+    /// </param>
     /// <remarks>
-    /// If <paramref name="targetPath"/> already exists and parses as a Rekordbox XML file, this
-    /// merges into it via <see cref="RekordboxXmlMerger"/> instead of overwriting — preserving
-    /// Rating/Colour/Comments/cues a user may have edited directly in Rekordbox since the last
-    /// export, while still refreshing ORBIT-owned data (tempo grid, file metadata, new tracks).
-    /// Falls back to a full overwrite if the existing file can't be parsed as Rekordbox XML.
+    /// An existing Rekordbox XML file is merged, never wholesale replaced. Existing non-empty track
+    /// data wins by default; new tracks and empty fields can still be written. An unrecognized or
+    /// unreadable existing file is preserved and blocks export instead of being overwritten.
     /// </remarks>
     public async Task ExportToRekordboxXmlAsync(
         string playlistName,
         IEnumerable<PlaylistTrack> tracks,
         string targetPath,
         IReadOnlyDictionary<string, string>? pathMap = null,
-        Guid? folderId = null)
+        Guid? folderId = null,
+        Func<RekordboxExportConflictReport, Task<bool>>? confirmOverwrite = null)
     {
         try
         {
             _logger.LogInformation("Exporting playlist '{PlaylistName}' to Rekordbox XML: {Path}", playlistName, targetPath);
 
-            // Deduplicate by ResolvedFilePath so the same physical file never appears twice in the XML.
-            // A playlist can have multiple PlaylistTrack rows pointing to the same file when a track was
-            // re-imported or synced more than once. Keep only the first occurrence per path.
-            var trackList = tracks
-                .GroupBy(
-                    t => string.IsNullOrEmpty(t.ResolvedFilePath)
-                        ? t.TrackUniqueHash ?? t.Id.ToString()   // fall back to hash for unresolved tracks
-                        : t.ResolvedFilePath,
-                    StringComparer.OrdinalIgnoreCase)
-                .Select(g => g.First())
-                .ToList();
+            ArgumentNullException.ThrowIfNull(tracks);
+            var sourceTracks = tracks.ToList();
+            var preflight = await PreflightRekordboxExportAsync(sourceTracks, pathMap);
+            if (!preflight.CanExport)
+                throw new RekordboxExportIntegrityException(preflight.Blockers);
+
+            foreach (var warning in preflight.Warnings.Take(20))
+                _logger.LogWarning("Rekordbox export preflight: {Warning}", warning);
+            if (preflight.Warnings.Count > 20)
+                _logger.LogWarning("Rekordbox export preflight: {AdditionalWarnings} additional warnings omitted from the log.", preflight.Warnings.Count - 20);
+
+            // The collection contains each physical file once. Playlist membership is built from
+            // sourceTracks below so repeated entries retain their original positions.
+            var trackList = DeduplicateTracks(sourceTracks);
 
             // Pre-load all cue points + beatgrid data + playlist folders in one DB context.
             var hashes = trackList.Select(t => t.TrackUniqueHash).Where(h => !string.IsNullOrEmpty(h)).Distinct().ToList();
@@ -121,29 +194,25 @@ public class PlaylistExportService
             }
 
             // Prior cue-sync snapshots for this exact target file, keyed by track hash — feeds the
-            // three-way cue merge below (see RekordboxXmlMerger.MergeCuePoints).
+            // guarded cue merge below (see RekordboxXmlMerger.MergeCuePoints).
             var normalizedTargetPath = Path.GetFullPath(targetPath);
             var priorCueSnapshotsByHash = await db.RekordboxExportCueSync
                 .AsNoTracking()
                 .Where(s => s.TargetPath == normalizedTargetPath)
                 .ToDictionaryAsync(s => s.TrackUniqueHash, s => s.CueSnapshot, StringComparer.Ordinal);
 
-            // Build parallel lists so cue look-up stays correct even when some tracks
-            // are skipped (file not found). Using a separate source list avoids the
-            // index-mismatch bug that occurs when iterating rbTracks by index into trackList.
+            // Parallel source lists keep cue and grid lookup aligned with each unique collection track.
             var rbTracks = new List<RekordboxTrack>();
             var rbSources = new List<PlaylistTrack>();
             var usedTrackIds = new HashSet<int>();
 
             foreach (var track in trackList)
             {
-                // Use dest path when a pathMap is provided (USB/folder export), otherwise use local path
-                var effectivePath = pathMap != null && pathMap.TryGetValue(track.ResolvedFilePath ?? "", out var mapped)
-                    ? mapped
-                    : track.ResolvedFilePath;
-
-                if (string.IsNullOrEmpty(effectivePath) || !File.Exists(effectivePath))
-                    continue;
+                var effectivePath = GetEffectivePath(track, pathMap);
+                if (string.IsNullOrEmpty(effectivePath))
+                    throw new IOException($"Track '{track.Title}' lost its usable export path after preflight.");
+                if (!File.Exists(effectivePath))
+                    throw new FileNotFoundException($"Track '{track.Title}' disappeared after preflight; nothing was exported.", effectivePath);
 
                 var fileInfo = new FileInfo(effectivePath);
                 var trackId = ResolveStableTrackId(track, effectivePath, usedTrackIds);
@@ -175,8 +244,13 @@ public class PlaylistExportService
                 rbSources.Add(track);
             }
 
+            var trackIdsByIdentity = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < rbTracks.Count; i++)
+                trackIdsByIdentity[GetTrackIdentityKey(rbSources[i])] = rbTracks[i].TrackID;
+            var playlistTrackIds = sourceTracks.Select(track => trackIdsByIdentity[GetTrackIdentityKey(track)]).ToList();
+
             var folderChainLeafToRoot = await ResolveFolderChainNamesAsync(folderId, playlistName, db);
-            var playlistsElement = BuildPlaylistsElement(playlistName, rbTracks, folderChainLeafToRoot);
+            var playlistsElement = BuildPlaylistsElement(playlistName, playlistTrackIds, folderChainLeafToRoot);
 
             var doc = new XDocument(
                 new XDeclaration("1.0", "UTF-8", null),
@@ -209,28 +283,32 @@ public class PlaylistExportService
                 try
                 {
                     var existingDoc = XDocument.Load(targetPath);
-                    if (existingDoc.Root?.Name.LocalName == "DJ_PLAYLISTS" && existingDoc.Root.Element("COLLECTION") != null)
+                    if (existingDoc.Root?.Name.LocalName != "DJ_PLAYLISTS" || existingDoc.Root.Element("COLLECTION") == null)
                     {
-                        var playlistPathChain = new List<string> { "ROOT" };
-                        playlistPathChain.AddRange(Enumerable.Reverse(folderChainLeafToRoot));
-                        playlistPathChain.Add(playlistName);
+                        throw new InvalidDataException("The existing file is not a recognizable Rekordbox XML document.");
+                    }
 
-                        var priorCueSnapshotByTrackId = BuildPriorCueSnapshotByTrackId(rbTracks, rbSources, priorCueSnapshotsByHash);
-                        finalDoc = RekordboxXmlMerger.MergeIntoExisting(existingDoc, doc, playlistPathChain, _logger, priorCueSnapshotByTrackId);
-                        _logger.LogInformation("Merged export into existing Rekordbox XML at {Path}", targetPath);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Existing file at {Path} doesn't look like a Rekordbox XML — overwriting with a fresh export.", targetPath);
-                    }
+                    var playlistPathChain = new List<string> { "ROOT" };
+                    playlistPathChain.AddRange(Enumerable.Reverse(folderChainLeafToRoot));
+                    playlistPathChain.Add(playlistName);
+
+                    var priorCueSnapshotByTrackId = BuildPriorCueSnapshotByTrackId(rbTracks, rbSources, priorCueSnapshotsByHash);
+                    var conflicts = RekordboxXmlMerger.DetectConflicts(existingDoc, doc, priorCueSnapshotByTrackId);
+                    var overwriteExisting = conflicts.HasConflicts
+                        && confirmOverwrite != null
+                        && await confirmOverwrite(conflicts);
+                    finalDoc = RekordboxXmlMerger.MergeIntoExisting(
+                        existingDoc, doc, playlistPathChain, _logger, overwriteExisting);
+                    _logger.LogInformation(
+                        "Merged export into existing Rekordbox XML at {Path}: {ConflictCount} conflicting tracks, mode {Mode}",
+                        targetPath, conflicts.Tracks.Count, overwriteExisting ? "confirmed ORBIT overwrite" : "preserve Rekordbox / fill empty");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to parse existing file at {Path} for merge — overwriting with a fresh export.", targetPath);
+                    throw new InvalidDataException(
+                        $"Existing Rekordbox XML at '{targetPath}' could not be read safely. The original file was left untouched; choose another output path or repair it first.", ex);
                 }
             }
-
-            await PersistCueSyncSnapshotsAsync(db, normalizedTargetPath, finalDoc, rbTracks, rbSources);
 
             // Atomic write (temp file in the same directory, verified, then renamed into place) —
             // a direct XDocument.Save(targetPath) truncates the target file before streaming the
@@ -259,6 +337,10 @@ public class PlaylistExportService
             {
                 throw new IOException($"Failed to write Rekordbox XML to {targetPath} (atomic write/verification failed — original file, if any, was left untouched).");
             }
+
+            // A snapshot means "these cues are known to be on disk". Never update that baseline
+            // until the atomic write and XML verification have both succeeded.
+            await PersistCueSyncSnapshotsAsync(db, normalizedTargetPath, finalDoc, rbTracks, rbSources);
             _logger.LogInformation("Rekordbox XML export completed successfully.");
         }
         catch (Exception ex)
@@ -274,13 +356,13 @@ public class PlaylistExportService
     /// — an empty chain places the playlist directly under ROOT.
     /// </summary>
     private XElement BuildPlaylistsElement(
-        string playlistName, List<RekordboxTrack> rbTracks, List<string> chainLeafToRoot)
+        string playlistName, IReadOnlyList<int> playlistTrackIds, List<string> chainLeafToRoot)
     {
         var playlistNode = new XElement("NODE",
             new XAttribute("Name", playlistName),
             new XAttribute("Type", "1"),
-            new XAttribute("Entries", rbTracks.Count),
-            rbTracks.Select(t => new XElement("TRACK", new XAttribute("Key", t.TrackID))));
+            new XAttribute("Entries", playlistTrackIds.Count),
+            playlistTrackIds.Select(trackId => new XElement("TRACK", new XAttribute("Key", trackId))));
 
         XElement node = playlistNode;
         for (int i = 0; i < chainLeafToRoot.Count; i++)
@@ -372,7 +454,7 @@ public class PlaylistExportService
 
     /// <summary>
     /// Records, per exported track, the cue set that actually ended up in <paramref name="finalDoc"/>
-    /// (whichever the three-way merge decided on — fresh, preserved, or unchanged) as the new
+    /// (whichever the guarded merge decided on — fresh, preserved, or unchanged) as the new
     /// baseline for the next export's comparison. Runs for every export (merged or fresh-write) so
     /// a brand-new file's first export seeds a valid baseline for its second export to compare
     /// against, not just merges into an already-existing file.
@@ -564,7 +646,8 @@ public class PlaylistExportService
         }
         pointCues = pointCues.Where(c => !c.IsSectionMarker || c.SlotIndex is >= 0 and <= 7).ToList();
 
-        foreach (var cue in pointCues.Take(32))
+        // Rekordbox supports memory cues beyond the eight hot pads. Never truncate saved work.
+        foreach (var cue in pointCues)
         {
             var (r, g, b) = HexToRgb(cue.Color, t.Name);
             int num = cue.SlotIndex is >= 0 and <= 7 ? cue.SlotIndex : NextAvailablePad();

@@ -243,6 +243,11 @@ public interface ILibraryService
     /// </summary>
     Task<PlaylistTrack?> GetPlaylistTrackByHashAsync(Guid playlistId, string trackHash);
 
+    /// <summary>Ids of the playlists that contain <paramref name="trackHash"/> (Cue Forge's browser
+    /// opens on one of them). Default: none, for test doubles.</summary>
+    Task<IReadOnlyList<Guid>> GetPlaylistIdsContainingTrackAsync(string trackHash) =>
+        Task.FromResult<IReadOnlyList<Guid>>(Array.Empty<Guid>());
+
     /// <summary>
     /// Saves a single playlist track entry.
     /// Called during import to create the relational index.

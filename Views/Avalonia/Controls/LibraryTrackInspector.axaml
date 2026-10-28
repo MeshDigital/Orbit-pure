@@ -91,29 +91,34 @@
             </Border>
         </WrapPanel>
 
-        <!-- ── Row 2: actions — primary + two common + overflow ─────────────── -->
-        <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,Auto,*,Auto" Margin="16,8,16,12">
-            <Button Grid.Column="0" Classes="primary small" Command="{Binding PlayCommand}"
+        <!-- ── Row 2: actions — every action remains visible; narrow panels wrap to a second row ── -->
+        <WrapPanel x:Name="InspectorActionBar" Grid.Row="2" Orientation="Horizontal" Margin="16,8,16,12">
+            <WrapPanel.Styles>
+                <Style Selector="WrapPanel#InspectorActionBar > Button">
+                    <Setter Property="Margin" Value="0,0,8,4"/>
+                </Style>
+            </WrapPanel.Styles>
+            <Button Classes="primary small" Command="{Binding PlayCommand}"
                     IsVisible="{Binding !IsGhost}" ToolTip.Tip="Play in the main player">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <PathIcon Data="{StaticResource icon_play}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
                     <TextBlock Text="Play"/>
                 </StackPanel>
             </Button>
-            <Button Grid.Column="0" Classes="primary small" Command="{Binding SearchAgainCommand}"
+            <Button Classes="primary small" Command="{Binding SearchAgainCommand}"
                     IsVisible="{Binding IsGhost}" ToolTip.Tip="Re-queue this track and search Soulseek for it again">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <PathIcon Data="{StaticResource icon_search}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
                     <TextBlock Text="Search again"/>
                 </StackPanel>
             </Button>
-            <Button Grid.Column="1" Classes="secondary small" Margin="8,0,0,0"
+            <Button Classes="secondary small"
                     Command="{Binding OpenInCueForgeCommand}" IsVisible="{Binding !IsGhost}"
                     Content="Cue Forge" ToolTip.Tip="Edit this track's cues in Cue Forge"/>
-            <Button Grid.Column="2" Classes="secondary small" Margin="8,0,0,0"
+            <Button Classes="secondary small"
                     Command="{Binding AnalyzeTrackCommand}" IsVisible="{Binding !IsGhost}"
                     Content="Analyse" ToolTip.Tip="Re-run BPM, key, cue and genre/mood analysis"/>
-            <Button Grid.Column="4" Classes="icon small" ToolTip.Tip="More actions">
+            <Button Classes="icon small" ToolTip.Tip="More actions">
                 <PathIcon Data="{StaticResource icon_more}" Width="{StaticResource IconSizeMd}" Height="{StaticResource IconSizeMd}"/>
                 <Button.Flyout>
                     <MenuFlyout Placement="BottomEdgeAlignedRight">
@@ -130,7 +135,7 @@
                     </MenuFlyout>
                 </Button.Flyout>
             </Button>
-        </Grid>
+        </WrapPanel>
 
         <!-- ── Row 3: waveform + structure ───────────────────────────────────── -->
         <StackPanel Grid.Row="3" Margin="16,0,16,12" Spacing="4" IsVisible="{Binding !IsGhost}">
@@ -306,6 +311,14 @@
                                     <TextBlock Classes="caption" Text="Last analysed"/>
                                     <TextBlock Grid.Column="1" Classes="mono" Text="{Binding LastAnalyzedDisplay}"
                                                ToolTip.Tip="{Binding AnalysisModelVersion}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="*,Auto" ToolTip.Tip="Detected time from 0:00 to the first usable structural drop. This is separate from the stronger main drop, which may occur later.">
+                                    <TextBlock Classes="caption" Text="Intro → first drop"/>
+                                    <TextBlock Grid.Column="1" Classes="mono" Text="{Binding TimeTillDropDisplay}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="*,Auto" ToolTip.Tip="Approximate 4/4 bars derived from the detected drop time and current BPM; not a separate stored value.">
+                                    <TextBlock Classes="caption" Text="Intro length (4/4)"/>
+                                    <TextBlock Grid.Column="1" Classes="mono" Text="{Binding TimeTillDropBarsDisplay}"/>
                                 </Grid>
                                 <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
                                     <TextBlock Classes="caption" Text="Beat grid" VerticalAlignment="Center"/>

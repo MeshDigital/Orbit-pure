@@ -265,10 +265,11 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <Panel Grid.Column="1" Width="44" IsVisible="{Binding ShowQueueAction}"/>
                     <Panel Grid.Column="2" Width="32" IsVisible="{Binding ShowInsertAction}"/>
-                    <Panel Grid.Column="3" Width="150" IsVisible="{Binding ShowArtistColumn}">
+                    <Panel Grid.Column="3" Width="{Binding ArtistColumnWidth}" IsVisible="{Binding ShowArtistColumn}">
                         <Button Classes="sort" Margin="12,0"
                                 Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Artist}">
                             <StackPanel Orientation="Horizontal" Spacing="4">
@@ -277,6 +278,9 @@
                                 <PathIcon Data="{StaticResource icon_chevron_down}" IsVisible="{Binding IsSortedByArtistDescending}"/>
                             </StackPanel>
                         </Button>
+                        <Thumb Tag="Artist" Width="6" HorizontalAlignment="Right" Background="Transparent"
+                                      Cursor="SizeWestEast" DragDelta="OnTrackColumnResizeDelta" DragCompleted="OnTrackColumnResizeCompleted"
+                                      ToolTip.Tip="Drag to resize Artist"/>
                     </Panel>
                     <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8" Margin="12,0" ClipToBounds="True">
                         <Button Classes="sort"
@@ -297,8 +301,11 @@
                             </StackPanel>
                         </Button>
                     </StackPanel>
-                    <Panel Grid.Column="5" Width="90" IsVisible="{Binding ShowEnergyColumn}">
+                    <Panel Grid.Column="5" Width="{Binding EnergyColumnWidth}" IsVisible="{Binding ShowEnergyColumn}">
                         <TextBlock Classes="col" Text="ENERGY" Margin="8,0"/>
+                        <Thumb Tag="Energy" Width="6" HorizontalAlignment="Right" Background="Transparent"
+                                      Cursor="SizeWestEast" DragDelta="OnTrackColumnResizeDelta" DragCompleted="OnTrackColumnResizeCompleted"
+                                      ToolTip.Tip="Drag to resize Energy"/>
                     </Panel>
                     <Button Grid.Column="6" Classes="sort" Margin="8,0"
                             Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Bpm}"
@@ -309,13 +316,19 @@
                             <PathIcon Data="{StaticResource icon_chevron_down}" IsVisible="{Binding IsSortedByBpmDescending}"/>
                         </StackPanel>
                     </Button>
-                    <Panel Grid.Column="7" Width="100" IsVisible="{Binding ShowFormatColumn}">
+                    <Panel Grid.Column="7" Width="{Binding FormatColumnWidth}" IsVisible="{Binding ShowFormatColumn}">
                         <TextBlock Classes="col" Text="QUALITY" Margin="12,0"/>
+                        <Thumb Tag="Format" Width="6" HorizontalAlignment="Right" Background="Transparent"
+                                      Cursor="SizeWestEast" DragDelta="OnTrackColumnResizeDelta" DragCompleted="OnTrackColumnResizeCompleted"
+                                      ToolTip.Tip="Drag to resize Quality"/>
                     </Panel>
-                    <Panel Grid.Column="8" Width="120" IsVisible="{Binding ShowForensicsColumn}">
+                    <Panel Grid.Column="8" Width="{Binding ForensicsColumnWidth}" IsVisible="{Binding ShowForensicsColumn}">
                         <TextBlock Classes="col" Text="FORENSICS" Margin="12,0"/>
+                        <Thumb Tag="Forensics" Width="6" HorizontalAlignment="Right" Background="Transparent"
+                                      Cursor="SizeWestEast" DragDelta="OnTrackColumnResizeDelta" DragCompleted="OnTrackColumnResizeCompleted"
+                                      ToolTip.Tip="Drag to resize Forensics"/>
                     </Panel>
-                    <Panel Grid.Column="9" Width="80" IsVisible="{Binding ShowDurationColumn}">
+                    <Panel Grid.Column="9" Width="{Binding DurationColumnWidth}" IsVisible="{Binding ShowDurationColumn}">
                         <Button Classes="sort" Margin="12,0" HorizontalAlignment="Right"
                                 Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Duration}">
                             <StackPanel Orientation="Horizontal" Spacing="4">
@@ -324,9 +337,22 @@
                                 <TextBlock Classes="col" Text="TIME"/>
                             </StackPanel>
                         </Button>
+                        <Thumb Tag="Duration" Width="6" HorizontalAlignment="Right" Background="Transparent"
+                                      Cursor="SizeWestEast" DragDelta="OnTrackColumnResizeDelta" DragCompleted="OnTrackColumnResizeCompleted"
+                                      ToolTip.Tip="Drag to resize Time"/>
                     </Panel>
-                    <Panel Grid.Column="10" Width="84" IsVisible="{Binding ShowRatingColumn}">
+                    <Panel Grid.Column="10" Width="{Binding RatingColumnWidth}" IsVisible="{Binding ShowRatingColumn}">
                         <TextBlock Classes="col" Text="RATING" Margin="12,0"/>
+                        <Thumb Tag="Rating" Width="6" HorizontalAlignment="Right" Background="Transparent"
+                                      Cursor="SizeWestEast" DragDelta="OnTrackColumnResizeDelta" DragCompleted="OnTrackColumnResizeCompleted"
+                                      ToolTip.Tip="Drag to resize Rating"/>
+                    </Panel>
+                    <Panel Grid.Column="11" Width="{Binding PreparationColumnWidth}" IsVisible="{Binding ShowPreparationColumn}">
+                        <TextBlock Classes="col" Text="PREP" Margin="12,0"
+                                   ToolTip.Tip="File, analysis, beat-grid and cue readiness. Select a repair action directly in the row."/>
+                        <Thumb Tag="Preparation" Width="6" HorizontalAlignment="Right" Background="Transparent"
+                                      Cursor="SizeWestEast" DragDelta="OnTrackColumnResizeDelta" DragCompleted="OnTrackColumnResizeCompleted"
+                                      ToolTip.Tip="Drag to resize Prep"/>
                     </Panel>
                 </Grid>
         </Border>
@@ -354,6 +380,8 @@
                         <MenuItem Header="CUE-DETR only" Command="{Binding Operations.GenerateCuesWithAiCommand}" CommandParameter="ai"
                                   ToolTip.Tip="Only the CUE-DETR model's cue points (snapped to the bar grid). Your own placed cues are kept."/>
                     </MenuItem>
+                    <MenuItem Header="Prepare in Workstation" Command="{Binding Operations.OpenInWorkstationCommand}"
+                              ToolTip.Tip="Open this track in the focused Workstation deck without starting playback; missing files can be relinked there"/>
                     <MenuItem Header="Edit cues in Cue Forge" Command="{Binding Operations.OpenInCueForgeCommand}"/>
                     <MenuItem Header="Open in Edit Lab" Command="{Binding Operations.OpenInEditLabCommand}"
                               ToolTip.Tip="Start a new edit with this track as the base: cut it up, combine it with other tracks' stems, render it"/>
@@ -422,6 +450,7 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
                             <!-- Artwork + download-state dot -->
@@ -464,7 +493,7 @@
                                 </Button>
                             </Panel>
 
-                            <Panel Grid.Column="3" Width="150" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowArtistColumn}">
+                            <Panel Grid.Column="3" Width="{ReflectionBinding $parent[UserControl].DataContext.ArtistColumnWidth}" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowArtistColumn}">
                                 <TextBlock Text="{Binding Artist}" Classes="body-sm" Margin="12,0"
                                            VerticalAlignment="Center" Foreground="{StaticResource BrushText1}" TextTrimming="CharacterEllipsis"/>
                             </Panel>
@@ -479,7 +508,7 @@
                             </StackPanel>
 
                             <!-- Energy contour (analysed audio) -->
-                            <Panel Grid.Column="5" Width="90" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowEnergyColumn}">
+                            <Panel Grid.Column="5" Width="{ReflectionBinding $parent[UserControl].DataContext.EnergyColumnWidth}" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowEnergyColumn}">
                                 <controls:SparklineControl
                                     Points="{Binding EnergyCurvePoints}"
                                     LineBrush="{StaticResource BrushAccent}"
@@ -506,7 +535,7 @@
                             </StackPanel>
 
                             <!-- Quality tier badge: format + bitrate -->
-                            <Panel Grid.Column="7" Width="100" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowFormatColumn}">
+                            <Panel Grid.Column="7" Width="{ReflectionBinding $parent[UserControl].DataContext.FormatColumnWidth}" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowFormatColumn}">
                                 <Border Classes="tier" Classes.lossless="{Binding IsTierLossless}" Classes.low="{Binding IsTierLowBitrate}" Margin="12,0"
                                         IsVisible="{Binding HasQualityBadge}">
                                     <TextBlock Text="{Binding QualityBadgeText}" Classes="mono" FontSize="{StaticResource TextSizeCaption}"/>
@@ -514,7 +543,7 @@
                             </Panel>
 
                             <!-- Forensics verdict: status dot + word; the full report is in the tooltip -->
-                            <Panel Grid.Column="8" Width="120" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowForensicsColumn}">
+                            <Panel Grid.Column="8" Width="{ReflectionBinding $parent[UserControl].DataContext.ForensicsColumnWidth}" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowForensicsColumn}">
                                 <StackPanel Orientation="Horizontal" Spacing="8" Margin="12,0" VerticalAlignment="Center" Background="Transparent"
                                             ToolTip.Tip="{Binding ForensicHudText}">
                                     <Ellipse Classes="status-dot" Classes.success="{Binding IsIntegrityTrusted}" Classes.warning="{Binding IsIntegritySuspicious}"/>
@@ -522,12 +551,12 @@
                                 </StackPanel>
                             </Panel>
 
-                            <Panel Grid.Column="9" Width="80" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowDurationColumn}">
+                            <Panel Grid.Column="9" Width="{ReflectionBinding $parent[UserControl].DataContext.DurationColumnWidth}" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowDurationColumn}">
                                 <TextBlock Text="{Binding DurationDisplay}" Classes="mono" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0"/>
                             </Panel>
 
                             <!-- Rating + like -->
-                            <StackPanel Grid.Column="10" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="12,0" Width="60"
+                            <StackPanel Grid.Column="10" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="12,0" Width="{ReflectionBinding $parent[UserControl].DataContext.RatingColumnWidth}"
                                         IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowRatingColumn}">
                                 <controls:StarRatingControl Rating="{Binding Rating, Mode=TwoWay}" StarSize="11"/>
                                 <ToggleButton IsChecked="{Binding IsLiked, Mode=TwoWay}"
@@ -539,6 +568,21 @@
                                     </Panel>
                                 </ToggleButton>
                             </StackPanel>
+
+                            <!-- Wide lists: explicit preparation state with a direct repair action.
+                                 This optional column folds away before narrow rows can clip. -->
+                            <Panel Grid.Column="11" Width="{ReflectionBinding $parent[UserControl].DataContext.PreparationColumnWidth}" Margin="12,0" VerticalAlignment="Center"
+                                   IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowPreparationColumn}">
+                                <Button Classes="secondary small" Content="{Binding PreparationStatus}"
+                                        Command="{Binding PreparationRepairCommand}"
+                                        IsVisible="{Binding HasPreparationRepairAction}"
+                                        ToolTip.Tip="{Binding PreparationTooltip}"/>
+                                <TextBlock Text="{Binding PreparationStatus}" Classes="caption"
+                                           Foreground="{Binding PreparationColor}"
+                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                           IsVisible="{Binding !HasPreparationRepairAction}"
+                                           ToolTip.Tip="{Binding PreparationTooltip}"/>
+                            </Panel>
                         </Grid>
 
                         <!-- Mix transition badge between this row and the next (Mix mode). -->

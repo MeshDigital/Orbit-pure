@@ -16,16 +16,33 @@ namespace SLSKDONET.Views.Avalonia;
 public partial class CueForgePage : UserControl
 {
     private IDisposable? _trackSubscription;
+    private IDisposable? _cueSelectionSubscription;
+    private IDisposable? _dockSubscription;
     private CueForgeViewModel? _vm;
+    private bool _usingTabs;
+    private bool _heightCollapsed;
+    private double _preparationHeight = 272;
+    private RowDefinition PreparationSplitterRow => WorkspaceGrid.RowDefinitions[4];
+    private RowDefinition PreparationRow => WorkspaceGrid.RowDefinitions[5];
 
     public CueForgePage()
     {
         InitializeComponent();
+        PreparationTabs.Items.Add(new TabItem { Header = "Hot cues & loops" });
+        PreparationTabs.Items.Add(new TabItem { Header = "Cues" });
+        PreparationTabs.Items.Add(new TabItem { Header = "Selected cue" });
 
         CueNameBox.KeyDown += OnCueNameKeyDown;
         CueNameBox.LostFocus += (_, _) => _vm?.Session.CommitCueName();
         Waveform.ScrubbingChanged += (_, scrubbing) => _vm?.SetScrubbing(scrubbing);
         Waveform.ContextRequested += OnWaveformContextRequested;
+        WorkspaceGrid.SizeChanged += (_, _) => ApplyResponsiveLayout();
+        LayersButton.Click += (_, _) => PreparationButton.Flyout?.Hide();
+        PreparationButton.Click += (_, _) => LayersButton.Flyout?.Hide();
+        PreparationSplitter.DragCompleted += (_, _) =>
+        {
+            if (PreparationRow.Height.Value >= 160) _preparationHeight = PreparationRow.Height.Value;
+        };
         // Clicking anywhere that isn't a text field returns keyboard focus to the page, so the
         // shortcuts (Space, A, D, 1–8…) keep working after using a button or the waveform.
         AddHandler(PointerPressedEvent, OnAnyPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -48,10 +65,19 @@ public partial class CueForgePage : UserControl
     {
         base.OnAttachedToVisualTree(e);
         _trackSubscription?.Dispose();
+        _cueSelectionSubscription?.Dispose();
+        _dockSubscription?.Dispose();
         if (_vm != null)
+        {
             _trackSubscription = _vm.WhenAnyValue(x => x.TrackHash)
                 .Skip(1)
                 .Subscribe(_ => Dispatcher.UIThread.Post(() => Focus()));
+            _cueSelectionSubscription = _vm.WhenAnyValue(x => x.Session.SelectedCue)
+                .Subscribe(cue => Dispatcher.UIThread.Post(() => { if (cue != null) CueList.ScrollIntoView(cue); }));
+            _dockSubscription = _vm.WhenAnyValue(x => x.IsPreparationDockOpen)
+                .Subscribe(_ => ApplyDockVisibility());
+        }
+        ApplyResponsiveLayout();
         Dispatcher.UIThread.Post(() => Focus());
     }
 
@@ -60,14 +86,97 @@ public partial class CueForgePage : UserControl
         base.OnDetachedFromVisualTree(e);
         _trackSubscription?.Dispose();
         _trackSubscription = null;
+        _cueSelectionSubscription?.Dispose();
+        _cueSelectionSubscription = null;
+        _dockSubscription?.Dispose();
+        _dockSubscription = null;
         // Leaving Cue Forge: stop loop audition and hand the shared player back.
         _vm?.OnViewDeactivated();
     }
 
+    private void ApplyResponsiveLayout()
+    {
+        bool tabs = CueForgeResponsiveLayout.UseTabs(WorkspaceGrid.Bounds.Width);
+        if (tabs != _usingTabs)
+        {
+            _usingTabs = tabs;
+            ReparentPreparationPanels();
+        }
+
+        if (_vm?.HasTrackLoaded != true || WorkspaceGrid.Bounds.Height <= 0)
+        {
+            ApplyDockVisibility();
+            return;
+        }
+
+        switch (CueForgeResponsiveLayout.HeightAction(WorkspaceGrid.Bounds.Height, _heightCollapsed))
+        {
+            case -1 when _vm.IsPreparationDockOpen:
+                if (PreparationRow.Height.Value >= 160) _preparationHeight = PreparationRow.Height.Value;
+                _heightCollapsed = true;
+                _vm.IsPreparationDockOpen = false;
+                break;
+            case 1:
+                _heightCollapsed = false;
+                _vm.IsPreparationDockOpen = true;
+                break;
+        }
+        ApplyDockVisibility();
+    }
+
+    private void ReparentPreparationPanels()
+    {
+        if (_usingTabs)
+        {
+            PreparationColumns.Children.Clear();
+            for (int i = 0; i < PreparationTabs.Items.Count; i++)
+                ((TabItem)PreparationTabs.Items[i]!).Content = new[] { PadsPanel, CueListPanel, InspectorPanel }[i];
+        }
+        else
+        {
+            foreach (var item in PreparationTabs.Items) ((TabItem)item!).Content = null;
+            PreparationColumns.Children.Add(PadsPanel);
+            PreparationColumns.Children.Add(CueListPanel);
+            PreparationColumns.Children.Add(InspectorPanel);
+            Grid.SetColumn(PadsPanel, 0);
+            Grid.SetColumn(CueListPanel, 1);
+            Grid.SetColumn(InspectorPanel, 2);
+        }
+        ApplyDockVisibility();
+    }
+
+    private void ApplyDockVisibility()
+    {
+        bool open = _vm?.IsPreparationDockOpen == true;
+        double height = _preparationHeight;
+        if (open && WorkspaceGrid.Bounds.Height > 0)
+        {
+            // A manual dock request must not push the panels below the viewport. Preserve at
+            // least the detail waveform's minimum height, then give the remaining space to the dock.
+            double fixedHeight = WorkspaceGrid.RowDefinitions[0].ActualHeight
+                + WorkspaceGrid.RowDefinitions[1].ActualHeight
+                + WorkspaceGrid.RowDefinitions[3].ActualHeight
+                + 182; // 160px waveform + vertical margins + splitter.
+            height = Math.Max(160, Math.Min(_preparationHeight, WorkspaceGrid.Bounds.Height - fixedHeight));
+        }
+        PreparationRow.Height = open ? new GridLength(height) : new GridLength(0);
+        PreparationSplitterRow.Height = open ? new GridLength(6) : new GridLength(0);
+        PreparationColumns.IsVisible = open && !_usingTabs;
+        PreparationTabs.IsVisible = open && _usingTabs;
+    }
+
     private void OnAnyPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (e.Source is global::Avalonia.Visual v && v.FindAncestorOfType<TextBox>(includeSelf: true) != null) return;
-        if (e.Source is global::Avalonia.Visual c && c.FindAncestorOfType<ComboBox>(includeSelf: true) != null) return;
+        // Interactive controls keep their focus. Pulling focus back to the page on PointerPressed
+        // can close a Button flyout before its layers, preparation actions or checkboxes are used.
+        if (e.Source is global::Avalonia.Visual v &&
+            (v.FindAncestorOfType<TextBox>(includeSelf: true) != null ||
+             v.FindAncestorOfType<Button>(includeSelf: true) != null ||
+             v.FindAncestorOfType<CheckBox>(includeSelf: true) != null ||
+             v.FindAncestorOfType<ComboBox>(includeSelf: true) != null ||
+             v.FindAncestorOfType<Slider>(includeSelf: true) != null ||
+             v.FindAncestorOfType<global::Avalonia.Controls.Primitives.ScrollBar>(includeSelf: true) != null ||
+             v.FindAncestorOfType<TabItem>(includeSelf: true) != null)) return;
         Dispatcher.UIThread.Post(() => { if (!IsTextInputFocused()) Focus(); });
     }
 
@@ -138,6 +247,12 @@ public partial class CueForgePage : UserControl
                 break;
             case Key.O when none:
                 vm.Session.SetLoopOutCommand.Execute().Subscribe();
+                break;
+            case Key.OemOpenBrackets when none:
+                vm.BeatJumpCommand.Execute(-1).Subscribe();
+                break;
+            case Key.OemCloseBrackets when none:
+                vm.BeatJumpCommand.Execute(1).Subscribe();
                 break;
             case Key.F when none:
                 vm.FollowPlayhead = !vm.FollowPlayhead;
@@ -210,15 +325,10 @@ public partial class CueForgePage : UserControl
 
     // ── Track picker ───────────────────────────────────────────────────────
 
-    private void OnTrackPicked(object? sender, SelectionChangedEventArgs e)
+    private void OnPickTrackClick(object? sender, RoutedEventArgs e)
     {
-        if (_vm == null || sender is not ListBox list || list.SelectedItem is not CueBrowserItem item) return;
-        _vm.LoadFromBrowserCommand.Execute(item);
-        list.SelectedItem = null;
-        TrackPickerButton.Flyout?.Hide();
+        if (_vm != null) _vm.IsBrowserOpen = true;
     }
-
-    private void OnPickTrackClick(object? sender, RoutedEventArgs e) => TrackPickerButton.Flyout?.ShowAt(TrackPickerButton);
 
     // ── Context menus (built here so every item talks to the view model directly) ──────
 

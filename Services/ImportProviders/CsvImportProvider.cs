@@ -9,7 +9,9 @@ using SLSKDONET.Services.InputParsers;
 namespace SLSKDONET.Services.ImportProviders;
 
 /// <summary>
-/// Import provider for CSV files.
+/// Import provider for CSV files. The file is validated first (<see cref="CsvInputSource.Inspect"/>):
+/// a file ORBIT can't read sensibly is refused with an explanation instead of filling the preview
+/// with empty rows.
 /// </summary>
 public class CsvImportProvider : IStreamingImportProvider
 {
@@ -32,8 +34,8 @@ public class CsvImportProvider : IStreamingImportProvider
 
     public bool CanHandle(string input)
     {
-        return !string.IsNullOrWhiteSpace(input) && 
-               (input.EndsWith(".csv", StringComparison.OrdinalIgnoreCase) || 
+        return !string.IsNullOrWhiteSpace(input) &&
+               (input.EndsWith(".csv", StringComparison.OrdinalIgnoreCase) ||
                 File.Exists(input));
     }
 
@@ -41,41 +43,22 @@ public class CsvImportProvider : IStreamingImportProvider
     {
         try
         {
-            _logger.LogInformation("Importing from CSV: {FilePath}", filePath);
-
-            if (!File.Exists(filePath))
+            var inspection = Inspect(filePath);
+            if (!inspection.IsValid)
             {
                 return new ImportResult
                 {
                     Success = false,
-                    ErrorMessage = $"File not found: {filePath}"
+                    ErrorMessage = string.Join(" ", inspection.Errors)
                 };
             }
 
-            var tracks = await _csvInputSource.ParseAsync(filePath);
-
-            if (!tracks.Any())
-            {
-                return new ImportResult
-                {
-                    Success = false,
-                    ErrorMessage = "No tracks found in the CSV file"
-                };
-            }
-
-            // Extract a meaningful title from the filename
-            var fileName = Path.GetFileNameWithoutExtension(filePath);
-            var sourceTitle = string.IsNullOrWhiteSpace(fileName) ? "CSV Import" : fileName;
-
-            _logger.LogInformation("Successfully imported {Count} tracks from CSV file '{Title}'", 
-                tracks.Count, sourceTitle);
-
-            return new ImportResult
+            return await Task.FromResult(new ImportResult
             {
                 Success = true,
-                SourceTitle = sourceTitle,
-                Tracks = tracks
-            };
+                SourceTitle = SourceTitleFor(filePath, inspection),
+                Tracks = inspection.Tracks
+            });
         }
         catch (Exception ex)
         {
@@ -83,33 +66,67 @@ public class CsvImportProvider : IStreamingImportProvider
             return new ImportResult
             {
                 Success = false,
-                ErrorMessage = $"CSV import failed: {ex.Message}"
+                ErrorMessage = ex is FileNotFoundException ? $"File not found: {filePath}" : $"CSV import failed: {ex.Message}"
             };
         }
     }
+
     public async IAsyncEnumerable<ImportBatchResult> ImportStreamAsync(string input)
     {
-        var result = await ImportAsync(input);
-        
-        if (!result.Success || !result.Tracks.Any())
-            throw new ImportSourceException(result.ErrorMessage ?? "No tracks found in the CSV file.");
-
+        CsvInspection inspection;
+        try
         {
-            // Stream raw tracks directly - Enrichment happens in background background worker
-            const int batchSize = 50;
-            var total = result.Tracks.Count;
-            
-            for (int i = 0; i < total; i += batchSize)
-            {
-                var chunk = result.Tracks.Skip(i).Take(batchSize).ToList();
-                
-                yield return new ImportBatchResult
-                {
-                    Tracks = chunk,
-                    SourceTitle = result.SourceTitle,
-                    TotalEstimated = total
-                };
-            }
+            inspection = Inspect(input);
         }
+        catch (FileNotFoundException)
+        {
+            throw new ImportSourceException($"File not found: {input}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new ImportSourceException($"Couldn't open the file: {ex.Message}", inner: ex);
+        }
+
+        if (!inspection.IsValid)
+            throw new ImportSourceException(string.Join(" ", inspection.Errors));
+
+        await Task.CompletedTask;
+        var sourceTitle = SourceTitleFor(input, inspection);
+        var notice = inspection.Summary;
+
+        // Stream raw tracks directly - enrichment happens in the background worker.
+        const int batchSize = 50;
+        var total = inspection.Tracks.Count;
+        for (int i = 0; i < total; i += batchSize)
+        {
+            yield return new ImportBatchResult
+            {
+                Tracks = inspection.Tracks.Skip(i).Take(batchSize).ToList(),
+                SourceTitle = sourceTitle,
+                TotalEstimated = total,
+                Notice = i == 0 ? notice : null
+            };
+        }
+    }
+
+    private CsvInspection Inspect(string filePath)
+    {
+        _logger.LogInformation("Importing from CSV: {FilePath}", filePath);
+        var inspection = _csvInputSource.Inspect(filePath);
+        _logger.LogInformation(
+            "CSV {File}: delimiter '{Delimiter}', columns [{Headers}] mapped as {Mapping}; {Count} track(s), {Errors} error(s), {Warnings} warning(s)",
+            Path.GetFileName(filePath), inspection.Delimiter == '\t' ? "tab" : inspection.Delimiter.ToString(),
+            string.Join(", ", inspection.Headers),
+            string.Join(", ", inspection.Mapping.Select(m => $"{m.Key}={m.Value}")),
+            inspection.Tracks.Count, inspection.Errors.Count, inspection.Warnings.Count);
+        foreach (var error in inspection.Errors) _logger.LogWarning("CSV refused: {Error}", error);
+        return inspection;
+    }
+
+    private static string SourceTitleFor(string filePath, CsvInspection inspection)
+    {
+        if (!string.IsNullOrWhiteSpace(inspection.PlaylistName)) return inspection.PlaylistName!;
+        var fileName = Path.GetFileNameWithoutExtension(filePath);
+        return string.IsNullOrWhiteSpace(fileName) ? "CSV Import" : fileName;
     }
 }

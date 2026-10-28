@@ -39,6 +39,10 @@ public enum CueRole
     /// <summary>Section marker: where the outro section starts. From here to the end of the track is
     /// the outro region a DJ mixes out over ([OUT] stays the last usable mix-out point).</summary>
     OutroStart,
+    /// <summary>User-confirmed track-level entry point for transitions and DJ preparation.</summary>
+    MixIn,
+    /// <summary>User-confirmed track-level exit point for transitions and DJ preparation.</summary>
+    MixOut,
 }
 
 /// <summary>
@@ -213,6 +217,8 @@ public class OrbitCue : INotifyPropertyChanged
         CuePointType.PhraseBoundary => CueRole.PhraseStart,
         CuePointType.IntroEnd => CueRole.IntroEnd,
         CuePointType.OutroStart => CueRole.OutroStart,
+        CuePointType.MixIn => CueRole.MixIn,
+        CuePointType.MixOut => CueRole.MixOut,
         _ => CueRole.Custom,
     };
 
@@ -227,11 +233,19 @@ public class OrbitCue : INotifyPropertyChanged
         CueRole.Build => CuePointType.Build,
         CueRole.IntroEnd => CuePointType.IntroEnd,
         CueRole.OutroStart => CuePointType.OutroStart,
+        CueRole.MixIn => CuePointType.MixIn,
+        CueRole.MixOut => CuePointType.MixOut,
         _ => CuePointType.PhraseBoundary,
     };
 
     /// <summary>True for the intro-end / outro-start section markers.</summary>
     public bool IsSectionMarker => Role is CueRole.IntroEnd or CueRole.OutroStart;
+    /// <summary>Explicit mix cues plus legacy generated labels, for the focused Flow Builder view.</summary>
+    public bool IsMixPoint => Role is CueRole.MixIn or CueRole.MixOut ||
+        Name.StartsWith("Mix-In", StringComparison.OrdinalIgnoreCase) ||
+        Name.StartsWith("Mix In", StringComparison.OrdinalIgnoreCase) ||
+        Name.StartsWith("Mix-Out", StringComparison.OrdinalIgnoreCase) ||
+        Name.StartsWith("Mix Out", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Field-for-field copy — undo snapshots need cues that later edits can't mutate.</summary>
     public OrbitCue Clone()

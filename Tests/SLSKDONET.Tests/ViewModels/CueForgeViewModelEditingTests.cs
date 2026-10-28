@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using Moq;
 using SLSKDONET.Configuration;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
@@ -352,6 +353,233 @@ public class CueForgeViewModelEditingTests
         Assert.NotNull(dir);
         return Path.Combine(dir!.FullName, relative);
     }
+
+    // ── Track browser ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task OpeningATrack_SwitchesTheBrowserToAPlaylistThatHoldsIt()
+    {
+        var older = new PlaylistJob { Id = Guid.NewGuid(), SourceTitle = "Sunday set", CreatedAt = DateTime.UtcNow.AddDays(-3) };
+        var newest = new PlaylistJob { Id = Guid.NewGuid(), SourceTitle = "New imports", CreatedAt = DateTime.UtcNow };
+        PlaylistTrack T(string hash, string title) => new() { TrackUniqueHash = hash, Title = title, Artist = "A" };
+
+        var library = new Mock<ILibraryService>();
+        library.Setup(l => l.LoadAllPlaylistJobsAsync()).ReturnsAsync(new List<PlaylistJob> { older, newest });
+        library.Setup(l => l.GetPagedPlaylistTracksAsync(newest.Id, It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<bool?>(),
+                It.IsAny<IEnumerable<string>?>(), It.IsAny<string?>(), It.IsAny<TrackSortColumn>(), It.IsAny<bool>(), It.IsAny<string?>()))
+            .ReturnsAsync(new List<PlaylistTrack> { T("other", "Other") });
+        library.Setup(l => l.GetPagedPlaylistTracksAsync(older.Id, It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<bool?>(),
+                It.IsAny<IEnumerable<string>?>(), It.IsAny<string?>(), It.IsAny<TrackSortColumn>(), It.IsAny<bool>(), It.IsAny<string?>()))
+            .ReturnsAsync(new List<PlaylistTrack> { T("first", "First"), T(Hash, "Title"), T("third", "Third") });
+        library.Setup(l => l.GetPlaylistIdsContainingTrackAsync(Hash)).ReturnsAsync(new List<Guid> { older.Id });
+
+        var vm = new CueForgeViewModel(new FakeCueStore(), new FakeTransport(), new AppConfig(), libraryService: library.Object,
+            ui: a => { a(); return Task.CompletedTask; });
+        Assert.Same(newest, vm.SelectedPlaylist); // nothing open yet: newest playlist
+
+        await vm.LoadTrackAsync(Hash, "Title", "Artist");
+
+        Assert.Same(older, vm.SelectedPlaylist);
+        Assert.Equal("Track 2 of 3", vm.BrowserPosition);
+        Assert.Equal(Hash, vm.CurrentBrowserItem?.GlobalId);
+
+        await vm.NextTrackCommand.Execute();
+        Assert.Equal("third", vm.TrackHash); // next steps through that playlist
+    }
+
+    // ── Beat jump and beat-grid fixes ──────────────────────────────────────────
+
+    /// <summary>Flux Pavilion - Emotional (MUST DIE! Remix): 150 BPM, first downbeat 2.0076 s, 4:03.</summary>
+    private static (CueForgeViewModel Vm, Moq.Mock<ILibraryService> Library) CreateWithGrid()
+    {
+        var features = new AudioFeaturesEntity
+        {
+            TrackUniqueHash = Hash, Bpm = 150f, DownbeatOffsetSeconds = 2.0076, TrackDuration = 243.2,
+        };
+        var library = new Moq.Mock<ILibraryService>();
+        library.Setup(l => l.GetAudioFeaturesByHashAsync(Hash)).ReturnsAsync(features);
+        library.Setup(l => l.UpdateAudioFeaturesAsync(Moq.It.IsAny<AudioFeaturesEntity>())).Returns(Task.CompletedTask);
+        var vm = new CueForgeViewModel(new FakeCueStore(), new FakeTransport(), new AppConfig(), libraryService: library.Object,
+            ui: a => { a(); return Task.CompletedTask; });
+        return (vm, library);
+    }
+
+    [Fact]
+    public async Task BeatJump_FromTheMinus16Countdown_LandsOnTheDrop()
+    {
+        var (vm, _) = CreateWithGrid();
+        await vm.LoadTrackAsync(Hash, "Emotional", "Flux Pavilion");
+        await vm.SeekPlayheadCommand.Execute(6.8076);   // [IN -16]
+
+        vm.BeatJumpBars = 16;
+        await vm.BeatJumpCommand.Execute(1);
+
+        Assert.Equal(32.4076, vm.CurrentPlayPosition, 3); // [DROP 1]
+        await vm.BeatJumpCommand.Execute(-1);
+        Assert.Equal(6.8076, vm.CurrentPlayPosition, 3);
+    }
+
+    [Fact]
+    public async Task BarOneHere_MovesThePhaseByWholeBeats_AndSavesIt()
+    {
+        var (vm, library) = CreateWithGrid();
+        await vm.LoadTrackAsync(Hash, "Emotional", "Flux Pavilion");
+        await vm.SeekPlayheadCommand.Execute(4.0);       // near beat 3 of bar 2 (4.0076)
+
+        await vm.SetDownbeatAtPlayheadCommand.Execute();
+
+        // Beat 3 becomes the 1; bar 1 moves to the in-phase downbeat nearest the analysed one
+        // (4.0076 − 1 bar = 2.4076), so it stays where the music starts.
+        Assert.Equal(2.4076, vm.GridOffset, 4);
+        Assert.Equal(2.4076, vm.Session.GridOffset, 4);
+        Assert.True(vm.IsGridEdited);
+        Assert.Equal("Bar 2.1", CueForgeGrid.FormatBarBeat(4.0076, 150, vm.GridOffset));
+        library.Verify(l => l.UpdateAudioFeaturesAsync(Moq.It.Is<AudioFeaturesEntity>(f => Math.Abs(f.DownbeatOffsetSeconds - 2.4076) < 1e-4)));
+
+        await vm.ResetGridCommand.Execute();
+        Assert.Equal(2.0076, vm.GridOffset, 4);
+        Assert.False(vm.IsGridEdited);
+    }
+
+    [Fact]
+    public async Task SlipGrid_MovesTenMilliseconds()
+    {
+        var (vm, _) = CreateWithGrid();
+        await vm.LoadTrackAsync(Hash, "Emotional", "Flux Pavilion");
+
+        await vm.SlipGridCommand.Execute("-");
+
+        Assert.Equal(1.9976, vm.GridOffset, 4);
+    }
+
+    [Theory]
+    [InlineData("legacy", true)]
+    [InlineData(SLSKDONET.Services.AudioAnalysis.WaveformExtractionService.CurrentWaveformVersion, false)]
+    public async Task WaveformVersion_DistinguishesLegacyAndCurrentAnalysis(string version, bool expectedOutdated)
+    {
+        var features = new AudioFeaturesEntity
+        {
+            TrackUniqueHash = Hash,
+            AnalysisVersion = version,
+            WaveformBlobSampleCount = 1,
+            WaveformBlob = new byte[] { 1, 2, 3 },
+        };
+        var library = new Mock<ILibraryService>();
+        library.Setup(l => l.GetAudioFeaturesByHashAsync(Hash)).ReturnsAsync(features);
+        var vm = new CueForgeViewModel(new FakeCueStore(), new FakeTransport(), new AppConfig(),
+            libraryService: library.Object, ui: a => { a(); return Task.CompletedTask; });
+
+        await vm.LoadTrackAsync(Hash, "Title", "Artist");
+
+        Assert.Equal(expectedOutdated, vm.IsWaveformOutdated);
+        Assert.Equal(expectedOutdated, vm.ShowWaveformRefreshAction);
+    }
+
+    [Fact]
+    public async Task RefreshWaveform_QueuesHighPriorityAnalysis_WithoutExportingCues()
+    {
+        using var bus = new EventBusService();
+        TrackAnalysisRequestedEvent? requested = null;
+        using var subscription = bus.GetEvent<TrackAnalysisRequestedEvent>().Subscribe(evt => requested = evt);
+        var features = new AudioFeaturesEntity
+        {
+            TrackUniqueHash = Hash,
+            WaveformBlobSampleCount = 1,
+            WaveformBlob = new byte[] { 1, 2, 3 },
+        };
+        var library = new Mock<ILibraryService>();
+        library.Setup(l => l.GetAudioFeaturesByHashAsync(Hash)).ReturnsAsync(features);
+        using var vm = new CueForgeViewModel(new FakeCueStore(), new FakeTransport(), new AppConfig(),
+            libraryService: library.Object, eventBus: bus, ui: a => { a(); return Task.CompletedTask; });
+        await vm.LoadTrackAsync(Hash, "Title", "Artist");
+
+        await vm.RefreshWaveformCommand.Execute();
+
+        Assert.NotNull(requested);
+        Assert.Equal(Hash, requested!.TrackGlobalId);
+        Assert.True(requested.IsHighPriority);
+        Assert.True(vm.IsWaveformRefreshPending);
+        Assert.False(vm.ShowWaveformRefreshAction);
+        library.Verify(l => l.UpdateAudioFeaturesAsync(It.IsAny<AudioFeaturesEntity>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RefreshWaveform_ReportsProgressAndFailureWithRetry()
+    {
+        using var bus = new EventBusService();
+        var features = new AudioFeaturesEntity
+        {
+            TrackUniqueHash = Hash,
+            WaveformBlobSampleCount = 1,
+            WaveformBlob = new byte[] { 1, 2, 3 },
+        };
+        var library = new Mock<ILibraryService>();
+        library.Setup(l => l.GetAudioFeaturesByHashAsync(Hash)).ReturnsAsync(features);
+        using var vm = new CueForgeViewModel(new FakeCueStore(), new FakeTransport(), new AppConfig(),
+            libraryService: library.Object, eventBus: bus, ui: a => { a(); return Task.CompletedTask; });
+        await vm.LoadTrackAsync(Hash, "Title", "Artist");
+        await vm.RefreshWaveformCommand.Execute();
+
+        bus.Publish(new AnalysisProgressEvent(Hash, "Extracting waveform", 25));
+        Assert.True(vm.IsWaveformRefreshPending);
+        Assert.Equal("Extracting waveform · 25%", vm.WaveformRefreshStatus);
+
+        bus.Publish(new TrackAnalysisFailedEvent(Hash, "decoder failed"));
+        Assert.False(vm.IsWaveformRefreshPending);
+        Assert.True(vm.ShowWaveformRefreshAction);
+        Assert.Contains("decoder failed", vm.WaveformRefreshNoticeText);
+        Assert.True(vm.Session.IsStatusError);
+    }
+
+    [Fact]
+    public async Task RefreshWaveform_CurrentAnalysisStillOffersFullReanalysis()
+    {
+        using var bus = new EventBusService();
+        var features = new AudioFeaturesEntity
+        {
+            TrackUniqueHash = Hash,
+            AnalysisVersion = SLSKDONET.Services.AudioAnalysis.WaveformExtractionService.CurrentWaveformVersion,
+            WaveformBlobSampleCount = 1,
+            WaveformBlob = new byte[] { 1, 2, 3 },
+        };
+        var library = new Mock<ILibraryService>();
+        library.Setup(l => l.GetAudioFeaturesByHashAsync(Hash)).ReturnsAsync(features);
+        using var vm = new CueForgeViewModel(new FakeCueStore(), new FakeTransport(), new AppConfig(),
+            libraryService: library.Object, eventBus: bus, ui: a => { a(); return Task.CompletedTask; });
+        await vm.LoadTrackAsync(Hash, "Title", "Artist");
+
+        Assert.False(vm.HasWaveformRefreshNotice);
+        Assert.Equal("Re-analyse track", vm.WaveformRefreshActionLabel);
+        await vm.RefreshWaveformCommand.Execute();
+        Assert.True(vm.IsWaveformRefreshPending);
+    }
+
+    [Fact]
+    public void AutoGenerate_KeepsTheLayoutPads_YourCueWinsAContestedPad()
+    {
+        var cues = new List<OrbitCue>
+        {
+            new() { Name = "[IN -16]", Role = CueRole.Build, Source = CueSource.Auto, SlotIndex = 0 },
+            new() { Name = "[DROP 1]", Role = CueRole.Drop, Source = CueSource.Auto, SlotIndex = 2 },
+            new() { Name = "[DROP 2]", Role = CueRole.Drop, Source = CueSource.Auto, SlotIndex = 5 },
+            new() { Name = "Vocal", Role = CueRole.Custom, Source = CueSource.User, SlotIndex = 2, Timestamp = 50 },
+        };
+
+        CueForgeViewModel.ResolvePadConflicts(cues);
+
+        Assert.Equal(0, cues[0].SlotIndex);  // not re-packed by role any more
+        Assert.Equal(-1, cues[1].SlotIndex); // your cue holds C, so Drop 1 becomes a memory cue
+        Assert.Equal(5, cues[2].SlotIndex);  // Drop 2 stays on F
+        Assert.Equal(2, cues[3].SlotIndex);
+    }
+
+    [Fact]
+    public void BarReadout_BeforeTheFirstDownbeat_DoesNotShowNegativeBars()
+    {
+        Assert.Equal("Before bar 1", CueForgeGrid.FormatBarBeat(0.0, 150, 2.0076));
+        Assert.Equal("Bar 1.1", CueForgeGrid.FormatBarBeat(2.0076, 150, 2.0076));
+        Assert.Equal("Bar 2.1", CueForgeGrid.FormatBarBeat(3.6076, 150, 2.0076));
+    }
 }
 
 public class CueForgeGridTests
@@ -396,4 +624,5 @@ public class CueForgeGridTests
         double paged = CueForgeGrid.FollowScroll(0.5, 0.1, 4);
         Assert.Equal(0.5 - 0.25 * 0.15, paged, 9);
     }
+
 }

@@ -91,6 +91,9 @@ public sealed class CueGenerationService
     /// </summary>
     public Func<string?, double, IReadOnlyList<int>> CountdownBars { get; set; } = (_, _) => new[] { 16, 8 };
 
+    /// <summary>Countdowns as memory cues (the editors' app-wide setting, read at generation time).</summary>
+    public Func<bool> CountdownsAsMemoryCues { get; set; } = () => false;
+
     /// <param name="skipIfManualDrops">Background analysis passes true: once the DJ has placed drops
     /// by hand, their cues own the track and no auto cues are added back on re-analysis. The explicit
     /// "Regenerate Cues" passes false.</param>
@@ -372,7 +375,6 @@ public sealed class CueGenerationService
                 drop2Confidence = 0.5f;
             }
         }
-        drop2Time = Math.Min(drop2Time, duration - bar * 8);
 
         bool outroFound = outros.Count > 0;
         double outroTime = outroFound
@@ -407,13 +409,14 @@ public sealed class CueGenerationService
     {
         double beat = 60.0 / bpm, bar = 4 * beat;
         var bars = CountdownBars(genre, bpm);
+        bool memoryCountdowns = CountdownsAsMemoryCues();
         var cues = new List<CuePointEntity>(10);
 
         cues.Add(Make(trackHash, introTime, CuePointType.Intro, "Intro", 1.0f));
 
         void AddGroup(int number, double dropTime, float confidence, double notBefore)
         {
-            foreach (var spec in DropCountdownCues.Layout(number, dropTime, bars, bpm))
+            foreach (var spec in DropCountdownCues.Layout(number, dropTime, bars, bpm, memoryCountdowns))
             {
                 if (!spec.IsDrop && spec.Timestamp <= notBefore) continue; // build-in would fall before the previous drop/intro
                 var cue = Make(trackHash, spec.Timestamp, spec.IsDrop ? CuePointType.Drop : CuePointType.Build, spec.Name, confidence);
@@ -423,17 +426,28 @@ public sealed class CueGenerationService
             }
         }
         AddGroup(1, drop1Time, drop1Confidence, introTime);
-        AddGroup(2, drop2Time, drop2Confidence, drop1Time);
 
-        double lastDrop = Math.Max(drop1Time, drop2Time);
+        // A second drop needs room for its own section: at least 16 bars after Drop 1 and 16 bars
+        // before the end. A "drop" in the last bars is the outro (or a guess that ran past the end),
+        // and used to be clamped to duration − 8 bars, putting [DROP 2] and its countdowns into the
+        // outro (Flux Pavilion - Emotional (MUST DIE! Remix): Drop 2 at 3:50 of 4:03). Leave pads
+        // D–F free instead; the DJ can still place Drop 2 by hand.
+        bool hasDrop2 = drop2Time >= drop1Time + 16 * bar && (duration <= 0 || drop2Time <= duration - 16 * bar);
+        if (hasDrop2) AddGroup(2, drop2Time, drop2Confidence, drop1Time);
+
+        double lastDrop = hasDrop2 ? Math.Max(drop1Time, drop2Time) : drop1Time;
         bool detectedFits = outroDetected && outroTime > lastDrop + 8 * bar && (duration <= 0 || outroTime <= duration - 16 * bar);
-        double outTime = detectedFits
+        double? outTime = detectedFits
             ? outroTime
-            : DropCountdownCues.OutTime(lastDrop, bpm, downbeatAnchor, duration) ?? Math.Max(outroTime, lastDrop + beat);
-        var outCue = Make(trackHash, outTime, CuePointType.Outro, DropCountdownCues.OutName, detectedFits ? outroConfidence : Math.Min(outroConfidence, 0.8f));
-        outCue.SlotIndex = DropCountdownCues.OutPad;
-        outCue.Color = DropCountdownCues.OutColor;
-        cues.Add(outCue);
+            : DropCountdownCues.OutTime(lastDrop, bpm, downbeatAnchor, duration)
+              ?? (outroTime > lastDrop + 4 * bar ? outroTime : null); // never an [OUT] glued to the drop
+        if (outTime is { } outAt)
+        {
+            var outCue = Make(trackHash, outAt, CuePointType.Outro, DropCountdownCues.OutName, detectedFits ? outroConfidence : Math.Min(outroConfidence, 0.8f));
+            outCue.SlotIndex = DropCountdownCues.OutPad;
+            outCue.Color = DropCountdownCues.OutColor;
+            cues.Add(outCue);
+        }
 
         cues.Sort((a, b) => a.TimestampInSeconds.CompareTo(b.TimestampInSeconds));
         return cues;
@@ -555,7 +569,6 @@ public sealed class CueGenerationService
         double drop2Time = drop2.Time > 0
             ? SnapToPhrase(drop2.Time, bpm, downbeatAnchor)
             : SnapToPhrase(drop1Time + bar * 32, bpm, downbeatAnchor);
-        drop2Time = Math.Min(drop2Time, duration - bar * 8);
 
         // ── 3. Intro — first downbeat, adjusted for long DJ intros ────────
         // If energy is low for the first 8+ bars (a long low-level DJ-tool-style intro before the

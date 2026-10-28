@@ -353,4 +353,31 @@ public class StructuralAnalysisEngineTests
         Assert.All(dropSections, s => Assert.True(s.EndSeconds - s.StartSeconds > 1.0,
             $"Drop section [{s.StartSeconds},{s.EndSeconds}) has a near-zero duration — likely a boundary drop claimed by two neighboring sections."));
     }
+
+    [Fact]
+    public void Analyze_FirstDrop_KeepsEarliestValidDropOutsideTopThreeByConfidence()
+    {
+        const int duration = 420;
+        var energy = Enumerable.Repeat(0.2f, duration).ToArray();
+
+        void SetEnergy(int start, int end, float value)
+        {
+            for (int i = start; i < end; i++) energy[i] = value;
+        }
+
+        // The first drop is deliberately weaker than three later drops. It must still drive intro
+        // length even though it does not fit in the main Drops list, which is capped at three.
+        SetEnergy(32, 112, 0.65f);
+        SetEnergy(128, 208, 0.80f);
+        SetEnergy(224, 304, 0.90f);
+        SetEnergy(320, duration, 1.00f);
+
+        var result = StructuralAnalysisEngine.Analyze(120f, duration, energy);
+
+        Assert.Equal(3, result.Drops.Count);
+        Assert.Equal(320, result.Drops[0].TimestampSeconds, precision: 6);
+        Assert.DoesNotContain(result.Drops, drop => Math.Abs(drop.TimestampSeconds - 32) < 0.001);
+        Assert.NotNull(result.FirstDrop);
+        Assert.Equal(32, result.FirstDrop!.Value.TimestampSeconds, precision: 6);
+    }
 }

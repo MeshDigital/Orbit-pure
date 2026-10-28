@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using SLSKDONET.Models;
 using SLSKDONET.Services.IO;
 using SLSKDONET.Services.Library;
+using SLSKDONET.Services.Library.Rekordbox;
 
 namespace SLSKDONET.Services.Export;
 
@@ -60,7 +61,8 @@ public sealed class UsbExportOrchestrator
         ExportMode mode,
         IProgress<ExportProgress>? progress = null,
         CancellationToken ct = default,
-        Guid? folderId = null)
+        Guid? folderId = null,
+        Func<RekordboxExportConflictReport, Task<bool>>? confirmOverwrite = null)
     {
         _logger.LogInformation(
             "Starting {Mode} export of '{Playlist}' ({Count} tracks) → {Dest}",
@@ -71,9 +73,9 @@ public sealed class UsbExportOrchestrator
         await TrackExportPreflight.ValidateAsync(tracks, ct);
 
         if (mode == ExportMode.FilesAndXml)
-            await ExportFilesAndXmlAsync(playlistName, tracks, destinationRoot, progress, ct, folderId);
+            await ExportFilesAndXmlAsync(playlistName, tracks, destinationRoot, progress, ct, folderId, confirmOverwrite);
         else
-            await ExportXmlOnlyAsync(playlistName, tracks, destinationRoot, progress, ct, folderId);
+            await ExportXmlOnlyAsync(playlistName, tracks, destinationRoot, progress, ct, folderId, confirmOverwrite);
     }
 
     // ─── FilesAndXml ─────────────────────────────────────────────────────────
@@ -84,7 +86,8 @@ public sealed class UsbExportOrchestrator
         string usbRoot,
         IProgress<ExportProgress>? progress,
         CancellationToken ct,
-        Guid? folderId = null)
+        Guid? folderId = null,
+        Func<RekordboxExportConflictReport, Task<bool>>? confirmOverwrite = null)
     {
         string audioDir = Path.Combine(usbRoot, "OrbitAudio", Sanitize(playlistName));
         Directory.CreateDirectory(audioDir);
@@ -221,7 +224,7 @@ public sealed class UsbExportOrchestrator
         var xmlPath = Path.Combine(pioneerDir, "rekordbox.xml");
 
         progress?.Report(new(tracks.Count, copied, skipped, "Writing rekordbox.xml…", false));
-        await _exportService.ExportToRekordboxXmlAsync(playlistName, tracks, xmlPath, pathMap, folderId);
+        await _exportService.ExportToRekordboxXmlAsync(playlistName, tracks, xmlPath, pathMap, folderId, confirmOverwrite);
 
         progress?.Report(new(tracks.Count, copied, skipped, "Done", true));
         _logger.LogInformation(
@@ -237,11 +240,12 @@ public sealed class UsbExportOrchestrator
         string xmlFilePath,
         IProgress<ExportProgress>? progress,
         CancellationToken ct,
-        Guid? folderId = null)
+        Guid? folderId = null,
+        Func<RekordboxExportConflictReport, Task<bool>>? confirmOverwrite = null)
     {
         ct.ThrowIfCancellationRequested();
         progress?.Report(new(tracks.Count, 0, 0, "Writing rekordbox.xml…", false));
-        await _exportService.ExportToRekordboxXmlAsync(playlistName, tracks, xmlFilePath, folderId: folderId);
+        await _exportService.ExportToRekordboxXmlAsync(playlistName, tracks, xmlFilePath, folderId: folderId, confirmOverwrite: confirmOverwrite);
         progress?.Report(new(tracks.Count, tracks.Count, 0, "Done", true));
     }
 

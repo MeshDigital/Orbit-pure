@@ -62,8 +62,11 @@ public static class CueForgeGrid
     /// <summary>"Bar 12.3" readout for a position.</summary>
     public static string FormatBarBeat(double seconds, double bpm, double offset)
     {
+        if (bpm <= 0) return "";
+        // Before the first downbeat the arithmetic gives "Bar -1.3", which reads like a bug.
+        if (seconds < offset - 1e-6) return "Before bar 1";
         var (bar, beat) = BarBeat(seconds, bpm, offset);
-        return bpm > 0 ? $"Bar {bar}.{beat}" : "";
+        return $"Bar {bar}.{beat}";
     }
 
     public static double MaxScroll(double zoom) => Math.Max(0.0, 1.0 - 1.0 / Math.Max(MinZoom, zoom));

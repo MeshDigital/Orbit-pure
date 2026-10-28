@@ -157,6 +157,7 @@ public partial class PlaylistTrackViewModel
         OnPropertyChanged(nameof(CueCount));
         OnPropertyChanged(nameof(CuesTabHeader));
         OnPropertyChanged(nameof(HasAnalysisData));
+        RaisePreparationPropertiesChanged();
     }
 
     /// <summary>Raised on the UI thread after a metadata/analysis refresh re-read this track from
@@ -353,6 +354,11 @@ public partial class PlaylistTrackViewModel
         OnPropertyChanged(nameof(HasAnalysisData));
         OnPropertyChanged(nameof(BpmDisplay));
         OnPropertyChanged(nameof(HasBpm));
+        OnPropertyChanged(nameof(TimeTillDropSeconds));
+        OnPropertyChanged(nameof(TimeTillDropBars));
+        OnPropertyChanged(nameof(HasTimeTillDrop));
+        OnPropertyChanged(nameof(TimeTillDropDisplay));
+        OnPropertyChanged(nameof(TimeTillDropBarsDisplay));
         OnPropertyChanged(nameof(HasKey));
         OnPropertyChanged(nameof(EnergyRating));
         OnPropertyChanged(nameof(LastAnalyzedDisplay));

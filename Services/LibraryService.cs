@@ -699,7 +699,8 @@ public class LibraryService : ILibraryService
                 IsSmartPlaylist = job.IsSmartPlaylist,
                 SmartCriteriaJson = job.SmartCriteriaJson,
 
-                FolderId = job.FolderId
+                FolderId = job.FolderId,
+                ManualSortOrder = job.ManualSortOrder
             };
 
             await _databaseService.SavePlaylistJobAsync(entity).ConfigureAwait(false);
@@ -1125,6 +1126,7 @@ public class LibraryService : ILibraryService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to update global colour tag for {Hash}", trackHash);
+            throw; // callers revert their optimistic UI and tell the user
         }
     }
 
@@ -1272,7 +1274,8 @@ public class LibraryService : ILibraryService
             IsSmartPlaylist = entity.IsSmartPlaylist,
             SmartCriteriaJson = entity.SmartCriteriaJson,
 
-            FolderId = entity.FolderId
+            FolderId = entity.FolderId,
+            ManualSortOrder = entity.ManualSortOrder
         };
 
         job.MissingCount = entity.TotalTracks - entity.SuccessfulCount - entity.FailedCount;
@@ -1414,6 +1417,7 @@ public class LibraryService : ILibraryService
             GenreDistributionJson = entity.AudioFeatures?.GenreDistributionJson,
 
             BpmStability = entity.AudioFeatures?.BpmStability,
+            TimeTillDropSeconds = entity.AudioFeatures?.TimeTillDropSeconds,
 
             SourcePlaylistId   = entity.SourcePlaylistId,
             SourcePlaylistName = entity.SourcePlaylistName,
@@ -1582,6 +1586,7 @@ public class LibraryService : ILibraryService
             LoudnessLufs = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.AudioFeatures?.LoudnessLUFS),
             DropTimeSeconds = entity.AudioFeatures?.DropTimeSeconds,
             DropConfidence = entity.AudioFeatures?.DropConfidence,
+            TimeTillDropSeconds = entity.AudioFeatures?.TimeTillDropSeconds,
             EnergyCurveJson = entity.AudioFeatures?.EnergyCurveJson,
             SegmentedEnergyJson = entity.AudioFeatures?.SegmentedEnergyJson,
             GenreDistributionJson = entity.AudioFeatures?.GenreDistributionJson,
@@ -2031,6 +2036,16 @@ public class LibraryService : ILibraryService
     /// see ILibraryService.RemoveTrackFromAllPlaylistsAsync's doc for why a permanent delete must
     /// do this instead of marking those rows TrackStatus.Missing.
     /// </summary>
+    public async Task<IReadOnlyList<Guid>> GetPlaylistIdsContainingTrackAsync(string trackHash)
+    {
+        using var db = new AppDbContext();
+        return await db.PlaylistTracks.AsNoTracking()
+            .Where(t => t.TrackUniqueHash == trackHash)
+            .Select(t => t.PlaylistId)
+            .Distinct()
+            .ToListAsync();
+    }
+
     public async Task RemoveTrackFromAllPlaylistsAsync(string trackHash)
     {
         using var db = new AppDbContext();
@@ -2091,43 +2106,63 @@ public class LibraryService : ILibraryService
     {
         using var db = new AppDbContext();
 
-        // 1. Update Library Entry
         var entry = await db.LibraryEntries.FirstOrDefaultAsync(e => e.UniqueHash == trackHash);
-        if (entry != null)
-        {
-            entry.FilePath = newFilePath;
-        }
 
-        // 2. Update every Playlist Track sharing this hash — the same file can be referenced by
-        // rows in multiple playlists, each denormalizing its own ResolvedFilePath (read back
-        // verbatim, never re-resolved from LibraryEntries), so all of them must move together.
-        // Same pattern as UpdateTrackCuePointsAsync above.
+        // Update every PlaylistTrack sharing this hash: each playlist denormalizes its own path.
+        // Relinking also restores local availability; otherwise the row remains NotDownloaded even
+        // though its file is present again. Existing preparation and Ready state are preserved.
         var playlistTracks = await db.PlaylistTracks.Where(t => t.TrackUniqueHash == trackHash).ToListAsync();
-        foreach (var track in playlistTracks)
-        {
-            track.ResolvedFilePath = newFilePath;
-        }
+        ApplyRelinkedFilePath(entry, playlistTracks, newFilePath);
 
         await db.SaveChangesAsync();
         _cache.InvalidateGlobalLibrary();
     }
 
+    internal static void ApplyRelinkedFilePath(
+        LibraryEntryEntity? entry,
+        IEnumerable<PlaylistTrackEntity> playlistTracks,
+        string newFilePath)
+    {
+        if (entry != null)
+        {
+            entry.FilePath = newFilePath;
+            entry.FilePathUpdatedAt = DateTime.UtcNow;
+            AdvanceRelinkedAvailability(entry);
+        }
+
+        foreach (var track in playlistTracks)
+        {
+            track.ResolvedFilePath = newFilePath;
+            track.Status = TrackStatus.Downloaded;
+            AdvanceRelinkedAvailability(track);
+        }
+    }
+
+    private static void AdvanceRelinkedAvailability(LibraryEntryEntity entry)
+    {
+        if (entry.AvailabilityState is TrackAvailabilityState.Ghost
+            or TrackAvailabilityState.QueuedForDownload
+            or TrackAvailabilityState.Downloading)
+        {
+            entry.AvailabilityState = TrackAvailabilityState.LocalUnanalyzed;
+        }
+    }
+
+    private static void AdvanceRelinkedAvailability(PlaylistTrackEntity track)
+    {
+        if (track.AvailabilityState is TrackAvailabilityState.Ghost
+            or TrackAvailabilityState.QueuedForDownload
+            or TrackAvailabilityState.Downloading)
+        {
+            track.AvailabilityState = TrackAvailabilityState.LocalUnanalyzed;
+        }
+    }
+
     public async Task UpdateAudioFeaturesAsync(AudioFeaturesEntity entity)
     {
-        using var db = new AppDbContext();
-        var existing = await db.AudioFeatures.FirstOrDefaultAsync(f => f.TrackUniqueHash == entity.TrackUniqueHash);
-        if (existing != null)
-        {
-            existing.PhraseSegmentsJson = entity.PhraseSegmentsJson;
-            existing.EnergyCurveJson = entity.EnergyCurveJson;
-            existing.VocalDensityCurveJson = entity.VocalDensityCurveJson;
-            existing.AnomaliesJson = entity.AnomaliesJson;
-            existing.StructuralVersion = entity.StructuralVersion;
-            existing.StructuralHash = entity.StructuralHash;
-            existing.AnalysisReasoningJson = entity.AnalysisReasoningJson;
-            
-            await db.SaveChangesAsync();
-        }
+        // Use the complete persistence path. The previous partial field list silently discarded
+        // manual downbeat/grid corrections even though CueForge reported a successful save.
+        await _databaseService.UpdateAudioFeaturesAsync(entity).ConfigureAwait(false);
     }
 
     public async Task<List<PlaylistTrack>> SearchAllPlaylists(string query, int limit = 50)

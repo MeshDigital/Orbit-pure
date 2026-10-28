@@ -333,6 +333,8 @@ public class ImportOrchestrator
                         _previewViewModel.UpdateSourceUrl(batch.SourceUrl!);
                     if (!string.IsNullOrEmpty(batch.SourceOwner) && string.IsNullOrEmpty(_previewViewModel.SourceOwner))
                         _previewViewModel.SourceOwner = batch.SourceOwner;
+                    if (!string.IsNullOrEmpty(batch.Notice))
+                        _previewViewModel.SourceNotice = batch.Notice;
                     _previewViewModel.ReportExpectedTotal(batch.TotalEstimated);
                 });
 
@@ -432,6 +434,11 @@ public class ImportOrchestrator
                 await StartImportWithPreviewAsync(_activeProvider, _activeInput);
             else
                 _previewViewModel.ShowError("Spotify isn't connected yet. Finish signing in, then retry.", requiresSignIn: true);
+        }
+        catch (ImportProviders.SpotifyAccountNotAllowlistedException ex)
+        {
+            // Signing in again can't fix this, so no Connect button.
+            _previewViewModel.ShowError(ex.Message, requiresSignIn: false);
         }
         catch (Exception ex)
         {

@@ -77,6 +77,12 @@ public sealed class CuePointDetectionService
             features.DropConfidence  = result.Drops[0].Confidence;
         }
 
+        // Intro-length comparison needs the first usable drop, not Drops[0] (the strongest/main
+        // drop). Persist null when detection found nothing rather than inventing a zero-second intro.
+        features.TimeTillDropSeconds = result.FirstDrop is { } firstDrop
+            ? (float)firstDrop.TimestampSeconds
+            : null;
+
         await Task.CompletedTask;
         return Array.Empty<CuePointEntity>();
     }

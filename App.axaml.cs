@@ -327,6 +327,14 @@ public partial class App : Application
                         // One-time re-fit of stored beat grids (quantised BPM fix); no-op once done.
                         Services.GetRequiredService<Services.AudioAnalysis.BeatGridRecomputeService>().StartIfPending();
 
+                        // One-time repair of stored auto cues: Drop 2 clamped into the outro, and
+                        // Drop 2 countdowns renamed to [IN2 …]. Auto cues only; no-op once done.
+                        Services.GetRequiredService<Services.AudioAnalysis.CueLayoutRepairService>().StartIfPending();
+
+                        // Fill first-drop/intro timing from stored energy curves. No audio decode,
+                        // cue/grid changes or Rekordbox writes; no-op after the first completed pass.
+                        Services.GetRequiredService<Services.AudioAnalysis.TimeTillDropBackfillService>().StartIfPending();
+
                         // Activate post-download spectral scan listener (eager resolve so it
                         // subscribes to TrackStateChangedEvent immediately after the engine starts).
                         _ = Services.GetRequiredService<PostDownloadSpectralScanService>();
@@ -338,7 +346,8 @@ public partial class App : Application
                         // context menu's "Analyse Track"/"Hard Retry" items (IsEnabled bound to
                         // AreDependenciesHealthy) stayed permanently disabled for the whole session
                         // regardless of whether FFmpeg/Essentia were genuinely available.
-                        _ = Services.GetRequiredService<NativeDependencyHealthService>().CheckHealthAsync();
+                        // Also installs FFmpeg into LocalAppData when it's missing (Windows x64).
+                        _ = Services.GetRequiredService<Services.Platform.FfmpegInstallerService>().EnsureInstalledAsync();
 
                         // SpotifyAuthService.IsAuthenticated defaults to false and only ever gets
                         // set true inside VerifyConnectionAsync()/RefreshAccessTokenAsync() — which
@@ -695,10 +704,14 @@ public partial class App : Application
         services.AddSingleton<PerformanceTracker>(); // live perf overlay (Ctrl+Shift+P) — page-nav and opted-in ViewModel load timings
         services.AddSingleton<UiStallWatchdog>();
         services.AddSingleton<Services.AudioAnalysis.BeatGridRecomputeService>();
+        services.AddSingleton<Services.AudioAnalysis.CueLayoutRepairService>();
         services.AddSingleton<IFileInteractionService, FileInteractionService>();
         services.AddSingleton<INotificationService, NotificationServiceAdapter>();
         services.AddSingleton<IClipboardService, ClipboardService>();
         services.AddSingleton<IDialogService, DialogService>();
+        services.AddSingleton<Services.Diagnostics.FeedbackReportService>(); // top-bar "Send feedback" zip
+        services.AddSingleton<Services.Platform.FfmpegInstallerService>();
+        services.AddSingleton<Services.Rekordbox.RekordboxLibraryService>(); // reads Rekordbox's master.db via RekordboxBridge // automatic FFmpeg install (startup + setup wizard)
         services.AddSingleton<Services.Telemetry.FlowBuilderSuggestionTelemetryService>();
         // FlowBuilderView resolves this from DI at construction — without this registration the
         // whole Flow Builder tab silently gets a null DataContext (every control dead).
@@ -817,6 +830,9 @@ public partial class App : Application
 
         
         // Phase 0: ViewModel Refactoring - Library child ViewModels
+        services.AddSingleton<
+            SLSKDONET.Services.Library.ILibraryTrackListViewStateStore,
+            SLSKDONET.Services.Library.LibraryTrackListViewStateStore>();
         services.AddTransient<ViewModels.Library.ProjectListViewModel>();
         services.AddTransient<ViewModels.Library.TrackListViewModel>();
         services.AddTransient<ViewModels.Library.TrackOperationsViewModel>();
@@ -899,6 +915,7 @@ public partial class App : Application
                 var bars = SLSKDONET.Engine.Cueing.DropCountdownCues.ResolveBars(config.DropCountdownMode, genre, bpm, config.CustomCountdownBars);
                 return bars.Count > 0 ? bars : new[] { 16, 8 }; // "Off" only affects manual editing
             };
+            generator.CountdownsAsMemoryCues = () => configManager.GetCurrent().CountdownsAsMemoryCues;
             return generator;
         });
         services.AddSingleton<Services.AnalysisQueueService>();
@@ -909,6 +926,7 @@ public partial class App : Application
                 sp.GetRequiredService<IEventBus>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.AudioAnalysis.LoudnessBackfillService>>(),
                 sp.GetService<Services.AnalysisQueueService>()));
+        services.AddSingleton<Services.AudioAnalysis.TimeTillDropBackfillService>();
         services.AddSingleton<ViewModels.LoudnessBackfillViewModel>();
 
         // ── Library metadata enrichment (Services/Enrichment, DOCS/METADATA_ENRICHMENT.md) ──

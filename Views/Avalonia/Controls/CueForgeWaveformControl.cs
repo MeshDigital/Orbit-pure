@@ -98,6 +98,30 @@ public class CueForgeWaveformControl : Control
         AvaloniaProperty.Register<CueForgeWaveformControl, float[]?>(nameof(OnsetDensityCurve));
     public float[]? OnsetDensityCurve { get => GetValue(OnsetDensityCurveProperty); set => SetValue(OnsetDensityCurveProperty, value); }
 
+    public static readonly StyledProperty<bool> ShowEnergyCurveProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, bool>(nameof(ShowEnergyCurve));
+    public bool ShowEnergyCurve { get => GetValue(ShowEnergyCurveProperty); set => SetValue(ShowEnergyCurveProperty, value); }
+
+    public static readonly StyledProperty<bool> ShowOnsetDensityProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, bool>(nameof(ShowOnsetDensity));
+    public bool ShowOnsetDensity { get => GetValue(ShowOnsetDensityProperty); set => SetValue(ShowOnsetDensityProperty, value); }
+
+    public static readonly StyledProperty<bool> ShowVocalGhostProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, bool>(nameof(ShowVocalGhost));
+    public bool ShowVocalGhost { get => GetValue(ShowVocalGhostProperty); set => SetValue(ShowVocalGhostProperty, value); }
+
+    public static readonly StyledProperty<bool> ShowPhraseSectionsProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, bool>(nameof(ShowPhraseSections));
+    public bool ShowPhraseSections { get => GetValue(ShowPhraseSectionsProperty); set => SetValue(ShowPhraseSectionsProperty, value); }
+
+    public static readonly StyledProperty<bool> ShowBeatGridProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, bool>(nameof(ShowBeatGrid), true);
+    public bool ShowBeatGrid { get => GetValue(ShowBeatGridProperty); set => SetValue(ShowBeatGridProperty, value); }
+
+    public static readonly StyledProperty<double> WaveformGainProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, double>(nameof(WaveformGain), 1.0);
+    public double WaveformGain { get => GetValue(WaveformGainProperty); set => SetValue(WaveformGainProperty, value); }
+
     public static readonly StyledProperty<IBrush?> BackgroundProperty =
         AvaloniaProperty.Register<CueForgeWaveformControl, IBrush?>(nameof(Background));
     public IBrush? Background { get => GetValue(BackgroundProperty); set => SetValue(BackgroundProperty, value); }
@@ -190,9 +214,16 @@ public class CueForgeWaveformControl : Control
     private static readonly IBrush FlagTextBrush = new SolidColorBrush(Color.FromArgb(255, 15, 16, 18)).ToImmutable();
     private static readonly IBrush SelectionBrush = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)).ToImmutable();
     private static readonly IBrush DoubleDropBrush = new SolidColorBrush(Color.FromArgb(22, 170, 114, 255)).ToImmutable();
-    private static readonly IPen BeatPen = new Pen(new SolidColorBrush(Color.FromArgb(20, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
-    private static readonly IPen BarPen = new Pen(new SolidColorBrush(Color.FromArgb(46, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
-    private static readonly IPen PhrasePen = new Pen(new SolidColorBrush(Color.FromArgb(90, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
+    // Grid lines stay faint so cue flags and the waveform read first (bar lines at full opacity
+    // turned the zoomed-out view into a cage).
+    private static readonly IPen BeatPen = new Pen(new SolidColorBrush(Color.FromArgb(16, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
+    private static readonly IPen BarPen = new Pen(new SolidColorBrush(Color.FromArgb(28, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
+    private static readonly IPen PhrasePen = new Pen(new SolidColorBrush(Color.FromArgb(64, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
+    private static readonly IPen RulerTickPen = new Pen(new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
+
+    /// <summary>Below this bar width only 8-bar phrase lines run through the waveform; single bars
+    /// get a tick in the ruler instead.</summary>
+    private const double FullHeightBarMinPx = 12;
     private static readonly IPen DividerPen = new Pen(new SolidColorBrush(Color.FromArgb(30, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
     private static readonly IPen EnergyPen = new Pen(new SolidColorBrush(Color.FromArgb(90, 78, 201, 176)).ToImmutable(), 1.5).ToImmutable();
     private static readonly IBrush PlayheadBrush = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)).ToImmutable();
@@ -272,7 +303,10 @@ public class CueForgeWaveformControl : Control
 
         EnsureStaticBitmap(size);
         if (_staticBitmap is not null)
-            ctx.DrawImage(_staticBitmap, new Rect(size));
+            // Source rect in PIXELS: Avalonia 11.2's DrawImage(img, dest) passes img.Size (DIPs) as the
+            // source rect, which Skia reads as pixels, so at 150% scaling only the top-left 2/3 of a
+            // DPI-scaled bitmap was drawn, stretched (cues/ruler 1.5x off, end of track missing).
+            ctx.DrawImage(_staticBitmap, CueForgeOverviewControl.PixelRect(_staticBitmap), new Rect(size));
 
         DrawPlayhead(ctx, size);
 
@@ -333,12 +367,12 @@ public class CueForgeWaveformControl : Control
         {
             var wave = new Rect(0, RulerHeight, size.Width, Math.Max(1, size.Height - RulerHeight - PhraseMapHeight));
             ctx.FillRectangle(RulerBrush, new Rect(0, 0, size.Width, RulerHeight));
-            if (_waveBitmap != null) ctx.DrawImage(_waveBitmap, wave);
-            DrawSectionBands(ctx, wave);
+            if (_waveBitmap != null) ctx.DrawImage(_waveBitmap, CueForgeOverviewControl.PixelRect(_waveBitmap), wave); // pixel source rect, see Render
+            if (ShowPhraseSections) DrawSectionBands(ctx, wave);
             DrawSectionRegions(ctx, wave);
             DrawPhraseMap(ctx, size, wave);
-            DrawEnergy(ctx, wave);
-            DrawGridAndRuler(ctx, size, wave);
+            if (ShowEnergyCurve) DrawEnergy(ctx, wave);
+            if (ShowBeatGrid) DrawGridAndRuler(ctx, size, wave);
             DrawDoubleDropZone(ctx, wave);
             DrawLoops(ctx, wave);
             DrawCueMarkers(ctx, wave);
@@ -364,7 +398,9 @@ public class CueForgeWaveformControl : Control
 
         var bg = (Background as ISolidColorBrush)?.Color ?? Color.FromRgb(15, 16, 18);
         var low = WaveformLow; var mid = WaveformMid; var high = WaveformHigh;
-        var vocal = VocalDensityCurve; var onset = OnsetDensityCurve;
+        var vocal = ShowVocalGhost ? VocalDensityCurve : null;
+        var onset = ShowOnsetDensity ? OnsetDensityCurve : null;
+        double gain = Math.Clamp(WaveformGain, 1.0, 2.0);
         double dur = TrackDuration;
         bool hasWave = low is { Length: > 1 } && mid is { Length: > 0 } && high is { Length: > 0 } &&
                        mid.Length == low.Length && high.Length == low.Length && dur > 0;
@@ -399,28 +435,12 @@ public class CueForgeWaveformControl : Control
             if (hasWave && frac0 >= 0 && frac0 <= 1)
             {
                 double i0f = t0 / dur * n, i1f = t1 / dur * n;
-                int i0 = (int)Math.Clamp(Math.Floor(i0f), 0, n - 1);
-                int i1 = (int)Math.Clamp(Math.Ceiling(i1f), i0 + 1, n);
-                int r, g, b;
-                if (i1 - i0 <= 1)
-                {
-                    // Zoomed past the sample resolution: interpolate instead of stepping.
-                    double exact = Math.Clamp(i0f, 0, n - 1);
-                    int a0 = (int)exact, a1 = Math.Min(a0 + 1, n - 1);
-                    double f = exact - a0;
-                    r = (int)(low![a0] + (low[a1] - low[a0]) * f);
-                    g = (int)(mid![a0] + (mid[a1] - mid[a0]) * f);
-                    b = (int)(high![a0] + (high[a1] - high[a0]) * f);
-                }
-                else
-                {
-                    int sr = 0, sg = 0, sb = 0;
-                    for (int i = i0; i < i1; i++) { sr += low![i]; sg += mid![i]; sb += high![i]; }
-                    int c = i1 - i0;
-                    r = sr / c; g = sg / c; b = sb / c;
-                }
+                // Preserve the strongest event in each collapsed column. Averaging here erased
+                // kick transients and the exact bass-return edge that makes a drop recognizable.
+                var column = WaveformColumnSampler.Sample(low!, mid!, high!, i0f, i1f);
+                int r = column.Low, g = column.Mid, b = column.High;
                 double amp = (r + g + b) / 3.0 / 255.0;
-                double half = Math.Max(0.5, amp * maxHalf);
+                double half = Math.Max(0.5, amp * gain * maxHalf);
                 top = (int)Math.Floor(centerY - half);
                 bottom = (int)Math.Ceiling(centerY + half);
                 // Brighten so quiet passages stay readable on the dark background.
@@ -492,7 +512,7 @@ public class CueForgeWaveformControl : Control
     {
         var strip = new Rect(0, size.Height - PhraseMapHeight, size.Width, PhraseMapHeight);
         ctx.FillRectangle(RulerBrush, strip);
-        if (PhraseSegments is { Count: > 0 } segments)
+        if (ShowPhraseSections && PhraseSegments is { Count: > 0 } segments)
         {
             foreach (var seg in segments)
             {
@@ -550,8 +570,10 @@ public class CueForgeWaveformControl : Control
             if (x >= -1 && x <= size.Width + 1 && t >= 0)
             {
                 bool phrase = k % 8 == 0;
-                if (phrase || barPx >= 4)
+                if (phrase || barPx >= FullHeightBarMinPx)
                     ctx.DrawLine(phrase ? PhrasePen : BarPen, new Point(Math.Round(x) + 0.5, wave.Top), new Point(Math.Round(x) + 0.5, wave.Bottom));
+                else if (barPx >= 4)
+                    ctx.DrawLine(RulerTickPen, new Point(Math.Round(x) + 0.5, RulerHeight - 3), new Point(Math.Round(x) + 0.5, RulerHeight));
                 if (k >= 0 && k % labelStep == 0)
                 {
                     var label = GetText((k + 1).ToString(CultureInfo.InvariantCulture), MonoTypeface, 10, RulerTextBrush);
@@ -559,7 +581,7 @@ public class CueForgeWaveformControl : Control
                     ctx.DrawLine(BarPen, new Point(Math.Round(x) + 0.5, RulerHeight - 5), new Point(Math.Round(x) + 0.5, RulerHeight));
                 }
             }
-            if (beatPx >= 7)
+            if (beatPx >= FullHeightBarMinPx)
             {
                 for (int i = 1; i < 4; i++)
                 {
@@ -616,17 +638,17 @@ public class CueForgeWaveformControl : Control
     private void DrawCueMarkers(DrawingContext ctx, Rect wave)
     {
         if (Cues is null) return;
-        OrbitCue? selected = null;
+        var occupiedLabels = new List<Rect>();
+        // Reserve the selected name first. Other names yield to it instead of forming an unreadable stack.
+        if (SelectedCue is { IsLoop: false } selected) DrawCue(ctx, wave, selected, true, occupiedLabels);
         foreach (var cue in Cues)
         {
-            if (cue.IsLoop) continue;
-            if (ReferenceEquals(cue, SelectedCue)) { selected = cue; continue; }
-            DrawCue(ctx, wave, cue, false);
+            if (cue.IsLoop || ReferenceEquals(cue, SelectedCue)) continue;
+            DrawCue(ctx, wave, cue, false, occupiedLabels);
         }
-        if (selected != null) DrawCue(ctx, wave, selected, true);
     }
 
-    private void DrawCue(DrawingContext ctx, Rect wave, OrbitCue cue, bool isSelected)
+    private void DrawCue(DrawingContext ctx, Rect wave, OrbitCue cue, bool isSelected, List<Rect> occupiedLabels)
     {
         double x = TimeToX(cue.Timestamp, wave.Width);
         if (x < -FlagWidth || x > wave.Width + 1) return;
@@ -653,8 +675,11 @@ public class CueForgeWaveformControl : Control
 
         var name = string.IsNullOrWhiteSpace(cue.Name) ? cue.Role.ToString() : cue.Name;
         var label = GetText(name, UiTypeface, isSelected ? 11 : 10, LabelTextBrush, isSelected ? FontWeight.SemiBold : FontWeight.Normal);
-        ctx.FillRectangle(LabelBgBrush, new Rect(labelX - 2, wave.Top + 1, label.Width + 4, label.Height), 2);
-        ctx.DrawText(label, new Point(labelX, wave.Top + 1));
+        if (!CueLabelLayout.TryPlace(labelX, label.Width, label.Height, wave.Width,
+                wave.Top + 1, wave.Bottom - 2, occupiedLabels, out var placement)) return;
+        occupiedLabels.Add(placement);
+        ctx.FillRectangle(LabelBgBrush, placement, 2);
+        ctx.DrawText(label, new Point(placement.X + 2, placement.Y));
     }
 
     private static readonly Geometry MemoryMarker = CreateTriangle(new Point(-5, 0), new Point(5, 0), new Point(0, 8));
@@ -972,6 +997,9 @@ public class CueForgeWaveformControl : Control
             change.Property == WaveformLowProperty || change.Property == WaveformMidProperty ||
             change.Property == WaveformHighProperty || change.Property == EnergyCurveProperty ||
             change.Property == VocalDensityCurveProperty || change.Property == OnsetDensityCurveProperty ||
+            change.Property == ShowEnergyCurveProperty || change.Property == ShowOnsetDensityProperty ||
+            change.Property == ShowVocalGhostProperty || change.Property == ShowPhraseSectionsProperty ||
+            change.Property == ShowBeatGridProperty || change.Property == WaveformGainProperty ||
             change.Property == ZoomLevelProperty || change.Property == ScrollOffsetProperty ||
             change.Property == SelectedCueProperty ||
             change.Property == IntroRegionFillProperty || change.Property == IntroRegionEdgeProperty ||

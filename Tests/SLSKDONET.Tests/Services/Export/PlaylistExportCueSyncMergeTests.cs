@@ -15,7 +15,7 @@ using Xunit;
 namespace SLSKDONET.Tests.Services.Export;
 
 /// <summary>
-/// End-to-end tests for the three-way cue merge across two real
+/// End-to-end tests for guarded cue reconciliation across two real
 /// <see cref="PlaylistExportService.ExportToRekordboxXmlAsync"/> calls against the same target file
 /// and the same (in-memory) database — the exact scenario the merge exists for: does a Cue Forge
 /// edit made between exports propagate, and does a Rekordbox hand-edit survive re-export?
@@ -52,7 +52,7 @@ public class PlaylistExportCueSyncMergeTests : IDisposable
         new() { new OrbitCue { Timestamp = timestamp, Name = name, IsLoop = false, SlotIndex = 0 } };
 
     [Fact]
-    public async Task SecondExport_CueEditedInOrbitSinceFirstExport_Propagates()
+    public async Task SecondExport_CueEditedInOrbitSinceFirstExport_PropagatesAfterConfirmation()
     {
         var file = CreateAudioFile("track.mp3");
         var outputXml = Path.Combine(_tempDir, "out.xml");
@@ -69,13 +69,44 @@ public class PlaylistExportCueSyncMergeTests : IDisposable
 
         // Simulate a Cue Forge edit before the second export — same track, moved/renamed cue.
         track.CuePointsJson = JsonSerializer.Serialize(SingleCue("Drop V2", 20.0));
-        await service.ExportToRekordboxXmlAsync("Playlist", new[] { track }, outputXml);
+        var previewedCueConflict = false;
+        await service.ExportToRekordboxXmlAsync("Playlist", new[] { track }, outputXml,
+            confirmOverwrite: conflicts =>
+            {
+                previewedCueConflict = conflicts.Tracks.Single().Fields.Contains("cues / loops");
+                return Task.FromResult(true);
+            });
 
         var element = XDocument.Load(outputXml).Descendants("TRACK").Single(e => e.Attribute("Location") != null);
         var names = element.Elements("POSITION_MARK").Select(m => (string?)m.Attribute("Name")).ToList();
 
+        Assert.True(previewedCueConflict);
         Assert.Contains("Drop V2", names);
         Assert.DoesNotContain("Drop V1", names);
+    }
+
+    [Fact]
+    public async Task SecondExport_CueEditedInOrbitWithoutConfirmation_PreservesRekordboxData()
+    {
+        var file = CreateAudioFile("track.mp3");
+        var outputXml = Path.Combine(_tempDir, "out.xml");
+        var service = CreateService(out _);
+        var track = new PlaylistTrack
+        {
+            Id = Guid.NewGuid(), Title = "T", Artist = "A", ResolvedFilePath = file,
+            TrackUniqueHash = "hash-1",
+            CuePointsJson = JsonSerializer.Serialize(SingleCue("Drop V1", 10.0)),
+        };
+
+        await service.ExportToRekordboxXmlAsync("Playlist", new[] { track }, outputXml);
+        track.CuePointsJson = JsonSerializer.Serialize(SingleCue("Drop V2", 20.0));
+        await service.ExportToRekordboxXmlAsync("Playlist", new[] { track }, outputXml);
+
+        var names = XDocument.Load(outputXml).Descendants("TRACK")
+            .Single(e => e.Attribute("Location") != null)
+            .Elements("POSITION_MARK").Select(m => (string?)m.Attribute("Name")).ToList();
+        Assert.Contains("Drop V1", names);
+        Assert.DoesNotContain("Drop V2", names);
     }
 
     [Fact]
@@ -128,12 +159,19 @@ public class PlaylistExportCueSyncMergeTests : IDisposable
         };
 
         await service.ExportToRekordboxXmlAsync("Playlist", new[] { track }, outputXml);
-        await service.ExportToRekordboxXmlAsync("Playlist", new[] { track }, outputXml);
+        var confirmationRequested = false;
+        await service.ExportToRekordboxXmlAsync("Playlist", new[] { track }, outputXml,
+            confirmOverwrite: _ =>
+            {
+                confirmationRequested = true;
+                return Task.FromResult(true);
+            });
 
         var element = XDocument.Load(outputXml).Descendants("TRACK").Single(e => e.Attribute("Location") != null);
         var names = element.Elements("POSITION_MARK").Select(m => (string?)m.Attribute("Name")).ToList();
 
         Assert.Contains("Drop", names);
+        Assert.False(confirmationRequested);
     }
 
     private sealed class TestDbContextFactory : IDbContextFactory<AppDbContext>

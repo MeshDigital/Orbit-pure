@@ -35,6 +35,8 @@ public partial class WorkstationPage : UserControl
 
     private GridLength _lastExpandedDrawerHeight = new(300, GridUnitType.Pixel);
     private GridLength _lastExpandedPrepRowHeight = new(1, GridUnitType.Star);
+    private bool? _isCompactLayout;
+    private bool _isInspectorDrawerOpen;
     private Point? _flowGridDragStart;
     private bool _overlaySizePinnedByUser;
     private bool _isOverlayResizing;
@@ -257,6 +259,7 @@ public partial class WorkstationPage : UserControl
     private void OnWorkstationSizeChanged(object? sender, SizeChangedEventArgs e)
     {
         ApplyDensityMode();
+        ApplyResponsiveLayout();
 
         if (_overlaySizePinnedByUser)
         {
@@ -264,6 +267,155 @@ public partial class WorkstationPage : UserControl
         }
 
         ApplyAutoOverlaySize();
+    }
+
+    /// <summary>
+    /// Uses the arranged shell for breakpoint decisions, then lets the page fill that shell naturally.
+    /// Larger desktops get more useful waveform and playlist space; high DPI never reduces density.
+    /// </summary>
+    private void ApplyResponsiveLayout()
+    {
+        if (this.FindControl<Grid>("CockpitGrid") is not { } grid ||
+            this.FindControl<Grid>("PrepWorkspaceGrid") is not { } workspace ||
+            this.FindControl<Border>("PrepInspector") is not { } inspector ||
+            this.FindControl<Button>("CompactInspectorToggle") is not { } inspectorToggle)
+        {
+            return;
+        }
+
+        // TransitioningContentControl can measure a page with infinite space. The named shell
+        // is the real arranged viewport; its bounds already exclude navigation and timeline lanes.
+        var window = TopLevel.GetTopLevel(this) as MainWindow;
+        var mainLayout = window?.FindControl<Grid>("MainLayoutGrid");
+        var shell = window?.FindControl<SplitView>("ShellSplitView");
+        var shellWidth = shell?.Bounds.Width ?? 0;
+        var availableWidth = shellWidth > 0
+            ? shellWidth
+            : mainLayout?.ColumnDefinitions[2].ActualWidth
+                ?? (Parent as Control)?.Bounds.Width
+                ?? Bounds.Width;
+        var availableHeight = shell?.Bounds.Height > 0
+            ? shell.Bounds.Height
+            : mainLayout?.Bounds.Height ?? Bounds.Height;
+        if (shell is { IsPaneOpen: true, DisplayMode: SplitViewDisplayMode.Inline })
+        {
+            availableWidth -= shell.OpenPaneLength;
+        }
+
+        availableWidth = Math.Max(0, availableWidth);
+
+        // Do not cap the page to a previously measured size. Star-sized rows and columns must
+        // consume the actual desktop viewport, including when the window or a side panel resizes.
+        grid.Width = double.NaN;
+        grid.Height = double.NaN;
+        grid.MaxWidth = double.PositiveInfinity;
+        grid.MaxHeight = double.PositiveInfinity;
+        grid.HorizontalAlignment = HorizontalAlignment.Stretch;
+        grid.VerticalAlignment = VerticalAlignment.Stretch;
+
+        var isCompact = availableWidth > 0 && availableWidth < 1000;
+        var isSpacious = !isCompact && availableWidth >= 1500 && availableHeight >= 750;
+        var breakpointChanged = _isCompactLayout != isCompact;
+        _isCompactLayout = isCompact;
+        Classes.Set("ws-layout-compact", isCompact);
+        Classes.Set("ws-layout-spacious", isSpacious);
+        if (this.FindControl<Border>("PrepWorkflowStrip") is { } workflowStrip)
+        {
+            workflowStrip.IsVisible = availableWidth <= 0 || availableWidth >= 1180;
+        }
+
+        // Workstation-local token overrides: modestly larger type and controls on roomy desktops,
+        // with taller waveform and playlist rows. Compact screens retain the standard theme scale.
+        Resources["TextSizeCaption"] = isSpacious ? 12d : 11d;
+        Resources["TextSizeBodySm"] = isSpacious ? 13d : 12d;
+        Resources["TextSizeBody"] = isSpacious ? 14d : 13d;
+        Resources["TextSizeMono"] = isSpacious ? 13d : 12d;
+        Resources["TextSizeH2"] = isSpacious ? 18d : 16d;
+        Resources["TextSizeH3"] = isSpacious ? 15d : 14d;
+        Resources["ControlHeight"] = isSpacious ? 36d : 32d;
+        Resources["ControlHeightSm"] = isSpacious ? 30d : 28d;
+        Resources["WsFontSm"] = isSpacious ? 11d : 10d;
+        Resources["WsDeckRowHeight"] = isSpacious ? 80d : 64d;
+        Resources["WsPlaylistRowHeight"] = isSpacious ? 40d : 34d;
+        Resources["WsPlaylistActionHeight"] = isSpacious ? 30d : 26d;
+
+        var inspectorWidth = availableWidth > 0
+            ? Math.Clamp(availableWidth * 0.18, 276, 360)
+            : 276;
+        if (this.FindControl<Canvas>("TimelineTickCanvas") is { } tickCanvas && availableWidth > 0)
+        {
+            tickCanvas.Width = Math.Max(0, availableWidth - (isCompact ? 216 : inspectorWidth + 216));
+        }
+
+        if (breakpointChanged)
+        {
+            _isInspectorDrawerOpen = false;
+        }
+
+        inspectorToggle.IsVisible = isCompact;
+        inspectorToggle.Content = _isInspectorDrawerOpen ? "Close inspector" : "Inspector";
+        workspace.ColumnDefinitions[1].Width = new GridLength(isCompact ? 0 : inspectorWidth);
+
+        if (isCompact)
+        {
+            Grid.SetColumn(inspector, 0);
+            Grid.SetRowSpan(inspector, 3);
+            inspector.Width = 300;
+            inspector.MaxWidth = availableWidth > 24 ? Math.Max(280, availableWidth - 24) : 300;
+            inspector.HorizontalAlignment = HorizontalAlignment.Right;
+            inspector.IsVisible = _isInspectorDrawerOpen;
+            inspector.ZIndex = 50;
+        }
+        else
+        {
+            Grid.SetColumn(inspector, 1);
+            Grid.SetRowSpan(inspector, 2);
+            inspector.Width = double.NaN;
+            inspector.MaxWidth = double.PositiveInfinity;
+            inspector.HorizontalAlignment = HorizontalAlignment.Stretch;
+            inspector.IsVisible = true;
+            inspector.ZIndex = 0;
+        }
+
+        if (grid.RowDefinitions.Count < 4)
+        {
+            return;
+        }
+
+        var drawerRow = grid.RowDefinitions[3];
+        if (IsDrawerRowCollapsed(drawerRow.Height))
+        {
+            return;
+        }
+
+        var drawerWasAutoSized = Math.Abs(drawerRow.Height.Value - _lastExpandedDrawerHeight.Value) < 1;
+        if (!breakpointChanged && !drawerWasAutoSized)
+        {
+            return;
+        }
+
+        var defaultDrawerHeight = availableHeight > 0 && availableHeight < 520
+            ? 110
+            : availableHeight > 0 && availableHeight < 600
+                ? 150
+                : isCompact
+                    ? 180
+                    : availableHeight > 0
+                        ? Math.Clamp(availableHeight * 0.28, 220, 360)
+                        : 280;
+        _lastExpandedDrawerHeight = new GridLength(defaultDrawerHeight);
+        drawerRow.Height = _lastExpandedDrawerHeight;
+    }
+
+    private void OnToggleInspectorClick(object? sender, RoutedEventArgs e)
+    {
+        if (_isCompactLayout != true)
+        {
+            return;
+        }
+
+        _isInspectorDrawerOpen = !_isInspectorDrawerOpen;
+        ApplyResponsiveLayout();
     }
 
     private void OnOverlayResizeGripPressed(object? sender, PointerPressedEventArgs e)
@@ -368,17 +520,21 @@ public partial class WorkstationPage : UserControl
 
     private void ApplyDensityMode()
     {
-        var renderScaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
-        var width = Bounds.Width > 0 ? Bounds.Width : 1400;
-
+        var width = Bounds.Width;
+        var height = Bounds.Height;
         var configuredMode = _appConfig?.WorkstationDensityMode ?? DensityModeAuto;
-        var isCompact = configuredMode == DensityModeCompact || (configuredMode == DensityModeAuto && (renderScaling >= 1.35 || width >= 1650));
-        var isTouch = configuredMode == DensityModeTouch || (configuredMode == DensityModeAuto && renderScaling <= 1.05 && width < 1180);
-        var isNormal = configuredMode == DensityModeNormal || (!isCompact && !isTouch);
+
+        // Density follows available logical space, never physical resolution or DPI. A large
+        // high-DPI desktop has more room for readable controls, not a reason to miniaturize them.
+        var compactFromSpace = configuredMode == DensityModeAuto &&
+                               ((width > 0 && width < 1000) || (height > 0 && height < 600));
+        var isCompact = configuredMode == DensityModeCompact || compactFromSpace;
+        var isTouch = configuredMode == DensityModeTouch && !isCompact;
+        var isNormal = !isCompact && !isTouch;
 
         Classes.Set(DensityCompactClass, isCompact);
-        Classes.Set(DensityTouchClass, !isCompact && isTouch);
-        Classes.Set(DensityNormalClass, isNormal && !isCompact && !isTouch || configuredMode == DensityModeNormal);
+        Classes.Set(DensityTouchClass, isTouch);
+        Classes.Set(DensityNormalClass, isNormal);
     }
 
     private void SetDensityMode(string mode)
@@ -428,10 +584,8 @@ public partial class WorkstationPage : UserControl
     }
 
     /// <summary>
-    /// Set Plan doesn't need the Prep waveform/mixer chrome — it works entirely off the Flow
-    /// Builder card list. Swap which of Row 1 (waveform/mixer) and Row 3 (Flow Drawer) gets the
-    /// dominant share of vertical space instead of always giving Prep's timeline the whole star
-    /// row and squeezing Set Plan's cards into a small fixed-height drawer.
+    /// Legacy mode notifications keep the prep content row and resizable playlist drawer intact.
+    /// Flow Builder is a separate page and no longer changes this layout.
     /// </summary>
     private void ApplyModeLayout(bool isFlowMode)
     {
@@ -440,30 +594,21 @@ public partial class WorkstationPage : UserControl
             return;
         }
 
-        var prepRow = grid.RowDefinitions[1];
+        var contentRow = grid.RowDefinitions[1];
         var drawerRow = grid.RowDefinitions[3];
+        contentRow.Height = new GridLength(1, GridUnitType.Star);
 
         if (isFlowMode)
         {
-            // Remember whatever the user last had, in either mode, so switching back restores it
-            // instead of resetting to a hardcoded default every time.
-            if (prepRow.Height.GridUnitType == GridUnitType.Star)
-            {
-                _lastExpandedPrepRowHeight = prepRow.Height;
-            }
             if (!IsDrawerRowCollapsed(drawerRow.Height) && drawerRow.Height.GridUnitType == GridUnitType.Pixel)
             {
                 _lastExpandedDrawerHeight = drawerRow.Height;
             }
 
-            prepRow.Height = new GridLength(260, GridUnitType.Pixel);
-            drawerRow.Height = new GridLength(1, GridUnitType.Star);
+            drawerRow.Height = new GridLength(0, GridUnitType.Pixel);
         }
         else
         {
-            prepRow.Height = _lastExpandedPrepRowHeight.GridUnitType == GridUnitType.Star
-                ? _lastExpandedPrepRowHeight
-                : new GridLength(1, GridUnitType.Star);
             drawerRow.Height = _lastExpandedDrawerHeight.Value > 1
                 ? _lastExpandedDrawerHeight
                 : new GridLength(280, GridUnitType.Pixel);
@@ -513,16 +658,11 @@ public partial class WorkstationPage : UserControl
             _eventBus = appWithServices.Services.GetService(typeof(IEventBus)) as IEventBus;
         }
 
-        RestoreOverlayLayoutFromConfig();
-
-        if (this.FindControl<TabControl>("DrawerTabs") is { } tabs && _appConfig != null)
+        // The modal track browser was removed; never restore its legacy open state.
+        if (_appConfig?.WorkstationOverlayIsOpen == true && _configManager != null)
         {
-            tabs.SelectedIndex = Math.Clamp(_appConfig.WorkstationDrawerTabIndex, 0, Math.Max(0, tabs.ItemCount - 1));
-        }
-
-        if (_appConfig?.WorkstationOverlayIsOpen == true)
-        {
-            SetTrackListOverlayVisible(true);
+            _appConfig.WorkstationOverlayIsOpen = false;
+            _ = _configManager.SaveAsync(_appConfig);
         }
 
         if (!Design.IsDesignMode &&
@@ -591,6 +731,28 @@ public partial class WorkstationPage : UserControl
         _flowGridDragStart = e.GetPosition(this);
     }
 
+    private void OnPrepTrackDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (sender is not Control { DataContext: PlaylistTrack track } ||
+            DataContext is not WorkstationViewModel vm)
+        {
+            return;
+        }
+
+        // Let a button's own click command run without also triggering the row gesture.
+        if (e.Source is Visual source &&
+            (source is Button || source.FindAncestorOfType<Button>() != null))
+        {
+            return;
+        }
+
+        var command = WorkstationDeckViewModel.IsTrackReadyForWorkstation(track)
+            ? vm.LoadToFocusedDeckCommand
+            : vm.RepairTrackCommand;
+        command.Execute(track).Subscribe();
+        e.Handled = true;
+    }
+
     private void OnAnalyzeSelectedClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not WorkstationViewModel vm) return;
@@ -639,12 +801,10 @@ public partial class WorkstationPage : UserControl
 
     private void OnLoadIntoWorkstationCtaClick(object? sender, RoutedEventArgs e)
     {
-        if (DataContext is not WorkstationViewModel vm || !vm.HasReadyPlaylistTracks)
+        if (DataContext is WorkstationViewModel vm && vm.HasActivePlaylist)
         {
-            return;
+            vm.SetModeCommand.Execute(WorkstationMode.Flow).Subscribe();
         }
-
-        OnOpenTrackListOverlayClick(sender, e);
     }
 
     private async void OnFlowTrackGridPointerMoved(object? sender, PointerEventArgs e)
@@ -1000,7 +1160,7 @@ public partial class WorkstationPage : UserControl
             return;
         }
 
-        if (e.KeyModifiers == KeyModifiers.Control && e.Key == Key.D)
+        if (!vm.IsFlowMode && e.KeyModifiers == KeyModifiers.Control && e.Key == Key.D)
         {
             OnToggleDrawerClick(this, new RoutedEventArgs());
             e.Handled = true;
@@ -1028,47 +1188,8 @@ public partial class WorkstationPage : UserControl
             return;
         }
 
-        if (e.KeyModifiers == KeyModifiers.Control &&
-            (e.Key == Key.D3 || e.Key == Key.NumPad3))
-        {
-            OnOpenTrackListOverlayClick(this, new RoutedEventArgs());
-            e.Handled = true;
-            return;
-        }
-
-        if (e.KeyModifiers == KeyModifiers.Control &&
-            (e.Key == Key.D4 || e.Key == Key.NumPad4))
-        {
-            OnSetOverlayCompactSizeClick(this, new RoutedEventArgs());
-            e.Handled = true;
-            return;
-        }
-
-        if (e.KeyModifiers == KeyModifiers.Control &&
-            (e.Key == Key.D5 || e.Key == Key.NumPad5))
-        {
-            OnSetOverlayComfortSizeClick(this, new RoutedEventArgs());
-            e.Handled = true;
-            return;
-        }
-
-        if (e.KeyModifiers == KeyModifiers.Control &&
-            (e.Key == Key.D6 || e.Key == Key.NumPad6))
-        {
-            OnSetOverlayFullSizeClick(this, new RoutedEventArgs());
-            e.Handled = true;
-            return;
-        }
-
-        if (e.Key == Key.Escape)
-        {
-            if (this.FindControl<Border>("TrackListOverlay") is { IsVisible: true })
-            {
-                SetTrackListOverlayVisible(false);
-                e.Handled = true;
-                return;
-            }
-        }
+        // Do not trigger invisible deck, drawer or timeline commands from Build Set.
+        if (vm.IsFlowMode) return;
 
         if (e.KeyModifiers == KeyModifiers.Control && e.Key == Key.Z)
         {
