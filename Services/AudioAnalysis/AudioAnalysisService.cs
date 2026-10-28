@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Data.Essentia;
 using SLSKDONET.Engine.Analysis;
+using SLSKDONET.Models;
 using SLSKDONET.Services.Similarity;
 
 namespace SLSKDONET.Services.AudioAnalysis;
@@ -102,8 +103,16 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         string trackUniqueHash,
         IProgress<(int Percent, string Step)>? progress = null,
         string? correlationId = null,
+        AnalysisEngine engines = AnalysisEngine.Pipeline,
         CancellationToken cancellationToken = default)
     {
+        // Nothing requested means nothing to do: the caller decides which engines a run is for.
+        if (engines == AnalysisEngine.None)
+        {
+            _logger.LogDebug("[AudioAnalysis] No engines requested for {Hash}; skipping.", trackUniqueHash);
+            return null;
+        }
+
         if (string.IsNullOrWhiteSpace(filePath))
         {
             _logger.LogWarning("[AudioAnalysis] FilePath is null or empty for hash {Hash}", trackUniqueHash);
@@ -149,8 +158,11 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 features.TrackDuration = durationSeconds;
 
             // ── Step 4: Extract waveform bands ────────────────────────────
-            progress?.Report((25, "Extracting waveform..."));
-            await _waveform.ExtractAsync(tempWav, features, cancellationToken).ConfigureAwait(false);
+            if (engines.Has(AnalysisEngine.Waveform))
+            {
+                progress?.Report((25, "Extracting waveform..."));
+                await _waveform.ExtractAsync(tempWav, features, cancellationToken).ConfigureAwait(false);
+            }
 
             // ── Step 4b/4c: Decode once, feed both the RMS energy curve and the ─
             // ── multi-candidate drop-signal engines ─────────────────────────
@@ -183,7 +195,10 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 // playback. 0 = not measured (the column is NOT NULL); readers treat ≥ 0 as unknown.
                 try
                 {
-                    features.LoudnessLUFS = (float)(IntegratedLoudnessMeter.MeasureIntegratedLufs(pcmSamples, pcmSampleRate, pcmChannels) ?? IntegratedLoudnessMeter.SilentMarker);
+                    if (engines.Has(AnalysisEngine.Loudness))
+                    {
+                        features.LoudnessLUFS = (float)(IntegratedLoudnessMeter.MeasureIntegratedLufs(pcmSamples, pcmSampleRate, pcmChannels) ?? IntegratedLoudnessMeter.SilentMarker);
+                    }
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -201,7 +216,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 try
                 {
                     rmsCurve = _energyAnalysis.ComputeRawEnergyCurveFromPcm(pcmSamples, pcmSampleRate, pcmChannels);
-                    if (rmsCurve.Count > 0)
+                    if (rmsCurve.Count > 0 && engines.Has(AnalysisEngine.Structure))
                         features.EnergyCurveJson = JsonSerializer.Serialize(rmsCurve);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
@@ -266,6 +281,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 // so genre classification and mood scoring were previously running on a weak
                 // BPM-only heuristic and a dead 0-value fallback respectively, for every track.
                 // Feeds InferAndApplyGenreAsync (genre) and mood fields directly below.
+                if (engines.Has(AnalysisEngine.Mood))
                 try
                 {
                     var mono16k = EffnetMelSpectrogramExtractor.ResampleTo16k(ToMono(pcmSamples, pcmChannels), pcmSampleRate);
@@ -314,7 +330,8 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
 
             // ── Step 5: Essentia BPM / Key / Beatgrid (optional) ─────────
             EssentiaOutput? essentiaOutput = null;
-            if (_essentia.IsAvailable)
+            var needsEssentia = (engines & (AnalysisEngine.Tempo | AnalysisEngine.Key | AnalysisEngine.Mood)) != 0;
+            if (_essentia.IsAvailable && needsEssentia)
             {
                 progress?.Report((45, "Running BPM/key analysis..."));
                 essentiaOutput = await _essentia.RunAsync(tempWav, cancellationToken)
@@ -322,9 +339,11 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
 
                 if (essentiaOutput is not null)
                 {
-                    _bpm.Detect(essentiaOutput, features);
-                    _key.Detect(essentiaOutput, features);
-                    _beatgrid.Detect(essentiaOutput, features);
+                    // One Essentia pass yields tempo, key and the high-level descriptors together,
+                    // so asking for one of them runs the pass; only the requested outputs are kept.
+                    if (engines.Has(AnalysisEngine.Tempo)) _bpm.Detect(essentiaOutput, features);
+                    if (engines.Has(AnalysisEngine.Key)) _key.Detect(essentiaOutput, features);
+                    if (engines.Has(AnalysisEngine.Tempo)) _beatgrid.Detect(essentiaOutput, features);
 
                     // Downbeat-phase validation: BeatgridDetectionService anchors on the *first*
                     // detected beat tick, which carries no bar-phase information from a generic
@@ -418,25 +437,28 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             }
 
             // ── Step 5b: Genre inference + canonical normalisation ──────
-            await InferAndApplyGenreAsync(essentiaOutput, features, onnxGenrePrediction, cancellationToken).ConfigureAwait(false);
+            if (engines.Has(AnalysisEngine.Mood))
+                await InferAndApplyGenreAsync(essentiaOutput, features, onnxGenrePrediction, cancellationToken).ConfigureAwait(false);
 
             // ── Step 5c: Fit a precise constant grid to the beat ticks ───
             // Runs after genre inference because that step can still change the BPM's octave. Replaces
             // the integer/half-time-quantised BPM with a fitted one and re-picks the downbeat from the
             // sub-bass structure events — see BeatGridFitter for the measured before/after.
             var rawTicks = BeatGridFitter.ParseTicks(features.BeatGridJson);
-            if (BeatGridFitter.ApplyTo(features, rawTicks, BeatGridFitter.StructuralEventsFrom(features)))
+            if (engines.Has(AnalysisEngine.Tempo) &&
+                BeatGridFitter.ApplyTo(features, rawTicks, BeatGridFitter.StructuralEventsFrom(features)))
                 _logger.LogDebug("[AudioAnalysis] Beat grid fitted for {File}: {Bpm:F2} BPM, downbeat {Downbeat:F3}s",
                     Path.GetFileName(filePath), features.Bpm, features.DownbeatOffsetSeconds);
 
             // If Rekordbox has analysed this exact audio, its grid (real downbeats included) wins.
-            if (_rekordbox?.IsAvailable == true
+            if (engines.Has(AnalysisEngine.Tempo)
+                && _rekordbox?.IsAvailable == true
                 && await _rekordbox.GetBeatGridAsync(filePath, cancellationToken).ConfigureAwait(false) is { } rbGrid
                 && BeatGridFitter.ApplyRekordboxGrid(features, rbGrid, rawTicks))
                 _logger.LogDebug("[AudioAnalysis] Using Rekordbox's beat grid for {File}: {Bpm:F2} BPM", Path.GetFileName(filePath), features.Bpm);
 
             // ── Step 6: Cue point detection ───────────────────────────────
-            if (features.Bpm > 0 && features.TrackDuration > 0)
+            if (engines.Has(AnalysisEngine.Structure) && features.Bpm > 0 && features.TrackDuration > 0)
             {
                 progress?.Report((70, "Detecting cue points..."));
                 var cues = await _cues
@@ -451,6 +473,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             await _db.SaveAudioFeaturesAsync(features).ConfigureAwait(false);
 
             // ── Step 8: A10.1 Track fingerprint build/persist (fail-open) ─
+            if (engines.Has(AnalysisEngine.Fingerprint))
             try
             {
                 var phrases = await _db.GetPhrasesByHashAsync(trackUniqueHash).ConfigureAwait(false);

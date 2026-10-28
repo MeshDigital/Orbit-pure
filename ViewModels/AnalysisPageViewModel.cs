@@ -14,6 +14,7 @@ using ReactiveUI;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
+using SLSKDONET.Services.AudioAnalysis;
 using SLSKDONET.Services.Library;
 using SLSKDONET.Utils;
 
@@ -240,7 +241,47 @@ public class AnalysisTrackItem : ReactiveObject
         }
     }
 
-    public bool HasAnalysis => AnalysisData is not null;
+    // ── Engine coverage ───────────────────────────────────────────────────
+    // Null until a coverage pass has run for this row. When it is set, it — not the fabricated
+    // AnalysisData — decides what the row claims about analysis.
+
+    private TrackAnalysisCoverage? _coverage;
+
+    /// <summary>What this track has and what it lacks, per engine. Null when not yet measured.</summary>
+    public TrackAnalysisCoverage? Coverage
+    {
+        get => _coverage;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _coverage, value);
+            this.RaisePropertyChanged(nameof(HasCoverage));
+            this.RaisePropertyChanged(nameof(IsFullyAnalysed));
+            this.RaisePropertyChanged(nameof(HasMissingEngines));
+            this.RaisePropertyChanged(nameof(MissingEnginesSummary));
+            this.RaisePropertyChanged(nameof(HasAnalysis));
+            this.RaisePropertyChanged(nameof(HasIncompleteAnalysis));
+            this.RaisePropertyChanged(nameof(HasSufficientAnalysis));
+            this.RaisePropertyChanged(nameof(IncompleteAnalysisSummary));
+        }
+    }
+
+    public bool HasCoverage => _coverage is not null;
+
+    /// <summary>True only when every engine in the coverage mask produced output.</summary>
+    public bool IsFullyAnalysed => _coverage?.IsComplete ?? false;
+
+    /// <summary>True when this track is measurable and at least one engine is missing.</summary>
+    public bool HasMissingEngines => _coverage is { IsComplete: false };
+
+    /// <summary>"Key, Cues and Fingerprint" for the row chip; empty when complete or unmeasured.</summary>
+    public string MissingEnginesSummary => _coverage is { IsComplete: false } coverage
+        ? AnalysisEngines.Describe(coverage.Missing)
+        : string.Empty;
+
+    /// <summary>The engines a "run what's missing" action should queue for this row.</summary>
+    public AnalysisEngine RunnableMissingEngines => _coverage?.RunnableMissing ?? AnalysisEngine.None;
+
+    public bool HasAnalysis => _coverage?.HasAnyOutput ?? AnalysisData is not null;
     public bool HasIncompleteAnalysis => GetIncompleteAnalysisReasons().Count > 0;
     public bool HasSufficientAnalysis => !HasIncompleteAnalysis;
     public string IncompleteAnalysisSummary => BuildIncompleteAnalysisSummary(GetIncompleteAnalysisReasons());
@@ -1091,11 +1132,13 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         CorruptFileRemediationService? remediationService = null,
         AnalyzeTrackStructureJob? cueStructureJob = null,
         LoudnessBackfillViewModel? loudnessBackfill = null,
-        EnrichmentViewModel? enrichment = null)
+        EnrichmentViewModel? enrichment = null,
+        AnalysisCoverageService? coverageService = null)
     {
         _eventBus = eventBus;
         LoudnessBackfill = loudnessBackfill;
         Enrichment = enrichment;
+        _coverageService = coverageService;
         _libraryService = libraryService;
         _clipboardService = clipboardService;
         _lifecycleProjectionService = lifecycleProjectionService;
@@ -1162,6 +1205,17 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         LibraryTracks.CollectionChanged += (_, _) => RefreshComputedState();
         AnalysisQueue.CollectionChanged += (_, _) => RefreshComputedState();
         PerformanceProbeRuns.CollectionChanged += (_, _) => this.RaisePropertyChanged(nameof(HasPerformanceProbeRuns));
+
+        // ── Playlist coverage ────────────────────────────────────────────────
+        RefreshCoverageCommand = ReactiveCommand.CreateFromTask(RefreshCoverageAsync);
+        RunMissingForPlaylistCommand = ReactiveCommand.CreateFromTask(RunMissingForPlaylistAsync);
+        RunMissingForTrackCommand = ReactiveCommand.Create<AnalysisTrackItem>(
+            item => QueueEngines(new[] { item }, item.RunnableMissingEngines));
+        RunEngineForPlaylistCommand = ReactiveCommand.Create<EngineCoverageRow>(
+            row => QueueEngines(LibraryTracks.ToList(), row.Engine));
+
+        if (_coverageService is not null)
+            _ = LoadCoveragePlaylistsAsync();
 
         // React to per-track progress events
         _eventBus.GetEvent<AnalysisProgressEvent>()
@@ -2461,6 +2515,206 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         _cts.Dispose();
     }
 
+
+    // ── Playlist analysis coverage ────────────────────────────────────────
+    // "How much of this set is actually analysed, and what exactly is missing?" — the question
+    // the old page could not answer because every library row was mapped with a fabricated
+    // AnalysisData and therefore always looked complete.
+
+    private readonly AnalysisCoverageService? _coverageService;
+    private PlaylistAnalysisCoverage? _coverage;
+    private bool _isCoverageLoading;
+    private string? _coverageError;
+
+    /// <summary>Playlists offered in the picker, plus a "whole library" entry at the top.</summary>
+    public ObservableCollection<PlaylistChoice> CoveragePlaylists { get; } = new();
+
+    private PlaylistChoice? _selectedCoveragePlaylist;
+
+    /// <summary>Which playlist the coverage card describes. Changing it reloads the card.</summary>
+    public PlaylistChoice? SelectedCoveragePlaylist
+    {
+        get => _selectedCoveragePlaylist;
+        set
+        {
+            if (ReferenceEquals(_selectedCoveragePlaylist, value)) return;
+            this.RaiseAndSetIfChanged(ref _selectedCoveragePlaylist, value);
+            _ = RefreshCoverageAsync();
+        }
+    }
+
+    /// <summary>One row per engine: how many tracks have it, how many do not, and a run action.</summary>
+    public ObservableCollection<EngineCoverageRow> CoverageRows { get; } = new();
+
+    public PlaylistAnalysisCoverage? Coverage
+    {
+        get => _coverage;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _coverage, value);
+            this.RaisePropertyChanged(nameof(HasCoverageData));
+            this.RaisePropertyChanged(nameof(CoverageHeadline));
+            this.RaisePropertyChanged(nameof(CoverageSummary));
+            this.RaisePropertyChanged(nameof(CoverageOnDiskCount));
+            this.RaisePropertyChanged(nameof(PlaylistMissingEngines));
+            this.RaisePropertyChanged(nameof(CanRunMissingForPlaylist));
+        }
+    }
+
+    public bool IsCoverageLoading
+    {
+        get => _isCoverageLoading;
+        private set => this.RaiseAndSetIfChanged(ref _isCoverageLoading, value);
+    }
+
+    public string? CoverageError
+    {
+        get => _coverageError;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _coverageError, value);
+            this.RaisePropertyChanged(nameof(HasCoverageError));
+        }
+    }
+
+    public bool HasCoverageError => !string.IsNullOrWhiteSpace(CoverageError);
+
+    public bool HasCoverageData => Coverage is { TotalTracks: > 0 };
+
+    /// <summary>"92 of 140 tracks fully analysed" — the one number this card exists to show.</summary>
+    public string CoverageHeadline => Coverage is null
+        ? "No playlist selected"
+        : $"{Coverage.FullyAnalyzedTracks} of {Coverage.TotalTracks} tracks fully analysed";
+
+    /// <summary>The breakdown line under the headline.</summary>
+    public string CoverageSummary => Coverage is null
+        ? string.Empty
+        : Coverage switch
+        {
+            { TotalTracks: 0 } => "No downloaded tracks in this playlist yet.",
+            { IsComplete: true } => "Nothing missing — every engine has output for every track.",
+            _ => $"{Coverage.PartiallyAnalyzedTracks} partially analysed · {Coverage.UnanalysedTracks} not analysed at all",
+        };
+
+    /// <summary>How many tracks in the selection are downloaded and on disk (the measurable set).</summary>
+    public int CoverageOnDiskCount => Coverage?.TotalTracks ?? 0;
+
+    /// <summary>Every engine missing somewhere in this playlist.</summary>
+    public AnalysisEngine PlaylistMissingEngines => Coverage?.MissingAnywhere ?? AnalysisEngine.None;
+
+    public bool CanRunMissingForPlaylist =>
+        _coverageService is not null && PlaylistMissingEngines != AnalysisEngine.None && !IsCoverageLoading;
+
+    public ReactiveCommand<Unit, Unit> RefreshCoverageCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> RunMissingForPlaylistCommand { get; private set; } = null!;
+    public ReactiveCommand<AnalysisTrackItem, Unit> RunMissingForTrackCommand { get; private set; } = null!;
+    public ReactiveCommand<EngineCoverageRow, Unit> RunEngineForPlaylistCommand { get; private set; } = null!;
+
+    private async Task RefreshCoverageAsync()
+    {
+        if (_coverageService is null) return;
+
+        IsCoverageLoading = true;
+        CoverageError = null;
+        try
+        {
+            var selection = SelectedCoveragePlaylist;
+            Coverage = selection?.PlaylistId is { } playlistId
+                ? await _coverageService.GetPlaylistCoverageAsync(playlistId, selection.Name)
+                : await _coverageService.GetLibraryCoverageAsync();
+
+            RebuildCoverageRows();
+            ApplyCoverageToTracks();
+        }
+        catch (Exception ex)
+        {
+            CoverageError = ex.Message;
+        }
+        finally
+        {
+            IsCoverageLoading = false;
+            this.RaisePropertyChanged(nameof(CanRunMissingForPlaylist));
+        }
+    }
+
+    private void RebuildCoverageRows()
+    {
+        CoverageRows.Clear();
+        if (Coverage is null) return;
+
+        foreach (var summary in Coverage.EngineRows)
+            CoverageRows.Add(new EngineCoverageRow(summary));
+    }
+
+    /// <summary>
+    /// Pushes measured coverage onto the library rows, matched by track hash. The library list and
+    /// a playlist are different populations in different orders, so positional matching would
+    /// attribute one track's gaps to another.
+    /// </summary>
+    private void ApplyCoverageToTracks()
+    {
+        if (Coverage is null) return;
+
+        foreach (var item in LibraryTracks)
+            item.Coverage = Coverage.ForTrack(item.TrackId);
+    }
+
+    /// <summary>Queues the given engines for a set of tracks, reusing the normal analysis queue.</summary>
+    private void QueueEngines(IEnumerable<AnalysisTrackItem> tracks, AnalysisEngine engines)
+    {
+        if (engines == AnalysisEngine.None) return;
+
+        foreach (var item in tracks)
+        {
+            var requested = item.HasCoverage ? item.RunnableMissingEngines & engines : engines;
+            if (requested == AnalysisEngine.None) continue;
+
+            if (!AnalysisQueue.Contains(item))
+            {
+                item.AnalysisStatus = AnalysisRunStatus.Queued;
+                AnalysisQueue.Add(item);
+            }
+
+            item.IsInQueue = true;
+            _eventBus.Publish(new TrackAnalysisRequestedEvent(item.TrackId, AnalysisTier.Tier1, false, requested));
+        }
+
+        this.RaisePropertyChanged(nameof(QueueTrackCount));
+        this.RaisePropertyChanged(nameof(IsQueueEmpty));
+        RefreshComputedStateInternal();
+    }    /// <summary>Loads the playlist picker, then the coverage for the current selection.</summary>
+    private async Task LoadCoveragePlaylistsAsync()
+    {
+        try
+        {
+            CoveragePlaylists.Clear();
+            CoveragePlaylists.Add(PlaylistChoice.Library);
+
+            if (_libraryService is not null)
+            {
+                var jobs = await _libraryService.LoadAllPlaylistJobsAsync().ConfigureAwait(true);
+                foreach (var job in jobs.Where(j => !j.IsDeleted).OrderByDescending(j => j.DateUpdated))
+                {
+                    CoveragePlaylists.Add(new PlaylistChoice(job.Id, job.SourceTitle, job.PlaylistTracks?.Count ?? 0));
+                }
+            }
+
+            _selectedCoveragePlaylist = CoveragePlaylists.Count > 0 ? CoveragePlaylists[0] : null;
+            this.RaisePropertyChanged(nameof(SelectedCoveragePlaylist));
+            await RefreshCoverageAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            CoverageError = ex.Message;
+        }
+    }
+
+    /// <summary>Queues every engine that is missing anywhere in the selected playlist.</summary>
+    private Task RunMissingForPlaylistAsync()
+    {
+        QueueEngines(LibraryTracks.ToList(), PlaylistMissingEngines);
+        return Task.CompletedTask;
+    }
 
     // ── Automix flow (#43) ────────────────────────────────────────────────────
 

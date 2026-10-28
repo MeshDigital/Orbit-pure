@@ -308,7 +308,7 @@ public class AnalysisQueueService : IDisposable
             PublishProgress(evt.TrackGlobalId, "Analyzing audio", 20);
 
             var analysis = await _audioAnalysisService
-                .AnalyzeFileAsync(filePath, evt.TrackGlobalId, cancellationToken: CancellationToken.None)
+                .AnalyzeFileAsync(filePath, evt.TrackGlobalId, engines: evt.Engines, cancellationToken: CancellationToken.None)
                 .ConfigureAwait(false);
 
             if (analysis is null)
@@ -323,8 +323,13 @@ public class AnalysisQueueService : IDisposable
                 return;
             }
 
-            PublishProgress(evt.TrackGlobalId, "Computing structure", 75);
-            await _analyzeTrackStructureJob.ExecuteAsync(evt.TrackGlobalId).ConfigureAwait(false);
+            // Structure and cue rows are produced by the structure job, not by AnalyzeFileAsync,
+            // so a partial run only enters it when it actually asked for that output.
+            if ((evt.Engines & (AnalysisEngine.Structure | AnalysisEngine.Cues)) != 0)
+            {
+                PublishProgress(evt.TrackGlobalId, "Computing structure", 75);
+                await _analyzeTrackStructureJob.ExecuteAsync(evt.TrackGlobalId).ConfigureAwait(false);
+            }
             await UpdateTrackAnalysisStatusAsync(evt.TrackGlobalId, AnalysisStatus.Completed, null).ConfigureAwait(false);
             _eventBus.Publish(new TrackAnalysisUpdatedEvent(evt.TrackGlobalId, DateTime.UtcNow, analysis.Id));
 

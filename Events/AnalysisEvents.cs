@@ -20,10 +20,21 @@ public record TrackStructureAnalysisCompletedEvent(
 public record OpenStemWorkspaceRequestEvent(PlaylistTrack Track, string? PreferredDeck = null, bool OpenStemRack = false);
 public record AnalysisProgressEvent(string TrackGlobalId, string CurrentStep, int ProgressPercent, float BpmConfidence = 0, float KeyConfidence = 0, float IntegrityScore = 0);
 public record TrackAnalysisFailedEvent(string TrackGlobalId, string Error);
+/// <summary>
+/// Requests an analysis run for one track.
+/// </summary>
+/// <param name="TrackGlobalId">The track's unique hash.</param>
+/// <param name="Tier">Analysis tier (kept for compatibility with the tiered pipeline).</param>
+/// <param name="IsHighPriority">Queues ahead of normal work.</param>
+/// <param name="Engines">
+/// Which engines to run. The default is every engine one pipeline pass can produce; a track that
+/// is only missing its key can be queued for <see cref="AnalysisEngine.Key"/> alone.
+/// </param>
 public record TrackAnalysisRequestedEvent(
     string TrackGlobalId,
     AnalysisTier Tier = AnalysisTier.Tier1,
-    bool IsHighPriority = false);
+    bool IsHighPriority = false,
+    AnalysisEngine Engines = AnalysisEngine.Pipeline);
 public record TrackAnalysisUpdatedEvent(string TrackGlobalId, DateTime UpdatedAtUtc, Guid? DatabaseId = null);
 public record StemSeparationRequestedEvent(string TrackGlobalId, string FilePath);
 
