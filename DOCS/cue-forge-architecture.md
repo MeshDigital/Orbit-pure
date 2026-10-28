@@ -250,6 +250,14 @@ Playback starts exactly on the cue: `PlayFrom` seeks first, and the player waits
 while that background seek was still running let the reader deliver samples from its old position,
 heard as "playback starts before the cue".
 
+**The playlist gets its track back.** Cue Forge only ever borrows the shared player: `PlayerBorrow`
+remembers the playlist's file, title/artist, position and whether it was playing. Saving (Save /
+Ctrl+S, and the auto-save on track switch) and leaving the page both hand the player back to that
+track at its old position, and **resume it when it was playing** — prelistening pauses the mix, but
+the mix continues once the edit is saved instead of staying silent on the inspected track. The
+queue's `CurrentTrack` is never replaced by the borrowed file, so auto-advance and next/previous
+keep working.
+
 ## Transition overlay (Flow Builder)
 
 `TransitionOverlayModel` (pure) puts A's outgoing part and B's incoming part on one timeline in seconds

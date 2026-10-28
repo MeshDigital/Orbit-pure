@@ -154,6 +154,53 @@ public class CueForgeViewModelEditingTests
         Assert.Equal(0.4, player.Seeks.Last(), 6);
     }
 
+    /// <summary>
+    /// The reported flow: a playlist track is playing, Cue Forge is opened on another track to set
+    /// cues, the cue is prelistened (the playlist track pauses), then Save. Saving must hand the
+    /// player back to the playlist track at the position it was at and let it carry on — not leave
+    /// the mix silent on the track that was just inspected.
+    /// </summary>
+    [Fact]
+    public async Task Saving_WhileAuditioning_ResumesThePlaylistTrack()
+    {
+        var (vm, _, player) = await CreateLoaded();
+        player.IsPlaying = true;
+        player.CurrentFilePath = "C:/music/playlist-track.flac";
+        player.Title = "Playing now"; player.Artist = "DJ"; player.PositionFraction = 0.25;
+        vm.Session.ReplaceAllCues(new[]
+        {
+            new OrbitCue { Timestamp = 30.0, Name = "[DROP 1]", Role = CueRole.Drop },
+        }, "seeded");
+
+        vm.Session.PrelistenCue(vm.Session.Cues[0]);
+        Assert.Equal("C:/music/track-a.flac", player.CurrentFilePath);
+        Assert.True(player.IsPlaying);
+
+        await vm.Session.SaveAsync();
+
+        Assert.False(vm.Session.IsDirty);
+        Assert.Equal("C:/music/playlist-track.flac", player.CurrentFilePath);
+        Assert.True(player.IsPlaying, "the playlist track must resume after saving");
+        Assert.Equal(0.25, player.Seeks.Last(), 6);
+    }
+
+    [Fact]
+    public async Task Leaving_WhileThePlaylistWasPlaying_ResumesIt()
+    {
+        var (vm, _, player) = await CreateLoaded();
+        player.IsPlaying = true;
+        player.CurrentFilePath = "C:/music/playlist-track.flac";
+        player.PositionFraction = 0.6;
+
+        await vm.PlayPauseCommand.Execute();          // borrows the player for the open track
+        Assert.True(player.IsPlaying);
+        vm.OnViewDeactivated();
+
+        Assert.Equal("C:/music/playlist-track.flac", player.CurrentFilePath);
+        Assert.True(player.IsPlaying);
+        Assert.Equal(0.6, player.Seeks.Last(), 6);
+    }
+
     [Fact]
     public async Task Leaving_AfterThePlayerMovedOn_DoesNotOverrideIt()
     {

@@ -804,6 +804,10 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         };
         Session.ConfirmRevert = ConfirmRevertAsync;
         Session.ActiveLoopRemoved += (_, _) => IsAuditioningLoop = false;
+        // Saving is the end of the edit session: hand the player back so the playlist track that
+        // was interrupted keeps playing (paused only while the cue was auditioned). Without this,
+        // the mix stayed silent on the inspected track until the page was left.
+        Session.Saved += (_, _) => HandBackPlayer(resumePlayback: true);
 
         var hasTrack = this.WhenAnyValue(x => x.TrackHash, h => !string.IsNullOrEmpty(h));
         var notGenerating = this.WhenAnyValue(x => x.IsGenerating, g => !g);
@@ -1211,7 +1215,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         }
     }
 
-    private sealed record PlayerBorrow(string? PreviousPath, string PreviousTitle, string PreviousArtist, double PreviousFraction);
+    private sealed record PlayerBorrow(
+        string? PreviousPath, string PreviousTitle, string PreviousArtist, double PreviousFraction, bool WasPlaying);
     private PlayerBorrow? _borrow;
 
     /// <summary>True when the shared player currently holds this track's audio.</summary>
@@ -1235,7 +1240,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         if (_borrow == null)
         {
             var prev = _transport.CurrentFilePath;
-            _borrow = new PlayerBorrow(prev, _transport.Title, _transport.Artist, _transport.PositionFraction);
+            _borrow = new PlayerBorrow(prev, _transport.Title, _transport.Artist, _transport.PositionFraction, _transport.IsPlaying);
         }
         _transport.Pause();
         _transport.LoadPaused(_trackFilePath!, TrackName, TrackArtist);
@@ -1271,13 +1276,27 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         return LoadTrackAsync(playing, _transport.Title, _transport.Artist);
     }
 
-    /// <summary>The page was navigated away from. Stops loop audition and, if Cue Forge borrowed
-    /// the shared player, pauses it and reloads the track it had before (at its old position), so
-    /// the main player is never left on a track its queue doesn't know about.</summary>
+    /// <summary>
+    /// The page was navigated away from. Stops loop audition and, if Cue Forge borrowed the shared
+    /// player, gives it back to the playlist track it interrupted (at its old position) and lets it
+    /// keep playing if it was playing before.
+    /// </summary>
     public void OnViewDeactivated()
     {
         _keepExplicitTrackUntilUtc = default;
         IsAuditioningLoop = false;
+        HandBackPlayer(resumePlayback: true);
+    }
+
+    /// <summary>
+    /// Gives the shared player back to the track Cue Forge borrowed it from (the playlist's current
+    /// track), at the position it had. With <paramref name="resumePlayback"/> the playlist carries on
+    /// playing when it was playing before the audition — saving an edit no longer leaves the mix
+    /// silent on the track that was just inspected. The queue is untouched: only the borrowed file
+    /// was ever replaced, <c>CurrentTrack</c> still points at the playlist track.
+    /// </summary>
+    private void HandBackPlayer(bool resumePlayback)
+    {
         if (_borrow is not { } borrow) return;
         _borrow = null;
         if (!IsAttachedToPlayer) return; // someone else already took the player over
@@ -1286,6 +1305,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         {
             _transport.LoadPaused(borrow.PreviousPath!, borrow.PreviousTitle, borrow.PreviousArtist);
             _transport.SeekFraction(borrow.PreviousFraction);
+            if (resumePlayback && borrow.WasPlaying) _transport.Play();
         }
         this.RaisePropertyChanged(nameof(IsPlaying));
     }
