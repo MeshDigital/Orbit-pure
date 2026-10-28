@@ -372,7 +372,8 @@ public class AnalysisQueueService : IDisposable
             {
                 PublishProgress(evt.TrackGlobalId, "Generating cue points", 75);
                 if (!await _analyzeTrackStructureJob.RegenerateCuesOnlyAsync(evt.TrackGlobalId).ConfigureAwait(false))
-                    throw new InvalidOperationException("Cue generation could not run against the stored analysis data.");
+                    throw new InvalidOperationException(
+                        "Cue generation produced no cue points. Ensure BPM, duration and structure are available, then retry.");
             }
             await UpdateTrackAnalysisStatusAsync(evt.TrackGlobalId, AnalysisStatus.Completed, null).ConfigureAwait(false);
             _eventBus.Publish(new TrackAnalysisUpdatedEvent(evt.TrackGlobalId, DateTime.UtcNow, analysis.Id));

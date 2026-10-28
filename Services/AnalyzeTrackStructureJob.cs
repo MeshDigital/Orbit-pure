@@ -271,6 +271,17 @@ public sealed class AnalyzeTrackStructureJob
                 features.VocalIntensity > 0 ? (double?)features.VocalIntensity : null,
                 cancellationToken);
 
+            if (cues.Count == 0)
+            {
+                _logger.LogWarning(
+                    "[AnalyzeTrackStructureJob] Cues-only regen produced no cues for {Hash} " +
+                    "(BPM={Bpm}, duration={Duration:F1}s, phrases={PhraseCount}, drop signals={DropSignalCount}).",
+                    trackUniqueHash, features.Bpm, features.TrackDuration,
+                    analysisPipelineResult.PhraseSegments.Count,
+                    analysisPipelineResult.SubBassReturnTimestamps.Count + analysisPipelineResult.NoveltyDropSignatures.Count);
+                return false;
+            }
+
             _logger.LogInformation(
                 "[AnalyzeTrackStructureJob] Cues-only regen finished for {Hash}: {CueCount} cue points.",
                 trackUniqueHash, cues.Count);
