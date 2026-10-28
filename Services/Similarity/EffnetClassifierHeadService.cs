@@ -117,6 +117,7 @@ public sealed class EffnetClassifierHeadService : IDisposable
         private readonly string _modelPath;
         private readonly int _classCount;
         private readonly ILogger _logger;
+        private readonly object _loadGate = new();
         private InferenceSession? _session;
         private bool _loadAttempted;
 
@@ -178,29 +179,40 @@ public sealed class EffnetClassifierHeadService : IDisposable
 
         private void EnsureLoaded()
         {
-            if (_loadAttempted) return;
-            _loadAttempted = true;
-
-            // Below the AI minimum: stay unloaded, exactly like a missing model (the embedding
-            // extractor logs the reason once).
-            if (!SLSKDONET.Services.Platform.HardwareCapabilities.Allows(SLSKDONET.Services.Platform.HardwareFeature.AiTagging))
-                return;
-
-            if (!File.Exists(_modelPath))
+            // Serialize both the check and native initialization so callers never observe an
+            // attempted load with a session that has not finished constructing.
+            lock (_loadGate)
             {
-                _logger.LogWarning("[ClassifierHead] Model not found at {Path} — this signal will be unavailable.", _modelPath);
-                return;
-            }
+                if (_loadAttempted) return;
+                _loadAttempted = true;
 
-            try
-            {
-                var opts = new SessionOptions();
-                opts.AppendExecutionProvider_DML();
-                _session = new InferenceSession(_modelPath, opts);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[ClassifierHead] Failed to load ONNX model from {Path}", _modelPath);
+                // Below the AI minimum: stay unloaded, exactly like a missing model (the embedding
+                // extractor logs the reason once).
+                if (!SLSKDONET.Services.Platform.HardwareCapabilities.Allows(SLSKDONET.Services.Platform.HardwareFeature.AiTagging))
+                    return;
+
+                if (!File.Exists(_modelPath))
+                {
+                    _logger.LogWarning("[ClassifierHead] Model not found at {Path} — this signal will be unavailable.", _modelPath);
+                    return;
+                }
+
+                try
+                {
+                    // These heads are tiny dense networks (1280 inputs, at most 87 outputs).
+                    // Single-threaded CPU inference avoids six GPU transfer/dispatch round-trips
+                    // per track and leaves DirectML free for the much larger audio models.
+                    using var opts = new SessionOptions
+                    {
+                        IntraOpNumThreads = 1,
+                        InterOpNumThreads = 1,
+                    };
+                    _session = new InferenceSession(_modelPath, opts);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[ClassifierHead] Failed to load ONNX model from {Path}", _modelPath);
+                }
             }
         }
 

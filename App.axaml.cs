@@ -431,11 +431,10 @@ public partial class App : Application
                             Serilog.Log.Warning(watchEx, "Library folder watch service failed to start (non-critical)");
                         }
 
-                        // Load projects into the LibraryViewModel
-                        if (mainVm?.LibraryViewModel != null)
-                        {
-                            await mainVm.LibraryViewModel.LoadProjectsAsync();
-                        }
+                        // Library projects are loaded by LibraryPage.OnLoaded on first navigation.
+                        // Startup normally opens Home; eagerly loading every playlist, selecting the
+                        // first one and preparing its tracks here duplicated that lazy path and caused
+                        // a large first-window UI stall for work the user had not requested.
 
                         // Mission Control's 500ms heartbeat (CPU load, zombie-process count,
                         // dead-letter/failed-retry count, adaptive library-health audit) — started
