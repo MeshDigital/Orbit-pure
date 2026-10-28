@@ -315,6 +315,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         ToggleZenModeCommand = new RelayCommand(ToggleZenMode);
         ToggleTopBarCommand = new RelayCommand(() => IsTopCommandBarVisible = !IsTopCommandBarVisible);
         TogglePerformanceOverlayCommand = new RelayCommand(() => IsPerformanceOverlayVisible = !IsPerformanceOverlayVisible);
+        SendFeedbackCommand = new AsyncRelayCommand(() => _dialogService.ShowFeedbackDialogAsync());
         ToggleTimelinePanelCommand = new RelayCommand(() => IsTimelinePanelOpen = !IsTimelinePanelOpen);
         ToggleOverlaysPanelCommand = new RelayCommand(() => IsOverlaysPanelOpen = !IsOverlaysPanelOpen);
         ToggleAcquireCommand  = new RelayCommand(() => IsAcquireExpanded  = !IsAcquireExpanded);
@@ -1009,6 +1010,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         if (typeof(Avalonia.EditLabPage).IsAssignableFrom(pageType)) return PageType.EditLab;
         if (typeof(Avalonia.UsersPage).IsAssignableFrom(pageType)) return PageType.Users;
         if (typeof(Avalonia.FlowBuilderPage).IsAssignableFrom(pageType)) return PageType.FlowBuilder;
+        // Was missing: opening Cue Forge kept the previous page highlighted (Dashboard at startup).
+        if (typeof(Avalonia.CueForgePage).IsAssignableFrom(pageType)) return PageType.CueForge;
 
         return fallback;
     }
@@ -1238,6 +1241,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ToggleZenModeCommand { get; }
     public ICommand ToggleTopBarCommand { get; }
     public ICommand TogglePerformanceOverlayCommand { get; }
+    /// <summary>Top-bar "Send feedback": zip of screenshot + recent logs for beta testers to send in.</summary>
+    public ICommand SendFeedbackCommand { get; }
     public ICommand ToggleTimelinePanelCommand { get; }
     public ICommand ToggleOverlaysPanelCommand { get; }
     public ICommand ToggleAcquireCommand  { get; }
@@ -1420,19 +1425,20 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
-    /// Handles the Mix transition editor's "Open in Flow Builder" link: navigates to Flow
-    /// Builder and preloads the same playlist, so the user doesn't land on whatever playlist
-    /// Flow Builder last had open (it persists its own last-selected playlist independently —
-    /// see FlowBuilderViewModel.SelectedPlaylist).
+    /// Opens the in-app MIX transition designer with the originating playlist. Flow Builder
+    /// persists its own selection independently of professional DJ prep in Workstation.
     /// </summary>
     private async void HandleOpenFlowBuilderForPlaylist(OpenFlowBuilderForPlaylistEvent evt)
     {
         NavigateToFlowBuilder();
-
-        // Guid.Empty means the link was clicked from the Mix tab's "No transition loaded" empty
-        // state — no pair (and so no playlist) has been picked yet. Just navigate; Flow Builder
-        // opens on whatever playlist it last had, same as clicking the sidebar's own link.
-        if (evt.PlaylistId == Guid.Empty) return;
+        if (evt.PlaylistId == Guid.Empty)
+        {
+            _eventBus.Publish(new NotificationEvent(
+                "Flow Builder",
+                "Opened Flow Builder. Select a playlist to edit its in-app MIX transitions.",
+                NotificationType.Information));
+            return;
+        }
 
         try
         {
@@ -1443,15 +1449,33 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 playlist = _flowBuilderViewModel.Playlists.FirstOrDefault(p => p.Id == evt.PlaylistId);
             }
 
-            if (playlist != null && !ReferenceEquals(_flowBuilderViewModel.SelectedPlaylist, playlist))
+            if (playlist == null)
+            {
+                _eventBus.Publish(new NotificationEvent(
+                    "Flow Builder",
+                    "The originating playlist could not be found. Select another playlist to continue.",
+                    NotificationType.Warning));
+                return;
+            }
+
+            if (!ReferenceEquals(_flowBuilderViewModel.SelectedPlaylist, playlist))
             {
                 _flowBuilderViewModel.SelectedPlaylist = playlist;
                 await _flowBuilderViewModel.LoadSelectedPlaylistCommand.Execute().FirstAsync();
             }
+
+            _eventBus.Publish(new NotificationEvent(
+                "Flow Builder",
+                $"Opened \"{playlist.SourceTitle}\" with its playlist context preserved.",
+                NotificationType.Success));
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to preload playlist {PlaylistId} into Flow Builder", evt.PlaylistId);
+            _eventBus.Publish(new NotificationEvent(
+                "Couldn't open playlist in Flow Builder",
+                ex.Message,
+                NotificationType.Error));
         }
     }
 

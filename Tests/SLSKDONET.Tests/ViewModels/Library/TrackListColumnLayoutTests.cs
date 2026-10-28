@@ -7,7 +7,8 @@ namespace SLSKDONET.Tests.ViewModels.Library;
 public class TrackListColumnLayoutTests
 {
     private const double Full = TrackListColumnLayout.AlwaysShownWidth + TrackListColumnLayout.EnergyWidth + TrackListColumnLayout.FormatWidth
-        + TrackListColumnLayout.ForensicsWidth + TrackListColumnLayout.DurationWidth + TrackListColumnLayout.RatingWidth;
+        + TrackListColumnLayout.ForensicsWidth + TrackListColumnLayout.DurationWidth + TrackListColumnLayout.RatingWidth
+        + TrackListColumnLayout.PreparationWidth;
 
     [Fact]
     public void WideList_ShowsEverythingYouChose()
@@ -22,11 +23,22 @@ public class TrackListColumnLayoutTests
         // Just too narrow for everything: Forensics goes first.
         Assert.Equal(new TrackListColumns(true, true, false, true, true), TrackListColumnLayout.Fit(Full - 1, true, true, true));
 
-        // ~820 px (context panel open on a laptop screen): Forensics, Rating, Duration go; Format and Energy stay.
-        Assert.Equal(new TrackListColumns(true, true, false, false, false), TrackListColumnLayout.Fit(820, true, true, true));
+        // ~820 px (context panel open on a laptop screen): Forensics, Prep, Rating, Duration go;
+        // Format and Energy stay. No information is clipped and every repair remains in the context menu.
+        Assert.Equal(new TrackListColumns(true, true, false, false, false, Preparation: false), TrackListColumnLayout.Fit(820, true, true, true));
 
         // 600 px: every optional data column is gone, artist and the hover actions still fit.
-        Assert.Equal(new TrackListColumns(false, false, false, false, false), TrackListColumnLayout.Fit(600, true, true, true));
+        Assert.Equal(new TrackListColumns(false, false, false, false, false, Preparation: false), TrackListColumnLayout.Fit(600, true, true, true));
+    }
+
+    [Fact]
+    public void Preparation_UsesWideSpaceButFoldsBeforeRating()
+    {
+        var fitted = TrackListColumnLayout.Fit(Full - TrackListColumnLayout.ForensicsWidth - 1, true, true, true);
+
+        Assert.False(fitted.Forensics);
+        Assert.False(fitted.Preparation);
+        Assert.True(fitted.Rating);
     }
 
     [Fact]
@@ -41,7 +53,7 @@ public class TrackListColumnLayoutTests
         // ~320 px — both side panels open on a 150%-scaled screen (the reported bug): only the
         // minimum layout is left and the artist moves under the title.
         var tiny = TrackListColumnLayout.Fit(320, true, true, true);
-        Assert.Equal(new TrackListColumns(false, false, false, false, false, QueueAction: false, InsertAction: false, ArtistColumn: false), tiny);
+        Assert.Equal(new TrackListColumns(false, false, false, false, false, QueueAction: false, InsertAction: false, ArtistColumn: false, Preparation: false), tiny);
     }
 
     [Theory]
@@ -58,7 +70,8 @@ public class TrackListColumnLayoutTests
             + (c.ArtistColumn ? TrackListColumnLayout.ArtistWidth : 0)
             + (c.Energy ? TrackListColumnLayout.EnergyWidth : 0) + (c.Format ? TrackListColumnLayout.FormatWidth : 0)
             + (c.Forensics ? TrackListColumnLayout.ForensicsWidth : 0) + (c.Duration ? TrackListColumnLayout.DurationWidth : 0)
-            + (c.Rating ? TrackListColumnLayout.RatingWidth : 0);
+            + (c.Rating ? TrackListColumnLayout.RatingWidth : 0)
+            + (c.Preparation ? TrackListColumnLayout.PreparationWidth : 0);
 
         double titleWidth = width - fixedWidth;
         if (width >= TrackListColumnLayout.MinimumWidth)
@@ -70,9 +83,9 @@ public class TrackListColumnLayoutTests
     [Fact]
     public void AColumnYouHid_FreesRoomForTheOthers()
     {
-        // With Forensics switched off by you, the same width now fits Rating and Duration too.
+        // With Forensics switched off by you, the same width now fits Prep, Rating and Duration too.
         double width = TrackListColumnLayout.AlwaysShownWidth + TrackListColumnLayout.EnergyWidth + TrackListColumnLayout.FormatWidth
-            + TrackListColumnLayout.DurationWidth + TrackListColumnLayout.RatingWidth;
+            + TrackListColumnLayout.DurationWidth + TrackListColumnLayout.RatingWidth + TrackListColumnLayout.PreparationWidth;
         Assert.Equal(new TrackListColumns(true, true, false, true, true), TrackListColumnLayout.Fit(width, true, false, true));
     }
 

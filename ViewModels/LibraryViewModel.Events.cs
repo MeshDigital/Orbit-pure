@@ -290,6 +290,7 @@ public partial class LibraryViewModel
 
         if (project == null)
         {
+            Tracks.SuspendViewState();
             Intelligence.ResetSmartInsertPairContext();
             _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
             _ = Intelligence.RefreshOverviewStatsAsync();
@@ -306,6 +307,7 @@ public partial class LibraryViewModel
         // real load, which read as "search is broken and incomplete."
         _logger.LogInformation("LibraryViewModel.OnProjectSelected: Switching to project {Title} (ID: {Id})", project.SourceTitle, project.Id);
         var selectSw = System.Diagnostics.Stopwatch.StartNew();
+        Tracks.SwitchToProjectViewState(project.Id);
         await Tracks.LoadProjectTracksAsync(project);
         var loadMs = selectSw.ElapsedMilliseconds;
         await RefreshSavedDoublesAsync();
@@ -333,6 +335,7 @@ public partial class LibraryViewModel
     {
         if (playlist == null) return;
 
+        Tracks.SwitchToSmartPlaylistViewState(playlist.Id);
         SetSmartPlaylistContextMode(true);
         RaiseLibraryIntelligenceContextStateChanged();
         Intelligence.ResetSmartInsertPairContext();

@@ -93,10 +93,8 @@ public class PlaylistExportStableIdTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportToRekordboxXmlAsync_MissingFileFirst_CuesAssignedToCorrectTrack()
+    public async Task ExportToRekordboxXmlAsync_MissingFile_BlocksBeforeAssigningAnyOutputIds()
     {
-        // Regression guard: confirms the stable-TrackID change didn't reintroduce the
-        // index-mismatch bug PlaylistExportDeduplicationTests already guards against.
         var existingFile = CreateAudioFile("real.mp3");
         var outputXml = Path.Combine(_tempDir, "out.xml");
 
@@ -106,13 +104,10 @@ public class PlaylistExportStableIdTests : IDisposable
             new() { Id = Guid.NewGuid(), Title = "Real Track", Artist = "Artist", ResolvedFilePath = existingFile, TrackUniqueHash = "artist|real" },
         };
 
-        await CreateService().ExportToRekordboxXmlAsync("Test Playlist", tracks, outputXml);
+        await Assert.ThrowsAsync<SLSKDONET.Services.Export.RekordboxExportIntegrityException>(() =>
+            CreateService().ExportToRekordboxXmlAsync("Test Playlist", tracks, outputXml));
 
-        var doc = XDocument.Load(outputXml);
-        var collectionTracks = doc.Descendants("TRACK").Where(e => e.Attribute("Location") != null).ToList();
-
-        Assert.Single(collectionTracks);
-        Assert.Equal("Real Track", collectionTracks[0].Attribute("Name")?.Value);
+        Assert.False(File.Exists(outputXml));
     }
 
     private sealed class TestDbContextFactory : IDbContextFactory<AppDbContext>

@@ -2686,6 +2686,15 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // First usable drop is distinct from DropTimeSeconds (the strongest/main drop). Keeping
+            // a separate nullable value preserves existing cue behavior and makes intro length comparable.
+            if (!ColumnExists("audio_features", "TimeTillDropSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TimeTillDropSeconds to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""TimeTillDropSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
             // 18. Real multi-candidate drop signals (SubBassDropoutEngine / SpectralFluxNoveltyEngine)
             // for Engine.Cueing.CueGenerationService's DSP drop-scoring path — previously only a
             // single collapsed DropTimeSeconds/DropConfidence float pair survived to the database.

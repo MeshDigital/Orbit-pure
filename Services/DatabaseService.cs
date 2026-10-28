@@ -964,7 +964,8 @@ public class DatabaseService
 
                      // Phase 20
                      IsSmartPlaylist = job.IsSmartPlaylist,
-                     SmartCriteriaJson = job.SmartCriteriaJson
+                     SmartCriteriaJson = job.SmartCriteriaJson,
+                     ManualSortOrder = job.ManualSortOrder
                  };
                  context.Projects.Add(jobEntity);
                  

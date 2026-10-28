@@ -308,7 +308,11 @@ public sealed class AudioIngestionPipeline
         string toolsPath = Path.Combine(AppContext.BaseDirectory, "Tools", "ffmpeg", "ffmpeg.exe");
         if (File.Exists(toolsPath)) return toolsPath;
 
-        // 3. Search system PATH
+        // 3. The copy ORBIT installed itself (Program Files isn't writable, so it lives in LocalAppData)
+        string managed = Platform.FfmpegInstallerService.ManagedFfmpegPath;
+        if (File.Exists(managed)) return managed;
+
+        // 4. Search system PATH
         string query = OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg";
         var pathEnv = Environment.GetEnvironmentVariable("PATH");
         if (pathEnv != null)

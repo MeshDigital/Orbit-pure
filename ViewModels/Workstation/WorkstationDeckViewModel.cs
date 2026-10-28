@@ -839,12 +839,19 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
             return WorkstationTrackEligibilityIssue.NoTrack;
         }
 
+        // A retained path to a moved file is repairable with Locate even if an earlier scan also
+        // marked the row Missing. Only path-less rows fall through to acquisition.
+        if (!string.IsNullOrWhiteSpace(track.ResolvedFilePath) && !File.Exists(track.ResolvedFilePath))
+        {
+            return WorkstationTrackEligibilityIssue.MissingFile;
+        }
+
         if (track.Status != TrackStatus.Downloaded)
         {
             return WorkstationTrackEligibilityIssue.NotDownloaded;
         }
 
-        if (string.IsNullOrWhiteSpace(track.ResolvedFilePath) || !File.Exists(track.ResolvedFilePath))
+        if (string.IsNullOrWhiteSpace(track.ResolvedFilePath))
         {
             return WorkstationTrackEligibilityIssue.MissingFile;
         }
@@ -881,7 +888,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
             case WorkstationTrackEligibilityIssue.NotDownloaded:
                 return "Track is not local yet. Download it first, then load it into the workstation.";
             case WorkstationTrackEligibilityIssue.MissingFile:
-                return "Track file not found. Re-download or rescan it before loading into the workstation.";
+                return "Track file not found. Use Locate to select the moved file; existing cues, grids, and analysis stay attached.";
             case WorkstationTrackEligibilityIssue.MissingHash:
                 return "Track is missing a stable library hash. Rebuild library metadata before workstation loading.";
             case WorkstationTrackEligibilityIssue.MissingWaveform:

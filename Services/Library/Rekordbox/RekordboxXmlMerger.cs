@@ -6,21 +6,52 @@ using Microsoft.Extensions.Logging;
 
 namespace SLSKDONET.Services.Library.Rekordbox;
 
+/// <summary>One matched track whose non-empty Rekordbox values differ from ORBIT's export.</summary>
+public sealed record RekordboxTrackConflict(
+    string TrackId,
+    string TrackLabel,
+    IReadOnlyList<string> Fields,
+    bool HasRekordboxCueEdits);
+
 /// <summary>
-/// Reconciles a freshly-built Rekordbox XML export against an existing on-disk file at the same
-/// path, so re-exporting a playlist doesn't destroy edits a user made directly inside Rekordbox
-/// since the last export (Rating, Colour, Comments, hot cues). ORBIT-owned/file-derived data
-/// (tempo grid, file metadata, brand-new tracks) always refreshes from the fresh export regardless.
+/// A read-only preview of the existing Rekordbox data an export would replace if the user explicitly
+/// approves it. Field names are UI-ready and grouped (for example, one "cues / loops" entry per track).
+/// </summary>
+public sealed record RekordboxExportConflictReport(IReadOnlyList<RekordboxTrackConflict> Tracks)
+{
+    public static readonly RekordboxExportConflictReport Empty = new(Array.Empty<RekordboxTrackConflict>());
+    public bool HasConflicts => Tracks.Count > 0;
+    public int TracksWithRekordboxCueEdits => Tracks.Count(track => track.HasRekordboxCueEdits);
+}
+
+/// <summary>
+/// Reconciles a freshly-built Rekordbox XML export against an existing on-disk file at the same path.
+/// The default is non-destructive: existing non-empty Rekordbox values win and ORBIT only fills empty
+/// fields or adds new tracks. Replacing conflicting values requires the explicit overwrite option,
+/// granted by the caller only after the user approves <see cref="RekordboxExportConflictReport"/>.
+/// Unknown attributes/elements, TrackID, DateAdded, and unrelated playlists are always preserved.
 /// Pure XML manipulation — no DB access, independently unit-testable.
 /// </summary>
 public static class RekordboxXmlMerger
 {
-    private static readonly string[] AlwaysRefreshAttributes =
+    private static readonly string[] ManagedAttributes =
     {
         "Name", "Artist", "Album", "Genre", "Kind", "Size", "TotalTime",
         "BitRate", "SampleRate", "AverageBpm", "Tonality", "Location",
-        "Label", "TrackNumber", "Year",
+        "Label", "TrackNumber", "Year", "Rating", "Colour", "Comments",
     };
+
+    private static readonly IReadOnlyDictionary<string, string> FieldLabels =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["Name"] = "title", ["Artist"] = "artist", ["Album"] = "album",
+            ["Genre"] = "genre", ["Kind"] = "file type", ["Size"] = "file size",
+            ["TotalTime"] = "duration", ["BitRate"] = "bit rate",
+            ["SampleRate"] = "sample rate", ["AverageBpm"] = "BPM",
+            ["Tonality"] = "musical key", ["Location"] = "file location",
+            ["Label"] = "label", ["TrackNumber"] = "track number", ["Year"] = "year",
+            ["Rating"] = "rating", ["Colour"] = "colour", ["Comments"] = "comments",
+        };
 
     /// <param name="playlistPathChain">
     /// Root-to-leaf node names identifying the specific playlist being exported, e.g.
@@ -28,18 +59,15 @@ public static class RekordboxXmlMerger
     /// <see cref="PlaylistExportService.ResolveFolderChainNamesAsync"/>. Only this one playlist's
     /// node (and matched tracks within it) are affected; every other node in the file is untouched.
     /// </param>
-    /// <param name="priorCueSnapshotByTrackId">
-    /// Optional: fresh-export TrackID → canonicalized cue snapshot ORBIT last confirmed as in-sync
-    /// for that track (see <see cref="SLSKDONET.Data.Entities.RekordboxExportCueSyncEntity"/>). When a matched track's
-    /// on-disk cues still equal this snapshot, cues are safe to overwrite with the fresh set (a
-    /// genuine ORBIT-side edit); when they differ, the on-disk cues are preserved as a presumed
-    /// Rekordbox hand-edit. Omitted (or no entry for a track) falls back to the original
-    /// conservative rule: preserve any existing cues outright, only write fresh cues when the
-    /// existing track has none at all.
+    /// <param name="overwriteExisting">
+    /// False (the safe default) preserves every non-empty value on matched tracks and only fills
+    /// empty fields. True replaces managed values with ORBIT's fresh export and must only be used
+    /// after the user approves the report from <see cref="DetectConflicts"/>. TrackID, DateAdded,
+    /// unknown fields, and unrelated playlists are preserved in both modes.
     /// </param>
     public static XDocument MergeIntoExisting(
         XDocument existingDoc, XDocument freshDoc, IReadOnlyList<string> playlistPathChain, ILogger logger,
-        IReadOnlyDictionary<string, string>? priorCueSnapshotByTrackId = null)
+        bool overwriteExisting = false)
     {
         var result = new XDocument(existingDoc);
         var djPlaylists = result.Root;
@@ -52,126 +80,202 @@ public static class RekordboxXmlMerger
         var existingCollection = djPlaylists.Element("COLLECTION");
         var freshCollection = freshDoc.Root?.Element("COLLECTION");
         if (existingCollection != null && freshCollection != null)
-        {
-            MergeCollection(existingCollection, freshCollection, logger, priorCueSnapshotByTrackId);
-        }
+            MergeCollection(existingCollection, freshCollection, logger, overwriteExisting);
 
         var existingPlaylistsRoot = djPlaylists.Element("PLAYLISTS");
         var freshPlaylistsRoot = freshDoc.Root?.Element("PLAYLISTS");
         if (existingPlaylistsRoot != null && freshPlaylistsRoot != null && playlistPathChain.Count > 0)
-        {
             MergePlaylistNode(existingPlaylistsRoot, freshPlaylistsRoot, playlistPathChain, logger);
-        }
 
         return result;
     }
 
-    private static void MergeCollection(
-        XElement existingCollection, XElement freshCollection, ILogger logger,
-        IReadOnlyDictionary<string, string>? priorCueSnapshotByTrackId)
+    /// <summary>
+    /// Finds only genuine conflicts: a non-empty Rekordbox value that differs from ORBIT's fresh
+    /// value. Empty Rekordbox fields are deliberately excluded because filling them is always safe.
+    /// The optional cue snapshots identify Rekordbox-side cue edits so the confirmation can warn
+    /// that those hand edits would also be replaced.
+    /// </summary>
+    public static RekordboxExportConflictReport DetectConflicts(
+        XDocument existingDoc,
+        XDocument freshDoc,
+        IReadOnlyDictionary<string, string>? priorCueSnapshotByTrackId = null)
     {
-        var existingById = new Dictionary<string, XElement>(StringComparer.Ordinal);
-        var existingByLocation = new Dictionary<string, XElement>(StringComparer.OrdinalIgnoreCase);
+        var existingCollection = existingDoc.Root?.Element("COLLECTION");
+        var freshCollection = freshDoc.Root?.Element("COLLECTION");
+        if (existingCollection == null || freshCollection == null)
+            return RekordboxExportConflictReport.Empty;
 
-        foreach (var track in existingCollection.Elements("TRACK"))
-        {
-            var id = (string?)track.Attribute("TrackID");
-            var loc = (string?)track.Attribute("Location");
-            if (!string.IsNullOrEmpty(id)) existingById.TryAdd(id, track);
-            if (!string.IsNullOrEmpty(loc)) existingByLocation.TryAdd(loc, track);
-        }
+        IndexTracks(existingCollection, out var existingById, out var existingByLocation);
+        var conflicts = new List<RekordboxTrackConflict>();
 
         foreach (var freshTrack in freshCollection.Elements("TRACK"))
         {
+            var matched = FindMatchedTrack(freshTrack, existingById, existingByLocation);
+            if (matched == null) continue;
+
+            var fields = ManagedAttributes
+                .Where(name => HasAttributeValue(matched, name) && !AttributeValuesEqual(matched, freshTrack, name))
+                .Select(name => FieldLabels[name])
+                .ToList();
+
+            var existingTempos = matched.Elements("TEMPO").ToList();
+            if (existingTempos.Any(HasMeaningfulTempo)
+                && CanonicalizeTempos(existingTempos) != CanonicalizeTempos(freshTrack.Elements("TEMPO")))
+                fields.Add("beat grid");
+
+            var existingCues = CanonicalizeCues(matched.Elements("POSITION_MARK"));
+            var hasCueConflict = matched.Elements("POSITION_MARK").Any()
+                && existingCues != CanonicalizeCues(freshTrack.Elements("POSITION_MARK"));
+            if (hasCueConflict) fields.Add("cues / loops");
+
+            if (fields.Count == 0) continue;
+
             var freshId = (string?)freshTrack.Attribute("TrackID");
-            var freshLoc = (string?)freshTrack.Attribute("Location");
+            var hasRekordboxCueEdits = hasCueConflict
+                && freshId != null
+                && priorCueSnapshotByTrackId != null
+                && priorCueSnapshotByTrackId.TryGetValue(freshId, out var priorSnapshot)
+                && priorSnapshot != existingCues;
+            var trackId = (string?)matched.Attribute("TrackID") ?? freshId ?? "";
+            conflicts.Add(new RekordboxTrackConflict(
+                trackId, TrackLabel(matched, freshTrack, trackId), fields, hasRekordboxCueEdits));
+        }
 
-            XElement? matched = null;
-            if (!string.IsNullOrEmpty(freshId) && existingById.TryGetValue(freshId, out var byId))
-                matched = byId;
-            else if (!string.IsNullOrEmpty(freshLoc) && existingByLocation.TryGetValue(freshLoc, out var byLoc))
-                matched = byLoc;
+        return conflicts.Count == 0 ? RekordboxExportConflictReport.Empty : new RekordboxExportConflictReport(conflicts);
+    }
 
+    private static void MergeCollection(
+        XElement existingCollection, XElement freshCollection, ILogger logger, bool overwriteExisting)
+    {
+        IndexTracks(existingCollection, out var existingById, out var existingByLocation);
+
+        foreach (var freshTrack in freshCollection.Elements("TRACK"))
+        {
+            var matched = FindMatchedTrack(freshTrack, existingById, existingByLocation);
             if (matched == null)
             {
                 existingCollection.Add(new XElement(freshTrack));
                 continue;
             }
 
+            var freshId = (string?)freshTrack.Attribute("TrackID");
             var existingId = (string?)matched.Attribute("TrackID");
             if (!string.IsNullOrEmpty(freshId) && !string.Equals(freshId, existingId, StringComparison.Ordinal))
             {
                 logger.LogWarning(
                     "Rekordbox merge: TrackID mismatch for matched track at Location '{Location}' (existing={ExistingId}, fresh={FreshId}) — keeping the existing TrackID so other playlists' references stay valid.",
-                    freshLoc, existingId, freshId);
+                    (string?)freshTrack.Attribute("Location"), existingId, freshId);
             }
 
-            PatchTrackAttributes(matched, freshTrack, priorCueSnapshotByTrackId);
+            PatchTrack(matched, freshTrack, overwriteExisting);
         }
 
         existingCollection.SetAttributeValue("Entries", existingCollection.Elements("TRACK").Count());
     }
 
-    /// <summary>
-    /// Patches one matched &lt;TRACK&gt; in place: file/analysis-derived attributes and the tempo
-    /// grid always refresh from <paramref name="freshTrack"/>; Rating/Colour/Comments are kept
-    /// as-is when the existing element already has them (only filled from fresh when absent); cues
-    /// follow the three-way rule in <see cref="MergeCuePoints"/>; TrackID and DateAdded are never
-    /// touched.
-    /// </summary>
-    private static void PatchTrackAttributes(
-        XElement existingTrack, XElement freshTrack,
-        IReadOnlyDictionary<string, string>? priorCueSnapshotByTrackId)
+    private static void IndexTracks(
+        XElement collection,
+        out Dictionary<string, XElement> byId,
+        out Dictionary<string, XElement> byLocation)
     {
-        foreach (var attrName in AlwaysRefreshAttributes)
+        byId = new Dictionary<string, XElement>(StringComparer.Ordinal);
+        byLocation = new Dictionary<string, XElement>(StringComparer.OrdinalIgnoreCase);
+        foreach (var track in collection.Elements("TRACK"))
         {
-            var freshAttr = freshTrack.Attribute(attrName);
-            if (freshAttr != null)
-                existingTrack.SetAttributeValue(attrName, freshAttr.Value);
+            var id = (string?)track.Attribute("TrackID");
+            var location = (string?)track.Attribute("Location");
+            if (!string.IsNullOrEmpty(id)) byId.TryAdd(id, track);
+            if (!string.IsNullOrEmpty(location)) byLocation.TryAdd(location, track);
         }
-
-        FillIfAttributeMissing(existingTrack, freshTrack, "Rating");
-        FillIfAttributeMissing(existingTrack, freshTrack, "Colour");
-        FillIfBlank(existingTrack, freshTrack, "Comments");
-
-        existingTrack.Elements("TEMPO").Remove();
-        foreach (var tempo in freshTrack.Elements("TEMPO"))
-            existingTrack.Add(new XElement(tempo));
-
-        MergeCuePoints(existingTrack, freshTrack, priorCueSnapshotByTrackId);
     }
 
-    /// <summary>
-    /// Three-way cue merge. If the existing track has no cues at all, the fresh set is written
-    /// through unconditionally (unchanged from the original behavior). Otherwise, the fresh set is
-    /// only written through when the existing on-disk cues still exactly match the last snapshot
-    /// ORBIT confirmed for this track (i.e. nothing changed in Rekordbox since) — otherwise the
-    /// on-disk cues are presumed hand-edited in Rekordbox and left untouched. With no snapshot
-    /// supplied (or none recorded yet for this track), this degrades to the original all-or-nothing
-    /// rule: preserve outright.
-    /// </summary>
-    private static void MergeCuePoints(
-        XElement existingTrack, XElement freshTrack,
-        IReadOnlyDictionary<string, string>? priorCueSnapshotByTrackId)
+    private static XElement? FindMatchedTrack(
+        XElement freshTrack,
+        IReadOnlyDictionary<string, XElement> existingById,
+        IReadOnlyDictionary<string, XElement> existingByLocation)
     {
-        var existingMarks = existingTrack.Elements("POSITION_MARK").ToList();
+        var freshId = (string?)freshTrack.Attribute("TrackID");
+        var freshLocation = (string?)freshTrack.Attribute("Location");
+        if (!string.IsNullOrEmpty(freshId) && existingById.TryGetValue(freshId, out var byId)) return byId;
+        if (!string.IsNullOrEmpty(freshLocation) && existingByLocation.TryGetValue(freshLocation, out var byLocation)) return byLocation;
+        return null;
+    }
 
-        bool safeToOverwrite = existingMarks.Count == 0;
-        if (!safeToOverwrite)
+    private static void PatchTrack(XElement existingTrack, XElement freshTrack, bool overwriteExisting)
+    {
+        foreach (var attrName in ManagedAttributes)
         {
-            var freshId = (string?)freshTrack.Attribute("TrackID");
-            safeToOverwrite = freshId != null
-                && priorCueSnapshotByTrackId != null
-                && priorCueSnapshotByTrackId.TryGetValue(freshId, out var priorSnapshot)
-                && CanonicalizeCues(existingMarks) == priorSnapshot;
+            if (overwriteExisting)
+                existingTrack.SetAttributeValue(attrName, freshTrack.Attribute(attrName)?.Value);
+            else
+                FillIfBlank(existingTrack, freshTrack, attrName);
         }
 
-        if (!safeToOverwrite) return;
+        if (overwriteExisting || !existingTrack.Elements("TEMPO").Any(HasMeaningfulTempo))
+        {
+            existingTrack.Elements("TEMPO").Remove();
+            foreach (var tempo in freshTrack.Elements("TEMPO"))
+                existingTrack.Add(new XElement(tempo));
+        }
 
-        existingTrack.Elements("POSITION_MARK").Remove();
-        foreach (var mark in freshTrack.Elements("POSITION_MARK"))
-            existingTrack.Add(new XElement(mark));
+        if (overwriteExisting || !existingTrack.Elements("POSITION_MARK").Any())
+        {
+            existingTrack.Elements("POSITION_MARK").Remove();
+            foreach (var mark in freshTrack.Elements("POSITION_MARK"))
+                existingTrack.Add(new XElement(mark));
+        }
     }
+
+    private static string TrackLabel(XElement existingTrack, XElement freshTrack, string trackId)
+    {
+        var artist = (string?)freshTrack.Attribute("Artist");
+        if (string.IsNullOrWhiteSpace(artist)) artist = (string?)existingTrack.Attribute("Artist");
+        var name = (string?)freshTrack.Attribute("Name");
+        if (string.IsNullOrWhiteSpace(name)) name = (string?)existingTrack.Attribute("Name");
+        if (string.IsNullOrWhiteSpace(artist) && string.IsNullOrWhiteSpace(name))
+            return string.IsNullOrWhiteSpace(trackId) ? "Unknown track" : $"Track {trackId}";
+        return string.Join(" — ", new[] { artist, name }.Where(value => !string.IsNullOrWhiteSpace(value)));
+    }
+
+    private static bool HasAttributeValue(XElement track, string attributeName)
+    {
+        var value = (string?)track.Attribute(attributeName);
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        if (!NumericAttributes.Contains(attributeName)) return true;
+        return !double.TryParse(value, System.Globalization.NumberStyles.Float,
+                   System.Globalization.CultureInfo.InvariantCulture, out var number)
+               || number > 0;
+    }
+
+    private static bool AttributeValuesEqual(XElement existingTrack, XElement freshTrack, string attributeName)
+    {
+        var existing = (string?)existingTrack.Attribute(attributeName);
+        var fresh = (string?)freshTrack.Attribute(attributeName);
+        if (NumericAttributes.Contains(attributeName)
+            && double.TryParse(existing, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var oldNumber)
+            && double.TryParse(fresh, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var freshNumber))
+            return Math.Abs(oldNumber - freshNumber) < 0.0005;
+        return string.Equals(existing, fresh, StringComparison.Ordinal);
+    }
+
+    private static readonly HashSet<string> NumericAttributes = new(StringComparer.Ordinal)
+    {
+        "Size", "TotalTime", "BitRate", "SampleRate", "AverageBpm",
+        "TrackNumber", "Year", "Rating",
+    };
+
+    private static bool HasMeaningfulTempo(XElement tempo) =>
+        double.TryParse((string?)tempo.Attribute("Bpm"), System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var bpm) && bpm > 0;
+
+    private static string CanonicalizeTempos(IEnumerable<XElement> tempos) =>
+        string.Join("|", tempos.Select(tempo => string.Join(":",
+                FormatNumericAttribute(tempo, "Inizio"),
+                FormatNumericAttribute(tempo, "Bpm"),
+                (string?)tempo.Attribute("Metro") ?? "",
+                (string?)tempo.Attribute("Battito") ?? ""))
+            .OrderBy(value => value, StringComparer.Ordinal));
 
     /// <summary>
     /// Builds an order-independent, formatting-tolerant fingerprint of a track's POSITION_MARK set
@@ -200,18 +304,9 @@ public static class RekordboxXmlMerger
             : raw;
     }
 
-    private static void FillIfAttributeMissing(XElement existingTrack, XElement freshTrack, string attributeName)
-    {
-        if (existingTrack.Attribute(attributeName) != null) return;
-        var freshAttr = freshTrack.Attribute(attributeName);
-        if (freshAttr != null)
-            existingTrack.SetAttributeValue(attributeName, freshAttr.Value);
-    }
-
     private static void FillIfBlank(XElement existingTrack, XElement freshTrack, string attributeName)
     {
-        var existingAttr = existingTrack.Attribute(attributeName);
-        if (existingAttr != null && !string.IsNullOrWhiteSpace(existingAttr.Value)) return;
+        if (HasAttributeValue(existingTrack, attributeName)) return;
         var freshAttr = freshTrack.Attribute(attributeName);
         if (freshAttr != null)
             existingTrack.SetAttributeValue(attributeName, freshAttr.Value);

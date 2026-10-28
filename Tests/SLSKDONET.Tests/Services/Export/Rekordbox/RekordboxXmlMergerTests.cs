@@ -8,8 +8,8 @@ namespace SLSKDONET.Tests.Services.Export.Rekordbox;
 
 /// <summary>
 /// Pure unit tests for <see cref="RekordboxXmlMerger"/> against hand-built XDocuments — no DB,
-/// no file I/O. Covers the field-ownership rules from the Phase 2 merge-mode design: ORBIT-owned
-/// data always refreshes, user-editable-in-Rekordbox fields are preserved when already present.
+/// no file I/O. Covers safe preservation and empty-field filling by default, explicit replacement
+/// after confirmation, and retention of Rekordbox-owned identity and unknown data.
 /// </summary>
 public class RekordboxXmlMergerTests
 {
@@ -121,12 +121,27 @@ public class RekordboxXmlMergerTests
     }
 
     [Fact]
-    public void Merge_MatchedTrack_AlwaysRefreshesTempoLocationAndFileMetadata()
+    public void Merge_MatchedTrack_PreservesTempoLocationAndFileMetadataByDefault()
     {
         var existing = BuildDoc(new[] { BuildTrack("1", @"C:\old-path.mp3", bpm: "120.00", name: "Old Name") }, "MyPlaylist");
         var fresh = BuildDoc(new[] { BuildTrack("1", @"C:\old-path.mp3", bpm: "128.00", name: "New Name") }, "MyPlaylist");
 
         var merged = RekordboxXmlMerger.MergeIntoExisting(existing, fresh, new[] { "ROOT", "MyPlaylist" }, NullLogger.Instance);
+        var track = FindTrack(merged, "1")!;
+
+        Assert.Equal("Old Name", (string)track.Attribute("Name")!);
+        Assert.Equal("120.00", (string)track.Attribute("AverageBpm")!);
+        Assert.Equal("120.00", (string)track.Element("TEMPO")!.Attribute("Bpm")!);
+    }
+
+    [Fact]
+    public void Merge_MatchedTrack_ReplacesTempoLocationAndFileMetadataOnlyWhenConfirmed()
+    {
+        var existing = BuildDoc(new[] { BuildTrack("1", @"C:\old-path.mp3", bpm: "120.00", name: "Old Name") }, "MyPlaylist");
+        var fresh = BuildDoc(new[] { BuildTrack("1", @"C:\old-path.mp3", bpm: "128.00", name: "New Name") }, "MyPlaylist");
+
+        var merged = RekordboxXmlMerger.MergeIntoExisting(
+            existing, fresh, new[] { "ROOT", "MyPlaylist" }, NullLogger.Instance, overwriteExisting: true);
         var track = FindTrack(merged, "1")!;
 
         Assert.Equal("New Name", (string)track.Attribute("Name")!);
@@ -230,10 +245,8 @@ public class RekordboxXmlMergerTests
             new XAttribute("Red", "255"), new XAttribute("Green", "0"), new XAttribute("Blue", "0"));
 
     [Fact]
-    public void Merge_CueSnapshotMatchesPrior_WritesThroughFreshCues()
+    public void Merge_OrbitCueEdit_ReplacesExistingOnlyWhenConfirmed()
     {
-        // Existing on-disk cues are exactly what ORBIT wrote last time (per the prior snapshot) —
-        // nothing changed in Rekordbox, so a genuine ORBIT-side cue edit should propagate.
         var existingTrack = BuildTrack("1", @"C:\a.mp3", withCue: false);
         existingTrack.Add(BuildCue("Old Drop", "10.000"));
         var existing = BuildDoc(new[] { existingTrack }, "MyPlaylist");
@@ -242,10 +255,8 @@ public class RekordboxXmlMergerTests
         freshTrack.Add(BuildCue("New Drop", "20.000"));
         var fresh = BuildDoc(new[] { freshTrack }, "MyPlaylist");
 
-        var priorSnapshot = RekordboxXmlMerger.CanonicalizeCues(existingTrack.Elements("POSITION_MARK"));
-        var priorByTrackId = new Dictionary<string, string> { ["1"] = priorSnapshot };
-
-        var merged = RekordboxXmlMerger.MergeIntoExisting(existing, fresh, new[] { "ROOT", "MyPlaylist" }, NullLogger.Instance, priorByTrackId);
+        var merged = RekordboxXmlMerger.MergeIntoExisting(
+            existing, fresh, new[] { "ROOT", "MyPlaylist" }, NullLogger.Instance, overwriteExisting: true);
         var track = FindTrack(merged, "1")!;
 
         Assert.Single(track.Elements("POSITION_MARK"));
@@ -270,8 +281,12 @@ public class RekordboxXmlMergerTests
         var fresh = BuildDoc(new[] { freshTrack }, "MyPlaylist");
 
         var priorByTrackId = new Dictionary<string, string> { ["1"] = priorSnapshot };
+        var report = RekordboxXmlMerger.DetectConflicts(existing, fresh, priorByTrackId);
+        var conflict = Assert.Single(report.Tracks);
+        Assert.True(conflict.HasRekordboxCueEdits);
+        Assert.Contains("cues / loops", conflict.Fields);
 
-        var merged = RekordboxXmlMerger.MergeIntoExisting(existing, fresh, new[] { "ROOT", "MyPlaylist" }, NullLogger.Instance, priorByTrackId);
+        var merged = RekordboxXmlMerger.MergeIntoExisting(existing, fresh, new[] { "ROOT", "MyPlaylist" }, NullLogger.Instance);
         var track = FindTrack(merged, "1")!;
 
         Assert.Single(track.Elements("POSITION_MARK"));
@@ -295,5 +310,74 @@ public class RekordboxXmlMergerTests
         var track = FindTrack(merged, "1")!;
 
         Assert.Equal("Existing Cue", (string)track.Elements("POSITION_MARK").Single().Attribute("Name")!);
+    }
+
+    [Fact]
+    public void Merge_ZeroBpmRatingAndTempo_AreTreatedAsEmptyAndFilledWithoutConfirmation()
+    {
+        var existing = BuildDoc(new[]
+        {
+            BuildTrack("1", @"C:\a.mp3", bpm: "0.00", rating: "0", withCue: false),
+        }, "MyPlaylist");
+        var fresh = BuildDoc(new[]
+        {
+            BuildTrack("1", @"C:\a.mp3", bpm: "128.00", rating: "204", withCue: true),
+        }, "MyPlaylist");
+
+        var report = RekordboxXmlMerger.DetectConflicts(existing, fresh);
+        var merged = RekordboxXmlMerger.MergeIntoExisting(existing, fresh, new[] { "ROOT", "MyPlaylist" }, NullLogger.Instance);
+        var track = FindTrack(merged, "1")!;
+
+        Assert.False(report.HasConflicts);
+        Assert.Equal("128.00", (string)track.Attribute("AverageBpm")!);
+        Assert.Equal("128.00", (string)track.Element("TEMPO")!.Attribute("Bpm")!);
+        Assert.Equal("204", (string)track.Attribute("Rating")!);
+        Assert.Single(track.Elements("POSITION_MARK"));
+    }
+
+    [Fact]
+    public void DetectConflicts_ItemizesOnlyExistingNonEmptyValuesThatWouldChange()
+    {
+        var existingTrack = BuildTrack("1", @"C:\a.mp3", bpm: "120.00", name: "Old Name", comments: "Rekordbox note", withCue: true);
+        var existing = BuildDoc(new[] { existingTrack }, "MyPlaylist");
+        var freshTrack = BuildTrack("1", @"C:\a.mp3", bpm: "128.00", name: "New Name", comments: "", withCue: false);
+        var fresh = BuildDoc(new[] { freshTrack }, "MyPlaylist");
+
+        var report = RekordboxXmlMerger.DetectConflicts(existing, fresh);
+        var conflict = Assert.Single(report.Tracks);
+
+        Assert.Equal("1", conflict.TrackId);
+        Assert.Contains("Artist", conflict.TrackLabel);
+        Assert.Contains("title", conflict.Fields);
+        Assert.Contains("BPM", conflict.Fields);
+        Assert.Contains("beat grid", conflict.Fields);
+        Assert.Contains("comments", conflict.Fields);
+        Assert.Contains("cues / loops", conflict.Fields);
+        Assert.DoesNotContain("rating", conflict.Fields);
+    }
+
+    [Fact]
+    public void Merge_ConfirmedOverwrite_PreservesUnknownDataTrackIdAndDateAdded()
+    {
+        var existingTrack = BuildTrack("1", @"C:\a.mp3", rating: "255", comments: "Rekordbox note");
+        existingTrack.SetAttributeValue("DateAdded", "2019-05-05");
+        existingTrack.SetAttributeValue("PlayCount", "42");
+        existingTrack.Add(new XElement("REKORDBOX_ONLY", new XAttribute("Value", "keep")));
+        var existing = BuildDoc(new[] { existingTrack }, "MyPlaylist");
+        var fresh = BuildDoc(new[]
+        {
+            BuildTrack("1", @"C:\a.mp3", rating: "51", comments: "ORBIT note"),
+        }, "MyPlaylist");
+
+        var merged = RekordboxXmlMerger.MergeIntoExisting(
+            existing, fresh, new[] { "ROOT", "MyPlaylist" }, NullLogger.Instance, overwriteExisting: true);
+        var track = FindTrack(merged, "1")!;
+
+        Assert.Equal("1", (string)track.Attribute("TrackID")!);
+        Assert.Equal("2019-05-05", (string)track.Attribute("DateAdded")!);
+        Assert.Equal("42", (string)track.Attribute("PlayCount")!);
+        Assert.Equal("keep", (string)track.Element("REKORDBOX_ONLY")!.Attribute("Value")!);
+        Assert.Equal("51", (string)track.Attribute("Rating")!);
+        Assert.Equal("ORBIT note", (string)track.Attribute("Comments")!);
     }
 }

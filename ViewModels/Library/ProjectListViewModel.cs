@@ -480,8 +480,12 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                 if (AllProjects == null) AllProjects = new ObservableCollection<PlaylistJob>();
                 AllProjects.Clear();
                 
-                // Add all items at once in sorted order
-                var sortedJobs = jobs.OrderByDescending(j => j.CreatedAt).ToList();
+                // Manual order is global across folders; creation time keeps legacy rows stable
+                // until the user explicitly arranges them for the first time.
+                var sortedJobs = jobs
+                    .OrderBy(j => j.ManualSortOrder)
+                    .ThenByDescending(j => j.CreatedAt)
+                    .ToList();
                 foreach (var job in sortedJobs)
                 {
                     AllProjects.Add(job);
@@ -491,17 +495,57 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                 
                 RefreshFilteredProjects();
 
-                // Select first project if available
-                if (FilteredProjects.Count > 0 && SelectedProject == null)
-                {
-                    SelectedProject = FilteredProjects[0];
-                }
+                // Database reloads create new PlaylistJob instances. Restore by stable ID so the
+                // selected playlist, tree card and track context survive manual refreshes and
+                // navigation reloads; only fall back to the first project when it no longer exists.
+                var restoredSelection = FindRestoredSelection(AllProjects, SelectedProject, _allTracksJob);
+                if (!ReferenceEquals(SelectedProject, restoredSelection))
+                    SelectedProject = restoredSelection;
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load projects");
         }
+    }
+
+    internal static PlaylistJob? FindRestoredSelection(
+        IEnumerable<PlaylistJob> projects,
+        PlaylistJob? current,
+        PlaylistJob allTracks)
+    {
+        var available = projects.ToList();
+        if (current == null) return available.FirstOrDefault();
+        if (current.Id == Guid.Empty) return allTracks;
+        return available.FirstOrDefault(project => project.Id == current.Id) ?? available.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Inserts a playlist immediately before or after another playlist. Moving between folders
+    /// adopts the target's folder, and the shared download/sidebar order is normalized in one pass.
+    /// </summary>
+    internal static IReadOnlyList<PlaylistJob> ReorderProjects(
+        IEnumerable<PlaylistJob> projects,
+        Guid draggedId,
+        Guid targetId,
+        bool insertAfter)
+    {
+        var ordered = projects.ToList();
+        if (draggedId == targetId) return ordered;
+
+        var dragged = ordered.FirstOrDefault(project => project.Id == draggedId);
+        var target = ordered.FirstOrDefault(project => project.Id == targetId);
+        if (dragged is null || target is null) return ordered;
+
+        ordered.Remove(dragged);
+        var targetIndex = ordered.IndexOf(target);
+        ordered.Insert(targetIndex + (insertAfter ? 1 : 0), dragged);
+        dragged.FolderId = target.FolderId;
+
+        for (var index = 0; index < ordered.Count; index++)
+            ordered[index].ManualSortOrder = index;
+
+        return ordered;
     }
 
     private void RefreshFilteredProjects()
@@ -713,6 +757,52 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to delete playlist folder {Id}", node.Folder.Id);
+        }
+    }
+
+    /// <summary>
+    /// Persists an insertion-style playlist rearrange. Existing model instances stay in place so
+    /// the open playlist and its track context survive the tree/card refresh.
+    /// </summary>
+    public async Task ReorderPlaylistAsync(Guid draggedId, Guid targetId, bool insertAfter)
+    {
+        var previousOrders = AllProjects.ToDictionary(project => project.Id, project => project.ManualSortOrder);
+        var previousFolder = AllProjects.FirstOrDefault(project => project.Id == draggedId)?.FolderId;
+        var reordered = ReorderProjects(AllProjects, draggedId, targetId, insertAfter);
+        var dragged = reordered.FirstOrDefault(project => project.Id == draggedId);
+        if (dragged is null) return;
+
+        var changedOrders = reordered
+            .Where(project => !previousOrders.TryGetValue(project.Id, out var order) || order != project.ManualSortOrder)
+            .ToList();
+        var folderChanged = dragged.FolderId != previousFolder;
+        if (changedOrders.Count == 0 && !folderChanged) return;
+
+        try
+        {
+            foreach (var project in changedOrders)
+                await _downloadManager.SetJobManualSortOrderAsync(project.Id, project.ManualSortOrder).ConfigureAwait(false);
+
+            if (folderChanged)
+                await _libraryService.MovePlaylistToFolderAsync(draggedId, dragged.FolderId).ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AllProjects.Clear();
+                foreach (var project in reordered)
+                    AllProjects.Add(project);
+
+                RefreshFilteredProjects();
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to reorder playlist {DraggedId} around {TargetId}", draggedId, targetId);
+            await Dispatcher.UIThread.InvokeAsync(() => _notificationService.Show(
+                "Reorder Playlist",
+                "The new playlist order could not be saved. The previous saved order has been restored.",
+                Views.NotificationType.Error));
+            await LoadProjectsAsync();
         }
     }
 

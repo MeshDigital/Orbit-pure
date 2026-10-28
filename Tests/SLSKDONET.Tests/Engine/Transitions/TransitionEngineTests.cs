@@ -147,6 +147,35 @@ public class TransitionEngineTests
         Assert.True(suggestion.CompatibilityScore < 50.0);
     }
 
+    [Fact]
+    public void OptimizeTransition_ExplicitSharedMixCuesWinOverSectionsAndLegacyLabels()
+    {
+        var engine = new TransitionEngine();
+        var source = MakeTrack(bpm: 174.0);
+        var target = MakeTrack(bpm: 175.0);
+        var mixOut = Cue(73.25, CuePointType.MixOut, "Mix-Out");
+        var mixIn = Cue(18.75, CuePointType.MixIn, "Mix-In");
+        var sourceCues = new List<CuePointEntity>
+        {
+            Cue(60, CuePointType.OutroStart, "Outro Start"),
+            Cue(65, CuePointType.Outro, "Mix-Out Warning"),
+            mixOut,
+        };
+        var targetCues = new List<CuePointEntity>
+        {
+            Cue(2, CuePointType.Intro, "Intro"),
+            Cue(10, CuePointType.Intro, "Mix-In legacy"),
+            mixIn,
+        };
+
+        var suggestion = engine.OptimizeTransition(source, target, sourceCues, targetCues);
+
+        Assert.Equal(73.25, suggestion.SourceTriggerTime);
+        Assert.Equal(18.75, suggestion.TargetTriggerTime);
+        Assert.Same(mixOut, suggestion.SelectedSourceCue);
+        Assert.Same(mixIn, suggestion.SelectedTargetCue);
+    }
+
     [Theory]
     [InlineData("8A", "8A", true)]
     [InlineData("8A", "9A", true)]

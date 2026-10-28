@@ -103,6 +103,54 @@ public class SidebarViewModelSyncTests
     }
 
     [Fact]
+    public void TabStripInspector_RestoresTheLastRealContentAfterPlaying()
+    {
+        var rightPanel = new RightPanelService();
+        var playerVm = CreateUninitializedPlayerVm();
+        using var sut = new SidebarViewModel(rightPanel, playerVm, CreateSimilarTracksVm(), CreateUninitializedNotificationCenter(), CreateUninitializedMixTransitionVm(), CreateUninitializedDiscoveryVm());
+        var track = CreateTrack("restore-hash", "Artist", "Track");
+        rightPanel.OpenPanel(track, "TRACK INSPECTOR", "🔬");
+        rightPanel.OpenPanel(playerVm, "NOW PLAYING", "🎵");
+
+        sut.ActiveTabIndex = 0;
+
+        Assert.Equal(SidebarTab.Inspector, sut.ActiveTab);
+        Assert.Same(track, rightPanel.CurrentPanelVm);
+        Assert.True(rightPanel.IsPanelOpen);
+    }
+
+    [Fact]
+    public void TabStripSelection_SynchronizesEveryTabsUnderlyingContent()
+    {
+        var rightPanel = new RightPanelService();
+        var player = CreateUninitializedPlayerVm();
+        var similar = CreateSimilarTracksVm();
+        var notifications = CreateUninitializedNotificationCenter();
+        var mix = CreateUninitializedMixTransitionVm();
+        var discover = CreateUninitializedDiscoveryVm();
+        using var sut = new SidebarViewModel(rightPanel, player, similar, notifications, mix, discover);
+        var track = CreateTrack("tabs-hash", "Artist", "Track");
+        rightPanel.OpenPanel(track, "TRACK INSPECTOR", "🔬");
+
+        var cases = new[]
+        {
+            (Index: 2, Content: (object)player),
+            (Index: 3, Content: (object)notifications),
+            (Index: 1, Content: (object)similar),
+            (Index: 4, Content: (object)mix),
+            (Index: 5, Content: (object)discover),
+            (Index: 0, Content: (object)track),
+        };
+
+        foreach (var testCase in cases)
+        {
+            sut.ActiveTabIndex = testCase.Index;
+            Assert.Equal(testCase.Index, sut.ActiveTabIndex);
+            Assert.Same(testCase.Content, rightPanel.CurrentPanelVm);
+        }
+    }
+
+    [Fact]
     public void PrimeFromInspectorContext_LibraryDoubleInspectorWithoutTracks_ShowsGuidance()
     {
         var similarVm = CreateSimilarTracksVm();

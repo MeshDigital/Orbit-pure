@@ -72,10 +72,54 @@
         </Style>
     </UserControl.Styles>
 
-    <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <Grid RowDefinitions="Auto,Auto,*,Auto" ColumnDefinitions="Auto,*">
+
+        <!-- ═══ Track browser: the playlist and its tracks, the open track highlighted ═══ -->
+        <Border Grid.Column="0" Grid.RowSpan="4" Classes="panel" Width="248" BorderThickness="0,0,1,0"
+                IsVisible="{Binding IsBrowserOpen}">
+            <DockPanel>
+                <Border DockPanel.Dock="Top" Classes="panel-header">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Classes="section" Text="TRACKS" VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Classes="icon small" Command="{Binding ToggleBrowserCommand}" ToolTip.Tip="Hide the track list">
+                            <PathIcon Data="{StaticResource icon_close}" Width="12" Height="12"/>
+                        </Button>
+                    </Grid>
+                </Border>
+                <StackPanel DockPanel.Dock="Top" Margin="12,8,12,8" Spacing="8">
+                    <ComboBox ItemsSource="{Binding Playlists}" SelectedItem="{Binding SelectedPlaylist}"
+                              HorizontalAlignment="Stretch" MaxDropDownHeight="400" PlaceholderText="Playlist">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="models:PlaylistJob">
+                                <TextBlock Text="{Binding SourceTitle}" TextTrimming="CharacterEllipsis"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <TextBox Classes="search small" Text="{Binding BrowserQuery}" Watermark="Filter by title or artist"/>
+                    <TextBlock Classes="caption mono" Text="{Binding BrowserPosition}" TextWrapping="Wrap"
+                               IsVisible="{Binding BrowserPosition, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                </StackPanel>
+                <Panel>
+                    <TextBlock Classes="caption" Text="{Binding BrowserStatus}" TextWrapping="Wrap"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16" TextAlignment="Center"
+                               IsVisible="{Binding HasBrowserStatus}"/>
+                    <ListBox ItemsSource="{Binding BrowserTracks}" SelectedItem="{Binding CurrentBrowserItem}"
+                             IsVisible="{Binding !HasBrowserStatus}" SelectionMode="Single" Background="Transparent">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:CueBrowserItem">
+                                <StackPanel Spacing="2" Margin="0,4">
+                                    <TextBlock Classes="body" Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Classes="caption" Text="{Binding Artist}" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Panel>
+            </DockPanel>
+        </Border>
 
         <!-- ═══ Header: track identity + facts + save state ═══ -->
-        <Border Grid.Row="0" Padding="24,12" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
+        <Border Grid.Column="1" Grid.Row="0" Padding="24,12" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto">
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="0,0,16,0">
                     <Button Classes="icon small" Command="{Binding PreviousTrackCommand}" ToolTip.Tip="Previous track in the playlist">
@@ -84,42 +128,12 @@
                     <Button Classes="icon small" Command="{Binding NextTrackCommand}" ToolTip.Tip="Next track in the playlist">
                         <PathIcon Data="{StaticResource icon_chevron_right}" Width="14" Height="14"/>
                     </Button>
-                    <Button x:Name="TrackPickerButton" Classes="secondary small" ToolTip.Tip="Pick a track to edit">
+                    <ToggleButton Classes="chip" IsChecked="{Binding IsBrowserOpen}" ToolTip.Tip="Show or hide the track list (playlist and its tracks)">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <PathIcon Data="{StaticResource icon_music}" Width="14" Height="14"/>
                             <TextBlock Text="Tracks"/>
-                            <PathIcon Data="{StaticResource icon_chevron_down}" Width="12" Height="12"/>
                         </StackPanel>
-                        <Button.Flyout>
-                            <Flyout Placement="BottomEdgeAlignedLeft">
-                                <Grid Width="360" Height="440" RowDefinitions="Auto,8,Auto,8,*">
-                                    <ComboBox Grid.Row="0" ItemsSource="{Binding Playlists}" SelectedItem="{Binding SelectedPlaylist}"
-                                              HorizontalAlignment="Stretch" MaxDropDownHeight="300" PlaceholderText="Playlist">
-                                        <ComboBox.ItemTemplate>
-                                            <DataTemplate x:DataType="models:PlaylistJob">
-                                                <TextBlock Text="{Binding SourceTitle}" TextTrimming="CharacterEllipsis"/>
-                                            </DataTemplate>
-                                        </ComboBox.ItemTemplate>
-                                    </ComboBox>
-                                    <TextBox Grid.Row="2" Classes="search small" Text="{Binding BrowserQuery}" Watermark="Filter by title or artist"/>
-                                    <TextBlock Grid.Row="4" Classes="caption" Text="{Binding BrowserStatus}" TextWrapping="Wrap"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16"
-                                               IsVisible="{Binding HasBrowserStatus}"/>
-                                    <ListBox x:Name="TrackPickerList" Grid.Row="4" ItemsSource="{Binding BrowserTracks}"
-                                             IsVisible="{Binding !HasBrowserStatus}" SelectionMode="Single" SelectionChanged="OnTrackPicked">
-                                        <ListBox.ItemTemplate>
-                                            <DataTemplate x:DataType="vm:CueBrowserItem">
-                                                <StackPanel Spacing="2" Margin="0,4">
-                                                    <TextBlock Classes="body" Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Classes="caption" Text="{Binding Artist}" TextTrimming="CharacterEllipsis"/>
-                                                </StackPanel>
-                                            </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
-                                </Grid>
-                            </Flyout>
-                        </Button.Flyout>
-                    </Button>
+                    </ToggleButton>
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
@@ -142,6 +156,8 @@
                     <StackPanel Spacing="2">
                         <TextBlock Classes="section" Text="LENGTH"/>
                         <TextBlock Classes="mono" Text="{Binding TrackDurationDisplay}"/>
+                        <TextBlock Classes="caption mono" Text="{Binding TimeTillDropDisplay}"
+                                   IsVisible="{Binding HasTimeTillDrop}" ToolTip.Tip="Time from track start to the first structural drop; bars are approximate 4/4 bars."/>
                     </StackPanel>
                     <StackPanel Spacing="2" ToolTip.Tip="Energy score (1–10), Mixed In Key compatible">
                         <TextBlock Classes="section" Text="ENERGY"/>
@@ -153,6 +169,15 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <!-- Undo / redo / more live up here so the toolbar fits next to the track list -->
+                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Button Classes="icon small" Command="{Binding Session.UndoCommand}" ToolTip.Tip="Undo (Ctrl+Z)">
+                            <PathIcon Data="{StaticResource arrow_counterclockwise_regular}" Width="14" Height="14"/>
+                        </Button>
+                        <Button Classes="icon small" Command="{Binding Session.RedoCommand}" ToolTip.Tip="Redo (Ctrl+Y)">
+                            <PathIcon Data="{StaticResource ws_redo_regular}" Width="14" Height="14"/>
+                        </Button>
+                    </StackPanel>
                     <Button Classes="ghost small" Command="{Binding BackToMixTransitionCommand}" IsVisible="{Binding HasMixOrigin}"
                             ToolTip.Tip="Back to the playlist and mix transition this track was opened from">
                         <StackPanel Orientation="Horizontal" Spacing="4">
@@ -179,8 +204,9 @@
         </Border>
 
         <!-- ═══ Toolbar: the one action row ═══ -->
-        <Border Grid.Row="1" Classes="toolbar" Padding="24,0" IsEnabled="{Binding HasTrackLoaded}">
-            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto">
+        <Border Grid.Column="1" Grid.Row="1" Classes="toolbar" Padding="16,4" IsEnabled="{Binding HasTrackLoaded}">
+            <!-- Keep controls reachable: groups wrap onto a second row instead of scrolling out of sight. -->
+            <WrapPanel Orientation="Horizontal">
                 <!-- Transport -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                     <Button Classes="icon" Command="{Binding PreviousCueCommand}" ToolTip.Tip="Previous cue (Up)">
@@ -197,11 +223,28 @@
                     </Button>
                     <Button Classes="secondary small" Content="Cue" Command="{Binding CueButtonCommand}"
                             ToolTip.Tip="CDJ cue (C): while playing, return to the cue point and stop; while stopped, set the cue point at the playhead"/>
+                    <!-- Beat jump: check that [IN -16] + 16 bars lands on the drop without listening through the build -->
+                    <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center" Margin="8,0,0,0">
+                        <Button Classes="icon small" Command="{Binding BeatJumpCommand}" ToolTip.Tip="Beat jump back ([)">
+                            <Button.CommandParameter><x:Int32>-1</x:Int32></Button.CommandParameter>
+                            <PathIcon Data="{StaticResource icon_chevron_left}" Width="12" Height="12"/>
+                        </Button>
+                        <ComboBox Classes="small" Width="64" ItemsSource="{x:Static vm:CueForgeViewModel.BeatJumpSizes}"
+                                  SelectedItem="{Binding BeatJumpBars}" ToolTip.Tip="Beat jump size (bars)">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="x:Int32">
+                                    <TextBlock Classes="mono" Text="{Binding}"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <Button Classes="icon small" Command="{Binding BeatJumpCommand}" ToolTip.Tip="Beat jump forward (])">
+                            <Button.CommandParameter><x:Int32>1</x:Int32></Button.CommandParameter>
+                            <PathIcon Data="{StaticResource icon_chevron_right}" Width="12" Height="12"/>
+                        </Button>
+                    </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="8,0,0,0">
                         <TextBlock Classes="mono" Text="{Binding CurrentPlayPositionDisplay}" VerticalAlignment="Center"/>
-                        <TextBlock Classes="mono muted" Text="/" VerticalAlignment="Center"/>
-                        <TextBlock Classes="mono muted" Text="{Binding TrackDurationDisplay}" VerticalAlignment="Center"/>
-                        <TextBlock Classes="caption" Text="{Binding CurrentBarBeatDisplay}" VerticalAlignment="Center" Width="64" Margin="8,0,0,0"/>
+                        <TextBlock Classes="caption" Text="{Binding CurrentBarBeatDisplay}" VerticalAlignment="Center" Width="72" Margin="8,0,0,0"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" IsVisible="{Binding IsInVocalRegion}"
                                 ToolTip.Tip="Vocals at the playhead: avoid starting a mix here">
@@ -210,7 +253,7 @@
                     </StackPanel>
                 </StackPanel>
 
-                <Border Grid.Column="1" Classes="divider vertical" Height="20" Margin="16,0"/>
+                <Border Grid.Column="1" Classes="divider vertical" Height="20" Margin="12,0"/>
 
                 <!-- Place -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
@@ -245,17 +288,9 @@
                             </MenuFlyout>
                         </Button.Flyout>
                     </Button>
-                    <Button Classes="ghost small" Command="{Binding AutoGenerateCuesCommand}"
-                            ToolTip.Tip="Generate structural cues from the track's analysis. Your own cues are kept.">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <PathIcon Data="{StaticResource sparkles_regular}" Width="12" Height="12"/>
-                            <TextBlock Text="Auto-generate" IsVisible="{Binding !IsGenerating}"/>
-                            <TextBlock Text="Generating…" IsVisible="{Binding IsGenerating}"/>
-                        </StackPanel>
-                    </Button>
                 </StackPanel>
 
-                <Border Grid.Column="3" Classes="divider vertical" Height="20" Margin="16,0"/>
+                <Border Grid.Column="3" Classes="divider vertical" Height="20" Margin="12,0"/>
 
                 <!-- Grid + view -->
                 <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
@@ -265,62 +300,112 @@
                             <TextBlock Text="Snap"/>
                         </StackPanel>
                     </ToggleButton>
-                    <ComboBox Classes="small" Width="96" ItemsSource="{x:Static vm:CueEditorSession.SnapResolutions}"
+                    <ComboBox Classes="small" Width="84" ItemsSource="{x:Static vm:CueEditorSession.SnapResolutions}"
                               SelectedItem="{Binding Session.SnapResolution}" IsEnabled="{Binding Session.SnapToGrid}" ToolTip.Tip="Snap resolution"/>
                     <Button Classes="icon small" Command="{Binding ZoomOutCommand}" ToolTip.Tip="Zoom out (minus, or mouse wheel on the waveform)">
                         <PathIcon Data="{StaticResource ws_zoom_out_regular}" Width="14" Height="14"/>
                     </Button>
-                    <Button Classes="ghost small" Command="{Binding ZoomToFitCommand}" ToolTip.Tip="Show the whole track">
+                    <Button Classes="ghost small" Command="{Binding ZoomToFitCommand}" ToolTip.Tip="Waveform zoom. Click to show the whole track.">
                         <TextBlock Classes="mono" Text="{Binding ZoomDisplay}" Width="40" TextAlignment="Center"/>
                     </Button>
                     <Button Classes="icon small" Command="{Binding ZoomInCommand}" ToolTip.Tip="Zoom in (plus, or mouse wheel on the waveform)">
                         <PathIcon Data="{StaticResource ws_zoom_in_regular}" Width="14" Height="14"/>
                     </Button>
                     <ToggleButton Classes="chip" IsChecked="{Binding FollowPlayhead}" ToolTip.Tip="Follow the playhead while playing (F)">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <PathIcon Data="{StaticResource cf_follow}" Width="12" Height="12"/>
-                            <TextBlock Text="Follow"/>
-                        </StackPanel>
+                        <PathIcon Data="{StaticResource cf_follow}" Width="12" Height="12"/>
                     </ToggleButton>
-                </StackPanel>
-
-                <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                    <Button Classes="icon small" Command="{Binding Session.UndoCommand}" ToolTip.Tip="Undo (Ctrl+Z)">
-                        <PathIcon Data="{StaticResource arrow_counterclockwise_regular}" Width="14" Height="14"/>
-                    </Button>
-                    <Button Classes="icon small" Command="{Binding Session.RedoCommand}" ToolTip.Tip="Redo (Ctrl+Y)">
-                        <PathIcon Data="{StaticResource ws_redo_regular}" Width="14" Height="14"/>
-                    </Button>
-                    <Button Classes="icon small" ToolTip.Tip="More: cue template, revert, shortcuts">
-                        <PathIcon Data="{StaticResource cf_more}" Width="14" Height="14"/>
+                    <ToggleButton Classes="chip" Content="Grid" IsChecked="{Binding IsGridModeOpen}" ToolTip.Tip="Show focused beat-grid repair controls under the waveform"/>
+                    <Button x:Name="LayersButton" Classes="ghost small" Content="Layers" ToolTip.Tip="Choose waveform overlays and vertical gain">
                         <Button.Flyout>
-                            <Flyout Placement="BottomEdgeAlignedRight">
-                                <StackPanel Width="280" Spacing="8">
-                                    <TextBlock Classes="section" Text="DROP CUE TEMPLATE"/>
-                                    <ComboBox ItemsSource="{x:Static vm:CueEditorSession.DropCountdownModes}" SelectedItem="{Binding Session.DropCountdownMode}"
-                                              HorizontalAlignment="Stretch"
-                                              ToolTip.Tip="Build-in cues placed before every drop: DnB / Bass −16 −8, Long Blend / House −32 −16, Quick Mix / Hip-Hop −8 −4, Custom, or Auto (picked from the genre). Also used by auto-generate."/>
-                                    <TextBox Text="{Binding Session.CustomCountdownBars}" IsVisible="{Binding Session.IsCustomTemplate}"
-                                             Watermark="Bars before the drop, e.g. 32,16,8"/>
-                                    <TextBlock Classes="caption" TextWrapping="Wrap"
-                                               Text="App-wide: also used by the Flow Builder cue editor and auto-generate."/>
+                            <Flyout Placement="BottomEdgeAlignedLeft">
+                                <StackPanel Width="220" Spacing="8">
+                                    <TextBlock Classes="section" Text="WAVEFORM LAYERS"/>
+                                    <CheckBox Content="Energy curve" IsChecked="{Binding ShowEnergyCurve}"/>
+                                    <CheckBox Content="Onset density" IsChecked="{Binding ShowOnsetDensity}"/>
+                                    <CheckBox Content="Vocal ghost" IsChecked="{Binding ShowVocalGhost}"/>
+                                    <CheckBox Content="Phrase sections" IsChecked="{Binding ShowPhraseSections}"/>
+                                    <CheckBox Content="Beat grid" IsChecked="{Binding ShowBeatGrid}"/>
                                     <Border Classes="divider" Margin="0,4"/>
-                                    <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                            Command="{Binding Session.RevertCommand}" Content="Revert to saved cues…"/>
-                                    <Border Classes="divider" Margin="0,4"/>
-                                    <TextBlock Classes="section" Text="SHORTCUTS"/>
-                                    <TextBlock Classes="caption" TextWrapping="Wrap" LineHeight="18"
-                                               Text="Space play (stops a cue prelisten) · click a cue: play from it · C cue · A add cue · D drop · Shift+I intro end · Shift+O outro · 1–8 pads · Up/Down prev/next cue · Left/Right nudge selected cue a beat (Shift bar, Ctrl 10 ms) · Enter audition · Delete remove · F2 rename · Esc deselect · I / O loop in/out · +/− zoom · F follow · Ctrl+S save · Ctrl+Z / Ctrl+Y undo/redo"/>
+                                    <TextBlock Classes="section" Text="VERTICAL GAIN"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <Button Classes="ghost small" Content="Fit" Command="{Binding SetWaveformGainCommand}">
+                                            <Button.CommandParameter><x:Double>1</x:Double></Button.CommandParameter>
+                                        </Button>
+                                        <Button Classes="ghost small" Content="150%" Command="{Binding SetWaveformGainCommand}">
+                                            <Button.CommandParameter><x:Double>1.5</x:Double></Button.CommandParameter>
+                                        </Button>
+                                        <Button Classes="ghost small" Content="200%" Command="{Binding SetWaveformGainCommand}">
+                                            <Button.CommandParameter><x:Double>2</x:Double></Button.CommandParameter>
+                                        </Button>
+                                    </StackPanel>
+                                    <TextBlock Classes="caption muted" TextWrapping="Wrap" Text="Gain changes only the display, not the audio or analysis."/>
                                 </StackPanel>
                             </Flyout>
                         </Button.Flyout>
                     </Button>
+                    <Button x:Name="PreparationButton" Classes="ghost small" Content="Preparation" ToolTip.Tip="Cue generation, countdown template, Rekordbox import, grid repair and shortcuts">
+                        <Button.Flyout>
+                            <Flyout Placement="BottomEdgeAlignedRight">
+                                <ScrollViewer MaxHeight="620" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Width="300" Spacing="8">
+                                        <TextBlock Classes="section" Text="ANALYSIS"/>
+                                        <Button Classes="secondary small" Command="{Binding RefreshWaveformCommand}" Content="{Binding WaveformRefreshActionLabel}" HorizontalAlignment="Stretch"
+                                                ToolTip.Tip="Force a fresh high-priority analysis of this track: tri-band waveform, loudness, BPM, key, beat grid, structure, cues/drop timing and available AI embeddings/classification. Existing ORBIT cue edits are preserved; nothing is written to Rekordbox."/>
+                                        <TextBlock Classes="caption" Text="{Binding WaveformRefreshStatus}" TextWrapping="Wrap" IsVisible="{Binding IsWaveformRefreshPending}"/>
+                                        <TextBlock Classes="caption muted" TextWrapping="Wrap" Text="Runs every available analysis metric, not just the waveform. Use it after changing analysis models or when any result looks wrong."/>
+                                        <Border Classes="divider" Margin="0,4"/>
+                                        <TextBlock Classes="section" Text="CUE GENERATION"/>
+                                        <Button Classes="secondary small" Command="{Binding AutoGenerateCuesCommand}" HorizontalAlignment="Stretch"
+                                                ToolTip.Tip="Generate structural cues from the track's analysis. Your own cues are kept; Ctrl+Z undoes. Confidence is shown in the cue list.">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <PathIcon Data="{StaticResource sparkles_regular}" Width="12" Height="12"/>
+                                                <TextBlock Text="Auto-generate" IsVisible="{Binding !IsGenerating}"/>
+                                                <TextBlock Text="Generating…" IsVisible="{Binding IsGenerating}"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <TextBlock Classes="caption muted" TextWrapping="Wrap" Text="Auto-generate keeps your cues. Generated cues include detection confidence and an explanation in the cue list."/>
+                                        <TextBlock Classes="section" Text="DROP CUE TEMPLATE"/>
+                                        <ComboBox ItemsSource="{x:Static vm:CueEditorSession.DropCountdownModes}" SelectedItem="{Binding Session.DropCountdownMode}" HorizontalAlignment="Stretch"/>
+                                        <TextBox Text="{Binding Session.CustomCountdownBars}" IsVisible="{Binding Session.IsCustomTemplate}" Watermark="Bars before the drop, e.g. 32,16,8"/>
+                                        <CheckBox IsChecked="{Binding Session.CountdownsAsMemoryCues}" Content="Countdowns as memory cues"/>
+                                        <TextBlock Classes="caption" TextWrapping="Wrap" Text="App-wide: also used by Flow Builder's cue editor and auto-generate."/>
+                                        <Border Classes="divider" Margin="0,4"/>
+                                        <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" IsVisible="{Binding CanImportRekordbox}"
+                                                Command="{Binding ImportRekordboxCuesCommand}" Content="Load cues from Rekordbox"
+                                                ToolTip.Tip="Read-only import matched by file path. Save afterwards to keep the imported cues."/>
+                                        <TextBlock Classes="section" Text="BEAT GRID"/>
+                                        <TextBlock Classes="caption" TextWrapping="Wrap" Text="Put the playhead on the real downbeat and press Bar 1 here. Grid changes save to the track immediately; cues are not moved."/>
+                                        <WrapPanel>
+                                            <Button Classes="secondary small" Content="Bar 1 here" Command="{Binding SetDownbeatAtPlayheadCommand}" Margin="0,0,4,4"/>
+                                            <Button Classes="ghost small" Content="−10 ms" Command="{Binding SlipGridCommand}" CommandParameter="-" Margin="0,0,4,4"/>
+                                            <Button Classes="ghost small" Content="+10 ms" Command="{Binding SlipGridCommand}" CommandParameter="+" Margin="0,0,4,4"/>
+                                        </WrapPanel>
+                                        <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding ResetGridCommand}" Content="Reset to the analysed grid" IsVisible="{Binding IsGridEdited}"/>
+                                        <Border Classes="divider" Margin="0,4"/>
+                                        <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding Session.RevertCommand}" Content="Revert to saved cues…"/>
+                                        <Border Classes="divider" Margin="0,4"/>
+                                        <TextBlock Classes="section" Text="SHORTCUTS"/>
+                                        <TextBlock Classes="caption" TextWrapping="Wrap" LineHeight="18" Text="Space play · [ / ] beat jump · C cue · A add cue · D drop · Shift+I intro end · Shift+O outro · 1–8 pads · Up/Down previous/next cue · Left/Right nudge (Shift bar, Ctrl 10 ms) · Enter audition · Delete remove · F2 rename · I / O loop in/out · +/− zoom · F follow · Ctrl+S save · Ctrl+Z / Ctrl+Y undo/redo"/>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
+                    <ToggleButton Classes="chip" Content="Dock" IsChecked="{Binding IsPreparationDockOpen}" ToolTip.Tip="Show or hide the cue preparation panels"/>
                 </StackPanel>
-            </Grid>
+            </WrapPanel>
         </Border>
 
         <!-- ═══ Workspace ═══ -->
-        <Grid Grid.Row="2" IsVisible="{Binding HasTrackLoaded}" RowDefinitions="Auto,40,*,272">
+        <Grid x:Name="WorkspaceGrid" Grid.Column="1" Grid.Row="2" IsVisible="{Binding HasTrackLoaded}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="40"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="6"/>
+                <RowDefinition Height="272"/>
+            </Grid.RowDefinitions>
 
             <StackPanel Grid.Row="0">
                 <!-- Load problem (analysis missing / cue data failed) -->
@@ -331,6 +416,19 @@
                         <PathIcon Data="{StaticResource icon_alert}" Width="14" Height="14" Foreground="{StaticResource BrushWarning}"/>
                         <TextBlock Classes="body-sm" Text="{Binding TrackLoadError}" TextWrapping="Wrap"/>
                     </StackPanel>
+                </Border>
+                <!-- Legacy waveform: keep the old preview usable, but make its accuracy limitation explicit. -->
+                <Border Background="{StaticResource BrushWarningSubtle}" BorderBrush="{StaticResource BrushWarningBorder}"
+                        BorderThickness="0,0,0,1" Padding="24,8"
+                        IsVisible="{Binding HasWaveformRefreshNotice}">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                        <PathIcon Data="{StaticResource icon_alert}" Width="14" Height="14" Foreground="{StaticResource BrushWarning}"/>
+                        <TextBlock Grid.Column="1" Classes="body-sm" TextWrapping="Wrap" VerticalAlignment="Center"
+                                   Text="{Binding WaveformRefreshNoticeText}"/>
+                        <Button Grid.Column="2" Classes="secondary small" Content="{Binding WaveformRefreshActionLabel}" Margin="16,0,0,0"
+                                Command="{Binding RefreshWaveformCommand}" IsVisible="{Binding ShowWaveformRefreshAction}"
+                                ToolTip.Tip="Force a fresh high-priority analysis of every available metric. Your ORBIT cues are preserved; nothing is written to Rekordbox."/>
+                    </Grid>
                 </Border>
                 <!-- Sections: what's marked, and a one-click suggestion for what isn't -->
                 <Grid ColumnDefinitions="Auto,*,Auto" Margin="24,8,24,0"
@@ -379,6 +477,12 @@
                         EnergyCurve="{Binding EnergyCurveData}"
                         VocalDensityCurve="{Binding VocalDensityCurveData}"
                         OnsetDensityCurve="{Binding OnsetDensityCurveData}"
+                        ShowEnergyCurve="{Binding ShowEnergyCurve}"
+                        ShowOnsetDensity="{Binding ShowOnsetDensity}"
+                        ShowVocalGhost="{Binding ShowVocalGhost}"
+                        ShowPhraseSections="{Binding ShowPhraseSections}"
+                        ShowBeatGrid="{Binding ShowBeatGrid}"
+                        WaveformGain="{Binding WaveformGain}"
                         MaxZoom="{Binding MaxZoomLevel}"
                         ZoomLevel="{Binding WaveformZoom, Mode=TwoWay}"
                         ScrollOffset="{Binding WaveformScroll, Mode=TwoWay}"
@@ -397,19 +501,45 @@
                         <PathIcon Data="{StaticResource icon_waves}"/>
                         <TextBlock Classes="caption" Text="Loading waveform…"/>
                     </StackPanel>
-                    <StackPanel Classes="empty-state" IsVisible="{Binding IsWaveformMissing}" IsHitTestVisible="False">
+                    <StackPanel Classes="empty-state" IsVisible="{Binding IsWaveformMissing}" Spacing="8">
                         <PathIcon Data="{StaticResource icon_waves}"/>
                         <TextBlock Classes="h3" Text="No waveform yet"/>
-                        <TextBlock Classes="caption" Text="Analyse this track in the Library to see its waveform and beat grid. Cues still work."/>
+                        <TextBlock Classes="caption" Text="Run the complete analysis here to generate the waveform, beat grid, loudness and all other available metrics."/>
+                        <Button Classes="secondary" Content="{Binding WaveformRefreshActionLabel}" Command="{Binding RefreshWaveformCommand}" HorizontalAlignment="Center"/>
                     </StackPanel>
                 </Panel>
             </Border>
 
-            <!-- Bottom: pads + loops | cue list | inspector -->
-            <Grid Grid.Row="3" ColumnDefinitions="360,*,320">
+            <Border Grid.Row="3" Margin="24,0,24,8" Padding="12,6" Classes="inset" IsVisible="{Binding IsGridModeOpen}">
+                <WrapPanel Orientation="Horizontal">
+                    <TextBlock Classes="section" Text="GRID REPAIR" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                    <Button Classes="secondary small" Content="Bar 1 here" Command="{Binding SetDownbeatAtPlayheadCommand}" Margin="0,0,4,4"
+                            ToolTip.Tip="Make the grid beat nearest the playhead the 1 of its bar"/>
+                    <Button Classes="ghost small" Content="−10 ms" Command="{Binding SlipGridCommand}" CommandParameter="-" Margin="0,0,4,4"/>
+                    <Button Classes="ghost small" Content="+10 ms" Command="{Binding SlipGridCommand}" CommandParameter="+" Margin="0,0,4,4"/>
+                    <Button Classes="ghost small" Content="Reset" Command="{Binding ResetGridCommand}" IsVisible="{Binding IsGridEdited}" Margin="0,0,12,4"/>
+                    <TextBlock Classes="caption" Text="Audition with beat jump:" VerticalAlignment="Center" Margin="0,0,4,4"/>
+                    <Button Classes="icon small" Command="{Binding BeatJumpCommand}" ToolTip.Tip="Beat jump back ([)" Margin="0,0,2,4">
+                        <Button.CommandParameter><x:Int32>-1</x:Int32></Button.CommandParameter>
+                        <PathIcon Data="{StaticResource icon_chevron_left}" Width="12" Height="12"/>
+                    </Button>
+                    <ComboBox Classes="small" Width="64" ItemsSource="{x:Static vm:CueForgeViewModel.BeatJumpSizes}" SelectedItem="{Binding BeatJumpBars}" Margin="0,0,2,4"/>
+                    <Button Classes="icon small" Command="{Binding BeatJumpCommand}" ToolTip.Tip="Beat jump forward (])" Margin="0,0,0,4">
+                        <Button.CommandParameter><x:Int32>1</x:Int32></Button.CommandParameter>
+                        <PathIcon Data="{StaticResource icon_chevron_right}" Width="12" Height="12"/>
+                    </Button>
+                </WrapPanel>
+            </Border>
+
+            <GridSplitter Grid.Row="4" x:Name="PreparationSplitter" Height="6" HorizontalAlignment="Stretch"
+                          Background="Transparent" ResizeDirection="Rows" IsVisible="{Binding IsPreparationDockOpen}"
+                          ToolTip.Tip="Drag to resize the preparation panels"/>
+
+            <!-- Bottom: pads + loops | cue list | inspector; narrow workspaces use tabs. -->
+            <Grid x:Name="PreparationColumns" Grid.Row="5" ColumnDefinitions="360,*,320">
 
                 <!-- Hot cues + loops -->
-                <Border Grid.Column="0" Classes="panel" BorderThickness="0,1,1,0">
+                <Border x:Name="PadsPanel" Grid.Column="0" Classes="panel" BorderThickness="0,1,1,0">
                     <DockPanel>
                         <Border DockPanel.Dock="Top" Classes="panel-header">
                             <Grid ColumnDefinitions="*,Auto">
@@ -428,11 +558,21 @@
                                 <Button Classes="secondary small" Content="In" Command="{Binding Session.SetLoopInCommand}" ToolTip.Tip="Loop in at the playhead (I)"/>
                                 <Button Classes="secondary small" Content="Out" Command="{Binding Session.SetLoopOutCommand}" ToolTip.Tip="Loop out at the playhead (O)"/>
                                 <Border Classes="divider vertical" Height="16" Margin="4,0"/>
-                                <Button Classes="ghost small" Content="1" CommandParameter="1" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="1-bar loop from the selected cue or playhead (resizes a selected loop)"/>
-                                <Button Classes="ghost small" Content="2" CommandParameter="2" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="2-bar loop"/>
-                                <Button Classes="ghost small" Content="4" CommandParameter="4" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="4-bar loop"/>
-                                <Button Classes="ghost small" Content="8" CommandParameter="8" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="8-bar loop"/>
-                                <Button Classes="ghost small" Content="16" CommandParameter="16" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="16-bar loop"/>
+                                <Button Classes="ghost small" Content="1" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="1-bar loop from the selected cue or playhead (resizes a selected loop)">
+                                    <Button.CommandParameter><x:Int32>1</x:Int32></Button.CommandParameter>
+                                </Button>
+                                <Button Classes="ghost small" Content="2" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="2-bar loop">
+                                    <Button.CommandParameter><x:Int32>2</x:Int32></Button.CommandParameter>
+                                </Button>
+                                <Button Classes="ghost small" Content="4" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="4-bar loop">
+                                    <Button.CommandParameter><x:Int32>4</x:Int32></Button.CommandParameter>
+                                </Button>
+                                <Button Classes="ghost small" Content="8" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="8-bar loop">
+                                    <Button.CommandParameter><x:Int32>8</x:Int32></Button.CommandParameter>
+                                </Button>
+                                <Button Classes="ghost small" Content="16" Command="{Binding Session.SetQuickLoopCommand}" ToolTip.Tip="16-bar loop">
+                                    <Button.CommandParameter><x:Int32>16</x:Int32></Button.CommandParameter>
+                                </Button>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <Button Classes="ghost small" Content="½" Command="{Binding Session.LoopHalfCommand}" ToolTip.Tip="Halve the loop"/>
@@ -481,7 +621,7 @@
                 </Border>
 
                 <!-- Cue list -->
-                <Border Grid.Column="1" Classes="panel" BorderThickness="0,1,1,0">
+                <Border x:Name="CueListPanel" Grid.Column="1" Classes="panel" BorderThickness="0,1,1,0">
                     <DockPanel>
                         <Border DockPanel.Dock="Top" Classes="panel-header">
                             <Grid ColumnDefinitions="*,Auto">
@@ -533,16 +673,35 @@
                 </Border>
 
                 <!-- Inspector -->
-                <Border Grid.Column="2" Classes="panel" BorderThickness="0,1,0,0">
+                <Border x:Name="InspectorPanel" Grid.Column="2" Classes="panel" BorderThickness="0,1,0,0">
                     <DockPanel>
                         <Border DockPanel.Dock="Top" Classes="panel-header">
                             <TextBlock Classes="section" Text="SELECTED CUE" VerticalAlignment="Center"/>
                         </Border>
                         <Panel>
-                            <StackPanel Classes="empty-state" IsVisible="{Binding !Session.HasSelectedCue}">
-                                <TextBlock Classes="caption" TextWrapping="Wrap" MaxWidth="240" TextAlignment="Center"
-                                           Text="Select a cue on the waveform, in the list or on a pad to rename, recolour, move or delete it."/>
-                            </StackPanel>
+                            <!-- Nothing selected: the auto-generate settings instead of an empty panel -->
+                            <ScrollViewer IsVisible="{Binding !Session.HasSelectedCue}" VerticalScrollBarVisibility="Auto">
+                                <StackPanel Margin="12,8,12,12" Spacing="8">
+                                    <TextBlock Classes="section" Text="AUTO-GENERATE"/>
+                                    <TextBlock Classes="caption" TextWrapping="Wrap"
+                                               Text="Countdown cues before each drop (pads A B / D E, or memory cues), the drops on C and F, [OUT] on G."/>
+                                    <ComboBox ItemsSource="{x:Static vm:CueEditorSession.DropCountdownModes}" SelectedItem="{Binding Session.DropCountdownMode}"
+                                              HorizontalAlignment="Stretch" ToolTip.Tip="Countdown template. Auto picks one from the genre."/>
+                                    <TextBox Text="{Binding Session.CustomCountdownBars}" IsVisible="{Binding Session.IsCustomTemplate}"
+                                             Watermark="Bars before the drop, e.g. 32,16,8"/>
+                                    <CheckBox IsChecked="{Binding Session.CountdownsAsMemoryCues}" Content="Countdowns as memory cues"
+                                              ToolTip.Tip="Countdown cues ([IN -16], [IN2 -8] …) become memory cues, leaving pads A B D E free; CDJs show a bar countdown to the next memory cue. The drops stay on C and F. Applies to drops you place or generate from now on."/>
+                                    <Button Classes="secondary small" Command="{Binding AutoGenerateCuesCommand}" HorizontalAlignment="Left"
+                                            ToolTip.Tip="Generate structural cues from the analysis. Your own cues are kept; Ctrl+Z undoes.">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <PathIcon Data="{StaticResource sparkles_regular}" Width="12" Height="12"/>
+                                            <TextBlock Text="Auto-generate"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <TextBlock Classes="caption muted" TextWrapping="Wrap" Margin="0,8,0,0"
+                                               Text="Select a cue on the waveform, in the list or on a pad to rename, recolour, move or delete it."/>
+                                </StackPanel>
+                            </ScrollViewer>
                             <ScrollViewer IsVisible="{Binding Session.HasSelectedCue}" VerticalScrollBarVisibility="Auto">
                                 <StackPanel Margin="12,8,12,12" Spacing="12">
                                     <StackPanel Spacing="4">
@@ -606,11 +765,21 @@
                                     <StackPanel Spacing="4" IsVisible="{Binding Session.IsSelectedCueLoop}">
                                         <TextBlock Classes="section" Text="LOOP LENGTH (BARS)"/>
                                         <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <Button Classes="secondary small" Content="1" CommandParameter="1" Command="{Binding Session.SetQuickLoopCommand}"/>
-                                            <Button Classes="secondary small" Content="2" CommandParameter="2" Command="{Binding Session.SetQuickLoopCommand}"/>
-                                            <Button Classes="secondary small" Content="4" CommandParameter="4" Command="{Binding Session.SetQuickLoopCommand}"/>
-                                            <Button Classes="secondary small" Content="8" CommandParameter="8" Command="{Binding Session.SetQuickLoopCommand}"/>
-                                            <Button Classes="secondary small" Content="16" CommandParameter="16" Command="{Binding Session.SetQuickLoopCommand}"/>
+                                            <Button Classes="secondary small" Content="1" Command="{Binding Session.SetQuickLoopCommand}">
+                                                <Button.CommandParameter><x:Int32>1</x:Int32></Button.CommandParameter>
+                                            </Button>
+                                            <Button Classes="secondary small" Content="2" Command="{Binding Session.SetQuickLoopCommand}">
+                                                <Button.CommandParameter><x:Int32>2</x:Int32></Button.CommandParameter>
+                                            </Button>
+                                            <Button Classes="secondary small" Content="4" Command="{Binding Session.SetQuickLoopCommand}">
+                                                <Button.CommandParameter><x:Int32>4</x:Int32></Button.CommandParameter>
+                                            </Button>
+                                            <Button Classes="secondary small" Content="8" Command="{Binding Session.SetQuickLoopCommand}">
+                                                <Button.CommandParameter><x:Int32>8</x:Int32></Button.CommandParameter>
+                                            </Button>
+                                            <Button Classes="secondary small" Content="16" Command="{Binding Session.SetQuickLoopCommand}">
+                                                <Button.CommandParameter><x:Int32>16</x:Int32></Button.CommandParameter>
+                                            </Button>
                                         </StackPanel>
                                     </StackPanel>
 
@@ -635,24 +804,25 @@
                     </DockPanel>
                 </Border>
             </Grid>
+            <TabControl x:Name="PreparationTabs" Grid.Row="5" IsVisible="False"/>
         </Grid>
 
         <!-- ═══ Empty state: no track yet ═══ -->
-        <StackPanel Grid.Row="2" Classes="empty-state" IsVisible="{Binding HasNoTrack}">
+        <StackPanel Grid.Column="1" Grid.Row="2" Classes="empty-state" IsVisible="{Binding HasNoTrack}">
             <PathIcon Data="{StaticResource icon_music}"/>
             <TextBlock Classes="h3" Text="No track open"/>
             <TextBlock Classes="caption" TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center"
-                       Text="Pick a track to place and edit its cues and loops, or right-click a track in the Library and choose Open in Cue Forge. Opening a track never interrupts what's playing."/>
+                       Text="Pick a track in the track list on the left, or right-click a track in the Library and choose Open in Cue Forge. Opening a track never interrupts what's playing."/>
             <Button Classes="primary" Content="Pick a track" Click="OnPickTrackClick"/>
         </StackPanel>
 
         <!-- ═══ Status line ═══ -->
-        <Border Grid.Row="3" Padding="24,4" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,1,0,0" MinHeight="28">
+        <Border Grid.Column="1" Grid.Row="3" Padding="24,4" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,1,0,0" MinHeight="28">
             <Grid ColumnDefinitions="*,Auto">
                 <TextBlock Classes="caption" Classes.error="{Binding Session.IsStatusError}" Text="{Binding Session.StatusText}"
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                 <TextBlock Grid.Column="1" Classes="caption muted" VerticalAlignment="Center" IsVisible="{Binding HasTrackLoaded}"
-                           Text="Click waveform: playhead · click marker: play from it · drag marker: move · wheel: zoom · Shift+wheel: scroll · More (…) lists all shortcuts"/>
+                           Text="Click waveform: playhead · click marker: play from it · drag marker: move · wheel: zoom · Shift+wheel: scroll · Preparation lists all shortcuts"/>
             </Grid>
         </Border>
     </Grid>

@@ -148,6 +148,13 @@ public class AudioFeaturesEntity
     public float DropConfidence { get; set; }
 
     /// <summary>
+    /// Seconds from the start of the audio to the earliest structurally valid drop. This is
+    /// intentionally separate from <see cref="DropTimeSeconds"/>, which is the strongest/main
+    /// drop and may occur later. Null means no usable drop was detected; zero is a real timestamp.
+    /// </summary>
+    public float? TimeTillDropSeconds { get; set; }
+
+    /// <summary>
     /// Full multi-candidate sub-bass dropout timestamps (JSON array of seconds), from
     /// SubBassDropoutEngine — every point where sub-bass energy fell below 25% of the
     /// track mean, not just the single collapsed DropTimeSeconds. Feeds
@@ -527,8 +534,8 @@ public class AudioFeaturesEntity
     // ============================================
 
     /// <summary>
-    /// Compact waveform blob: ~1 000 samples of low/mid/high band RMS values
-    /// packed as three consecutive byte arrays (each value 0–255).
+    /// Compact, duration-scaled waveform blob of low/mid/high band energy values,
+    /// packed as three consecutive byte arrays (each value 0–255, one shared display scale).
     /// Layout: [low₀…lowN | mid₀…midN | high₀…highN]
     /// </summary>
     public byte[]? WaveformBlob { get; set; }

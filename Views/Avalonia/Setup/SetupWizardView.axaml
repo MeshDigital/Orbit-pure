@@ -5,6 +5,7 @@
              xmlns:setup="clr-namespace:SLSKDONET.ViewModels.Setup"
              xmlns:activity="clr-namespace:SLSKDONET.ViewModels.Activity"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:platform="clr-namespace:SLSKDONET.Services.Platform"
              mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
              x:Class="SLSKDONET.Views.Avalonia.Setup.SetupWizardView"
              x:DataType="setup:SetupWizardViewModel"
@@ -581,6 +582,58 @@
                                         </Border>
                                     </StackPanel>
 
+                                    <!-- Hardware check: features this PC can't run are switched off (hard block) -->
+                                    <StackPanel Classes="setup-section">
+                                        <TextBlock Classes="section" Text="THIS PC"/>
+                                        <Border Classes="card">
+                                            <StackPanel Spacing="12" Margin="0,8">
+                                                <TextBlock Classes="body-sm" Text="{Binding HardwareSummary}" TextWrapping="Wrap"/>
+                                                <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding RunsEverything}">
+                                                    <PathIcon Data="{StaticResource icon_check}" Foreground="{StaticResource BrushSuccess}"
+                                                              Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                                                    <TextBlock Classes="caption" Text="Everything in ORBIT runs on this PC."/>
+                                                </StackPanel>
+                                                <Border Classes="callout warning" IsVisible="{Binding HasBlockedFeatures}">
+                                                    <StackPanel Spacing="8">
+                                                        <TextBlock Classes="body" Text="Switched off on this PC"/>
+                                                        <ItemsControl ItemsSource="{Binding BlockedFeatures}">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate x:DataType="platform:FeatureVerdict">
+                                                                    <Grid ColumnDefinitions="Auto,*" Margin="0,4">
+                                                                        <PathIcon Data="{StaticResource icon_alert}" Foreground="{StaticResource BrushWarning}"
+                                                                                  Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"
+                                                                                  VerticalAlignment="Top" Margin="0,2,8,0"/>
+                                                                        <StackPanel Grid.Column="1" Spacing="2">
+                                                                            <TextBlock Classes="body-sm" Text="{Binding DisplayName}"/>
+                                                                            <TextBlock Classes="caption" Text="{Binding Reason}" TextWrapping="Wrap"/>
+                                                                        </StackPanel>
+                                                                    </Grid>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                        <TextBlock Classes="caption" TextWrapping="Wrap"
+                                                                   Text="Everything else works normally: downloading, the library, playback and exports."/>
+                                                    </StackPanel>
+                                                </Border>
+                                                <ItemsControl ItemsSource="{Binding LimitedFeatures}" IsVisible="{Binding HasLimitedFeatures}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="platform:FeatureVerdict">
+                                                            <Grid ColumnDefinitions="Auto,*" Margin="0,4">
+                                                                <PathIcon Data="{StaticResource icon_info}" Foreground="{StaticResource BrushInfo}"
+                                                                          Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"
+                                                                          VerticalAlignment="Top" Margin="0,2,8,0"/>
+                                                                <StackPanel Grid.Column="1" Spacing="2">
+                                                                    <TextBlock Classes="body-sm" Text="{Binding DisplayName}"/>
+                                                                    <TextBlock Classes="caption" Text="{Binding Advice}" TextWrapping="Wrap"/>
+                                                                </StackPanel>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+
                                     <StackPanel Classes="setup-section">
                                         <TextBlock Classes="section" Text="ANALYSIS"/>
                                         <Border Classes="card">
@@ -592,11 +645,19 @@
                                                             <TextBlock Classes="body" Text="FFmpeg"/>
                                                             <TextBlock Classes="caption mono" Text="{Binding FfmpegText}" VerticalAlignment="Center"/>
                                                         </StackPanel>
-                                                        <TextBlock Classes="caption" IsVisible="{Binding FfmpegIsMissing}"
-                                                                   Text="Needed for fake-lossless detection, spectral checks and some formats. Install it (Windows: gyan.dev full build, then add its bin folder to PATH), then check again."/>
+                                                        <TextBlock Classes="caption" TextWrapping="Wrap" IsVisible="{Binding IsInstallingFfmpeg}"
+                                                                   Text="ORBIT is installing FFmpeg for you (about 110 MB, once). You can keep going with setup."/>
+                                                        <TextBlock Classes="caption" TextWrapping="Wrap" IsVisible="{Binding ShowInstallFfmpegButton}"
+                                                                   Text="Needed for analysis, fake-lossless detection and some formats. ORBIT can install it for you."/>
+                                                        <TextBlock Classes="caption" TextWrapping="Wrap" IsVisible="{Binding ShowManualFfmpegHelp}"
+                                                                   Text="{Binding ManualFfmpegHint}"/>
                                                     </StackPanel>
                                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                                        <Button Classes="ghost small" Command="{Binding GetFfmpegCommand}" IsVisible="{Binding FfmpegIsMissing}">
+                                                        <ProgressBar Classes="meter" IsIndeterminate="True" Width="80" VerticalAlignment="Center"
+                                                                     IsVisible="{Binding IsInstallingFfmpeg}"/>
+                                                        <Button Classes="primary small" Content="Install FFmpeg" Command="{Binding InstallFfmpegCommand}"
+                                                                IsVisible="{Binding ShowInstallFfmpegButton}"/>
+                                                        <Button Classes="ghost small" Command="{Binding GetFfmpegCommand}" IsVisible="{Binding ShowManualFfmpegHelp}">
                                                             <StackPanel Orientation="Horizontal" Spacing="4">
                                                                 <PathIcon Data="{StaticResource icon_open_external}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
                                                                 <TextBlock Text="Get FFmpeg"/>
@@ -622,7 +683,7 @@
                                                         <TextBlock Classes="body" Text="Analyse new downloads automatically"/>
                                                         <TextBlock Classes="caption" Text="BPM, key, energy, loudness and cues for every finished download. Off: queue analysis yourself from the Library or Analysis page."/>
                                                     </StackPanel>
-                                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding AnalyzeNewDownloads, Mode=TwoWay}"
+                                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding AnalyzeNewDownloads, Mode=TwoWay}" IsEnabled="{Binding IsAnalysisAllowed}"
                                                                   AutomationProperties.Name="Analyse new downloads automatically"/>
                                                 </Grid>
                                             </StackPanel>

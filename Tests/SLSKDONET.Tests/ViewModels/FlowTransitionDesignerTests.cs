@@ -96,6 +96,8 @@ public class FlowTransitionDesignerTests
         Assert.Equal(1, new[] { a.Bridge.IsGoodScore, a.Bridge.IsFairScore, a.Bridge.IsPoorScore }.Count(x => x));
         Assert.Equal("8A → 9A", a.Bridge.KeyRelationDisplay);
         Assert.False(a.PairNeedsAnalysis); // not downloaded is a different issue than "needs analysis"
+        Assert.True(a.NeedsAttention);
+        Assert.True(a.PairNeedsAttention); // unavailable audio must not be hidden or treated as ready
 
         a.SetBridgeTo(null);
         Assert.False(a.HasBridge);
@@ -169,6 +171,51 @@ public class FlowTransitionDesignerTests
         Assert.True(canSave);
     }
 
+    [Fact]
+    public async Task ShareMixPoints_PersistsReusableUserCues_AndSharingAgainMovesInsteadOfDuplicating()
+    {
+        var repo = new Mock<ITransitionRepository>();
+        repo.Setup(r => r.GetTransitionAsync(It.IsAny<Guid>(), It.IsAny<Guid>())).ReturnsAsync((PlaylistTrackTransition?)null);
+        var cues = new Mock<ICuePointService>();
+        var savedBatches = new List<List<CuePointEntity>>();
+        cues.Setup(c => c.DeleteAllByTrackIdAsync(It.IsAny<string>(), It.IsAny<System.Threading.CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        cues.Setup(c => c.CreateManyAsync(It.IsAny<IEnumerable<CuePointEntity>>(), It.IsAny<System.Threading.CancellationToken>()))
+            .Callback((IEnumerable<CuePointEntity> rows, System.Threading.CancellationToken _) => savedBatches.Add(rows.ToList()))
+            .Returns(Task.CompletedTask);
+        var vm = CreateEditor(repo, cues);
+        var playlist = Guid.NewGuid();
+        await vm.LoadPairAsync(playlist, Track(playlist, "A"), Track(playlist, "B"));
+
+        vm.SourceTriggerSeconds = 100.1;
+        vm.TargetTriggerSeconds = 20.1;
+        await vm.ShareMixOutCommand.Execute().ToTask();
+        await vm.ShareMixInCommand.Execute().ToTask();
+
+        var mixOut = Assert.Single(vm.OutgoingEditor.Session.Cues, c => c.Role == CueRole.MixOut);
+        var mixIn = Assert.Single(vm.IncomingEditor.Session.Cues, c => c.Role == CueRole.MixIn);
+        Assert.Equal("Mix-Out", mixOut.Name);
+        Assert.Equal("Mix-In", mixIn.Name);
+        Assert.Equal(CueSource.User, mixOut.Source);
+        Assert.Equal(CueSource.User, mixIn.Source);
+        Assert.Equal(-1, mixOut.SlotIndex);
+        Assert.Equal(-1, mixIn.SlotIndex);
+        Assert.Equal(mixOut.Timestamp, vm.EffectiveSourceTriggerSeconds, 9);
+        Assert.Equal(mixIn.Timestamp, vm.TargetTriggerSeconds, 9);
+        Assert.Contains(savedBatches.SelectMany(b => b), c => c.TrackUniqueHash == "hash-A" && c.Type == CuePointType.MixOut);
+        Assert.Contains(savedBatches.SelectMany(b => b), c => c.TrackUniqueHash == "hash-B" && c.Type == CuePointType.MixIn);
+
+        double sharedOut = mixOut.Timestamp;
+        double sharedIn = mixIn.Timestamp;
+        await vm.ShareMixOutCommand.Execute().ToTask();
+        await vm.ShareMixInCommand.Execute().ToTask();
+
+        Assert.Single(vm.OutgoingEditor.Session.Cues, c => c.Role == CueRole.MixOut);
+        Assert.Single(vm.IncomingEditor.Session.Cues, c => c.Role == CueRole.MixIn);
+        Assert.Equal(sharedOut, mixOut.Timestamp, 9);
+        Assert.Equal(sharedIn, mixIn.Timestamp, 9);
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────────────
 
     private static PlaylistTrack Track(Guid playlistId, string title) => new()
@@ -189,10 +236,10 @@ public class FlowTransitionDesignerTests
         return new FlowTrackCardViewModel(t, () => { }, () => { }, () => { });
     }
 
-    private static MixTransitionViewModel CreateEditor(Mock<ITransitionRepository> repo)
+    private static MixTransitionViewModel CreateEditor(Mock<ITransitionRepository> repo, Mock<ICuePointService>? cues = null)
     {
         var library = new Mock<ILibraryService>();
-        var cues = new Mock<ICuePointService>();
+        cues ??= new Mock<ICuePointService>();
         cues.Setup(c => c.GetByTrackIdAsync(It.IsAny<string>(), It.IsAny<System.Threading.CancellationToken>())).ReturnsAsync(new List<CuePointEntity>());
         var services = new Mock<IServiceProvider>();
         return new MixTransitionViewModel(

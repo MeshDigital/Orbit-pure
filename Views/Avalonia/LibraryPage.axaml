@@ -40,6 +40,38 @@
         <Style Selector="TreeView#PlaylistTreeView TreeViewItem:selected">
             <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
         </Style>
+        <Style Selector="TreeView#PlaylistTreeView TreeViewItem">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.14"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="TreeView#PlaylistTreeView TreeViewItem.drag-source">
+            <Setter Property="Opacity" Value="0.45"/>
+        </Style>
+        <Style Selector="TreeView#PlaylistTreeView TreeViewItem.folder-drop-target /template/ Border#PART_LayoutRoot">
+            <Setter Property="Background" Value="{StaticResource BrushAccentSubtle}"/>
+        </Style>
+        <Style Selector="Border.playlist-insertion-indicator">
+            <Setter Property="Height" Value="2"/>
+            <Setter Property="Margin" Value="8,0"/>
+            <Setter Property="CornerRadius" Value="1"/>
+            <Setter Property="Background" Value="{StaticResource BrushAccent}"/>
+            <Setter Property="Opacity" Value="0"/>
+            <Setter Property="IsHitTestVisible" Value="False"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.1"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="TreeView#PlaylistTreeView TreeViewItem.drop-before Border.playlist-insertion-indicator.before">
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
+        <Style Selector="TreeView#PlaylistTreeView TreeViewItem.drop-after Border.playlist-insertion-indicator.after">
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
 
         <!-- Saved-double rows: the remove button only appears on hover. -->
         <Style Selector="Border.saved-double">
@@ -308,7 +340,11 @@
                                                                       ToolTip.Tip="Restorable from Library tools → Recently deleted playlists"/>
                                                         </ContextMenu>
                                                     </Border.ContextMenu>
-                                                    <controls:CompactPlaylistTemplate DataContext="{Binding Card}" HorizontalAlignment="Stretch"/>
+                                                    <Grid>
+                                                        <controls:CompactPlaylistTemplate DataContext="{Binding Card}" HorizontalAlignment="Stretch"/>
+                                                        <Border Classes="playlist-insertion-indicator before" VerticalAlignment="Top"/>
+                                                        <Border Classes="playlist-insertion-indicator after" VerticalAlignment="Bottom"/>
+                                                    </Grid>
                                                 </Border>
                                             </DataTemplate>
 
@@ -455,7 +491,7 @@
                                    Text="{Binding Tracks.SelectedTrackCount, StringFormat='{}{0} selected'}"/>
                         <Border Classes="divider vertical" Height="20"/>
                         <Button Classes="primary small" Command="{Binding Tracks.Operations.PlayTrackCommand}"
-                                ToolTip.Tip="Clear the queue and play the selected tracks">
+                                ToolTip.Tip="Play the lead selected track">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <PathIcon Data="{StaticResource icon_play}" Width="12" Height="12"/>
                                 <TextBlock Text="Play"/>

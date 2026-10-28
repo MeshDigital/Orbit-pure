@@ -147,4 +147,31 @@ public class ImportMatchingAndProviderErrorTests
         var passthrough = new ImportSourceException("already friendly", requiresSignIn: true);
         Assert.Same(passthrough, SpotifyImportErrors.Translate(passthrough));
     }
+
+    [Fact]
+    public void SpotifyErrors_AccountNotAllowlisted_ExplainsInsteadOfOfferingReconnect()
+    {
+        // What Spotify returns for every call when the signed-in account isn't on a
+        // development-mode Client ID's allowlist (the beta tester's "Connect Spotify" loop).
+        var notRegistered = SpotifyForbidden("Check settings on developer.spotify.com/dashboard, the user may not be registered.");
+        Assert.True(SpotifyImportErrors.IsAccountNotAllowlisted(notRegistered));
+
+        var translated = SpotifyImportErrors.Translate(notRegistered);
+        Assert.Contains("allowlist", translated.Message);
+        Assert.False(translated.RequiresSignIn);
+
+        // A plain 403 (private playlist) still asks for the right account.
+        var plainForbidden = SpotifyForbidden("Forbidden");
+        Assert.False(SpotifyImportErrors.IsAccountNotAllowlisted(plainForbidden));
+        Assert.True(SpotifyImportErrors.Translate(plainForbidden).RequiresSignIn);
+    }
+
+    private static SpotifyAPI.Web.APIException SpotifyForbidden(string message)
+    {
+        var response = new Mock<SpotifyAPI.Web.Http.IResponse>();
+        response.SetupGet(r => r.StatusCode).Returns(HttpStatusCode.Forbidden);
+        response.SetupGet(r => r.Body).Returns($"{{\"error\":{{\"status\":403,\"message\":\"{message}\"}}}}");
+        response.SetupGet(r => r.ContentType).Returns("application/json");
+        return new SpotifyAPI.Web.APIException(response.Object);
+    }
 }

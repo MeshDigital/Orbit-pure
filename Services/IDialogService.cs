@@ -101,4 +101,10 @@ public interface IDialogService
     Task ShowSuggestedFlowImpactAsync(SuggestedFlowImpactViewModel vm);
 
     Task ShowSpectralForensicsAsync(UnifiedTrackViewModel vm);
+
+    /// <summary>
+    /// Screenshots the main window, then opens "Send feedback" (zip of screenshot + recent logs,
+    /// shared via WhatsApp / mail).
+    /// </summary>
+    Task ShowFeedbackDialogAsync();
 }

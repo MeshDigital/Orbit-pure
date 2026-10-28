@@ -103,8 +103,81 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
     public string FormatDisplay => !string.IsNullOrEmpty(Format) ? Format.ToUpperInvariant() : "—";
 
     public bool IsPrepared => Model.IsPrepared;
-    public string PreparationStatus => IsPrepared ? "Prepared" : "Raw";
-    public Avalonia.Media.IBrush PreparationColor => IsPrepared ? Avalonia.Media.Brushes.DodgerBlue : Avalonia.Media.Brushes.Gray;
+
+    /// <summary>Actionable preparation state derived from the same saved data used by analysis and
+    /// Rekordbox preflight. It deliberately does not call File.Exists on every row binding: export
+    /// still performs the authoritative disk and data-integrity check.</summary>
+    public bool HasBeatGridAnchor => Model.AnalysisOffset is >= 0 && double.IsFinite(Model.AnalysisOffset.Value);
+    public bool HasSavedCues => Model.CuePointCount > 0 || _cues.Count > 0 ||
+        (!string.IsNullOrWhiteSpace(Model.CuePointsJson) && Model.CuePointsJson.Trim() != "[]");
+    public int SavedCueCount => Math.Max(Model.CuePointCount, _cues.Count);
+    public bool NeedsFileRepair => IsCompleted && string.IsNullOrWhiteSpace(Model.ResolvedFilePath);
+    public bool NeedsAnalysis => IsCompleted && !NeedsFileRepair && (!HasAnalysisData || !HasBpm);
+    public bool NeedsGridRepair => IsCompleted && !NeedsFileRepair && !NeedsAnalysis && !HasBeatGridAnchor;
+    public bool NeedsCuePreparation => IsCompleted && !NeedsFileRepair && !NeedsAnalysis && !NeedsGridRepair && !HasSavedCues;
+    public bool IsExportReady => IsCompleted && !NeedsFileRepair && !NeedsAnalysis && !NeedsGridRepair && !NeedsCuePreparation;
+
+    public string PreparationStatus
+    {
+        get
+        {
+            if (IsPlaceholder) return "Loading…";
+            if (NeedsFileRepair) return "Locate file";
+            if (!IsCompleted) return IsFailed || IsGhost ? "Retry" : StatusText;
+            if (NeedsAnalysis) return "Analyse";
+            if (NeedsGridRepair) return "Set grid";
+            if (NeedsCuePreparation) return "Add cues";
+            return "Export ready";
+        }
+    }
+
+    public string PreparationTooltip
+    {
+        get
+        {
+            if (!IsCompleted)
+                return $"File: {DetailedStatusText}. Download the track before analysis, grid and cue preparation.";
+
+            var file = NeedsFileRepair ? "No audio file path saved" : "Audio file path saved";
+            var analysis = NeedsAnalysis ? "Analysis or usable BPM needed" : "Analysis and BPM saved";
+            var grid = HasBeatGridAnchor ? "Beat-grid anchor saved" : "Beat-grid anchor needed";
+            var cues = SavedCueCount > 0
+                ? $"{SavedCueCount} saved cue{(SavedCueCount == 1 ? string.Empty : "s")}"
+                : HasSavedCues ? "Saved cues" : "No saved cues";
+            return $"{file} • {analysis} • {grid} • {cues}. Rekordbox preflight verifies the audio file and saved data before export.";
+        }
+    }
+
+    public bool HasPreparationRepairAction => NeedsFileRepair || NeedsAnalysis || NeedsGridRepair || NeedsCuePreparation ||
+        (!IsCompleted && (IsFailed || IsGhost));
+
+    /// <summary>Uses the track's existing commands; the Prep column is only a clearer entry point.</summary>
+    public ICommand PreparationRepairCommand => NeedsFileRepair ? OpenWorkstationCommand
+        : !IsCompleted ? RetryCommand
+        : NeedsAnalysis ? AnalyzeTrackCommand
+        : OpenInCueForgeCommand;
+
+    public Avalonia.Media.IBrush PreparationColor => IsExportReady ? Avalonia.Media.Brushes.LimeGreen
+        : NeedsFileRepair || IsFailed ? Avalonia.Media.Brushes.OrangeRed
+        : HasPreparationRepairAction ? Avalonia.Media.Brushes.DodgerBlue
+        : Avalonia.Media.Brushes.Gray;
+
+    private void RaisePreparationPropertiesChanged()
+    {
+        OnPropertyChanged(nameof(HasBeatGridAnchor));
+        OnPropertyChanged(nameof(HasSavedCues));
+        OnPropertyChanged(nameof(SavedCueCount));
+        OnPropertyChanged(nameof(NeedsFileRepair));
+        OnPropertyChanged(nameof(NeedsAnalysis));
+        OnPropertyChanged(nameof(NeedsGridRepair));
+        OnPropertyChanged(nameof(NeedsCuePreparation));
+        OnPropertyChanged(nameof(IsExportReady));
+        OnPropertyChanged(nameof(PreparationStatus));
+        OnPropertyChanged(nameof(PreparationTooltip));
+        OnPropertyChanged(nameof(HasPreparationRepairAction));
+        OnPropertyChanged(nameof(PreparationRepairCommand));
+        OnPropertyChanged(nameof(PreparationColor));
+    }
 
     public Avalonia.Media.IBrush QualityColor 
     {
@@ -332,6 +405,17 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
 
     public string DropDisplay => DropTimestamp.HasValue ? TimeSpan.FromSeconds(DropTimestamp.Value).ToString(@"mm\:ss") : "—";
 
+    /// <summary>Detected seconds from 0:00 to the first usable structural drop.</summary>
+    public double? TimeTillDropSeconds => Model.TimeTillDropSeconds;
+    public double? TimeTillDropBars => IntroTiming.CalculateBars(TimeTillDropSeconds, Model.BPM);
+    public bool HasTimeTillDrop => TimeTillDropSeconds.HasValue;
+    public string TimeTillDropDisplay => TimeTillDropSeconds is { } seconds
+        ? $"{seconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)} s"
+        : "—";
+    public string TimeTillDropBarsDisplay => TimeTillDropBars is { } bars
+        ? $"≈ {bars.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)} bars"
+        : "—";
+
     public double Valence
     {
         get => Model.Valence ?? 0.0;
@@ -385,6 +469,8 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
         OnPropertyChanged(nameof(BPM));
         OnPropertyChanged(nameof(BpmDisplay));
         OnPropertyChanged(nameof(HasBpm));
+        OnPropertyChanged(nameof(TimeTillDropBars));
+        OnPropertyChanged(nameof(TimeTillDropBarsDisplay));
     }
     
     public string GlobalId { get; set; } // TrackUniqueHash
@@ -1185,12 +1271,19 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
         {
             if (Model.ColorTag != value)
             {
+                var previous = Model.ColorTag;
                 Model.ColorTag = value;
                 OnPropertyChanged();
 
+                // Keep colour tags consistent with rating/like persistence: failed writes revert
+                // the optimistic swatch and surface an error instead of pretending the value saved.
                 if (_libraryService != null)
                 {
-                    _ = _libraryService.UpdateColorTagAsync(GlobalId, value);
+                    var service = _libraryService;
+                    _ = PersistEngagementAsync(() => service.UpdateColorTagAsync(GlobalId, value), "colour tag", () =>
+                    {
+                        if (Model.ColorTag == value) { Model.ColorTag = previous; OnPropertyChanged(nameof(ColorTag)); }
+                    });
                 }
             }
         }
@@ -1610,8 +1703,7 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
               OnPropertyChanged(nameof(IsReviewNeeded)); // Phase 10.4
               OnPropertyChanged(nameof(PrimaryGenre)); // New
               OnPropertyChanged(nameof(IsPrepared)); // New
-              OnPropertyChanged(nameof(PreparationStatus)); // New
-              OnPropertyChanged(nameof(PreparationColor)); // New
+              RaisePreparationPropertiesChanged();
               OnPropertyChanged(nameof(QualityColor)); // New
               OnPropertyChanged(nameof(StatusColor)); // New
               OnPropertyChanged(nameof(YearDisplay)); // New
@@ -1774,8 +1866,9 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
                 OnPropertyChanged(nameof(CanHardRetry));
                 OnPropertyChanged(nameof(CanDeleteFile));
                 
-                // Visual distinctions
+                // Visual distinctions and actionable preparation state
                 OnPropertyChanged(nameof(IsCompleted));
+                RaisePreparationPropertiesChanged();
                 
                 // CommandManager.InvalidateRequerySuggested() happens automatically or via interaction
             }
@@ -2234,10 +2327,15 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
 
     private void OpenWorkstation()
     {
-        PlayTrack();
+        if (_eventBus == null) return;
 
-        if (_eventBus != null)
-            _eventBus.Publish(new Models.OpenStemWorkspaceRequestEvent(Model));
+        // DJ preparation must not unexpectedly start playback. Workstation loads the track into
+        // the focused deck and keeps missing-file rows available for its existing relink flow.
+        _eventBus.Publish(new Models.OpenStemWorkspaceRequestEvent(Model));
+        _eventBus.Publish(new NotificationEvent(
+            "Workstation",
+            $"Opening '{TrackTitle}' for DJ preparation without starting playback.",
+            NotificationType.Information));
     }
 
     private void PlayTrack()

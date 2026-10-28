@@ -254,6 +254,14 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         if (seconds > 0) Duration = seconds;
     }
 
+    /// <summary>The beat grid was corrected (downbeat moved / slipped): snapping and bar maths follow it.
+    /// Cues stay where they are.</summary>
+    public void UpdateGrid(double downbeat)
+    {
+        GridOffset = Math.Max(0, downbeat);
+        RaiseGridChanged();
+    }
+
     private void RaiseGridChanged()
     {
         this.RaisePropertyChanged(nameof(Bpm));
@@ -510,6 +518,8 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         CueRole.Bridge                          => "#00FF88", // Green
         CueRole.IntroEnd                        => SectionMarkers.IntroEndColor,
         CueRole.OutroStart                      => SectionMarkers.OutroColor,
+        CueRole.MixIn                           => "#00CCFF", // Cyan: reusable entry point
+        CueRole.MixOut                          => "#0044FF", // Blue: reusable exit point
         _                                       => "#FFFFFF", // White
     };
 
@@ -622,6 +632,15 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
 
     public bool IsCustomTemplate => DropCountdownMode == DropCountdownCues.Custom;
 
+    /// <summary>App-wide: countdown cues are memory cues instead of taking pads A B / D E.</summary>
+    public bool CountdownsAsMemoryCues
+    {
+        get => _registry.Templates.CountdownsAsMemoryCues;
+        set => _registry.Templates.SetCountdownsAsMemoryCues(value);
+    }
+
+    private bool MemoryCountdowns => _registry.Templates.CountdownsAsMemoryCues;
+
     /// <summary>What the template does for this track, e.g. "Auto → DnB / Bass".</summary>
     public string TemplateHint
     {
@@ -642,6 +661,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(DropCountdownMode));
         this.RaisePropertyChanged(nameof(CustomCountdownBars));
         this.RaisePropertyChanged(nameof(IsCustomTemplate));
+        this.RaisePropertyChanged(nameof(CountdownsAsMemoryCues));
         this.RaisePropertyChanged(nameof(TemplateHint));
     }
 
@@ -733,7 +753,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         if (cue.Role == CueRole.Drop)
         {
             var left = DropCountdownCues.RemoveFor(Cues, cue.Timestamp, Bpm);
-            ReplaceCues(DropCountdownCues.Refresh(left, CountdownBars, Bpm, GridOffset, Duration, outBefore));
+            ReplaceCues(DropCountdownCues.Refresh(left, CountdownBars, Bpm, GridOffset, Duration, outBefore, MemoryCountdowns));
         }
         Changed($"Deleted \"{cue.Name}\". Ctrl+Z to undo.");
         if (wasActiveLoop) ActiveLoopRemoved?.Invoke(this, EventArgs.Empty);
@@ -818,7 +838,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         double t = bar > 0 ? GridOffset + Math.Round((seconds - GridOffset) / bar) * bar : seconds;
         t = Math.Clamp(t, 0, Duration);
         int autoBefore = Cues.Count(c => c.Source == CueSource.Auto);
-        var list = DropCountdownCues.PlaceDrop(Cues, t, number, CountdownBars, Bpm, GridOffset, Duration, out var drop);
+        var list = DropCountdownCues.PlaceDrop(Cues, t, number, CountdownBars, Bpm, GridOffset, Duration, out var drop, MemoryCountdowns);
         int cleared = autoBefore - list.Count(c => c.Source == CueSource.Auto);
         ReplaceCues(list);
         SelectedCue = drop;
@@ -835,8 +855,8 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         int cleared = wasAuto ? ClearAutoCues(cue) : 0;
         if (cue.Role != CueRole.Drop) return cleared;
         double? outBefore = OutBefore(cue, from);
-        var list = DropCountdownCues.Rebuild(Cues, cue, CountdownBars, Bpm, previousDropTime: from);
-        ReplaceCues(DropCountdownCues.Refresh(list, CountdownBars, Bpm, GridOffset, Duration, outBefore));
+        var list = DropCountdownCues.Rebuild(Cues, cue, CountdownBars, Bpm, previousDropTime: from, countdownsAsMemoryCues: MemoryCountdowns);
+        ReplaceCues(DropCountdownCues.Refresh(list, CountdownBars, Bpm, GridOffset, Duration, outBefore, MemoryCountdowns));
         return cleared;
     }
 
@@ -884,7 +904,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         {
             // A drop that stopped being a drop leaves no orphaned countdowns behind.
             var left = DropCountdownCues.RemoveFor(Cues, cue.Timestamp, Bpm);
-            ReplaceCues(DropCountdownCues.Refresh(left, CountdownBars, Bpm, GridOffset, Duration, outBefore));
+            ReplaceCues(DropCountdownCues.Refresh(left, CountdownBars, Bpm, GridOffset, Duration, outBefore, MemoryCountdowns));
         }
         FieldEdited(cue, $"{cue.Name} is now {role}");
     }
@@ -1090,6 +1110,43 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         var cue = PlaceSectionMarker(role, t);
         SelectedCue = cue;
         Changed((role == CueRole.IntroEnd ? "Intro ends at " : "Outro starts at ") + SectionMarkers.Describe(cue.Timestamp, Bpm, GridOffset));
+        if (AuditionAfterEdits) AuditionAt(cue.Timestamp);
+        return cue;
+    }
+
+    /// <summary>Sets or moves the track's shared Mix-In / Mix-Out memory cue. One cue per role,
+    /// snapped with the deck's current grid settings and undoable like every other cue edit.</summary>
+    public OrbitCue? SetMixMarker(CueRole role, double seconds)
+    {
+        if (TrackHash is null || role is not (CueRole.MixIn or CueRole.MixOut)) return null;
+        double t = SnapSectionTime(seconds);
+        PushSnapshot();
+        var cue = Cues.FirstOrDefault(c => c.Role == role && !c.IsLoop);
+        if (cue == null)
+        {
+            cue = new OrbitCue
+            {
+                Timestamp = t,
+                Role = role,
+                Source = CueSource.User,
+                SlotIndex = -1,
+                Confidence = 1.0,
+            };
+            InsertCueSorted(cue);
+        }
+        else
+        {
+            double from = cue.Timestamp;
+            cue.Timestamp = t;
+            cue.Source = CueSource.User;
+            cue.SlotIndex = -1;
+            ResortCues();
+            if (Math.Abs(from - t) > 1e-6) CueMoved?.Invoke(this, (from, t));
+        }
+        cue.Name = role == CueRole.MixIn ? "Mix-In" : "Mix-Out";
+        cue.Color = RekordboxColorForRole(role);
+        SelectedCue = cue;
+        Changed($"{cue.Name} set at {CueForgeGrid.FormatTime(t)} · shared with Workstation and Cue Forge");
         if (AuditionAfterEdits) AuditionAt(cue.Timestamp);
         return cue;
     }

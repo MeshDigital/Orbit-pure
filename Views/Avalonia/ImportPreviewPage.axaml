@@ -116,6 +116,14 @@
                 </Grid>
             </Border>
 
+            <!-- How the source was read: CSV columns used, rows skipped -->
+            <Border Classes="callout info" IsVisible="{Binding HasSourceNotice}">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <PathIcon Data="{StaticResource icon_info}" Foreground="{StaticResource BrushInfo}" VerticalAlignment="Center"/>
+                    <TextBlock Classes="body-sm" Text="{Binding SourceNotice}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+
             <!-- Everything is already owned -->
             <Border Classes="callout info" IsVisible="{Binding ShowAllOwnedNotice}">
                 <StackPanel Orientation="Horizontal" Spacing="12">

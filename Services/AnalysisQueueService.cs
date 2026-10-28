@@ -59,6 +59,8 @@ public class AnalysisQueueService : IDisposable
     /// <summary>Maximum number of concurrent analysis jobs.</summary>
     public int MaxWorkers { get; }
 
+    private int _hardwareBlockReported;
+
     /// <summary>Requests queued or running right now. Background maintenance (the loudness
     /// backfill) waits while this is above zero so it never competes with a real analysis run.</summary>
     public int PendingCount => Math.Max(0, Volatile.Read(ref _queuedCount));
@@ -115,6 +117,23 @@ public class AnalysisQueueService : IDisposable
         if (string.IsNullOrWhiteSpace(evt.TrackGlobalId))
         {
             _logger.LogWarning("Ignoring analysis request with empty track hash.");
+            return;
+        }
+
+        var hardware = Platform.HardwareCapabilities.Current.VerdictFor(Platform.HardwareFeature.TrackAnalysis);
+        if (!hardware.IsAllowed)
+        {
+            var message = hardware.Reason ?? "This PC is below ORBIT's minimum for analysis.";
+            // Show one explanatory toast per session, but complete every request as failed so a
+            // calling view (including Cue Forge) can always leave its pending state and offer retry.
+            if (Interlocked.Exchange(ref _hardwareBlockReported, 1) == 0)
+            {
+                _logger.LogWarning("Track analysis is switched off on this machine: {Reason}", hardware.Reason);
+                _eventBus.Publish(new ToastRequestedEvent("Track analysis is off on this PC",
+                    message, Views.NotificationType.Warning, TimeSpan.FromSeconds(8)));
+            }
+            _eventBus.Publish(new TrackAnalysisFailedEvent(evt.TrackGlobalId, message));
+            _eventBus.Publish(new TrackAnalysisCompletedEvent(evt.TrackGlobalId, false, message));
             return;
         }
 
@@ -261,10 +280,12 @@ public class AnalysisQueueService : IDisposable
 
             if (_audioAnalysisService is null || _analyzeTrackStructureJob is null)
             {
+                const string message = "Analysis services unavailable";
                 _logger.LogWarning("Analysis services are not available; completing request for {TrackGlobalId} in no-op mode.", evt.TrackGlobalId);
                 Interlocked.Increment(ref _processedCount);
-                PublishProgress(evt.TrackGlobalId, "Analysis services unavailable", 100);
-                _eventBus.Publish(new TrackAnalysisCompletedEvent(evt.TrackGlobalId, false, "Analysis services unavailable"));
+                PublishProgress(evt.TrackGlobalId, message, 100);
+                _eventBus.Publish(new TrackAnalysisFailedEvent(evt.TrackGlobalId, message));
+                _eventBus.Publish(new TrackAnalysisCompletedEvent(evt.TrackGlobalId, false, message));
                 completedOrFailed = true;
                 PublishStatus(_isStealthMode ? "Stealth (Low CPU)" : "Standard");
                 return;

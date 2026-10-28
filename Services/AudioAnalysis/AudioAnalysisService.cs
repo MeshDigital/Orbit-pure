@@ -480,6 +480,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             // ── Step 7: Timestamp and save ────────────────────────────────
             progress?.Report((90, "Saving to database..."));
             features.AnalyzedAt = DateTime.UtcNow;
+            features.AnalysisVersion = WaveformExtractionService.CurrentWaveformVersion;
             await _db.SaveAudioFeaturesAsync(features).ConfigureAwait(false);
 
             // ── Step 8: A10.1 Track fingerprint build/persist (fail-open) ─

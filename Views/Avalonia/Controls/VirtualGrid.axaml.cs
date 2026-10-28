@@ -64,6 +64,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
         private int _focusedIndex = -1;
         private bool _isUpdatingSelection = false;
         private bool _isIncrementalLoading = false;
+        private int _rangeSelectionOperation;
 
         /// <summary>
         /// Raised once a press-and-move gesture on a row crosses the drag threshold. VirtualGrid
@@ -72,6 +73,10 @@ namespace SLSKDONET.Views.Avalonia.Controls
         /// build and calls DragDrop.DoDragDrop with the supplied PointerEventArgs.
         /// </summary>
         public event EventHandler<VirtualGridItemDragEventArgs>? ItemDragStarted;
+
+        /// <summary>Enter activates the focused row. The consumer chooses what activation means
+        /// (Library plays the track); VirtualGrid stays independent of any particular item type.</summary>
+        public event EventHandler<int>? ItemActivated;
 
         private Point? _dragCandidatePoint;
         private int _dragCandidateIndex = -1;
@@ -110,6 +115,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
             if (change.Property == ItemsSourceProperty)
             {
+                _rangeSelectionOperation++;
                 UnsubscribeFromItemsSource(change.OldValue as IEnumerable);
                 _selectedItems.Clear();
                 _selectionAnchorIndex = -1;
@@ -239,6 +245,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                         {
                             if (!_selectedItems.Contains(sender))
                             {
+                                _rangeSelectionOperation++;
                                 _selectedItems.Add(sender);
                                 UpdateVisualStates();
                                 RaiseSelectionChanged(new[] { sender }, Array.Empty<object>());
@@ -248,6 +255,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                         {
                             if (_selectedItems.Contains(sender))
                             {
+                                _rangeSelectionOperation++;
                                 _selectedItems.Remove(sender);
                                 UpdateVisualStates();
                                 RaiseSelectionChanged(Array.Empty<object>(), new[] { sender });
@@ -413,14 +421,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                     ClearSelectionInternal();
                     int start = Math.Min(_selectionAnchorIndex, index);
                     int end = Math.Max(_selectionAnchorIndex, index);
-                    for (int i = start; i <= end; i++)
-                    {
-                        var targetItem = GetItemAt(i);
-                        if (targetItem != null)
-                        {
-                            SelectIndexInternal(i, targetItem);
-                        }
-                    }
+                    SelectRange(start, end);
                     _focusedIndex = index;
                 }
                 else if ((modifiers & KeyModifiers.Control) == KeyModifiers.Control || SelectionMode == SelectionMode.Toggle)
@@ -454,8 +455,21 @@ namespace SLSKDONET.Views.Avalonia.Controls
             int count = GetItemsCount();
             if (count == 0 || PartItemsRepeater == null) return;
 
-            int currentIndex = _focusedIndex >= 0 ? _focusedIndex : 0;
+            bool hasFocus = _focusedIndex >= 0;
+            int currentIndex = hasFocus ? _focusedIndex : 0;
             int targetIndex = currentIndex;
+
+            if (e.Key == Key.A && e.KeyModifiers == KeyModifiers.Control && SelectionMode != SelectionMode.Single)
+            {
+                // Match Shift+End: loaded rows appear immediately, missing virtual pages join the
+                // same selection asynchronously instead of silently limiting Ctrl+A to the cache.
+                SelectRange(0, count - 1);
+                _selectionAnchorIndex = 0;
+                _focusedIndex = currentIndex;
+                UpdateVisualStates();
+                e.Handled = true;
+                return;
+            }
 
             switch (e.Key)
             {
@@ -463,7 +477,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                     targetIndex = currentIndex - 1;
                     break;
                 case Key.Down:
-                    targetIndex = currentIndex + 1;
+                    targetIndex = hasFocus ? currentIndex + 1 : 0;
                     break;
                 case Key.PageUp:
                     targetIndex = currentIndex - 10;
@@ -477,6 +491,22 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 case Key.End:
                     targetIndex = count - 1;
                     break;
+                case Key.Enter:
+                    var activatedItem = GetItemAt(currentIndex);
+                    if (activatedItem != null && IsSelectable(activatedItem))
+                    {
+                        if (!_selectedItems.Contains(activatedItem))
+                        {
+                            ClearSelectionInternal();
+                            SelectIndexInternal(currentIndex, activatedItem);
+                        }
+                        _focusedIndex = currentIndex;
+                        _selectionAnchorIndex = currentIndex;
+                        UpdateVisualStates();
+                        ItemActivated?.Invoke(this, currentIndex);
+                    }
+                    e.Handled = true;
+                    return;
                 case Key.Space:
                     var focusedItem = GetItemAt(currentIndex);
                     if (focusedItem != null)
@@ -513,11 +543,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                             ClearSelectionInternal();
                             int start = Math.Min(_selectionAnchorIndex, targetIndex);
                             int end = Math.Max(_selectionAnchorIndex, targetIndex);
-                            for (int i = start; i <= end; i++)
-                            {
-                                var item = GetItemAt(i);
-                                if (item != null) SelectIndexInternal(i, item);
-                            }
+                            SelectRange(start, end);
                         }
                         else if ((e.KeyModifiers & KeyModifiers.Control) == KeyModifiers.Control)
                         {
@@ -547,11 +573,80 @@ namespace SLSKDONET.Views.Avalonia.Controls
         private static bool IsSelectable(object? item) =>
             item != null && item is not SLSKDONET.ViewModels.IPlaceholderRow { IsPlaceholder: true };
 
+        private void SelectRange(int startIndex, int endIndex)
+        {
+            var operation = ++_rangeSelectionOperation;
+            SelectItemsInternal(GetMaterializedSelectableItems(ItemsSource, startIndex, endIndex));
+
+            if (ItemsSource is SLSKDONET.ViewModels.Library.VirtualizedTrackCollection virtualized)
+                _ = CompleteVirtualRangeSelectionAsync(virtualized, startIndex, endIndex, operation);
+        }
+
+        private async Task CompleteVirtualRangeSelectionAsync(
+            SLSKDONET.ViewModels.Library.VirtualizedTrackCollection source,
+            int startIndex,
+            int endIndex,
+            int operation)
+        {
+            try
+            {
+                await foreach (var page in source.LoadRangeForSelectionAsync(startIndex, endIndex))
+                {
+                    // A newer click/key gesture owns the selection now; late pages from this
+                    // operation must not re-add rows the user has already moved away from.
+                    if (operation != _rangeSelectionOperation) return;
+                    SelectItemsInternal(page);
+                    UpdateVisualStates();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Virtual range selection failed: {ex.Message}");
+            }
+        }
+
+        private void SelectItemsInternal(IEnumerable<object> items)
+        {
+            var added = new List<object>();
+            foreach (var item in items)
+            {
+                if (_selectedItems.Contains(item)) continue;
+                _selectedItems.Add(item);
+                SetIsSelectedOnItem(item, true);
+                added.Add(item);
+            }
+
+            // A bulk gesture is one selection operation. Raising per row makes Library rebuild its
+            // selection and reschedule transition/harmonic work thousands of times for one Ctrl+A.
+            RaiseSelectionChanged(added, Array.Empty<object>());
+        }
+
+        /// <summary>
+        /// Select-all and range input without touching the collection indexer. Virtualized sources
+        /// enumerate only materialized rows; ordinary observable collections enumerate filtered rows.
+        /// </summary>
+        internal static IEnumerable<object> GetMaterializedSelectableItems(
+            IEnumerable? source,
+            int startIndex = 0,
+            int endIndex = int.MaxValue)
+        {
+            if (source == null || startIndex < 0 || endIndex < startIndex) yield break;
+
+            var index = 0;
+            foreach (var item in source)
+            {
+                if (index > endIndex) yield break;
+                if (index >= startIndex && IsSelectable(item)) yield return item!;
+                index++;
+            }
+        }
+
         private void SelectIndexInternal(int index, object item)
         {
             if (!IsSelectable(item)) return;
             if (!_selectedItems.Contains(item))
             {
+                _rangeSelectionOperation++;
                 _selectedItems.Add(item);
                 SetIsSelectedOnItem(item, true);
                 RaiseSelectionChanged(new[] { item }, Array.Empty<object>());
@@ -562,6 +657,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
         {
             if (_selectedItems.Contains(item))
             {
+                _rangeSelectionOperation++;
                 _selectedItems.Remove(item);
                 SetIsSelectedOnItem(item, false);
                 RaiseSelectionChanged(Array.Empty<object>(), new[] { item });
@@ -570,6 +666,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
         private void ClearSelectionInternal()
         {
+            _rangeSelectionOperation++;
             var removed = _selectedItems.ToArray();
             if (removed.Length > 0)
             {

@@ -79,10 +79,29 @@ public class PlaylistExportAtomicWriteTests : IDisposable
     }
 
     [Fact]
+    public async Task ExportToRekordboxXmlAsync_WhenAtomicWriteFails_DoesNotRecordCueSyncSnapshot()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"ExportAtomicSnapshot_{Guid.NewGuid():N}")
+            .Options;
+        var service = new PlaylistExportService(
+            NullLogger<PlaylistExportService>.Instance, new TestDbContextFactory(options), new AlwaysFailFileWriteService());
+        var file = CreateAudioFile("a.mp3");
+        var track = new PlaylistTrack { Id = Guid.NewGuid(), Title = "Track A", Artist = "Artist", ResolvedFilePath = file, TrackUniqueHash = "artist|track-a" };
+        var outputXml = Path.Combine(_tempDir, "rekordbox.xml");
+
+        await Assert.ThrowsAsync<IOException>(() =>
+            service.ExportToRekordboxXmlAsync("Test Playlist", new[] { track }, outputXml));
+
+        await using var db = new AppDbContext(options);
+        Assert.Empty(db.RekordboxExportCueSync);
+    }
+
+    [Fact]
     public async Task ExportToRekordboxXmlAsync_WhenAtomicWriteFails_LeavesExistingFileUntouched()
     {
         var outputXml = Path.Combine(_tempDir, "rekordbox.xml");
-        const string originalContent = "<DJ_PLAYLISTS>this is the user's real, hand-edited Rekordbox export</DJ_PLAYLISTS>";
+        const string originalContent = "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"0\" /><PLAYLISTS><NODE Type=\"0\" Name=\"ROOT\" /></PLAYLISTS></DJ_PLAYLISTS>";
         await File.WriteAllTextAsync(outputXml, originalContent);
 
         var service = new PlaylistExportService(

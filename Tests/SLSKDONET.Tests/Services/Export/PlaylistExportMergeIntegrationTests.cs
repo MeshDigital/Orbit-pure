@@ -14,9 +14,9 @@ using Xunit;
 namespace SLSKDONET.Tests.Services.Export;
 
 /// <summary>
-/// End-to-end tests for the Phase 2 refresh/merge-mode behavior through the real
+/// End-to-end tests for non-destructive Rekordbox synchronization through the real
 /// <see cref="PlaylistExportService.ExportToRekordboxXmlAsync"/> entry point: re-exporting to a
-/// path that already has a Rekordbox XML file must merge into it rather than overwrite it.
+/// path that already has a Rekordbox XML file preserves existing values unless explicitly confirmed.
 /// </summary>
 public class PlaylistExportMergeIntegrationTests : IDisposable
 {
@@ -80,7 +80,7 @@ public class PlaylistExportMergeIntegrationTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportToRekordboxXmlAsync_ReExportToSamePath_RefreshesBpmEvenWhenRatingPreserved()
+    public async Task ExportToRekordboxXmlAsync_ReExportToSamePath_PreservesBpmAndRatingWithoutConfirmation()
     {
         var file = CreateAudioFile("a.mp3");
         var track = new PlaylistTrack { Id = Guid.NewGuid(), Title = "Track A", Artist = "Artist", ResolvedFilePath = file, TrackUniqueHash = "artist|track-a", BPM = 120 };
@@ -92,30 +92,56 @@ public class PlaylistExportMergeIntegrationTests : IDisposable
         doc.Descendants("TRACK").Single(e => e.Attribute("Location") != null).SetAttributeValue("Rating", "153");
         doc.Save(outputXml);
 
-        track.BPM = 174; // ORBIT re-analyzed the track with a corrected BPM
+        track.BPM = 174;
         await CreateService().ExportToRekordboxXmlAsync("Test Playlist", new[] { track }, outputXml);
 
-        var merged = XDocument.Load(outputXml);
-        var mergedTrack = merged.Descendants("TRACK").Single(e => e.Attribute("Location") != null);
-
-        Assert.Equal("153", mergedTrack.Attribute("Rating")!.Value); // preserved
-        Assert.Equal("174.00", mergedTrack.Attribute("AverageBpm")!.Value); // refreshed
+        var mergedTrack = XDocument.Load(outputXml).Descendants("TRACK").Single(e => e.Attribute("Location") != null);
+        Assert.Equal("153", mergedTrack.Attribute("Rating")!.Value);
+        Assert.Equal("120.00", mergedTrack.Attribute("AverageBpm")!.Value);
     }
 
     [Fact]
-    public async Task ExportToRekordboxXmlAsync_ExistingNonRekordboxFileAtPath_FallsBackToOverwrite()
+    public async Task ExportToRekordboxXmlAsync_ReExportToSamePath_ReplacesPreviewedValuesAfterConfirmation()
+    {
+        var file = CreateAudioFile("a.mp3");
+        var track = new PlaylistTrack { Id = Guid.NewGuid(), Title = "Track A", Artist = "Artist", ResolvedFilePath = file, TrackUniqueHash = "artist|track-a", BPM = 120 };
+        var outputXml = Path.Combine(_tempDir, "rekordbox.xml");
+
+        await CreateService().ExportToRekordboxXmlAsync("Test Playlist", new[] { track }, outputXml);
+        var doc = XDocument.Load(outputXml);
+        doc.Descendants("TRACK").Single(e => e.Attribute("Location") != null).SetAttributeValue("Rating", "153");
+        doc.Save(outputXml);
+
+        track.BPM = 174;
+        var previewedFields = Array.Empty<string>();
+        await CreateService().ExportToRekordboxXmlAsync("Test Playlist", new[] { track }, outputXml,
+            confirmOverwrite: conflicts =>
+            {
+                previewedFields = conflicts.Tracks.Single().Fields.ToArray();
+                return Task.FromResult(true);
+            });
+
+        var mergedTrack = XDocument.Load(outputXml).Descendants("TRACK").Single(e => e.Attribute("Location") != null);
+        Assert.Contains("BPM", previewedFields);
+        Assert.Contains("rating", previewedFields);
+        Assert.Equal("0", mergedTrack.Attribute("Rating")!.Value);
+        Assert.Equal("174.00", mergedTrack.Attribute("AverageBpm")!.Value);
+    }
+
+    [Fact]
+    public async Task ExportToRekordboxXmlAsync_ExistingNonRekordboxFileAtPath_BlocksAndPreservesOriginal()
     {
         var file = CreateAudioFile("a.mp3");
         var track = new PlaylistTrack { Id = Guid.NewGuid(), Title = "Track A", Artist = "Artist", ResolvedFilePath = file, TrackUniqueHash = "artist|track-a" };
         var outputXml = Path.Combine(_tempDir, "rekordbox.xml");
+        const string original = "<not-a-rekordbox-file/>";
 
-        await File.WriteAllTextAsync(outputXml, "<not-a-rekordbox-file/>");
+        await File.WriteAllTextAsync(outputXml, original);
 
-        await CreateService().ExportToRekordboxXmlAsync("Test Playlist", new[] { track }, outputXml);
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            CreateService().ExportToRekordboxXmlAsync("Test Playlist", new[] { track }, outputXml));
 
-        var doc = XDocument.Load(outputXml);
-        Assert.Equal("DJ_PLAYLISTS", doc.Root!.Name.LocalName);
-        Assert.Single(doc.Descendants("TRACK").Where(e => e.Attribute("Location") != null));
+        Assert.Equal(original, await File.ReadAllTextAsync(outputXml));
     }
 
     private sealed class TestDbContextFactory : IDbContextFactory<AppDbContext>

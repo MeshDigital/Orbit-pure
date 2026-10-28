@@ -98,6 +98,85 @@ public class WorkstationTimelineLayoutGuardTests
     }
 
     [Fact]
+    public void Workstation_IsProfessionalPrepOnly_WithInlineReadinessAndNoModalBrowser()
+    {
+        var xaml = ReadWorkstationPageXaml();
+
+        Assert.DoesNotContain("<views:FlowBuilderView", xaml);
+        Assert.DoesNotContain("DataContext=\"{Binding FlowBuilder}\"", xaml);
+        Assert.DoesNotContain("Build Set", xaml);
+        Assert.DoesNotContain("Build set", xaml);
+        Assert.Contains("Text=\"PREP PLAYLIST\"", xaml);
+        Assert.Contains("Header=\"Open playlist in Flow Builder (in-app MIX)\"", xaml);
+        Assert.Contains("Command=\"{Binding #PageRoot.DataContext.RepairTrackCommand}\"", xaml);
+        Assert.Contains("ConverterParameter=Status", xaml);
+        Assert.Contains("DoubleTapped=\"OnPrepTrackDoubleTapped\"", xaml);
+        Assert.Contains("Data=\"{StaticResource icon_check}\"", xaml);
+        Assert.Contains("Data=\"{StaticResource icon_alert}\"", xaml);
+        Assert.Contains("x:Name=\"PrepWorkflowStrip\"", xaml);
+        Assert.Contains("Text=\"1  ANALYZE\"", xaml);
+        Assert.Contains("Text=\"2  PREPARE\"", xaml);
+        Assert.Contains("Text=\"3  EXPORT\"", xaml);
+        Assert.Contains("Text=\"{Binding AnalysisWorkflowStatus}\"", xaml);
+        Assert.Contains("Text=\"{Binding PreparationWorkflowStatus}\"", xaml);
+        Assert.Contains("Text=\"{Binding ExportWorkflowStatus}\"", xaml);
+        Assert.DoesNotContain("x:Name=\"TrackListOverlay\"", xaml);
+        Assert.DoesNotContain("Text=\"Track Pool\"", xaml);
+        Assert.DoesNotContain("Load into Workstation", xaml);
+    }
+
+    [Fact]
+    public void ExportReadiness_DistinguishesFileBlockersFromPrepWarnings()
+    {
+        var sourceRoot = FindSourceRoot();
+        var source = File.ReadAllText(Path.Combine(sourceRoot, "ViewModels", "Workstation", "WorkstationViewModel.cs"));
+        var xaml = ReadWorkstationPageXaml();
+
+        Assert.Contains("PlaylistFileIssueCount", source);
+        Assert.Contains("PlaylistPrepOnlyIssueCount", source);
+        Assert.Contains("need file repair", source);
+        Assert.Contains("prep warnings", source);
+        Assert.Contains("Rekordbox prep complete", source);
+        Assert.Contains("Missing or unreadable files block export", xaml);
+        Assert.Contains("incomplete grids and cues are reported as prep warnings", xaml);
+    }
+
+    [Fact]
+    public void StandaloneFlowBuilder_DeclaresInAppMixScopeAndKeepsAttentionVisible()
+    {
+        var sourceRoot = FindSourceRoot();
+        var xaml = File.ReadAllText(Path.Combine(sourceRoot, "Views", "Avalonia", "FlowBuilderView.axaml"));
+
+        Assert.Contains("Text=\"IN-APP MIX\"", xaml);
+        Assert.Contains("IsVisible=\"{Binding NeedsAttention}\"", xaml);
+        Assert.Contains("IsVisible=\"{Binding PairNeedsAttention}\"", xaml);
+        Assert.Contains("ORBIT playlist playback with MIX enabled", xaml);
+    }
+
+    [Fact]
+    public void ResponsivePrep_FillsLargeDesktopsWithoutDpiDrivenShrinkage()
+    {
+        var sourceRoot = FindSourceRoot();
+        var code = File.ReadAllText(Path.Combine(sourceRoot, "Views", "Avalonia", "WorkstationPage.axaml.cs"));
+        var deckCode = File.ReadAllText(Path.Combine(sourceRoot, "Views", "Avalonia", "Workstation", "WorkstationDeckRow.axaml.cs"));
+        var mixerCode = File.ReadAllText(Path.Combine(sourceRoot, "Views", "Avalonia", "Workstation", "MixerCenter.axaml.cs"));
+
+        Assert.Contains("FindControl<SplitView>(\"ShellSplitView\")", code);
+        Assert.Contains("grid.VerticalAlignment = VerticalAlignment.Stretch", code);
+        Assert.Contains("grid.MaxWidth = double.PositiveInfinity", code);
+        Assert.Contains("grid.MaxHeight = double.PositiveInfinity", code);
+        Assert.Contains("Classes.Set(\"ws-layout-spacious\", isSpacious)", code);
+        Assert.Contains("availableWidth * 0.18", code);
+        Assert.Contains("availableHeight * 0.28", code);
+        Assert.Contains("availableHeight < 520", code);
+        Assert.Contains("OnToggleInspectorClick", code);
+        Assert.DoesNotContain("renderScaling >= 1.35", code);
+        Assert.DoesNotContain("renderScaling >= 1.35", deckCode);
+        Assert.DoesNotContain("RenderScaling", mixerCode);
+        Assert.DoesNotContain("FindAncestorOfType<SplitView>", code);
+    }
+
+    [Fact]
     public void WorkstationViews_UseNoRawHexColours()
     {
         // The cockpit was moved onto Themes/DesignTokens.axaml (2026-10). Deck, stem and

@@ -181,6 +181,11 @@ public sealed class EffnetClassifierHeadService : IDisposable
             if (_loadAttempted) return;
             _loadAttempted = true;
 
+            // Below the AI minimum: stay unloaded, exactly like a missing model (the embedding
+            // extractor logs the reason once).
+            if (!SLSKDONET.Services.Platform.HardwareCapabilities.Allows(SLSKDONET.Services.Platform.HardwareFeature.AiTagging))
+                return;
+
             if (!File.Exists(_modelPath))
             {
                 _logger.LogWarning("[ClassifierHead] Model not found at {Path} — this signal will be unavailable.", _modelPath);

@@ -69,6 +69,12 @@ public class ImportBatchResult
 
     /// <summary>Playlist owner or album artist, shown in the preview header. Null when unknown.</summary>
     public string? SourceOwner { get; set; }
+
+    /// <summary>
+    /// How the source was read (e.g. which CSV columns were used, rows skipped), shown as a notice
+    /// above the preview. Null when there is nothing worth saying.
+    /// </summary>
+    public string? Notice { get; set; }
 }
 
 /// <summary>

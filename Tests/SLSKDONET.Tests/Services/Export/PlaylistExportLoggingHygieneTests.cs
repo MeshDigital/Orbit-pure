@@ -14,13 +14,9 @@ using Xunit;
 namespace SLSKDONET.Tests.Services.Export;
 
 /// <summary>
-/// Confirms the exporter's malformed-input fallback paths (previously bare, unlogged
-/// `catch { }` blocks) still degrade gracefully — a malformed cue colour falls back to white,
-/// and malformed CuePointsJson drops only the user-placed cues, not the whole export.
-/// The actual LogWarning call is a one-line addition matching this file's already-tested
-/// pattern (see PlaylistExportTempoTests' malformed-BeatGridJson case) — these tests cover the
-/// functional fallback behavior itself, since this repo has no existing "assert a warning was
-/// logged" test helper to build on.
+/// Confirms malformed-input handling at the export trust boundary: an invalid cue colour uses
+/// the explicit white fallback, while malformed saved cue JSON blocks export instead of
+/// silently dropping the user's preparation work.
 /// </summary>
 public class PlaylistExportLoggingHygieneTests : IDisposable
 {
@@ -82,7 +78,7 @@ public class PlaylistExportLoggingHygieneTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportToRekordboxXmlAsync_MalformedCuePointsJson_DoesNotThrowAndKeepsExporting()
+    public async Task ExportToRekordboxXmlAsync_MalformedCuePointsJson_BlocksExportInsteadOfDroppingCues()
     {
         var file = CreateAudioFile("track.mp3");
         var outputXml = Path.Combine(_tempDir, "out.xml");
@@ -92,13 +88,11 @@ public class PlaylistExportLoggingHygieneTests : IDisposable
             CuePointsJson = "{this is not valid JSON at all",
         };
 
-        // Must not throw — malformed user cues are dropped, the track itself still exports.
-        await CreateService().ExportToRekordboxXmlAsync("Test Playlist", new[] { track }, outputXml);
+        var exception = await Assert.ThrowsAsync<SLSKDONET.Services.Export.RekordboxExportIntegrityException>(() =>
+            CreateService().ExportToRekordboxXmlAsync("Test Playlist", new[] { track }, outputXml));
 
-        var doc = XDocument.Load(outputXml);
-        var trackElem = doc.Descendants("TRACK").Single(e => e.Attribute("Location") != null);
-        Assert.Equal("T", trackElem.Attribute("Name")?.Value);
-        Assert.Empty(trackElem.Elements("POSITION_MARK"));
+        Assert.Contains("saved user cues are malformed", exception.Message);
+        Assert.False(File.Exists(outputXml));
     }
 
     private sealed class TestDbContextFactory : IDbContextFactory<AppDbContext>

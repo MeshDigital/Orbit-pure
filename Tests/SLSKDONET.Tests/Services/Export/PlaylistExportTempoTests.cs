@@ -132,7 +132,7 @@ public class PlaylistExportTempoTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportToRekordboxXmlAsync_MalformedBeatGridJson_LogsWarningAndFallsBackGracefully()
+    public async Task ExportToRekordboxXmlAsync_MalformedBeatGridJson_BlocksExportInsteadOfDroppingGrid()
     {
         var options = CreateInMemoryOptions();
         var hash = "artist|malformed";
@@ -153,14 +153,11 @@ public class PlaylistExportTempoTests : IDisposable
         var track = new PlaylistTrack { Id = Guid.NewGuid(), Title = "T", Artist = "A", ResolvedFilePath = file, TrackUniqueHash = hash, BPM = 128.0 };
         var outputXml = Path.Combine(_tempDir, "out.xml");
 
-        // Must not throw — falls back to a single anchor.
-        await CreateService(options).ExportToRekordboxXmlAsync("Test Playlist", new[] { track }, outputXml);
+        var exception = await Assert.ThrowsAsync<SLSKDONET.Services.Export.RekordboxExportIntegrityException>(() =>
+            CreateService(options).ExportToRekordboxXmlAsync("Test Playlist", new[] { track }, outputXml));
 
-        var doc = XDocument.Load(outputXml);
-        var trackElem = doc.Descendants("TRACK").Single(e => e.Attribute("Location") != null);
-        var tempoNodes = trackElem.Elements("TEMPO").ToList();
-
-        Assert.Single(tempoNodes);
+        Assert.Contains("beat grid is malformed", exception.Message);
+        Assert.False(File.Exists(outputXml));
     }
 
     [Fact]

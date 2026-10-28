@@ -62,6 +62,9 @@ public class ViewModelDisposalGuardTests
             if (!hasSubscribe && !hasGetEvent)
                 continue; // No subscriptions, no risk
 
+            // A partial ViewModel may keep subscriptions in one file and Dispose in another.
+            content = IncludePartialClassSources(file, content, viewModelFiles);
+
             // Check if the class implements IDisposable
             bool implementsDisposable = 
                 content.Contains("IDisposable") && 
@@ -285,6 +288,29 @@ public class ViewModelDisposalGuardTests
     }
 
     #region Helpers
+
+    private static string IncludePartialClassSources(string file, string content, List<string> viewModelFiles)
+    {
+        var declaration = Regex.Match(content, @"\bpartial\s+class\s+(?<name>\w+)");
+        if (!declaration.Success)
+            return content;
+
+        var className = declaration.Groups["name"].Value;
+        var declarationPattern = $@"\bpartial\s+class\s+{Regex.Escape(className)}\b";
+        var sources = new List<string> { content };
+
+        foreach (var candidate in viewModelFiles)
+        {
+            if (string.Equals(candidate, file, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var candidateContent = File.ReadAllText(candidate);
+            if (Regex.IsMatch(candidateContent, declarationPattern))
+                sources.Add(candidateContent);
+        }
+
+        return string.Join(Environment.NewLine, sources);
+    }
 
     private static List<string> FindViewModelSourceFiles()
     {

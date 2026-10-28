@@ -58,6 +58,8 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand AddSelectedToQueueCommand { get; }
     public System.Windows.Input.ICommand AnalyseTrackCommand { get; }
     public System.Windows.Input.ICommand OpenAuditLogCommand { get; }
+    /// <summary>Loads the track into the focused Workstation deck without starting playback.</summary>
+    public System.Windows.Input.ICommand OpenInWorkstationCommand { get; }
     public System.Windows.Input.ICommand OpenInCueForgeCommand { get; }
     /// <summary>New Edit Lab project with the track as its base, then shows the Edit Lab.</summary>
     public System.Windows.Input.ICommand OpenInEditLabCommand { get; }
@@ -142,6 +144,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         RegenerateCuesCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteRegenerateCues);
         RefreshBpmFromTagsCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteRefreshBpmFromTags);
         OpenAuditLogCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteOpenAuditLog);
+        OpenInWorkstationCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteOpenInWorkstation);
         OpenInCueForgeCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteOpenInCueForge);
         OpenInEditLabCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteOpenInEditLab);
         SetColorTagCommand = new RelayCommand<string>(ExecuteSetColorTag);
@@ -284,7 +287,11 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task ExecuteCloneTrack(PlaylistTrackViewModel? vm)
     {
-        if (vm?.Model == null || string.IsNullOrEmpty(vm.Model.ResolvedFilePath)) return;
+        if (vm?.Model == null || string.IsNullOrEmpty(vm.Model.ResolvedFilePath))
+        {
+            _eventBus.Publish(new NotificationEvent("Clone Track", "Select a track with an available local file.", NotificationType.Warning));
+            return;
+        }
 
         try 
         {
@@ -293,7 +300,11 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
             var fileName = System.IO.Path.GetFileNameWithoutExtension(sourcePath);
             var extension = System.IO.Path.GetExtension(sourcePath);
             
-            if (string.IsNullOrEmpty(directory)) return;
+            if (string.IsNullOrEmpty(directory))
+            {
+                _eventBus.Publish(new NotificationEvent("Clone Track", "The track's containing folder could not be determined.", NotificationType.Warning));
+                return;
+            }
 
             // 1. Generate descriptive new name
             var newPath = System.IO.Path.Combine(directory, $"{fileName} (Clone){extension}");
@@ -316,10 +327,12 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
 
             // 4. Trigger UI Refresh
             _eventBus.Publish(new TrackAddedEvent(clone, PlaylistTrackState.Completed));
+            _eventBus.Publish(new NotificationEvent("Clone Track", $"Created a copy of '{vm.Title}' and added it to the Library.", NotificationType.Success));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Clone operation failed");
+            _eventBus.Publish(new NotificationEvent("Couldn't clone track", ex.Message, NotificationType.Error));
         }
     }
 
@@ -398,12 +411,20 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         if (string.IsNullOrEmpty(filePath))
         {
             _logger.LogWarning("Cannot play track - no resolved file path");
+            _notificationService.Show(
+                "Playback unavailable",
+                $"'{track.Title}' isn't downloaded yet. Download it before playback.",
+                NotificationType.Warning);
             return;
         }
 
         if (!System.IO.File.Exists(filePath))
         {
             _logger.LogWarning("Cannot play track - file does not exist: {Path}", filePath);
+            _notificationService.Show(
+                "Audio file missing",
+                $"The file for '{track.Title}' can't be found. Relink or restore it, then try again.",
+                NotificationType.Warning);
             return;
         }
 
@@ -466,6 +487,10 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         }
 
         _logger.LogInformation("Queued {Count} track(s) into player queue from Library", added);
+        _notificationService.Show(
+            "Queue updated",
+            added == 1 ? $"'{track.Title}' was added to the queue." : $"{added} tracks were added to the queue.",
+            NotificationType.Success);
     }
 
     private void ExecuteAddSelectedToQueue()
@@ -473,6 +498,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         var selected = LibraryViewModel?.Tracks.SelectedTracks?.ToList() ?? [];
         if (!selected.Any())
         {
+            _notificationService.Show("Queue unchanged", "Select one or more tracks first.", NotificationType.Information);
             return;
         }
 
@@ -484,6 +510,10 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         }
 
         _logger.LogInformation("Queued {Count} selected track(s) into player queue from Library", added);
+        _notificationService.Show(
+            "Queue updated",
+            added == 1 ? "1 selected track was added to the queue." : $"{added} selected tracks were added to the queue.",
+            NotificationType.Success);
     }
 
     private void ExecuteAnalyseTrack(PlaylistTrackViewModel? track)
@@ -724,6 +754,10 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
             queueBatch.Count,
             track.Artist,
             album);
+        _eventBus.Publish(new NotificationEvent(
+            "Download Album",
+            $"Queued {queueBatch.Count} track{(queueBatch.Count == 1 ? string.Empty : "s")} from \"{album}\".",
+            NotificationType.Success));
 
         await Task.CompletedTask;
     }
@@ -788,13 +822,27 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         {
             _logger.LogInformation("Retrying all offline tracks");
             
-            if (_mainViewModel == null) return;
+            if (_mainViewModel == null)
+            {
+                _eventBus.Publish(new NotificationEvent("Retry Failed Tracks", "The Library is not ready yet. Try again shortly.", NotificationType.Warning));
+                return;
+            }
             
             var offlineTracks = _mainViewModel.AllGlobalTracks
                 .Where(t => t.State == PlaylistTrackState.Failed)
                 .ToList();
 
             _logger.LogInformation("Found {Count} failed tracks to retry", offlineTracks.Count);
+            if (offlineTracks.Count == 0)
+            {
+                _eventBus.Publish(new NotificationEvent("Retry Failed Tracks", "There are no failed tracks to retry.", NotificationType.Information));
+                return;
+            }
+
+            _eventBus.Publish(new NotificationEvent(
+                "Retry Failed Tracks",
+                $"Submitting {offlineTracks.Count} failed track{(offlineTracks.Count == 1 ? string.Empty : "s")} for another download attempt…",
+                NotificationType.Information));
 
             foreach (var track in offlineTracks)
             {
@@ -803,10 +851,15 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
             }
 
             _logger.LogInformation("Retry offline tracks completed");
+            _eventBus.Publish(new NotificationEvent(
+                "Retry Failed Tracks",
+                $"Submitted {offlineTracks.Count} track{(offlineTracks.Count == 1 ? string.Empty : "s")} for another download attempt.",
+                NotificationType.Success));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to retry offline tracks");
+            _eventBus.Publish(new NotificationEvent("Couldn't retry failed tracks", ex.Message, NotificationType.Error));
         }
     }
 
@@ -867,6 +920,25 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
             "Library.TrackSelection.AuditLog"));
     }
 
+    private void ExecuteOpenInWorkstation(PlaylistTrackViewModel? track)
+    {
+        track ??= LibraryViewModel?.Tracks.LeadSelectedTrack;
+        if (track == null)
+        {
+            _notificationService.Show("Workstation", "Select a track to prepare in Workstation.", NotificationType.Warning);
+            return;
+        }
+
+        if (!track.OpenWorkstationCommand.CanExecute(null))
+        {
+            _notificationService.Show("Workstation", "This track is not available for preparation yet.", NotificationType.Warning);
+            return;
+        }
+
+        // Use the row's established handoff so context-menu and inspector actions behave identically.
+        track.OpenWorkstationCommand.Execute(null);
+    }
+
     private async Task ExecuteOpenInCueForge(PlaylistTrackViewModel? track)
     {
         track ??= LibraryViewModel?.Tracks.LeadSelectedTrack;
@@ -882,22 +954,38 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
 
         await _cueForgeViewModel.LoadTrackAsync(hash, track.Title, track.Artist);
         _eventBus.Publish(new Models.NavigateToPageEvent("CueForge"));
+        _notificationService.Show("Cue Forge", $"Opened '{track.Title}' in Cue Forge.", NotificationType.Success);
     }
 
     private async Task ExecuteOpenInEditLab(PlaylistTrackViewModel? track)
     {
         track ??= LibraryViewModel?.Tracks.LeadSelectedTrack;
-        if (track == null || _editLabViewModel == null) return;
+        if (track == null)
+        {
+            _notificationService.Show("Edit Lab", "Select a track to open in Edit Lab.", NotificationType.Warning);
+            return;
+        }
+
+        if (_editLabViewModel == null)
+        {
+            _notificationService.Show("Edit Lab", "Edit Lab is unavailable in the current application state.", NotificationType.Warning);
+            return;
+        }
 
         var hash = string.IsNullOrWhiteSpace(track.Model?.TrackUniqueHash)
             ? track.Model?.Id.ToString("N")
             : track.Model?.TrackUniqueHash;
-        if (string.IsNullOrEmpty(hash)) return;
+        if (string.IsNullOrEmpty(hash))
+        {
+            _notificationService.Show("Edit Lab", "This track has no stable library identity yet.", NotificationType.Warning);
+            return;
+        }
 
-        _eventBus.Publish(new Models.NavigateToPageEvent("EditLab"));
         try
         {
             await _editLabViewModel.OpenWithTrackAsync(hash, track.Title, track.Artist, track.Model?.ResolvedFilePath);
+            _eventBus.Publish(new Models.NavigateToPageEvent("EditLab"));
+            _notificationService.Show("Edit Lab", $"Opened '{track.Title}' in Edit Lab.", NotificationType.Success);
         }
         catch (Exception ex)
         {

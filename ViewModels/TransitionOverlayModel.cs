@@ -46,8 +46,11 @@ public sealed record TransitionOverlayModel
 
     /// <summary>Track-seconds of A per shared second (1 when A sets the project tempo).</summary>
     public double OutgoingRate => OutgoingBpm > 0 && ProjectBpm > 0 ? ProjectBpm / OutgoingBpm : 1.0;
+    /// <summary>The actual tempo-sync rate used by playback and preview. Null retains the unconstrained
+    /// mathematical rate for standalone overlay calculations; the editor always supplies the live rate.</summary>
+    public double? IncomingPlaybackRate { get; init; }
     /// <summary>Track-seconds of B per shared second: B is sped up / slowed to the project tempo.</summary>
-    public double IncomingRate => IncomingBpm > 0 && ProjectBpm > 0 ? ProjectBpm / IncomingBpm : 1.0;
+    public double IncomingRate => IncomingPlaybackRate ?? (IncomingBpm > 0 && ProjectBpm > 0 ? ProjectBpm / IncomingBpm : 1.0);
 
     /// <summary>Where A is (its own seconds) at shared time <paramref name="t"/>.</summary>
     public double OutgoingTrackTime(double t) => SourceTrigger + t * OutgoingRate;
@@ -103,7 +106,8 @@ public sealed record TransitionOverlayModel
     public static TransitionOverlayModel Build(
         double outgoingBpm, double incomingBpm, double sourceTrigger, double targetTrigger, double windowSeconds,
         double contextSeconds, double outgoingDuration, double incomingDuration, double incomingDownbeat,
-        IReadOnlyList<float>? outgoingGain, IReadOnlyList<float>? incomingGain, IReadOnlyList<OverlayMarker>? markers)
+        IReadOnlyList<float>? outgoingGain, IReadOnlyList<float>? incomingGain, IReadOnlyList<OverlayMarker>? markers,
+        double? incomingPlaybackRate = null)
     {
         double project = outgoingBpm > 0 ? outgoingBpm : 128.0;
         return new TransitionOverlayModel
@@ -111,6 +115,7 @@ public sealed record TransitionOverlayModel
             ProjectBpm = project,
             OutgoingBpm = outgoingBpm,
             IncomingBpm = incomingBpm,
+            IncomingPlaybackRate = incomingPlaybackRate is > 0 ? incomingPlaybackRate : null,
             SourceTrigger = sourceTrigger,
             TargetTrigger = targetTrigger,
             WindowSeconds = Math.Max(0, windowSeconds),

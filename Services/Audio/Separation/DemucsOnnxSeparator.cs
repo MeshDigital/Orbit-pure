@@ -53,7 +53,8 @@ public sealed class DemucsOnnxSeparator : IStemSeparator, IDisposable
 
     public string Name => "Demucs v4 ONNX (4-stem)";
 
-    public bool IsAvailable => _modelManager.IsAvailable;
+    public bool IsAvailable => _modelManager.IsAvailable
+        && SLSKDONET.Services.Platform.HardwareCapabilities.Allows(SLSKDONET.Services.Platform.HardwareFeature.StemSeparation);
 
     public string ModelTag => _modelManager.ModelTag;
 
@@ -104,6 +105,10 @@ public sealed class DemucsOnnxSeparator : IStemSeparator, IDisposable
         string outputDirectory,
         CancellationToken cancellationToken = default)
     {
+        var hardware = SLSKDONET.Services.Platform.HardwareCapabilities.Current.VerdictFor(SLSKDONET.Services.Platform.HardwareFeature.StemSeparation);
+        if (!hardware.IsAllowed)
+            throw new InvalidOperationException($"Stem separation is switched off on this PC. {hardware.Reason}");
+
         if (!IsAvailable)
             throw new FileNotFoundException(
                 $"Demucs-4s ONNX model not found at '{_modelManager.ModelPath}'. " +

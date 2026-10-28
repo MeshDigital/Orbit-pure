@@ -29,7 +29,7 @@
             BorderThickness="0,0,0,1"
             Classes.focused="{Binding IsFocusedDeck}"
             PointerPressed="OnDeckPointerPressed"
-            Height="64">
+            Height="{DynamicResource WsDeckRowHeight}">
         <Grid ColumnDefinitions="200,*">
 
             <!-- Track strip: deck badge, title/artist, facts, energy mini-bar -->
@@ -111,7 +111,7 @@
                         <PathIcon Data="{StaticResource icon_music}" Width="14" Height="14"
                                   Foreground="{DynamicResource BrushText3}"/>
                         <TextBlock Classes="caption"
-                                   Text="Empty deck. Drag a track here or load one from the Flow Drawer."
+                                   Text="Empty deck. Drag a track here or load one from the Prep Playlist."
                                    VerticalAlignment="Center"/>
                     </StackPanel>
 

@@ -92,6 +92,17 @@ internal sealed class FakeAudio : IAudioSetupGateway
     public Task<FfmpegCheckResult> CheckFfmpegAsync() => Task.FromResult(new FfmpegCheckResult(FfmpegAvailable, FfmpegAvailable ? "7.0" : ""));
     public void OpenFfmpegDownloadPage() => FfmpegPageOpens++;
     public AnalysisModelStatus GetModelStatus() => new(8, 8, Array.Empty<string>());
+    public SLSKDONET.Services.Platform.HardwareProfile Hardware { get; set; } = SLSKDONET.Tests.Services.Platform.HardwareCapabilitiesTests.Machine(ramGb: 32, cores: 16, gpuGb: 8);
+    public bool CanInstallFfmpeg { get; set; }
+    public string ManualFfmpegHint => "Install ffmpeg with your package manager.";
+    public int FfmpegInstalls { get; private set; }
+    public Task<SLSKDONET.Services.Platform.FfmpegInstallResult> InstallFfmpegAsync(IProgress<double>? progress)
+    {
+        FfmpegInstalls++;
+        progress?.Report(1.0);
+        FfmpegAvailable = true;
+        return Task.FromResult(new SLSKDONET.Services.Platform.FfmpegInstallResult(true, "installed"));
+    }
 }
 
 internal sealed class FakePicker : IFileInteractionService

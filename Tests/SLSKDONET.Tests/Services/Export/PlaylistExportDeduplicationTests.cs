@@ -14,9 +14,8 @@ using Xunit;
 namespace SLSKDONET.Tests.Services.Export;
 
 /// <summary>
-/// Tests that PlaylistExportService deduplicates tracks by ResolvedFilePath
-/// and that cue points are assigned to the correct track even when some
-/// playlist tracks have missing files and are skipped.
+/// Tests that PlaylistExportService deduplicates collection tracks by ResolvedFilePath
+/// and blocks the entire export when any source audio file is missing.
 /// </summary>
 public class PlaylistExportDeduplicationTests : IDisposable
 {
@@ -128,52 +127,37 @@ public class PlaylistExportDeduplicationTests : IDisposable
         Assert.Equal(2, collectionTracks.Count);
     }
 
-    // ── Index-mismatch: cues go to the correct track ───────────────────────
+    // ── Missing source audio is an export blocker ──────────────────────────
 
     [Fact]
-    public async Task ExportToRekordboxXmlAsync_MissingFileFirst_CuesAssignedToCorrectTrack()
+    public async Task ExportToRekordboxXmlAsync_MissingFile_BlocksEntireExport()
     {
-        // trackList[0] → missing file (will be skipped)
-        // trackList[1] → file exists, has cue points
-        // Before the fix, rbTracks[0] would be mapped to trackList[0] (missing)
-        // and its cues would be looked up using the wrong hash.
-
         var existingFile = CreateAudioFile("real.mp3");
         var outputXml = Path.Combine(_tempDir, "out.xml");
-
-        const string hashWithCues = "artist|trackwithcues";
-
         var tracks = new List<PlaylistTrack>
         {
-            new() { Id = Guid.NewGuid(), Title = "Ghost",         Artist = "Artist", ResolvedFilePath = "/nonexistent/ghost.mp3", TrackUniqueHash = "artist|ghost" },
-            new() { Id = Guid.NewGuid(), Title = "Track With Cues", Artist = "Artist", ResolvedFilePath = existingFile,            TrackUniqueHash = hashWithCues },
+            new() { Id = Guid.NewGuid(), Title = "Ghost", Artist = "Artist", ResolvedFilePath = "/nonexistent/ghost.mp3", TrackUniqueHash = "artist|ghost" },
+            new() { Id = Guid.NewGuid(), Title = "Real Track", Artist = "Artist", ResolvedFilePath = existingFile, TrackUniqueHash = "artist|real" },
         };
 
-        // Cue data is loaded from DB in the real service; with an in-memory DB with no rows the
-        // test verifies track metadata (Name) is correct, proving the correct src track was used.
-        var service = CreateService();
-        await service.ExportToRekordboxXmlAsync("Test Playlist", tracks, outputXml);
+        var exception = await Assert.ThrowsAsync<SLSKDONET.Services.Export.RekordboxExportIntegrityException>(() =>
+            CreateService().ExportToRekordboxXmlAsync("Test Playlist", tracks, outputXml));
 
-        var doc = XDocument.Load(outputXml);
-        var collectionTracks = doc.Descendants("TRACK")
-            .Where(e => e.Attribute("Location") != null)
-            .ToList();
-
-        Assert.Single(collectionTracks);
-        var name = collectionTracks[0].Attribute("Name")?.Value;
-        Assert.Equal("Track With Cues", name);
+        Assert.Contains("audio file not found", exception.Message);
+        Assert.False(File.Exists(outputXml));
     }
 
     [Fact]
     public async Task ExportToRekordboxXmlAsync_EntryCountMatchesCollectionTracks()
     {
         var fileA = CreateAudioFile("x.mp3");
+        var fileB = CreateAudioFile("b.mp3");
         var outputXml = Path.Combine(_tempDir, "out.xml");
 
         var tracks = new List<PlaylistTrack>
         {
             new() { Id = Guid.NewGuid(), Title = "A", Artist = "Artist", ResolvedFilePath = fileA },
-            new() { Id = Guid.NewGuid(), Title = "B", Artist = "Artist", ResolvedFilePath = "/nonexistent/b.mp3" },
+            new() { Id = Guid.NewGuid(), Title = "B", Artist = "Artist", ResolvedFilePath = fileB },
         };
 
         var service = CreateService();
@@ -186,7 +170,7 @@ public class PlaylistExportDeduplicationTests : IDisposable
             .ToList();
 
         Assert.Equal(collectionTracks.Count.ToString(), entriesAttr?.Value);
-        Assert.Equal(1, collectionTracks.Count); // B was skipped (missing)
+        Assert.Equal(2, collectionTracks.Count);
     }
 
     // ── Case-insensitive path deduplication ───────────────────────────────

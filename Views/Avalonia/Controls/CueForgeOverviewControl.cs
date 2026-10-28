@@ -86,7 +86,12 @@ public class CueForgeOverviewControl : Control
     private static readonly IBrush PlayedBrush = new SolidColorBrush(Color.FromArgb(70, 15, 16, 18)).ToImmutable();
     private static readonly IPen PlayheadPen = new Pen(new SolidColorBrush(Colors.White).ToImmutable(), 1.5).ToImmutable();
 
+    private static readonly IBrush BadgeTextBrush = new SolidColorBrush(Color.FromRgb(15, 16, 18)).ToImmutable();
+    private static readonly Typeface BadgeTypeface = new(FontFamily.Default, FontStyle.Normal, FontWeight.Bold);
+    private const double BadgeSize = 11;
+
     private readonly Dictionary<string, IBrush> _brushCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly FormattedText?[] _padLetters = new FormattedText?[8];
     private RenderTargetBitmap? _bitmap;
     private Size _bitmapSize;
     private double _bitmapScale;
@@ -106,7 +111,10 @@ public class CueForgeOverviewControl : Control
         var size = Bounds.Size;
         if (size.Width < 1 || size.Height < 1) return;
         EnsureBitmap(size);
-        if (_bitmap != null) ctx.DrawImage(_bitmap, new Rect(size));
+        // Source rect in PIXELS: Avalonia 11.2's DrawImage(img, dest) passes img.Size (DIPs) as the
+        // source rect, which Skia reads as pixels, so at 150% scaling only the top-left 2/3 of a
+        // DPI-scaled bitmap was drawn, stretched (cues/ruler 1.5x off, end of track missing).
+        if (_bitmap != null) ctx.DrawImage(_bitmap, PixelRect(_bitmap), new Rect(size));
         if (TrackDuration <= 0) return;
 
         double zoom = Math.Max(1.0, ZoomLevel);
@@ -192,12 +200,29 @@ public class CueForgeOverviewControl : Control
                         ctx.FillRectangle(brush, new Rect(x - 0.5, 0, cue.SlotIndex >= 0 ? 2 : 1, size.Height));
                     }
                 }
+
+                // Pad letter badges on top, so cues outside the zoomed detail view (e.g. the
+                // second drop group) are findable at a glance.
+                foreach (var cue in Cues)
+                {
+                    if (cue.IsLoop || cue.SlotIndex is < 0 or > 7) continue;
+                    double x = Math.Clamp(cue.Timestamp / TrackDuration * size.Width - 0.5, 0, Math.Max(0, size.Width - BadgeSize));
+                    ctx.FillRectangle(GetBrush(cue.Color), new Rect(x, 0, BadgeSize, BadgeSize), 2);
+                    var letter = PadLetter(cue.SlotIndex);
+                    ctx.DrawText(letter, new Point(x + (BadgeSize - letter.Width) / 2, (BadgeSize - letter.Height) / 2));
+                }
             }
         }
         _bitmapSize = size;
         _bitmapScale = scale;
         _dirty = false;
     }
+
+    internal static Rect PixelRect(Bitmap bitmap) => new(0, 0, bitmap.PixelSize.Width, bitmap.PixelSize.Height);
+
+    private FormattedText PadLetter(int slot) =>
+        _padLetters[slot] ??= new FormattedText(((char)('A' + slot)).ToString(), System.Globalization.CultureInfo.InvariantCulture,
+            FlowDirection.LeftToRight, BadgeTypeface, 8.5, BadgeTextBrush);
 
     private IBrush GetBrush(string? hex)
     {

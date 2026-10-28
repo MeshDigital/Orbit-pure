@@ -74,6 +74,16 @@ public sealed class CueTemplateSettings
         Persist("custom cue template");
     }
 
+    /// <summary>Countdowns as memory cues (pads A B D E stay free).</summary>
+    public bool CountdownsAsMemoryCues => _config.CountdownsAsMemoryCues;
+
+    public void SetCountdownsAsMemoryCues(bool value)
+    {
+        if (value == CountdownsAsMemoryCues) return;
+        _config.CountdownsAsMemoryCues = value;
+        Persist("countdown cue routing");
+    }
+
     public IReadOnlyList<int> ResolveBars(string? genre, double bpm) =>
         DropCountdownCues.ResolveBars(Mode, genre, bpm, CustomBars);
 

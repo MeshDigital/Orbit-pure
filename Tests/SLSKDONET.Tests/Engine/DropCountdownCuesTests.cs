@@ -59,7 +59,29 @@ public class DropCountdownCuesTests
         Assert.Equal(AtBar(16), one[0].Timestamp, 6);
 
         var two = DropCountdownCues.Layout(2, AtBar(96), new[] { 32, 16, 8 }, Bpm);
-        Assert.Equal(new[] { ("[IN -32]", -1), ("[IN -16]", 3), ("[IN -8]", 4), ("[DROP 2]", 5) }, two.Select(c => (c.Name, c.SlotIndex)));
+        // Drop 2's countdowns say IN2, so a CDJ screen never shows two identical labels.
+        Assert.Equal(new[] { ("[IN2 -32]", -1), ("[IN2 -16]", 3), ("[IN2 -8]", 4), ("[DROP 2]", 5) }, two.Select(c => (c.Name, c.SlotIndex)));
+    }
+
+    [Fact]
+    public void Layout_CountdownsAsMemoryCues_LeaveTheirPadsFree_DropsKeepCAndF()
+    {
+        var one = DropCountdownCues.Layout(1, AtBar(32), DnB, Bpm, countdownsAsMemoryCues: true);
+        Assert.Equal(new[] { ("[IN -16]", -1), ("[IN -8]", -1), ("[DROP 1]", 2) }, one.Select(c => (c.Name, c.SlotIndex)));
+
+        var two = DropCountdownCues.Layout(2, AtBar(96), DnB, Bpm, countdownsAsMemoryCues: true);
+        Assert.Equal(new[] { ("[IN2 -16]", -1), ("[IN2 -8]", -1), ("[DROP 2]", 5) }, two.Select(c => (c.Name, c.SlotIndex)));
+    }
+
+    [Fact]
+    public void PlaceDrop_CountdownsAsMemoryCues_StillLinksThemToTheDrop()
+    {
+        var list = DropCountdownCues.PlaceDrop(new List<OrbitCue>(), AtBar(32), null, DnB, Bpm, Downbeat, Duration, out var drop,
+            countdownsAsMemoryCues: true);
+        Assert.All(list.Where(c => c.Role == CueRole.Build), c => Assert.Equal(-1, c.SlotIndex));
+
+        list = DropCountdownCues.PlaceDrop(list, AtBar(40), null, DnB, Bpm, Downbeat, Duration, out _, countdownsAsMemoryCues: true);
+        Assert.Equal(AtBar(24), list.Single(c => c.Name == "[IN -16]").Timestamp, 6); // moved with the drop
     }
 
     [Fact]
@@ -173,6 +195,10 @@ public class DropCountdownCuesTests
         Assert.True(DropCountdownCues.IsCountdownFor(old, AtBar(32), Bpm));
         Assert.Equal(1, DropCountdownCues.DropNumber("Drop 1 ✓AI"));
         Assert.Equal(2, DropCountdownCues.DropNumber("[DROP 2]"));
+        // Drop 2 countdowns from before the IN2 naming still link to their drop.
+        Assert.Equal(16, DropCountdownCues.CountdownBars("[IN -16]"));
+        Assert.Equal(16, DropCountdownCues.CountdownBars("[IN2 -16]"));
+        Assert.Null(DropCountdownCues.CountdownBars("[IN2]"));
     }
 
     [Fact]

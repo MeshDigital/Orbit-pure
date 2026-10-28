@@ -47,6 +47,8 @@
         <KeyBinding Gesture="F10" Command="{Binding ToggleZenModeCommand}"/>
         <KeyBinding Gesture="F11" Command="{Binding ToggleTopBarCommand}"/>
         <KeyBinding Gesture="F12" Command="{Binding TogglePerformanceOverlayCommand}"/>
+        <!-- Also reachable while the top bar is hidden (F11) or disabled by the import sheet -->
+        <KeyBinding Gesture="Ctrl+Shift+F" Command="{Binding SendFeedbackCommand}"/>
     </Window.KeyBindings>
 
     <Window.Styles>
@@ -254,6 +256,10 @@
                         <TextBlock Text="{Binding AnalysisQueueCount}"/>
                     </StackPanel>
                     <Rectangle Classes="sep"/>
+                    <Button Classes="icon" Command="{Binding SendFeedbackCommand}"
+                            ToolTip.Tip="Send feedback: screenshot + recent log as a zip (Ctrl+Shift+F)">
+                        <PathIcon Data="{StaticResource icon_feedback}"/>
+                    </Button>
                     <Button Classes="icon" Command="{Binding Sidebar.OpenNotificationsCommand}"
                             ToolTip.Tip="Notifications — downloads, messages, room replies">
                         <Panel>
@@ -453,7 +459,7 @@
                                 </Button>
 
                                 <Button x:Name="NavFlowBuilder" Classes="nav" Command="{Binding NavigateFlowBuilderCommand}"
-                                        ToolTip.Tip="Flow Builder — Suggest and apply a DJ-mix track order for a playlist"
+                                        ToolTip.Tip="Flow Builder — Arrange playlist transitions for ORBIT playback with MIX enabled"
                                         Classes.selected="{Binding IsFlowBuilderOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
                                         <PathIcon Data="{StaticResource icon_waves}"/>
@@ -462,7 +468,7 @@
                                 </Button>
 
                                 <Button x:Name="NavWorkstation" Classes="nav" Command="{Binding NavigateWorkstationCommand}"
-                                        ToolTip.Tip="Workstation — Decks, Timeline &amp; Stem Editor (Ctrl+Shift+P)"
+                                        ToolTip.Tip="Workstation — Verify files, beat grids, cues and loops for professional DJ preparation (Ctrl+Shift+P)"
                                         Classes.selected="{Binding IsWorkstationOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
                                         <PathIcon Data="{StaticResource icon_tune}"/>
@@ -512,9 +518,14 @@
                             <!-- Tabbed workstation panel — full height, no player. SelectedIndex is
                                  two-way bound to Sidebar.ActiveTabIndex so opening a panel (e.g. the
                                  notification bell) actually jumps to the right tab, and a manual tab
-                                 click keeps ActiveTab in sync for anything else that reads it.
-                                 tabs-underline: tight 9px padding so all 6 tabs fit on one row. -->
-                            <TabControl Grid.Row="1" Classes="tabs-underline" SelectedIndex="{Binding Sidebar.ActiveTabIndex}">
+                                 click also restores that tab's real content. The header wraps at
+                                 narrow panel widths: every tab stays reachable instead of clipping. -->
+                            <TabControl x:Name="ContextPanelTabs" Grid.Row="1" Classes="tabs-underline" SelectedIndex="{Binding Sidebar.ActiveTabIndex}">
+                                <TabControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal"/>
+                                    </ItemsPanelTemplate>
+                                </TabControl.ItemsPanel>
 
                                 <TabItem Header="Inspector">
                                     <ContentControl Content="{Binding Sidebar.CurrentContent}">

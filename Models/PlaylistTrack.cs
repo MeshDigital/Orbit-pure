@@ -283,6 +283,9 @@ public class PlaylistTrack
 
     // Phase 5: Ultimate Track View
     public double? DropTimestamp { get; set; }
+
+    /// <summary>Seconds from track start to the first structurally valid drop; null when unknown.</summary>
+    public double? TimeTillDropSeconds { get; set; }
     public int? ManualEnergy { get; set; }
     public string? SourceProvenance { get; set; }
     

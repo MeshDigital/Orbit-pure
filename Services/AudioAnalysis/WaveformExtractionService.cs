@@ -10,34 +10,25 @@ using SLSKDONET.Data.Entities;
 namespace SLSKDONET.Services.AudioAnalysis;
 
 /// <summary>
-/// Task 1.6 — Extracts a compact tri-band waveform blob from an audio file.
-///
-/// Output: ~1 000 samples per band stored in <see cref="AudioFeaturesEntity.WaveformBlob"/>.
-/// Each sample is a byte (0–255) representing mean RMS for the time window.
-/// Layout: [low_band₀…lowN | mid_band₀…midN | high_band₀…highN]
-///
-/// Band frequency ranges (post-FFT, half-spectrum):
-///   Low  0 – 250 Hz   (kick, sub-bass)
-///   Mid  250 – 4 000 Hz (melodic content, snare)
-///   High 4 000+ Hz    (cymbals, hi-hats, air)
+/// Extracts the shared compact tri-band waveform stored in <see cref="AudioFeaturesEntity.WaveformBlob"/>.
+/// Every output bucket represents an exact, contiguous fraction of the source duration. Windowed
+/// overlapping FFT frames cover the whole bucket, and all three bands use one loudness reference so
+/// the colour balance and drop contrast reflect the audio instead of three unrelated normalizations.
+/// Layout: [low_band₀…lowN | mid_band₀…midN | high_band₀…highN].
 /// </summary>
 public sealed class WaveformExtractionService
 {
-    /// <summary>
-    /// Baseline sample count per band. Kept as a fixed constant for callers that need a fixed-size
-    /// buffer up front (e.g. the Workstation stem waveform preview) — NOT used for the main track
-    /// waveform blob any more, see <see cref="ComputeSampleCount"/>.
-    /// </summary>
+    /// <summary>Stored on completed analysis rows so older, incorrectly mapped blobs can be refreshed.</summary>
+    public const string CurrentWaveformVersion = "2026.10.28-triband-v2";
+
+    /// <summary>Legacy fixed-size buffer used by the Workstation stem waveform preview.</summary>
     public const int TargetSamples = 1000;
 
-    // A fixed 1,000-sample budget meant an 8-minute track got ~480ms per sample (visibly blockier
-    // than a 3-minute track at ~180ms/sample) and CueForgeWaveformControl's nearest-neighbor pixel
-    // mapping made that worse still, especially when zoomed in. Scaling resolution with duration
-    // instead keeps detail roughly constant regardless of track length. Byte-per-sample storage
-    // keeps this cheap even at the high end — 12,000 samples × 3 bands is 36KB, negligible in SQLite.
     private const double SamplesPerSecond = 8.0;
-    private const int MinSamples = 2000;
+    private const int MinSamples = 256;
     private const int MaxSamples = 12000;
+    private const int MaxFftSize = 2048;
+    private const int MinFftSize = 32;
 
     private readonly ILogger<WaveformExtractionService> _logger;
 
@@ -53,10 +44,7 @@ public sealed class WaveformExtractionService
         return Math.Clamp(scaled, MinSamples, MaxSamples);
     }
 
-    /// <summary>
-    /// Reads the PCM WAV file produced by <see cref="AudioIngestionPipeline"/> and
-    /// writes the waveform blob into <paramref name="target"/>.
-    /// </summary>
+    /// <summary>Reads the decoded PCM WAV and writes a full-duration tri-band waveform.</summary>
     public async Task ExtractAsync(
         string decodedWavPath,
         AudioFeaturesEntity target,
@@ -74,10 +62,9 @@ public sealed class WaveformExtractionService
             var (low, mid, high, sampleCount) = await Task.Run(
                 () => ExtractBands(decodedWavPath, ct), ct).ConfigureAwait(false);
 
-            // Pack three byte arrays into one contiguous blob
             var blob = new byte[sampleCount * 3];
-            Buffer.BlockCopy(low,  0, blob, 0,               sampleCount);
-            Buffer.BlockCopy(mid,  0, blob, sampleCount,     sampleCount);
+            Buffer.BlockCopy(low, 0, blob, 0, sampleCount);
+            Buffer.BlockCopy(mid, 0, blob, sampleCount, sampleCount);
             Buffer.BlockCopy(high, 0, blob, sampleCount * 2, sampleCount);
 
             target.WaveformBlob = blob;
@@ -94,130 +81,180 @@ public sealed class WaveformExtractionService
         }
     }
 
-    // ── Band extraction ────────────────────────────────────────────────────
-
     private static (byte[] Low, byte[] Mid, byte[] High, int SampleCount) ExtractBands(
         string wavPath, CancellationToken ct)
     {
         using var reader = new AudioFileReader(wavPath);
 
-        int sampleRate  = reader.WaveFormat.SampleRate;
-        int channels    = reader.WaveFormat.Channels;
+        int sampleRate = reader.WaveFormat.SampleRate;
+        int channels = reader.WaveFormat.Channels;
         long totalFrames = reader.Length / (reader.WaveFormat.BitsPerSample / 8) / channels;
-
         int targetSamples = ComputeSampleCount(sampleRate > 0 ? (double)totalFrames / sampleRate : 0);
 
-        if (totalFrames <= 0)
+        if (totalFrames <= 0 || channels <= 0)
             return (new byte[targetSamples], new byte[targetSamples], new byte[targetSamples], targetSamples);
 
-        // One FFT frame every (totalFrames / targetSamples) samples
-        int framesPerBucket = (int)Math.Max(1, totalFrames / targetSamples);
-        int fftSize = NextPow2(Math.Min(framesPerBucket, 4096));
-
-        // Raw per-bucket RMS first, quantized to bytes only after normalizing each band against
-        // its own observed peak (see below) — a fixed global multiplier either saturated
-        // sustained-loud masters (typical of EDM/DnB, where sub-bass sits near-max almost
-        // continuously) to near-255 everywhere, flattening the visual dynamic range exactly
-        // where a drop should stand out, or under-used the range for quieter masters.
-        var lowRaw  = new float[targetSamples];
-        var midRaw  = new float[targetSamples];
+        var lowRaw = new float[targetSamples];
+        var midRaw = new float[targetSamples];
         var highRaw = new float[targetSamples];
 
-        var pcmBuffer = new float[fftSize * channels];
-        var mono      = new float[fftSize];
-        var spectrum  = new float[fftSize / 2];
-
+        int maxBucketFrames = (int)Math.Min(int.MaxValue, (totalFrames + targetSamples - 1) / targetSamples);
+        int fftSize = Math.Max(MinFftSize, NextPow2(Math.Min(maxBucketFrames, MaxFftSize)));
+        int hopSize = fftSize / 2;
+        var window = CreateHannWindow(fftSize);
         var fft = new RealFft(fftSize);
-        var re  = new float[fftSize];
-        var im  = new float[fftSize];
+        var frame = new float[fftSize];
+        var re = new float[fftSize];
+        var im = new float[fftSize];
+        var spectrum = new float[fftSize / 2];
 
-        // Frequency bin boundaries
         float binHz = (float)sampleRate / fftSize;
-        int lowEnd  = FreqBin(250f,  binHz, spectrum.Length);
-        int midEnd  = FreqBin(4000f, binHz, spectrum.Length);
+        int lowStart = FreqBin(20f, binHz, spectrum.Length);
+        int lowEnd = Math.Max(lowStart + 1, FreqBin(250f, binHz, spectrum.Length));
+        int midEnd = Math.Max(lowEnd + 1, FreqBin(4000f, binHz, spectrum.Length));
+        lowEnd = Math.Min(lowEnd, spectrum.Length);
+        midEnd = Math.Min(midEnd, spectrum.Length);
+
+        var interleaved = new float[maxBucketFrames * channels];
+        var mono = new float[maxBucketFrames];
 
         for (int bucket = 0; bucket < targetSamples; bucket++)
         {
             ct.ThrowIfCancellationRequested();
 
-            int read = reader.Read(pcmBuffer, 0, pcmBuffer.Length);
-            if (read == 0) break;
+            // Integer boundaries distribute any remainder without gaps or overlaps. The previous
+            // implementation read fftSize frames instead of a complete bucket, so later audio was
+            // never analyzed and the resulting bytes were still stretched across the full track.
+            long startFrame = (long)bucket * totalFrames / targetSamples;
+            long endFrame = (long)(bucket + 1) * totalFrames / targetSamples;
+            int requestedFrames = (int)Math.Max(0, endFrame - startFrame);
+            int requestedValues = requestedFrames * channels;
+            int valuesRead = ReadExactly(reader, interleaved, requestedValues);
+            int framesRead = valuesRead / channels;
 
-            // Down-mix to mono
-            int monoLen = read / channels;
-            for (int i = 0; i < monoLen; i++)
+            for (int i = 0; i < framesRead; i++)
             {
                 float sum = 0f;
-                for (int c = 0; c < channels; c++)
-                    sum += pcmBuffer[i * channels + c];
+                for (int c = 0; c < channels; c++) sum += interleaved[i * channels + c];
                 mono[i] = sum / channels;
             }
 
-            // Zero-pad if this is a partial last block
-            if (monoLen < fftSize)
+            double lowPower = 0, midPower = 0, highPower = 0;
+            double lowPeak = 0, midPeak = 0, highPeak = 0;
+            int windows = 0;
+            for (int offset = 0; offset < framesRead; offset += hopSize)
             {
-                Array.Clear(mono, monoLen, fftSize - monoLen);
+                Array.Clear(frame, 0, frame.Length);
+                int count = Math.Min(fftSize, framesRead - offset);
+                for (int i = 0; i < count; i++) frame[i] = mono[offset + i] * window[i];
+
+                ComputeSpectrum(fft, frame, re, im, spectrum);
+                double lowBandPower = BandPower(spectrum, lowStart, lowEnd);
+                double midBandPower = BandPower(spectrum, lowEnd, midEnd);
+                double highBandPower = BandPower(spectrum, midEnd, spectrum.Length);
+                lowPower += lowBandPower; midPower += midBandPower; highPower += highBandPower;
+                lowPeak = Math.Max(lowPeak, lowBandPower);
+                midPeak = Math.Max(midPeak, midBandPower);
+                highPeak = Math.Max(highPeak, highBandPower);
+                windows++;
             }
 
-            // Simple magnitude spectrum via highly optimized NWaves RealFft
-            ComputeSpectrum(fft, mono, re, im, spectrum, fftSize);
-
-            lowRaw[bucket]  = BandRms(spectrum, 0,      lowEnd);
-            midRaw[bucket]  = BandRms(spectrum, lowEnd, midEnd);
-            highRaw[bucket] = BandRms(spectrum, midEnd, spectrum.Length);
+            if (windows > 0)
+            {
+                // Mostly sustained band energy, with a transient contribution so a short bass
+                // return or kick remains visible inside a 125 ms display bucket.
+                lowRaw[bucket] = (float)Math.Sqrt(0.7 * lowPower / windows + 0.3 * lowPeak);
+                midRaw[bucket] = (float)Math.Sqrt(0.7 * midPower / windows + 0.3 * midPeak);
+                highRaw[bucket] = (float)Math.Sqrt(0.7 * highPower / windows + 0.3 * highPeak);
+            }
         }
 
-        var low  = NormalizeToBytes(lowRaw);
-        var mid  = NormalizeToBytes(midRaw);
-        var high = NormalizeToBytes(highRaw);
-
+        NormalizeToBytes(lowRaw, midRaw, highRaw, out var low, out var mid, out var high);
         return (low, mid, high, targetSamples);
     }
 
-    /// <summary>
-    /// Scales a band's raw RMS values so the loudest moment in THIS track maps to 255,
-    /// instead of a fixed global multiplier that saturates or under-uses the byte range
-    /// depending on how loud/quiet the track's mastering happens to be.
-    /// </summary>
-    private static byte[] NormalizeToBytes(float[] raw)
+    private static int ReadExactly(AudioFileReader reader, float[] buffer, int requestedValues)
     {
-        float peak = 0f;
-        foreach (var v in raw) if (v > peak) peak = v;
-        if (peak < 1e-6f) return new byte[raw.Length]; // silent band — all zero, no divide-by-near-zero blowup
-
-        var bytes = new byte[raw.Length];
-        for (int i = 0; i < raw.Length; i++)
-            bytes[i] = (byte)Math.Clamp((int)(raw[i] / peak * 255f), 0, 255);
-        return bytes;
+        int total = 0;
+        while (total < requestedValues)
+        {
+            int read = reader.Read(buffer, total, requestedValues - total);
+            if (read <= 0) break;
+            total += read;
+        }
+        return total;
     }
 
-    private static void ComputeSpectrum(RealFft fft, float[] mono, float[] re, float[] im, float[] spectrum, int n)
+    private static float[] CreateHannWindow(int size)
     {
-        fft.Direct(mono, re, im);
-        // Half-spectrum FFT magnitude; adequate for RMS-per-band visualisation
-        for (int k = 0; k < spectrum.Length; k++)
+        var window = new float[size];
+        for (int i = 0; i < size; i++)
+            window[i] = 0.5f * (1f - MathF.Cos(2f * MathF.PI * i / (size - 1)));
+        return window;
+    }
+
+    /// <summary>
+    /// Uses one robust reference for every band. Independent per-band peaks made the quietest hi-hat
+    /// as bright as the loudest bass drop. A 98th-percentile reference rejects isolated spikes; the
+    /// gentle 0.75 display gamma keeps breakdowns readable without flattening drop contrast.
+    /// </summary>
+    private static void NormalizeToBytes(
+        float[] lowRaw,
+        float[] midRaw,
+        float[] highRaw,
+        out byte[] low,
+        out byte[] mid,
+        out byte[] high)
+    {
+        low = new byte[lowRaw.Length];
+        mid = new byte[midRaw.Length];
+        high = new byte[highRaw.Length];
+
+        var all = new float[lowRaw.Length * 3];
+        Array.Copy(lowRaw, 0, all, 0, lowRaw.Length);
+        Array.Copy(midRaw, 0, all, lowRaw.Length, midRaw.Length);
+        Array.Copy(highRaw, 0, all, lowRaw.Length + midRaw.Length, highRaw.Length);
+        Array.Sort(all);
+        float reference = all[(int)Math.Floor((all.Length - 1) * 0.98)];
+        if (reference < 1e-8f) return;
+
+        for (int i = 0; i < lowRaw.Length; i++)
         {
-            spectrum[k] = (float)Math.Sqrt(re[k] * re[k] + im[k] * im[k]) / n;
+            low[i] = Quantize(lowRaw[i], reference);
+            mid[i] = Quantize(midRaw[i], reference);
+            high[i] = Quantize(highRaw[i], reference);
         }
     }
 
-    private static float BandRms(float[] spectrum, int from, int to)
+    private static byte Quantize(float value, float reference) =>
+        (byte)Math.Clamp((int)Math.Round(MathF.Pow(Math.Max(0, value) / reference, 0.75f) * 255f), 0, 255);
+
+    private static void ComputeSpectrum(RealFft fft, float[] frame, float[] re, float[] im, float[] spectrum)
     {
-        if (from >= to) return 0f;
-        float sum = 0f;
+        fft.Direct(frame, re, im);
+        int n = frame.Length;
+        for (int k = 0; k < spectrum.Length; k++)
+            spectrum[k] = MathF.Sqrt(re[k] * re[k] + im[k] * im[k]) / n;
+    }
+
+    private static double BandPower(float[] spectrum, int from, int to)
+    {
+        from = Math.Clamp(from, 0, spectrum.Length);
+        to = Math.Clamp(to, from, spectrum.Length);
+        double sum = 0;
         for (int i = from; i < to; i++) sum += spectrum[i] * spectrum[i];
-        return MathF.Sqrt(sum / (to - from));
+        return sum;
     }
 
     private static int FreqBin(float hz, float binHz, int maxBin) =>
         Math.Clamp((int)(hz / binHz), 0, maxBin);
 
-    private static int NextPow2(int v)
+    private static int NextPow2(int value)
     {
-        if (v <= 1) return 1;
-        v--;
-        v |= v >> 1; v |= v >> 2; v |= v >> 4;
-        v |= v >> 8; v |= v >> 16;
-        return v + 1;
+        if (value <= 1) return 1;
+        value--;
+        value |= value >> 1; value |= value >> 2; value |= value >> 4;
+        value |= value >> 8; value |= value >> 16;
+        return value + 1;
     }
 }

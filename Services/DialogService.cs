@@ -5,6 +5,8 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using SLSKDONET.Views.Avalonia.Controls;
 using Avalonia.Threading;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using SLSKDONET.ViewModels.Library;
 using SLSKDONET.Models;
 using SLSKDONET.ViewModels;
@@ -14,6 +16,14 @@ namespace SLSKDONET.Services;
 
 public class DialogService : IDialogService
 {
+    private readonly IServiceProvider? _services;
+
+    /// <param name="services">Feedback dependencies are resolved lazily so DialogService stays cheap to construct.</param>
+    public DialogService(IServiceProvider? services = null)
+    {
+        _services = services;
+    }
+
     private Window? GetOwnerWindow()
     {
         if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
@@ -318,5 +328,48 @@ public class DialogService : IDialogService
             if (owner != null)
                 await dialog.ShowDialog(owner);
         });
+    }
+
+    public async Task ShowFeedbackDialogAsync()
+    {
+        await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var reports = _services?.GetService(typeof(Diagnostics.FeedbackReportService)) as Diagnostics.FeedbackReportService;
+            var logger = _services?.GetService(typeof(ILogger<ViewModels.Diagnostics.FeedbackDialogViewModel>)) as ILogger
+                ?? NullLogger.Instance;
+            var owner = GetOwnerWindow();
+            if (reports == null || owner == null)
+            {
+                Serilog.Log.Error("Send feedback unavailable: report service {Service}, main window {Window}",
+                    reports == null ? "missing" : "ok", owner == null ? "missing" : "ok");
+                return;
+            }
+
+            // Before the dialog opens, so the picture shows the problem rather than the dialog.
+            var screenshot = CaptureWindowPng(owner);
+            using var vm = new ViewModels.Diagnostics.FeedbackDialogViewModel(reports, logger, screenshot);
+            await new Views.Avalonia.Dialogs.FeedbackDialog(vm).ShowDialog(owner);
+        });
+    }
+
+    private static byte[]? CaptureWindowPng(Window window)
+    {
+        try
+        {
+            var scaling = window.RenderScaling;
+            var size = new PixelSize(
+                Math.Max(1, (int)(window.Bounds.Width * scaling)),
+                Math.Max(1, (int)(window.Bounds.Height * scaling)));
+            using var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(size, new Vector(96 * scaling, 96 * scaling));
+            bitmap.Render(window);
+            using var stream = new System.IO.MemoryStream();
+            bitmap.Save(stream);
+            return stream.ToArray();
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "Send feedback: couldn't screenshot the main window; continuing without one");
+            return null;
+        }
     }
 }

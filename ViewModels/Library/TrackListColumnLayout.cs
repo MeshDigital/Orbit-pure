@@ -4,25 +4,22 @@ namespace SLSKDONET.ViewModels.Library;
 /// artist moves onto a second line under the title instead of disappearing.</summary>
 public readonly record struct TrackListColumns(
     bool Energy, bool Format, bool Forensics, bool Duration, bool Rating,
-    bool QueueAction = true, bool InsertAction = true, bool ArtistColumn = true);
+    bool QueueAction = true, bool InsertAction = true, bool ArtistColumn = true, bool Preparation = true);
 
 /// <summary>
-/// Fits the track list's columns to the space it has. The columns used to be fixed widths
-/// (~1,020 px in total) with horizontal scrolling off, so opening the context panel on a laptop
-/// screen simply cut off Format and everything right of it — and hiding a column via "Columns"
-/// hid its content but kept its width. Hidden columns now take no space, and when the list is
-/// narrower than its columns the least important ones step aside, in this order: Forensics,
-/// Rating, Duration, Format, Energy, then the two hover actions (smart insert, queue), and finally
-/// the artist column folds onto a second line under the title. Artwork, title (≥ 180 px) and
-/// BPM/key always stay, so the title can never collapse to nothing again (it did at ~320 px with
-/// both side panels open).
+/// Fits the track list's columns to the space it has. Hidden columns take no space. When the list
+/// is too narrow, secondary information steps aside in this order: Forensics, Preparation, Rating,
+/// Duration, Format, Energy, the two hover actions, and finally the separate Artist column (artist
+/// moves under Title). Artwork, title (≥ 180 px) and BPM/key always stay. Preparation therefore uses
+/// wide-screen space for actionable readiness without making narrow rows taller or clipped.
 /// </summary>
 public static class TrackListColumnLayout
 {
     public const double ArtworkWidth = 60, QueueWidth = 44, InsertWidth = 32, ArtistWidth = 150,
         TitleMinWidth = 180, BpmKeyWidth = 110, ScrollbarAllowance = 16;
 
-    public const double EnergyWidth = 90, FormatWidth = 100, ForensicsWidth = 120, DurationWidth = 80, RatingWidth = 84;
+    public const double EnergyWidth = 90, FormatWidth = 100, ForensicsWidth = 120, DurationWidth = 80,
+        RatingWidth = 84, PreparationWidth = 112;
 
     /// <summary>The narrowest layout: artwork, title (minimum), BPM/key and the scrollbar.</summary>
     public const double MinimumWidth = ArtworkWidth + TitleMinWidth + BpmKeyWidth + ScrollbarAllowance;
@@ -40,18 +37,33 @@ public static class TrackListColumnLayout
     public static (bool TierChips, bool StatusSegment) FitToolbar(double availableWidth) =>
         availableWidth <= 0 ? (true, true) : (availableWidth >= TierChipsMinWidth, availableWidth >= StatusSegmentMinWidth);
 
-    public static TrackListColumns Fit(double availableWidth, bool wantFormat, bool wantForensics, bool wantDuration)
+    public static TrackListColumns Fit(
+        double availableWidth,
+        bool wantFormat,
+        bool wantForensics,
+        bool wantDuration,
+        double artistWidth = ArtistWidth,
+        double energyWidth = EnergyWidth,
+        double formatWidth = FormatWidth,
+        double forensicsWidth = ForensicsWidth,
+        double durationWidth = DurationWidth,
+        double ratingWidth = RatingWidth,
+        double preparationWidth = PreparationWidth)
     {
         bool energy = true, format = wantFormat, forensics = wantForensics, duration = wantDuration, rating = true;
-        bool queue = true, insert = true, artist = true;
-        if (availableWidth <= 0) return new(energy, format, forensics, duration, rating, queue, insert, artist);
+        bool queue = true, insert = true, artist = true, preparation = true;
+        if (availableWidth <= 0) return new(energy, format, forensics, duration, rating, queue, insert, artist, preparation);
 
+        // Account for the user's actual fixed-column widths, not just their defaults. Title remains
+        // flexible, so widening a column folds secondary columns instead of overflowing the row.
         double Needed() => MinimumWidth
-            + (queue ? QueueWidth : 0) + (insert ? InsertWidth : 0) + (artist ? ArtistWidth : 0)
-            + (energy ? EnergyWidth : 0) + (format ? FormatWidth : 0) + (forensics ? ForensicsWidth : 0)
-            + (duration ? DurationWidth : 0) + (rating ? RatingWidth : 0);
+            + (queue ? QueueWidth : 0) + (insert ? InsertWidth : 0) + (artist ? artistWidth : 0)
+            + (energy ? energyWidth : 0) + (format ? formatWidth : 0) + (forensics ? forensicsWidth : 0)
+            + (duration ? durationWidth : 0) + (rating ? ratingWidth : 0)
+            + (preparation ? preparationWidth : 0);
 
         if (Needed() > availableWidth) forensics = false;
+        if (Needed() > availableWidth) preparation = false;
         if (Needed() > availableWidth) rating = false;
         if (Needed() > availableWidth) duration = false;
         if (Needed() > availableWidth) format = false;
@@ -59,6 +71,6 @@ public static class TrackListColumnLayout
         if (Needed() > availableWidth) insert = false;
         if (Needed() > availableWidth) queue = false;
         if (Needed() > availableWidth) artist = false;
-        return new(energy, format, forensics, duration, rating, queue, insert, artist);
+        return new(energy, format, forensics, duration, rating, queue, insert, artist, preparation);
     }
 }

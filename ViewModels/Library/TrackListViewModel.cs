@@ -27,7 +27,7 @@ namespace SLSKDONET.ViewModels.Library;
 /// <summary>
 /// Manages track lists, filtering, and search functionality.
 /// Handles track display state and filtering logic.
-public class TrackListViewModel : ReactiveObject, IDisposable
+public partial class TrackListViewModel : ReactiveObject, IDisposable
 {
     private readonly CompositeDisposable _disposables = new();
     private bool _isDisposed;
@@ -285,12 +285,9 @@ public class TrackListViewModel : ReactiveObject, IDisposable
                     _isFilterPending = false;
                     this.RaisePropertyChanged(nameof(IsFilterPending));
                 }
-                else if (!IsFilterDownloaded && !IsFilterPending)
-                {
-                    // If everything is unselected, force All back on
-                    _isFilterAll = true;
-                    this.RaisePropertyChanged(nameof(IsFilterAll));
-                }
+                // Avalonia unchecks the old RadioButton before checking the new one. Never force
+                // All back on during that transient write: doing so feeds true back into the group,
+                // which writes false again and hangs the UI thread in a binding feedback loop.
             }
             finally { _updatingFilters = false; }
         }
@@ -314,12 +311,6 @@ public class TrackListViewModel : ReactiveObject, IDisposable
                     
                     _isFilterPending = false;
                     this.RaisePropertyChanged(nameof(IsFilterPending));
-                }
-                else if (!IsFilterPending)
-                {
-                    // If everything is unselected, force All back on
-                    _isFilterAll = true;
-                    this.RaisePropertyChanged(nameof(IsFilterAll));
                 }
             }
             finally { _updatingFilters = false; }
@@ -347,12 +338,6 @@ public class TrackListViewModel : ReactiveObject, IDisposable
 
                     _isFilterNeedsReview = false;
                     this.RaisePropertyChanged(nameof(IsFilterNeedsReview));
-                }
-                else if (!IsFilterDownloaded && !IsFilterNeedsReview)
-                {
-                    // If everything is unselected, force All back on
-                    _isFilterAll = true;
-                    this.RaisePropertyChanged(nameof(IsFilterAll));
                 }
             }
             finally { _updatingFilters = false; }
@@ -707,6 +692,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             style.IsSelected = false;
             style.PropertyChanged += OnStyleFilterChanged;
         }
+        _selectedStyleNames.Clear();
+        ScheduleViewStateSave();
         this.RaisePropertyChanged(nameof(HasActiveFilters));
         RefreshFilteredTracks();
     }
@@ -801,6 +788,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     /// the top (8 px), so the header doesn't flicker around one threshold.</summary>
     public void OnListScrolled(double offsetY)
     {
+        UpdateListScrollOffset(offsetY);
         if (!IsScrolledDown && offsetY > 60) IsScrolledDown = true;
         else if (IsScrolledDown && offsetY < 8) IsScrolledDown = false;
     }
@@ -810,6 +798,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     public bool ShowForensicsColumn => _columns.Forensics;
     public bool ShowDurationColumn => _columns.Duration;
     public bool ShowRatingColumn => _columns.Rating;
+    public bool ShowPreparationColumn => _columns.Preparation;
     public bool ShowQueueAction => _columns.QueueAction;
     public bool ShowInsertAction => _columns.InsertAction;
     public bool ShowArtistColumn => _columns.ArtistColumn;
@@ -818,7 +807,18 @@ public class TrackListViewModel : ReactiveObject, IDisposable
 
     private void RefitColumns()
     {
-        var fitted = TrackListColumnLayout.Fit(_listWidth, _isFormatColumnVisible, _isForensicsColumnVisible, _isDurationColumnVisible);
+        var fitted = TrackListColumnLayout.Fit(
+            _listWidth,
+            _isFormatColumnVisible,
+            _isForensicsColumnVisible,
+            _isDurationColumnVisible,
+            _artistColumnWidth,
+            _energyColumnWidth,
+            _formatColumnWidth,
+            _forensicsColumnWidth,
+            _durationColumnWidth,
+            _ratingColumnWidth,
+            _preparationColumnWidth);
         if (fitted == _columns) return;
         _columns = fitted;
         this.RaisePropertyChanged(nameof(ShowEnergyColumn));
@@ -826,6 +826,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(ShowForensicsColumn));
         this.RaisePropertyChanged(nameof(ShowDurationColumn));
         this.RaisePropertyChanged(nameof(ShowRatingColumn));
+        this.RaisePropertyChanged(nameof(ShowPreparationColumn));
         this.RaisePropertyChanged(nameof(ShowQueueAction));
         this.RaisePropertyChanged(nameof(ShowInsertAction));
         this.RaisePropertyChanged(nameof(ShowArtistColumn));
@@ -834,6 +835,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     
     // ListBox Selection Binding
     private ObservableCollection<PlaylistTrackViewModel> _selectedTracks = new();
+    private int _selectAllOperation;
     public ObservableCollection<PlaylistTrackViewModel> SelectedTracks 
     { 
         get => _selectedTracks;
@@ -857,16 +859,76 @@ public class TrackListViewModel : ReactiveObject, IDisposable
 
     public void UpdateSelection(System.Collections.Generic.IEnumerable<PlaylistTrackViewModel> selected)
     {
-        // Don't trigger recursive updates if we're already changing selection
-        _selectedTracks.Clear();
-        foreach (var t in RealSelection(selected)) _selectedTracks.Add(t);
+        var replacement = RealSelection(selected);
+
+        // The grid already reports a complete selection snapshot. Rebuilding that snapshot should
+        // not run selection-state, harmonic and transition scheduling once for every added row.
+        ReplaceSelectionContents(_selectedTracks, replacement, OnSelectionChanged);
+        UpdateSelectionState();
+    }
+
+    internal static void ReplaceSelectionContents(
+        ObservableCollection<PlaylistTrackViewModel> selectedTracks,
+        IEnumerable<PlaylistTrackViewModel> replacement,
+        NotifyCollectionChangedEventHandler selectionChangedHandler)
+    {
+        selectedTracks.CollectionChanged -= selectionChangedHandler;
+        try
+        {
+            selectedTracks.Clear();
+            foreach (var track in replacement) selectedTracks.Add(track);
+        }
+        finally
+        {
+            selectedTracks.CollectionChanged += selectionChangedHandler;
+        }
+    }
+
+    private async Task SelectAllTracksAsync()
+    {
+        ClearSelection();
+        var operation = ++_selectAllOperation;
+        var source = FilteredTracks;
+        var tracks = new List<PlaylistTrackViewModel>();
+
+        if (source is VirtualizedTrackCollection virtualized)
+        {
+            await foreach (var page in virtualized.LoadRangeForSelectionAsync(0, virtualized.Count - 1))
+            {
+                if (operation != _selectAllOperation) return;
+                tracks.AddRange(page);
+            }
+        }
+        else
+        {
+            tracks.AddRange(RealSelection(source));
+        }
+
+        // Filtering, project navigation or Deselect All while pages were loading wins over this
+        // older request; never resurrect a selection in a different track context.
+        if (operation != _selectAllOperation || !ReferenceEquals(source, FilteredTracks)) return;
+
+        var selection = RealSelection(tracks);
+        ReplaceSelectionContents(_selectedTracks, selection, OnSelectionChanged);
+        foreach (var track in selection) track.IsSelected = true;
         UpdateSelectionState();
     }
 
     public void ClearSelection()
     {
-        _selectedTracks.Clear();
+        _selectAllOperation++;
+        ClearSelectionContents(_selectedTracks, OnSelectionChanged);
         UpdateSelectionState();
+    }
+
+    internal static void ClearSelectionContents(
+        ObservableCollection<PlaylistTrackViewModel> selectedTracks,
+        NotifyCollectionChangedEventHandler selectionChangedHandler)
+    {
+        // Clearing only the collection leaves row IsSelected flags and VirtualGrid's own selection
+        // alive. Clear the flags as well so bulk actions cannot leave phantom selected rows behind.
+        foreach (var track in selectedTracks.ToList()) track.IsSelected = false;
+        ReplaceSelectionContents(selectedTracks, Array.Empty<PlaylistTrackViewModel>(), selectionChangedHandler);
     }
     
     // Phase 22: Available Vibes
@@ -885,7 +947,9 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     {
         if (e.PropertyName == nameof(StyleFilterItem.IsSelected))
         {
+            _selectedStyleNames = StyleFilters.Where(f => f.IsSelected).Select(f => f.Style.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
             this.RaisePropertyChanged(nameof(HasActiveFilters));
+            ScheduleViewStateSave();
             RefreshFilteredTracks();
         }
     }
@@ -924,7 +988,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
                     item.PropertyChanged += OnStyleFilterChanged;
                     StyleFilters.Add(item);
                 }
-                
+
+                ApplyStyleSelectionToLoadedFilters();
                 _logger.LogInformation("Loaded {Count} unique style filters into UI", StyleFilters.Count);
             }, DispatcherPriority.Normal);
         }
@@ -965,7 +1030,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         SLSKDONET.Services.Repositories.ITransitionRepository transitionRepository,
         SLSKDONET.Services.Similarity.SimilarityIndex similarityIndex,
         SLSKDONET.Services.Playlist.PlaylistOptimizer playlistOptimizer,
-        INotificationService? notificationService = null)
+        INotificationService? notificationService = null,
+        SLSKDONET.Services.Library.ILibraryTrackListViewStateStore? viewStateStore = null)
     {
         _logger = logger;
         _libraryService = libraryService;
@@ -979,6 +1045,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         _similarityIndex = similarityIndex;
         _playlistOptimizer = playlistOptimizer;
         _notificationService = notificationService;
+        _viewStateStore = viewStateStore;
 
         ToggleMixModeCommand = ReactiveCommand.Create(() => IsMixModeEnabled = !IsMixModeEnabled);
         OpenMixTransitionCommand = ReactiveCommand.Create<PlaylistTrackViewModel?>(OpenMixTransition);
@@ -991,56 +1058,9 @@ public class TrackListViewModel : ReactiveObject, IDisposable
 
         SortByColumnCommand = ReactiveCommand.Create<TrackSortColumn>(ExecuteSortByColumn);
 
-        SelectAllTracksCommand = ReactiveCommand.Create(() => 
-        {
-            // Update IsSelected property to reflect selection visually
-            // Only select what's currently filtered and visible. Excludes placeholders (rows not
-            // yet loaded from the DB on a large/virtualized library) — Select All acts on the
-            // currently-loaded subset rather than force-loading everything.
-            var tracks = FilteredTracks.ToList().Where(t => !t.IsPlaceholder).ToList();
-            
-            // Batch the collection update
-            _selectedTracks.CollectionChanged -= OnSelectionChanged;
-            try
-            {
-                _selectedTracks.Clear();
-                foreach (var track in tracks)
-                {
-                    track.IsSelected = true;
-                    _selectedTracks.Add(track);
-                }
-            }
-            finally
-            {
-                _selectedTracks.CollectionChanged += OnSelectionChanged;
-                OnSelectionChanged(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
-            }
-            
-            UpdateSelectionState();
-        });
+        SelectAllTracksCommand = ReactiveCommand.CreateFromTask(SelectAllTracksAsync);
 
-        DeselectAllTracksCommand = ReactiveCommand.Create(() => 
-        {
-            _selectedTracks.CollectionChanged -= OnSelectionChanged;
-            try
-            {
-                // CRITICAL: Use ToList() to iterate over a snapshot. 
-                // Updating IsSelected = false will trigger two-way bindings in the UI,
-                // which might otherwise modify the collection during enumeration.
-                foreach (var track in _selectedTracks.ToList())
-                {
-                    track.IsSelected = false;
-                }
-                _selectedTracks.Clear();
-            }
-            finally
-            {
-                _selectedTracks.CollectionChanged += OnSelectionChanged;
-                OnSelectionChanged(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
-            }
-            
-            UpdateSelectionState();
-        });
+        DeselectAllTracksCommand = ReactiveCommand.Create(ClearSelection);
 
         BulkDownloadCommand = ReactiveCommand.CreateFromTask(ExecuteBulkDownloadAsync);
         BulkRetryCommand = ReactiveCommand.CreateFromTask(ExecuteBulkRetryAsync);
@@ -1077,9 +1097,13 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             x => x.IsFilterNeedsReview,
             x => x.FilterArtist,
             x => x.FilterTitle)
+            // Timestamp before throttling: notifications raised while applying a restored snapshot
+            // must not queue a second database rebuild after LoadProjectTracksAsync already queried
+            // with that exact state. Genuine edits made afterward always carry a newer timestamp.
+            .Select(_ => DateTime.UtcNow)
             .Throttle(TimeSpan.FromMilliseconds(250))
             .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(_ => RefreshFilteredTracks())
+            .Subscribe(changedAt => { if (changedAt > _lastViewStateRestoreAt) RefreshFilteredTracks(); })
             .DisposeWith(_disposables);
 
         // Phase 22: Search 2.1 - Split Results
@@ -1158,6 +1182,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             .Subscribe(_ => UpdateLimitedTracks())
             .DisposeWith(_disposables);
 
+        InitializeViewStatePersistence();
+
         // Initial Load
         _ = LoadStyleFiltersAsync();
     }
@@ -1201,6 +1227,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
 
         if (disposing)
         {
+            SaveViewStateNow();
             _disposables.Dispose();
             
             // Dispose tracks
@@ -1271,17 +1298,22 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             }
             CurrentProjectTracks.Clear();
 
-            // Set up virtualization
+            // Set up virtualization with the complete restored view, not just the global search box.
+            // Project loading used to bypass column search, duplicates, Mix, and sort until another
+            // filter happened to change, which made a restored snapshot look correct but query wrong.
             var virtualized = new VirtualizedTrackCollection(
                 _logger,
                 _libraryService,
                 _eventBus,
                 _artworkCache,
                 job.Id,
-                SearchText,
-                IsFilterDownloaded ? true : (IsFilterPending ? false : null),
-                camelotKeyFilter: CamelotKeyFilter,
-                qualityTier: QualityTierFilter);
+                IsMixModeEnabled ? string.Empty : BuildEffectiveFilter(),
+                IsMixModeEnabled ? true : (IsFilterDownloaded ? true : (IsFilterPending ? false : null)),
+                IsMixModeEnabled ? null : DuplicateHashesFilter,
+                camelotKeyFilter: IsMixModeEnabled ? null : CamelotKeyFilter,
+                qualityTier: IsMixModeEnabled ? null : QualityTierFilter,
+                sortColumn: SortColumn,
+                sortDescending: SortDescending);
 
             // Subscribe to update LimitedTracks when data arrives
             virtualized.CollectionChanged += (s, e) => {
@@ -1303,6 +1335,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
                 this.RaisePropertyChanged(nameof(LimitedTracks));
                 oldVtc?.Dispose();
                 _logger.LogInformation("Virtualized collection initialized for project {Title}", job.SourceTitle);
+                RequestScrollRestore();
             });
         }
         catch (Exception ex)
@@ -1420,6 +1453,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
              this.RaisePropertyChanged(nameof(LimitedTracks));
              oldVtcMemory?.Dispose();
              ScheduleUpdateMixTransitionBadges();
+             RequestScrollRestore();
              return;
         }
 
@@ -1456,6 +1490,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         
         // Dispose old collection AFTER assignment to avoid re-rendering disposed items
         oldVtc?.Dispose();
+        RequestScrollRestore();
 
         _logger.LogInformation("RefreshFilteredTracks (Virtualized): Updated filters for project {Id}. Search='{Search}', DL={DL}, Pend={Pend}", 
             selectedProjectId, effectiveFilter, IsFilterDownloaded, IsFilterPending);
@@ -2031,7 +2066,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
 
         await _downloadManager.StartAsync();
 
-        SelectedTracks.Clear();
+        ClearSelection();
 
     }
 
@@ -2114,7 +2149,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
                 "Copy to Folder"
             );
 
-            SelectedTracks.Clear();
+            ClearSelection();
         }
         catch (Exception ex)
         {
@@ -2148,7 +2183,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         
         // Ensure DownloadManager resumes if paused
         _ = _downloadManager.StartAsync();
-        SelectedTracks.Clear();
+        ClearSelection();
     }
     
     private async Task ExecuteBulkCancelAsync()
@@ -2174,7 +2209,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             },
             "Bulk Cancel"
         );
-        SelectedTracks.Clear();
+        ClearSelection();
     }
 
     private async Task ExecuteBulkExportCsvAsync()
@@ -2254,7 +2289,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             await System.IO.File.WriteAllLinesAsync(targetPath, csvLines);
             _logger.LogInformation("CSV export completed: {Count} tracks exported to {Path}", tracksToExport.Count, targetPath);
 
-            if (SelectedTracks.Any()) SelectedTracks.Clear();
+            if (SelectedTracks.Any()) ClearSelection();
         }
         catch (Exception ex)
         {

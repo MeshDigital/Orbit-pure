@@ -30,7 +30,7 @@ namespace SLSKDONET.Services.Audio
             string trackBTitle, string trackBFilePath, double targetTriggerSeconds,
             SLSKDONET.Models.Timeline.TransitionModel model, double projectBpm,
             CancellationToken ct = default,
-            double leadInSeconds = 0, double tailSeconds = 0);
+            double leadInSeconds = 0, double tailSeconds = 0, double incomingPlaybackRate = 1.0);
 
         void StopPreview();
 
@@ -97,13 +97,13 @@ namespace SLSKDONET.Services.Audio
             string trackBTitle, string trackBFilePath, double targetTriggerSeconds,
             SLSKDONET.Models.Timeline.TransitionModel model, double projectBpm,
             CancellationToken ct = default,
-            double leadInSeconds = 0, double tailSeconds = 0)
+            double leadInSeconds = 0, double tailSeconds = 0, double incomingPlaybackRate = 1.0)
         {
-            _logger.LogInformation("🎧 Starting preset-aware Transition Preview: {TrackA} -> {TrackB} ({Preset}), A@{SourceT}s B@{TargetT}s",
-                trackATitle, trackBTitle, model.Type, sourceTriggerSeconds, targetTriggerSeconds);
+            _logger.LogInformation("🎧 Starting preset-aware Transition Preview: {TrackA} -> {TrackB} ({Preset}), A@{SourceT}s B@{TargetT}s, B rate {Rate:0.000}x",
+                trackATitle, trackBTitle, model.Type, sourceTriggerSeconds, targetTriggerSeconds, incomingPlaybackRate);
 
             string previewPath = await _surgicalService.RenderTransitionPreviewAsync(
-                trackAFilePath, sourceTriggerSeconds, trackBFilePath, targetTriggerSeconds, model, projectBpm, ct, leadInSeconds, tailSeconds).ConfigureAwait(false);
+                trackAFilePath, sourceTriggerSeconds, trackBFilePath, targetTriggerSeconds, model, projectBpm, ct, leadInSeconds, tailSeconds, incomingPlaybackRate).ConfigureAwait(false);
 
             await PlayRenderedPreviewAsync(previewPath, ct).ConfigureAwait(false);
         }

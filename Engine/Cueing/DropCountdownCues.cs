@@ -24,10 +24,13 @@ public readonly record struct DropGroupCue(double Timestamp, string Name, bool I
 ///   Auto            picks one of the above from the track's genre
 ///
 /// Layout (hot cue pads, CDJ/controller-friendly names, colours):
-///   A B C  = Drop 1 group — [IN -16] [IN -8] [DROP 1]   orange / red-orange
-///   D E F  = Drop 2 group — [IN -16] [IN -8] [DROP 2]   purple / cyan
-///   G      = [OUT] mix-out (last drop + 32 bars)        red
+///   A B C  = Drop 1 group — [IN -16]  [IN -8]  [DROP 1]   orange / red-orange
+///   D E F  = Drop 2 group — [IN2 -16] [IN2 -8] [DROP 2]   purple / cyan
+///   G      = [OUT] mix-out (last drop + 32 bars)          red
 ///   H      = free for loops
+/// Drop 2's countdowns say "IN2" so a CDJ screen never shows two identical labels.
+/// With "countdowns as memory cues" the countdowns take no pad (A B D E stay free, the drops keep
+/// C and F so every track has the same pad layout); CDJs count down to the next memory cue anyway.
 ///
 /// Placing a drop by hand (<see cref="PlaceDrop"/>) does everything else: numbers the drops by
 /// position, lays out their countdowns, keeps [OUT] after the last drop and removes the analysis'
@@ -49,7 +52,9 @@ public static class DropCountdownCues
 
     public const string OutName = "[OUT]";
     public static string DropName(int number) => $"[DROP {number}]";
-    public static string CountdownName(int bars) => $"[IN -{bars}]";
+    /// <summary>"[IN -16]" before Drop 1, "[IN2 -16]" before Drop 2 (and so on).</summary>
+    public static string CountdownName(int bars, int dropNumber = 1) =>
+        dropNumber <= 1 ? $"[IN -{bars}]" : $"[IN{dropNumber} -{bars}]";
 
     public const int OutPad = 6;          // G
     public const string OutColor = "#FF0000";
@@ -123,9 +128,10 @@ public static class DropCountdownCues
     /// <summary>
     /// A drop and its countdowns laid out: names, pads and colours. Countdowns that would land
     /// before the start of the track are skipped. The two closest to the drop get the group's pads
-    /// (A B / D E); further ones are memory cues.
+    /// (A B / D E); further ones are memory cues — all of them with <paramref name="countdownsAsMemoryCues"/>.
     /// </summary>
-    public static List<DropGroupCue> Layout(int dropNumber, double dropTime, IReadOnlyList<int> bars, double bpm)
+    public static List<DropGroupCue> Layout(int dropNumber, double dropTime, IReadOnlyList<int> bars, double bpm,
+        bool countdownsAsMemoryCues = false)
     {
         var group = new List<DropGroupCue>();
         double bar = bpm > 0 ? 240.0 / bpm : 0;
@@ -135,8 +141,8 @@ public static class DropCountdownCues
         {
             double t = dropTime - closestFirst[i] * bar;
             if (t < -1e-6) continue;
-            int pad = dropPad >= 0 && i < 2 ? dropPad - 1 - i : -1;
-            group.Add(new DropGroupCue(Math.Max(0, t), CountdownName(closestFirst[i]), false, pad, CountdownColor(dropNumber), closestFirst[i]));
+            int pad = !countdownsAsMemoryCues && dropPad >= 0 && i < 2 ? dropPad - 1 - i : -1;
+            group.Add(new DropGroupCue(Math.Max(0, t), CountdownName(closestFirst[i], dropNumber), false, pad, CountdownColor(dropNumber), closestFirst[i]));
         }
         group.Add(new DropGroupCue(dropTime, DropName(dropNumber), true, dropPad, DropColor(dropNumber), 0));
         return group.OrderBy(c => c.Timestamp).ToList();
@@ -160,9 +166,9 @@ public static class DropCountdownCues
 
     // ── Linking ─────────────────────────────────────────────────────────────────────────────
 
-    private static readonly Regex CountdownPattern = new(@"^(?:\[IN -(\d+)\]|(\d+) Bars to .+)$", RegexOptions.Compiled);
+    private static readonly Regex CountdownPattern = new(@"^(?:\[IN(?:\d+)? -(\d+)\]|(\d+) Bars to .+)$", RegexOptions.Compiled);
 
-    /// <summary>Bars-before-drop a countdown name states ("[IN -16]", or the older "16 Bars to Drop 1").</summary>
+    /// <summary>Bars-before-drop a countdown name states ("[IN -16]", "[IN2 -16]", or the older "16 Bars to Drop 1").</summary>
     public static int? CountdownBars(string? name)
     {
         var m = CountdownPattern.Match(name ?? string.Empty);
@@ -186,7 +192,7 @@ public static class DropCountdownCues
     /// returned unchanged.
     /// </summary>
     public static List<OrbitCue> Rebuild(IEnumerable<OrbitCue> cues, OrbitCue drop, IReadOnlyList<int> bars, double bpm,
-        double? previousDropTime = null)
+        double? previousDropTime = null, bool countdownsAsMemoryCues = false)
     {
         var list = cues.ToList();
         if (bars.Count == 0 || bpm <= 0 || drop.Role != CueRole.Drop) return list;
@@ -195,7 +201,7 @@ public static class DropCountdownCues
         list.RemoveAll(c => c != drop && (IsCountdownFor(c, oldTime, bpm) || IsCountdownFor(c, drop.Timestamp, bpm)));
 
         int number = DropNumber(drop.Name) ?? NumberAmongDrops(list, drop);
-        foreach (var spec in Layout(number, drop.Timestamp, bars, bpm).Where(s => !s.IsDrop))
+        foreach (var spec in Layout(number, drop.Timestamp, bars, bpm, countdownsAsMemoryCues).Where(s => !s.IsDrop))
         {
             if (spec.SlotIndex >= 0) FreePad(list, spec.SlotIndex, drop);
             list.Add(new OrbitCue
@@ -220,7 +226,8 @@ public static class DropCountdownCues
     /// </list>
     /// </summary>
     public static List<OrbitCue> PlaceDrop(IEnumerable<OrbitCue> cues, double time, int? number,
-        IReadOnlyList<int> bars, double bpm, double downbeat, double duration, out OrbitCue drop)
+        IReadOnlyList<int> bars, double bpm, double downbeat, double duration, out OrbitCue drop,
+        bool countdownsAsMemoryCues = false)
     {
         var list = cues.ToList();
         double bar = bpm > 0 ? 240.0 / bpm : 1;
@@ -263,12 +270,12 @@ public static class DropCountdownCues
                 list = RemoveFor(list, other.Timestamp, bpm);
                 list.Remove(other);
             }
-            list = Relabel(list, target, forced, bars, bpm);
+            list = Relabel(list, target, forced, bars, bpm, countdownsAsMemoryCues);
         }
         else
         {
             int i = 0;
-            foreach (var d in Drops(list)) list = Relabel(list, d, ++i, bars, bpm);
+            foreach (var d in Drops(list)) list = Relabel(list, d, ++i, bars, bpm, countdownsAsMemoryCues);
         }
 
         return UpdateOut(list, outBefore, bpm, downbeat, duration);
@@ -277,10 +284,10 @@ public static class DropCountdownCues
     /// <summary>After a drop was moved or deleted: rebuilds the build-in cues of every drop (names,
     /// colours and pads of your drops are left as they are) and moves [OUT] with the last drop.</summary>
     public static List<OrbitCue> Refresh(IEnumerable<OrbitCue> cues, IReadOnlyList<int> bars, double bpm, double downbeat,
-        double duration, double? outBefore)
+        double duration, double? outBefore, bool countdownsAsMemoryCues = false)
     {
         var list = cues.ToList();
-        foreach (var d in Drops(list)) list = Rebuild(list, d, bars, bpm);
+        foreach (var d in Drops(list)) list = Rebuild(list, d, bars, bpm, countdownsAsMemoryCues: countdownsAsMemoryCues);
         return UpdateOut(list, outBefore, bpm, downbeat, duration);
     }
 
@@ -291,15 +298,20 @@ public static class DropCountdownCues
         return last == null ? null : OutTime(last.Timestamp, bpm, downbeat, duration);
     }
 
-    private static List<OrbitCue> Relabel(List<OrbitCue> list, OrbitCue drop, int number, IReadOnlyList<int> bars, double bpm)
+    private static List<OrbitCue> Relabel(List<OrbitCue> list, OrbitCue drop, int number, IReadOnlyList<int> bars, double bpm,
+        bool countdownsAsMemoryCues)
     {
         drop.Name = DropName(number);
         drop.Color = DropColor(number);
         int pad = DropPad(number);
         if (pad >= 0) FreePad(list, pad, drop);
         drop.SlotIndex = pad;
-        return Rebuild(list, drop, bars, bpm);
+        return Rebuild(list, drop, bars, bpm, countdownsAsMemoryCues: countdownsAsMemoryCues);
     }
+
+    /// <summary>True for the cues this layout owns by name: drops, countdowns and [OUT].</summary>
+    public static bool IsLayoutCue(string? name) =>
+        DropNumber(name) != null || CountdownBars(name) != null || name == OutName;
 
     /// <summary>[OUT] moves with the last drop while it's still where the drops put it; a missing one
     /// is created; one you moved or renamed is left alone.</summary>

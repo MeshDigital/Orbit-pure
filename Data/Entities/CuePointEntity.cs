@@ -106,4 +106,10 @@ public enum CuePointType
 
     /// <summary>Section marker: the outro section starts here. Exported as the memory cue "Outro".</summary>
     OutroStart = 7,
+
+    /// <summary>User-confirmed track-level entry point shared by Flow Builder and DJ preparation.</summary>
+    MixIn = 8,
+
+    /// <summary>User-confirmed track-level exit point shared by Flow Builder and DJ preparation.</summary>
+    MixOut = 9,
 }

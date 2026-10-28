@@ -145,6 +145,7 @@ public sealed class AudioStepViewModel : SetupStepViewModel
     private readonly ISetupSettingsGateway _settings;
     private readonly ILogger _logger;
     private readonly AsyncRelayCommand _checkFfmpegCommand;
+    private readonly AsyncRelayCommand _installFfmpegCommand;
 
     private string _outputMode = "WasapiShared";
     private string _outputDevice = SystemDefaultDevice;
@@ -152,6 +153,7 @@ public sealed class AudioStepViewModel : SetupStepViewModel
     private bool _isCheckingFfmpeg;
     private bool? _ffmpegFound;
     private string _ffmpegText = "Not checked yet";
+    private bool _isInstallingFfmpeg;
     private AnalysisModelStatus _models = new(0, 0, Array.Empty<string>());
 
     public AudioStepViewModel(IAudioSetupGateway audio, ISetupSettingsGateway settings, ILogger logger)
@@ -159,11 +161,29 @@ public sealed class AudioStepViewModel : SetupStepViewModel
         _audio = audio;
         _settings = settings;
         _logger = logger;
-        _checkFfmpegCommand = new AsyncRelayCommand(CheckFfmpegAsync, () => !IsCheckingFfmpeg);
+        _checkFfmpegCommand = new AsyncRelayCommand(CheckFfmpegAsync, () => !IsCheckingFfmpeg && !IsInstallingFfmpeg);
         CheckFfmpegCommand = _checkFfmpegCommand;
+        _installFfmpegCommand = new AsyncRelayCommand(InstallFfmpegAsync, () => CanInstallFfmpeg && FfmpegIsMissing && !IsInstallingFfmpeg);
+        InstallFfmpegCommand = _installFfmpegCommand;
         GetFfmpegCommand = new RelayCommand(_audio.OpenFfmpegDownloadPage);
         RefreshDevicesCommand = new RelayCommand(RefreshDevices);
+
+        Hardware = _audio.Hardware;
+        BlockedFeatures = Hardware.Blocked.ToList();
+        LimitedFeatures = Hardware.Verdicts.Where(v => v.IsAllowed && v.Advice != null).ToList();
     }
+
+    // ── This PC: hard blocks for heavy features ──────────────────────────
+
+    public SLSKDONET.Services.Platform.HardwareProfile Hardware { get; }
+    public string HardwareSummary => Hardware.Summary;
+    public System.Collections.Generic.IReadOnlyList<SLSKDONET.Services.Platform.FeatureVerdict> BlockedFeatures { get; }
+    public System.Collections.Generic.IReadOnlyList<SLSKDONET.Services.Platform.FeatureVerdict> LimitedFeatures { get; }
+    public bool HasBlockedFeatures => BlockedFeatures.Count > 0;
+    public bool HasLimitedFeatures => LimitedFeatures.Count > 0;
+    public bool RunsEverything => !HasBlockedFeatures;
+    public bool IsAnalysisAllowed => Hardware.Allows(SLSKDONET.Services.Platform.HardwareFeature.TrackAnalysis);
+    public bool IsAiAllowed => Hardware.Allows(SLSKDONET.Services.Platform.HardwareFeature.AiTagging);
 
     public override string Title => "Audio and analysis";
     public override string ShortTitle => "Audio";
@@ -171,7 +191,26 @@ public sealed class AudioStepViewModel : SetupStepViewModel
     public override bool CanSkip => true;
 
     public ICommand CheckFfmpegCommand { get; }
+    public ICommand InstallFfmpegCommand { get; }
     public ICommand GetFfmpegCommand { get; }
+
+    /// <summary>ORBIT installs FFmpeg itself here; otherwise the user gets <see cref="ManualFfmpegHint"/>.</summary>
+    public bool CanInstallFfmpeg => _audio.CanInstallFfmpeg;
+    public bool ShowManualFfmpegHelp => FfmpegIsMissing && !CanInstallFfmpeg;
+    public bool ShowInstallFfmpegButton => FfmpegIsMissing && CanInstallFfmpeg && !IsInstallingFfmpeg;
+    public string ManualFfmpegHint => _audio.ManualFfmpegHint;
+
+    public bool IsInstallingFfmpeg
+    {
+        get => _isInstallingFfmpeg;
+        private set
+        {
+            if (!SetProperty(ref _isInstallingFfmpeg, value)) return;
+            OnPropertyChanged(nameof(ShowInstallFfmpegButton));
+            _installFfmpegCommand.RaiseCanExecuteChanged();
+            _checkFfmpegCommand.RaiseCanExecuteChanged();
+        }
+    }
     public ICommand RefreshDevicesCommand { get; }
 
     public ObservableCollection<string> OutputModes { get; } = new();
@@ -221,6 +260,9 @@ public sealed class AudioStepViewModel : SetupStepViewModel
             {
                 OnPropertyChanged(nameof(FfmpegIsMissing));
                 OnPropertyChanged(nameof(FfmpegIsOk));
+                OnPropertyChanged(nameof(ShowManualFfmpegHelp));
+                OnPropertyChanged(nameof(ShowInstallFfmpegButton));
+                _installFfmpegCommand.RaiseCanExecuteChanged();
             }
         }
     }
@@ -252,7 +294,9 @@ public sealed class AudioStepViewModel : SetupStepViewModel
     public bool ModelsAllPresent => Models.Total > 0 && Models.AllPresent;
     public bool ModelsIncomplete => !ModelsAllPresent;
     public string ModelsText => $"{Models.Present} of {Models.Total} models present";
-    public string ModelsMissingText => Models.Missing.Count == 0
+    public string ModelsMissingText => !IsAiAllowed
+        ? "Switched off on this PC (see THIS PC above). BPM, key and cues still work."
+        : Models.Missing.Count == 0
         ? "Genre, mood, embeddings and cue confidence are ready."
         : "Missing: " + string.Join(", ", Models.Missing) + ". These ship with ORBIT; reinstall to restore them. BPM, key and cues still work without them.";
 
@@ -265,8 +309,46 @@ public sealed class AudioStepViewModel : SetupStepViewModel
         OnPropertyChanged(nameof(OutputMode));
         RefreshDevices();
         OutputDevice = current.OutputDevice != null && Devices.Contains(current.OutputDevice) ? current.OutputDevice : SystemDefaultDevice;
-        AnalyzeNewDownloads = current.AnalyzeNewDownloads;
+        // Hard block: analysis can't run here, so don't leave auto-analysis switched on.
+        AnalyzeNewDownloads = current.AnalyzeNewDownloads && IsAnalysisAllowed;
         Models = _audio.GetModelStatus();
+        await CheckFfmpegAsync();
+
+        // Fully automatic: start the download as soon as the step shows that FFmpeg is missing.
+        // Not awaited, so the step stays usable; the row shows progress.
+        if (FfmpegIsMissing && CanInstallFfmpeg)
+            _ = InstallFfmpegAsync();
+    }
+
+    public async Task InstallFfmpegAsync()
+    {
+        if (IsInstallingFfmpeg || !FfmpegIsMissing) return;
+        IsInstallingFfmpeg = true;
+        FfmpegText = "Installing…";
+        try
+        {
+            var progress = new Progress<double>(p =>
+                FfmpegText = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Downloading… {(int)(p * 100)}%"));
+            var result = await _audio.InstallFfmpegAsync(progress);
+            if (!result.Success)
+            {
+                FfmpegText = "Install failed";
+                ErrorMessage = result.Message;
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Setup: installing FFmpeg failed");
+            FfmpegText = "Install failed";
+            ErrorMessage = "FFmpeg couldn't be installed: " + ex.Message;
+            return;
+        }
+        finally
+        {
+            IsInstallingFfmpeg = false;
+        }
+
         await CheckFfmpegAsync();
     }
 
@@ -331,12 +413,17 @@ public sealed class AudioStepViewModel : SetupStepViewModel
 
     public override string SummaryTitle => "Audio and analysis";
 
+    private string BlockedSummary => HasBlockedFeatures
+        ? " · off on this PC: " + string.Join(", ", BlockedFeatures.Select(f => f.DisplayName.ToLowerInvariant()))
+        : string.Empty;
+
     public override string SummaryDetail => Status switch
     {
         SetupStepStatus.Configured => $"{OutputMode} · {OutputDevice}"
                                       + (AnalyzeNewDownloads ? " · new downloads analysed" : " · auto-analysis off")
-                                      + (FfmpegFound == false ? " · FFmpeg missing" : string.Empty),
-        SetupStepStatus.Skipped => "Skipped" + (FfmpegFound == false ? " · FFmpeg missing" : string.Empty),
+                                      + (FfmpegFound == false ? " · FFmpeg missing" : string.Empty)
+                                      + BlockedSummary,
+        SetupStepStatus.Skipped => "Skipped" + (FfmpegFound == false ? " · FFmpeg missing" : string.Empty) + BlockedSummary,
         _ => "Not changed",
     };
 }

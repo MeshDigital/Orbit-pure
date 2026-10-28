@@ -101,6 +101,17 @@ public interface IAudioSetupGateway
     Task<FfmpegCheckResult> CheckFfmpegAsync();
     void OpenFfmpegDownloadPage();
     AnalysisModelStatus GetModelStatus();
+
+    /// <summary>This machine and which heavy features it may run.</summary>
+    SLSKDONET.Services.Platform.HardwareProfile Hardware { get; }
+
+    /// <summary>True where ORBIT can download and install FFmpeg itself (Windows x64).</summary>
+    bool CanInstallFfmpeg { get; }
+
+    /// <summary>What to tell the user where <see cref="CanInstallFfmpeg"/> is false.</summary>
+    string ManualFfmpegHint { get; }
+
+    Task<SLSKDONET.Services.Platform.FfmpegInstallResult> InstallFfmpegAsync(IProgress<double>? progress);
 }
 
 /// <summary>One metadata source as the wizard's "Metadata & artwork" step shows it.</summary>

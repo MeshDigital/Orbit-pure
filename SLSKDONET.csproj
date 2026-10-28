@@ -26,6 +26,9 @@
   <ItemGroup>
     <Compile Remove="External\**" />
     <Compile Remove="Tests\**" />
+    <Compile Remove="Companions\**" />
+    <None Remove="Companions\**" />
+    <EmbeddedResource Remove="Companions\**" />
     <Compile Remove="artifacts\**" />
     <EmbeddedResource Remove="External\**" />
     <EmbeddedResource Remove="artifacts\**" />
@@ -170,5 +173,14 @@
     <Content Remove="Tools\cue-detr\**" /><!-- dev scripts that produced models\cue-detr.onnx -->
     <Content Remove="Data\**\*.cs" />
   </ItemGroup>
+
+  <!-- RekordboxBridge (Companions/) opens Rekordbox's SQLCipher master.db out of process, so this
+       app's SQLite engine never changes. Built next to the app for dev runs; the release script
+       publishes it self-contained into the same Tools\RekordboxBridge folder. -->
+  <Target Name="BuildRekordboxBridge" AfterTargets="Build">
+    <MSBuild Projects="Companions\RekordboxBridge\RekordboxBridge.csproj" Targets="Restore" Properties="Configuration=$(Configuration)" />
+    <MSBuild Projects="Companions\RekordboxBridge\RekordboxBridge.csproj" Targets="Build"
+             Properties="Configuration=$(Configuration);OutDir=$([System.IO.Path]::Combine($(MSBuildProjectDirectory), $(OutDir)))Tools\RekordboxBridge\" />
+  </Target>
 
 </Project>
