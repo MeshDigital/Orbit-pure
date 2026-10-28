@@ -144,6 +144,64 @@ public class CueForgeViewModelEditingTests
         Assert.Equal("C:/music/user-choice.mp3", player.CurrentFilePath);
     }
 
+    /// <summary>
+    /// Opening the page must show what is audible, not the track that happened to be left open:
+    /// the view model is a singleton built at startup, so the constructor's "follow the player"
+    /// branch had nothing to follow by the time the user actually opened Cue Forge.
+    /// </summary>
+    [Fact]
+    public async Task OpeningThePage_FollowsTheTrackThePlayerIsOn()
+    {
+        var (vm, _, player) = await CreateLoaded();
+        player.CurrentTrackHash = "playing-hash";
+        player.Title = "Playing";
+        player.Artist = "Someone";
+
+        await vm.OnViewActivatedAsync();
+
+        Assert.Equal("playing-hash", vm.TrackHash);
+        Assert.Equal("Playing", vm.TrackName);
+    }
+
+    [Fact]
+    public async Task OpeningThePage_LeavesTheOpenTrackAlone_WhenThePlayerIsOnIt()
+    {
+        var (vm, _, player) = await CreateLoaded();
+        player.CurrentTrackHash = Hash;
+
+        await vm.OnViewActivatedAsync();
+
+        Assert.Equal(Hash, vm.TrackHash);
+    }
+
+    /// <summary>Mix "Edit cues" / Library "Open in Cue Forge" target a specific (often not playing)
+    /// track on purpose; that must survive the page opening, but only for that visit.</summary>
+    [Fact]
+    public async Task ExplicitlyOpenedTrack_IsKeptForOneVisit_ThenThePlayerWinsAgain()
+    {
+        var (vm, _, player) = await CreateLoaded();
+        player.CurrentTrackHash = "playing-hash";
+        player.Title = "Playing";
+
+        vm.KeepLoadedTrackForThisVisit();
+        await vm.OnViewActivatedAsync();
+        Assert.Equal(Hash, vm.TrackHash);
+
+        await vm.OnViewActivatedAsync();
+        Assert.Equal("playing-hash", vm.TrackHash);
+    }
+
+    [Fact]
+    public async Task OpeningThePage_WithNothingPlaying_KeepsTheOpenTrack()
+    {
+        var (vm, _, player) = await CreateLoaded();
+        player.CurrentTrackHash = null;
+
+        await vm.OnViewActivatedAsync();
+
+        Assert.Equal(Hash, vm.TrackHash);
+    }
+
     [Fact]
     public async Task AddCueAtPlayhead_SnapsToBeat_AndTakesFirstFreePad()
     {

@@ -66,6 +66,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             this.RaisePropertyChanged(nameof(HasTrackLoaded));
             this.RaisePropertyChanged(nameof(IsWaveformLoading));
             this.RaisePropertyChanged(nameof(HasNoTrack));
+            this.RaisePropertyChanged(nameof(CurrentBrowserItem));
         }
     }
 
@@ -389,6 +390,11 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     /// <summary>The docked track browser on the left (playlist + its tracks, current one highlighted).</summary>
     public bool IsBrowserOpen { get => _isBrowserOpen; set => this.RaiseAndSetIfChanged(ref _isBrowserOpen, value); }
 
+    /// <summary>True while the docked list's items are being replaced programmatically. The ListBox
+    /// reports its transient selection back through the two-way binding during a rebuild (often
+    /// row 1), and that is not a user click — it must never open a track.</summary>
+    private bool _suppressBrowserSelection;
+
     /// <summary>The open track's row in the browser list (highlighted), or null when it isn't in the
     /// playlist. Selecting another row opens that track.</summary>
     public CueBrowserItem? CurrentBrowserItem
@@ -396,6 +402,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         get => BrowserTracks.FirstOrDefault(t => string.Equals(t.GlobalId, TrackHash, StringComparison.OrdinalIgnoreCase));
         set
         {
+            if (_suppressBrowserSelection) return;
             if (value == null || string.Equals(value.GlobalId, TrackHash, StringComparison.OrdinalIgnoreCase)) return;
             LoadFromBrowserCommand.Execute(value);
         }
@@ -578,8 +585,16 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
         _ = _ui(() =>
         {
-            BrowserTracks.Clear();
-            foreach (var t in filtered) BrowserTracks.Add(t);
+            // Replacing the items makes the ListBox re-report a selection (typically the first row).
+            // That is bookkeeping, not a click, so it must not open a track — see CurrentBrowserItem.
+            _suppressBrowserSelection = true;
+            try
+            {
+                BrowserTracks.Clear();
+                foreach (var t in filtered) BrowserTracks.Add(t);
+            }
+            finally { _suppressBrowserSelection = false; }
+
             BrowserStatus = filtered.Count > 0 ? ""
                 : _allPlaylistTracks.Count == 0 ? "No downloaded tracks in this playlist."
                 : "No tracks match the filter.";
@@ -1197,11 +1212,40 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         return true;
     }
 
+    /// <summary>Set while a track was opened for a specific purpose (Mix panel "Edit cues", Library
+    /// "Open in Cue Forge"). Those links exist to work on an incoming/other track while something
+    /// else plays, so the explicitly requested track wins for that one visit only.</summary>
+    private DateTime _keepExplicitTrackUntilUtc;
+
+    /// <summary>Marks the track currently loaded as deliberately chosen, so the next page open keeps
+    /// it instead of following the player.</summary>
+    public void KeepLoadedTrackForThisVisit() =>
+        _keepExplicitTrackUntilUtc = DateTime.UtcNow.AddSeconds(15);
+
+    /// <summary>
+    /// The page was opened. Cue Forge shows what you can hear: when the shared player is on a
+    /// different track than the one left open, follow it. This is what the constructor used to do
+    /// once — but the view model is a singleton created at startup, so by the time you actually open
+    /// the page it had no playing track to follow and kept whatever track was last edited.
+    /// </summary>
+    public Task OnViewActivatedAsync()
+    {
+        bool pinned = DateTime.UtcNow < _keepExplicitTrackUntilUtc;
+        _keepExplicitTrackUntilUtc = default;
+        if (pinned) return Task.CompletedTask;
+
+        if (_transport.CurrentTrackHash is not { Length: > 0 } playing) return Task.CompletedTask;
+        if (string.Equals(playing, TrackHash, StringComparison.OrdinalIgnoreCase)) return Task.CompletedTask;
+
+        return LoadTrackAsync(playing, _transport.Title, _transport.Artist);
+    }
+
     /// <summary>The page was navigated away from. Stops loop audition and, if Cue Forge borrowed
     /// the shared player, pauses it and reloads the track it had before (at its old position), so
     /// the main player is never left on a track its queue doesn't know about.</summary>
     public void OnViewDeactivated()
     {
+        _keepExplicitTrackUntilUtc = default;
         IsAuditioningLoop = false;
         if (_borrow is not { } borrow) return;
         _borrow = null;

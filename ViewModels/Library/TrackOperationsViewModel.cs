@@ -953,6 +953,9 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         _cueForgeViewModel.SetPlaylistContext(LibraryViewModel?.SelectedProject);
 
         await _cueForgeViewModel.LoadTrackAsync(hash, track.Title, track.Artist);
+        // This is an explicit "open this track", not a plain visit to Cue Forge (which follows the
+        // playing track), so keep it for this visit.
+        _cueForgeViewModel.KeepLoadedTrackForThisVisit();
         _eventBus.Publish(new Models.NavigateToPageEvent("CueForge"));
         _notificationService.Show("Cue Forge", $"Opened '{track.Title}' in Cue Forge.", NotificationType.Success);
     }

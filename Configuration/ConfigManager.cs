@@ -236,6 +236,11 @@ public class ConfigManager
                 CustomCountdownBars = string.IsNullOrWhiteSpace(config["Cues:CustomCountdownBars"]) ? "32,16,8" : config["Cues:CustomCountdownBars"]!,
                 CountdownsAsMemoryCues = bool.TryParse(config["Cues:CountdownsAsMemoryCues"], out var camc) && camc,
 
+                // [CueForge] — the track Cue Forge reopens when the player isn't on anything.
+                CueForgeLastTrackHash = string.IsNullOrWhiteSpace(config["CueForge:LastTrackHash"]) ? null : config["CueForge:LastTrackHash"],
+                CueForgeLastTrackTitle = config["CueForge:LastTrackTitle"],
+                CueForgeLastTrackArtist = config["CueForge:LastTrackArtist"],
+
                 // [Discover]
                 DiscoverUseBeatport = !bool.TryParse(config["Discover:UseBeatport"], out var dub) || dub,
                 ContextPanelWidth = int.TryParse(config["Layout:ContextPanelWidth"], out var cpw) ? cpw : 400,
@@ -477,6 +482,17 @@ public class ConfigManager
         iniContent.AppendLine($"DropCountdownMode = {config.DropCountdownMode}");
         iniContent.AppendLine($"CustomCountdownBars = {config.CustomCountdownBars}");
         iniContent.AppendLine($"CountdownsAsMemoryCues = {config.CountdownsAsMemoryCues}");
+
+        // Cue Forge's "reopen the last edited track" — was written only by the view model, never by
+        // this Save, so it never survived a restart.
+        iniContent.AppendLine();
+        iniContent.AppendLine("[CueForge]");
+        if (!string.IsNullOrWhiteSpace(config.CueForgeLastTrackHash))
+            iniContent.AppendLine($"LastTrackHash = {config.CueForgeLastTrackHash}");
+        if (!string.IsNullOrWhiteSpace(config.CueForgeLastTrackTitle))
+            iniContent.AppendLine($"LastTrackTitle = {config.CueForgeLastTrackTitle}");
+        if (!string.IsNullOrWhiteSpace(config.CueForgeLastTrackArtist))
+            iniContent.AppendLine($"LastTrackArtist = {config.CueForgeLastTrackArtist}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[Layout]");

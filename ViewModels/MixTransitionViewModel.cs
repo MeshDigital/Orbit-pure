@@ -1619,6 +1619,9 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         await FlushCueEditsAsync();
         var cueForgeViewModel = _serviceProvider.GetRequiredService<CueForgeViewModel>();
         await cueForgeViewModel.LoadTrackAsync(hash, track!.Title, track.Artist);
+        // Cue Forge opens on the playing track by default; this link deliberately targets another
+        // side of the mix, so it keeps that track for this visit.
+        cueForgeViewModel.KeepLoadedTrackForThisVisit();
 
         // Gives Cue Forge a "← Back to Mix Transition" link instead of a dead end — both
         // OutgoingTrack/IncomingTrack are already loaded regardless of which side's "Fix in Cue

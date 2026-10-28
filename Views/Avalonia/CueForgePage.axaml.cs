@@ -96,6 +96,9 @@ public partial class CueForgePage : UserControl
                 .Subscribe(_ => ApplyDockVisibility());
         }
         ApplyResponsiveLayout();
+        // Opening the page shows the playing track; an explicit "open this track" from the Mix panel
+        // or the Library keeps its own track for this visit (see KeepLoadedTrackForThisVisit).
+        if (_vm != null) _ = _vm.OnViewActivatedAsync();
         Dispatcher.UIThread.Post(() => Focus());
     }
 
