@@ -6,7 +6,14 @@ self-contained single file.
 This is a cumulative alpha covering everything merged into `master` since the 0.10.0-alpha package:
 23 commits, 231 files, +17.7k / −2.3k lines. The version jumps to **0.20.0** because this is a
 milestone build rather than a patch on 0.10 — it is still an alpha, and it upgrades 0.10.0-alpha in
-place (same installer AppId). Three themes run through it:
+place (same installer AppId).
+
+**Merged pull requests in this build:** #173 (DJ prep, library UX, Cue Forge), #174 (startup UI
+stalls), #175 (startup + analysis performance), #176 (analysis pipeline, Essentia shipping, cue
+playback, drop-2 mix hand-over) — plus two direct commits on `master`: the music-reactive visualizer
+and Flow Mode. No PR is open as of this build.
+
+Three themes run through it:
 
 1. **Honest analysis.** The Analysis page can finally say a track is *incomplete* — per engine — and
    repair only what is missing. The old page invented analysis data for every row, so "missing"
