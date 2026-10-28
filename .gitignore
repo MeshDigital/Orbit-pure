@@ -46,6 +46,8 @@ Thumbs.db
 # Build artifacts
 *.dll
 *.exe
+# Bundled native analysis dependency: required in every checkout and copied to Tools at build time.
+!Tools/essentia_streaming_extractor_music.exe
 *.so
 bin/
 obj/
