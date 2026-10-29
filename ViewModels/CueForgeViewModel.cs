@@ -972,7 +972,9 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     {
         if (!IsWaveformRefreshPending || TrackHash == null ||
             !string.Equals(evt.TrackGlobalId, TrackHash, StringComparison.OrdinalIgnoreCase)) return;
-        WaveformRefreshStatus = $"{evt.CurrentStep} · {evt.ProgressPercent}%";
+        WaveformRefreshStatus = evt.StageCount > 0
+            ? $"Stage {evt.StageIndex}/{evt.StageCount} · {evt.CurrentStep} · {evt.ProgressPercent}%"
+            : $"{evt.CurrentStep} · {evt.ProgressPercent}%";
     }
 
     private async Task OnWaveformRefreshCompletedAsync(TrackAnalysisUpdatedEvent evt)

@@ -39,6 +39,7 @@ public class AnalysisQueueService : IDisposable
     private readonly IAudioAnalysisService? _audioAnalysisService;
     private readonly AnalyzeTrackStructureJob? _analyzeTrackStructureJob;
     private readonly AudioCorruptionScannerService? _corruptionScanner;
+    private readonly EssentiaRunner? _essentia;
     private readonly IDisposable _requestSubscription;
     private readonly SemaphoreSlim _parallelismGate;
     private readonly SemaphoreSlim _dispatchSignal = new(0);
@@ -61,6 +62,12 @@ public class AnalysisQueueService : IDisposable
 
     private int _hardwareBlockReported;
 
+    /// <summary>One explanatory Essentia toast per session (like the hardware-block toast).</summary>
+    private int _essentiaAlertReported;
+
+    /// <summary>Highest percent published per track, so a step that reports late can never move it backwards.</summary>
+    private readonly ConcurrentDictionary<string, int> _lastPercent = new(StringComparer.Ordinal);
+
     /// <summary>Requests queued or running right now. Background maintenance (the loudness
     /// backfill) waits while this is above zero so it never competes with a real analysis run.</summary>
     public int PendingCount => Math.Max(0, Volatile.Read(ref _queuedCount));
@@ -72,7 +79,8 @@ public class AnalysisQueueService : IDisposable
         IAudioAnalysisService? audioAnalysisService = null,
         AnalyzeTrackStructureJob? analyzeTrackStructureJob = null,
         AudioCorruptionScannerService? corruptionScanner = null,
-        AppConfig? config = null)
+        AppConfig? config = null,
+        EssentiaRunner? essentia = null)
     {
         _eventBus = eventBus;
         _logger = logger;
@@ -80,6 +88,7 @@ public class AnalysisQueueService : IDisposable
         _audioAnalysisService = audioAnalysisService;
         _analyzeTrackStructureJob = analyzeTrackStructureJob;
         _corruptionScanner = corruptionScanner;
+        _essentia = essentia;
 
         int requested = config?.MaxConcurrentAnalyses ?? 0;
         MaxWorkers = requested > 0
@@ -337,14 +346,37 @@ public class AnalysisQueueService : IDisposable
                 }
             }
 
+            // Essentia is the only source of BPM, key and the beat grid. When it is not installed,
+            // say so plainly instead of letting the run fail later at the missing-output check with
+            // a dependency-shaped error the user cannot act on.
+            var needsEssentia = (evt.Engines & (AnalysisEngine.Tempo | AnalysisEngine.Key | AnalysisEngine.Mood)) != 0;
+            var essentiaMissing = needsEssentia && _essentia is { IsAvailable: false };
+            if (essentiaMissing && Interlocked.Exchange(ref _essentiaAlertReported, 1) == 0)
+            {
+                _logger.LogWarning("[AnalysisQueue] Essentia extractor not installed; BPM/key/mood analysis will be skipped.");
+                _eventBus.Publish(new ToastRequestedEvent(
+                    "Essentia analysis is not installed",
+                    "BPM, key and the AI mood models need the Essentia streaming extractor. Waveform, loudness, structure and cues still run. Install it under Tools/Essentia to enable BPM/key.",
+                    Views.NotificationType.Warning,
+                    TimeSpan.FromSeconds(10)));
+            }
+
             _activeTrackHashes.TryAdd(evt.TrackGlobalId, 0);
             _currentTrackHash = evt.TrackGlobalId;
             await UpdateTrackAnalysisStatusAsync(evt.TrackGlobalId, AnalysisStatus.Processing, null).ConfigureAwait(false);
             _eventBus.Publish(new TrackAnalysisStartedEvent(evt.TrackGlobalId, Path.GetFileName(filePath)));
-            PublishProgress(evt.TrackGlobalId, "Analyzing audio", 20);
+            PublishProgress(evt.TrackGlobalId,
+                essentiaMissing ? "Analyzing audio (Essentia missing — BPM/key skipped)" : "Analyzing audio",
+                20);
 
             var analysis = await _audioAnalysisService
-                .AnalyzeFileAsync(filePath, evt.TrackGlobalId, engines: evt.Engines, cancellationToken: CancellationToken.None)
+                .AnalyzeFileAsync(
+                    filePath,
+                    evt.TrackGlobalId,
+                    progress: new CallbackProgress((percent, step) =>
+                        PublishProgress(evt.TrackGlobalId, step, MapAnalyzePercent(percent))),
+                    engines: evt.Engines,
+                    cancellationToken: CancellationToken.None)
                 .ConfigureAwait(false);
 
             if (analysis is null)
@@ -363,14 +395,14 @@ public class AnalysisQueueService : IDisposable
             // cues; Cues-only runs remap existing signals without incrementing StructuralVersion.
             if (evt.Engines.Has(AnalysisEngine.Structure))
             {
-                PublishProgress(evt.TrackGlobalId, "Computing structure", 75);
+                PublishProgress(evt.TrackGlobalId, "Computing structure", 90);
                 await _analyzeTrackStructureJob.ExecuteAsync(
                     evt.TrackGlobalId,
                     generateCues: evt.Engines.Has(AnalysisEngine.Cues)).ConfigureAwait(false);
             }
             else if (evt.Engines.Has(AnalysisEngine.Cues))
             {
-                PublishProgress(evt.TrackGlobalId, "Generating cue points", 75);
+                PublishProgress(evt.TrackGlobalId, "Generating cue points", 90);
                 if (!await _analyzeTrackStructureJob.RegenerateCuesOnlyAsync(evt.TrackGlobalId).ConfigureAwait(false))
                     throw new InvalidOperationException(
                         "Cue generation produced no cue points. Ensure BPM, duration and structure are available, then retry.");
@@ -406,6 +438,7 @@ public class AnalysisQueueService : IDisposable
 
             _activeTrackHashes.TryRemove(evt.TrackGlobalId, out _);
             _scheduledTrackHashes.TryRemove(evt.TrackGlobalId, out _);
+            _lastPercent.TryRemove(evt.TrackGlobalId, out _);
             _currentTrackHash = _activeTrackHashes.Keys.FirstOrDefault()
                 ?? _scheduledTrackHashes.Keys.FirstOrDefault();
             PublishStatus(_isStealthMode ? "Stealth (Low CPU)" : "Standard");
@@ -465,10 +498,35 @@ public class AnalysisQueueService : IDisposable
 
     private void PublishProgress(string trackGlobalId, string step, int percent)
     {
+        // Never move backwards for the same track: a native step can report late after the next
+        // one has already begun (e.g. Essentia finishing while the queue moves to structure).
+        var monotonic = _lastPercent.AddOrUpdate(
+            trackGlobalId,
+            Math.Clamp(percent, 0, 100),
+            (_, previous) => Math.Max(previous, Math.Clamp(percent, 0, 100)));
+
+        var stage = AnalysisStages.Describe(step);
         _eventBus.Publish(new AnalysisProgressEvent(
             trackGlobalId,
             step,
-            Math.Clamp(percent, 0, 100)));
+            monotonic,
+            StageIndex: stage.Index,
+            StageCount: stage.Count));
+    }
+
+    /// <summary>Squeezes the pipeline's own 0–100 progress into the 20–84 band the queue reserves for the audio pass.</summary>
+    private static int MapAnalyzePercent(int percent) =>
+        20 + (int)(Math.Clamp(percent, 0, 100) * 0.64);
+
+    /// <summary>
+    /// Runs the pipeline's progress callback inline (not via <see cref="Progress{T}"/>'s captured
+    /// context) so per-stage reports arrive in order and never after completion.
+    /// </summary>
+    private sealed class CallbackProgress : IProgress<(int Percent, string Step)>
+    {
+        private readonly Action<int, string> _callback;
+        public CallbackProgress(Action<int, string> callback) => _callback = callback;
+        public void Report((int Percent, string Step) value) => _callback(value.Percent, value.Step);
     }
 
     private void PublishStatus(string performanceMode)
