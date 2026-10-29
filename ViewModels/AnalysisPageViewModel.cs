@@ -982,6 +982,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     /// </summary>
     public ReactiveCommand<Unit, Unit> ReanalyzeAllTracksCommand { get; }
 
+    /// <summary>Force-queues every track in the selected playlist for a fresh analysis pass.</summary>
+    public ReactiveCommand<Unit, Unit> ReanalyzePlaylistCommand { get; }
+
     /// <summary>
     /// Re-maps cue points for every already-analysed track in the library, without touching
     /// BPM/key/energy/vocal/embedding data — for picking up a CueGenerationService logic change
@@ -1176,6 +1179,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         ReanalyzeCommand = ReactiveCommand.Create<AnalysisTrackItem>(Reanalyze);
         ReanalyzeAllIncompleteCommand = ReactiveCommand.CreateFromTask(ReanalyzeAllIncompleteAsync);
         ReanalyzeAllTracksCommand = ReactiveCommand.CreateFromTask(ReanalyzeAllTracksAsync);
+        ReanalyzePlaylistCommand = ReactiveCommand.CreateFromTask(ReanalyzePlaylistAsync);
         RegenerateAllCuesCommand = ReactiveCommand.CreateFromTask(RegenerateAllCuesAsync);
         CopyAnalysisJsonCommand = ReactiveCommand.CreateFromTask<AnalysisTrackItem>(CopyAnalysisJsonAsync);
         CopyPerformanceSnapshotCommand = ReactiveCommand.CreateFromTask(CopyPerformanceSnapshotAsync);
@@ -2750,6 +2754,48 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     {
         QueueCoverageRequests(Coverage?.GetRequests(PlaylistMissingEngines) ?? Array.Empty<TrackCoverageRequest>());
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Force-queues every track in the selected playlist for a full re-analysis, bypassing the
+    /// "already analysed" completeness check — the playlist-scoped counterpart to
+    /// <see cref="ReanalyzeAllTracksAsync"/>. Use it after a detection-pipeline change, or
+    /// whenever one set's stored analysis looks stale and you want it redone from scratch.
+    /// </summary>
+    public async Task ReanalyzePlaylistAsync()
+    {
+        var coverage = Coverage;
+        if (coverage is null || coverage.TotalTracks == 0)
+        {
+            AutomixStatusMessage = "No playlist selected, or no tracks with audio on disk to re-analyse.";
+            return;
+        }
+
+        var hashes = coverage.Tracks
+            .Select(t => t.TrackHash)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        int batchCount = 0;
+        foreach (var hash in hashes)
+        {
+            var item = LibraryTracks.FirstOrDefault(t =>
+                string.Equals(t.TrackId, hash, StringComparison.OrdinalIgnoreCase));
+
+            if (item is not null)
+            {
+                ResetTrackAnalysisState(item);
+                AddToQueueCore(item, refreshState: false);
+            }
+
+            _eventBus.Publish(new TrackAnalysisRequestedEvent(hash, AnalysisTier.Tier1));
+
+            if (++batchCount % 10 == 0)
+                await Task.Yield();
+        }
+
+        AutomixStatusMessage = $"Queued {hashes.Count} track(s) in '{coverage.PlaylistName}' for full re-analysis.";
+        RefreshComputedState();
     }
 
     // ── Automix flow (#43) ────────────────────────────────────────────────────

@@ -310,6 +310,10 @@
                                                                       Command="{ReflectionBinding $parent[UserControl].DataContext.Projects.GenerateCuesCommand}"
                                                                       CommandParameter="{Binding Card.Model}"
                                                                       ToolTip.Tip="Re-maps cue points from this playlist's analysed tracks. Fast, no re-analysis."/>
+                                                            <MenuItem Header="Force re-analyse"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.Projects.ForceReanalyzePlaylistCommand}"
+                                                                      CommandParameter="{Binding Card.Model}"
+                                                                      ToolTip.Tip="Queue every downloaded track in this playlist for a full re-analysis, even tracks that already look complete."/>
                                                             <MenuItem Header="Regenerate cues (selected playlists)"
                                                                       Command="{ReflectionBinding $parent[UserControl].DataContext.Projects.GenerateCuesForSelectedPlaylistsCommand}"
                                                                       IsVisible="{ReflectionBinding $parent[UserControl].DataContext.Projects.HasMultiplePlaylistsSelected}"/>

@@ -205,6 +205,10 @@
                                         Command="{Binding RunMissingForPlaylistCommand}"
                                         IsEnabled="{Binding CanRunMissingForPlaylist}"
                                         ToolTip.Tip="Queue only the engines that are missing anywhere in this playlist — tracks that already have an engine's output are not re-analysed for it."/>
+                                <Button Classes="secondary small" Content="Force re-analyse"
+                                        Command="{Binding ReanalyzePlaylistCommand}"
+                                        IsEnabled="{Binding !IsCoverageLoading}"
+                                        ToolTip.Tip="Queue every track in this playlist for a full re-analysis, even tracks that already look complete. Use when existing analysis looks stale or wrong."/>
                             </StackPanel>
                             <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Classes="caption error"
                                        Text="{Binding CoverageError}" TextWrapping="Wrap"

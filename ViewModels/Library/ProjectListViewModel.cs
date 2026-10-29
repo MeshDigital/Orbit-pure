@@ -214,6 +214,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand OpenSourceUrlCommand { get; }
     public System.Windows.Input.ICommand GenerateCuesCommand { get; }
     public System.Windows.Input.ICommand GenerateCuesForSelectedPlaylistsCommand { get; }
+    public System.Windows.Input.ICommand ForceReanalyzePlaylistCommand { get; }
     public System.Windows.Input.ICommand ExportProjectCommand { get; }
 
     // Playlist Folder commands
@@ -283,6 +284,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         OpenSourceUrlCommand = new RelayCommand<PlaylistJob>(ExecuteOpenSourceUrl);
         GenerateCuesCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteGenerateCuesAsync);
         GenerateCuesForSelectedPlaylistsCommand = new AsyncRelayCommand(ExecuteGenerateCuesForSelectedPlaylistsAsync);
+        ForceReanalyzePlaylistCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteForceReanalyzePlaylistAsync);
         ExportProjectCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteExportProjectAsync);
 
         CreateFolderCommand = new AsyncRelayCommand(() => ExecuteCreateFolderAsync(null));
@@ -1071,6 +1073,50 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         {
             _logger.LogError(ex, "GenerateCues failed for {Count} selected playlists", jobs.Count);
             _notificationService.Show("Generate Cues Failed", ex.Message, Views.NotificationType.Error);
+        }
+    }
+
+    /// <summary>
+    /// Force-queues every downloaded track in the playlist for a full re-analysis, bypassing the
+    /// "already analysed" completeness check — the playlist-scoped counterpart to the Analysis
+    /// page's "Force re-analyse entire library". Use it after a detection-pipeline change, or
+    /// whenever one set's stored analysis looks stale and you want it redone from scratch.
+    /// </summary>
+    private async Task ExecuteForceReanalyzePlaylistAsync(PlaylistJob? job)
+    {
+        if (job == null) return;
+
+        try
+        {
+            var tracks = await _libraryService.LoadPlaylistTracksAsync(job.Id);
+            var hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var track in tracks)
+            {
+                if (track.Status == TrackStatus.Downloaded && !string.IsNullOrEmpty(track.TrackUniqueHash))
+                    hashes.Add(track.TrackUniqueHash);
+            }
+
+            if (hashes.Count == 0)
+            {
+                _notificationService.Show("Force Re-analyse",
+                    "This playlist has no downloaded tracks to re-analyse.",
+                    Views.NotificationType.Warning);
+                return;
+            }
+
+            foreach (var hash in hashes)
+            {
+                _eventBus.Publish(new TrackAnalysisRequestedEvent(hash));
+            }
+
+            _notificationService.Show("Force Re-analyse",
+                $"Queued {hashes.Count} track(s) in '{job.SourceTitle}' for full re-analysis.",
+                Views.NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Force re-analyse failed for playlist {Id}", job.Id);
+            _notificationService.Show("Force Re-analyse Failed", ex.Message, Views.NotificationType.Error);
         }
     }
 
