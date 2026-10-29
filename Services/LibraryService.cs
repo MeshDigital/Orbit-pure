@@ -1580,7 +1580,47 @@ public class LibraryService : ILibraryService
             Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(track.Loudness),
             TruePeak = track.TruePeak,
             DynamicRange = track.DynamicRange,
-            InstrumentalProbability = track.InstrumentalProbability // Phase 18.2
+            InstrumentalProbability = track.InstrumentalProbability, // Phase 18.2
+
+            // ── Columns previously omitted from this mapping ─────────────────────────────
+            // These are real PlaylistTracks columns populated outside this converter (the
+            // post-download spectral scan writes the Spectral* forensics via raw SQL, and the
+            // enrichment/vocal pipelines write the rest). SavePlaylistTrackAsync and
+            // SavePlaylistTracksAsync upsert the whole row with CurrentValues.SetValues(...), so
+            // any column left unmapped here was reset to its CLR default on every save. Map every
+            // one of them so the round-trip never blanks analysis data.
+            CompletedAt = track.CompletedAt,
+            Priority = track.Priority,
+            IsUserPaused = track.IsUserPaused,
+            StalledReason = track.StalledReason,
+            IsPrepared = track.IsPrepared,
+            AnalysisStatus = track.AnalysisStatus,
+            EnrichmentAttempts = track.EnrichmentAttempts,
+            LastEnrichmentAttempt = track.LastEnrichmentAttempt,
+            DropTimestamp = track.DropTimestamp,
+            ManualEnergy = track.ManualEnergy,
+            SourceProvenance = track.SourceProvenance,
+            SearchRetryCount = track.SearchRetryCount,
+            NotFoundRestartCount = track.NotFoundRestartCount,
+            CuePointsJson = track.CuePointsJson,
+            AudioFingerprint = track.AudioFingerprint,
+            Danceability = track.Danceability,
+            Arousal = track.Arousal,
+            IsDjTool = track.IsDjTool,
+            SubGenreConfidence = track.SubGenreConfidence,
+            SpectralHash = track.SpectralHash,
+            SpectralSampleRateHz = track.SpectralSampleRateHz,
+            SpectralBitDepth = track.SpectralBitDepth,
+            SpectralRolloffSteepness = track.SpectralRolloffSteepness,
+            SpectralMidBandEnergy = track.SpectralMidBandEnergy,
+            SpectralHighBandEnergy = track.SpectralHighBandEnergy,
+            SpectralRmsDbfs = track.SpectralRmsDbfs,
+            SpectralCrestFactorDb = track.SpectralCrestFactorDb,
+            SpectralNoiseFloorDbfs = track.SpectralNoiseFloorDbfs,
+            VocalType = track.VocalType,
+            VocalIntensity = track.VocalIntensity,
+            VocalStartSeconds = track.VocalStartSeconds,
+            VocalEndSeconds = track.VocalEndSeconds
             
             // Phase 21: AI Brain - READ ONLY via AudioFeatures link
             // We do not set Sadness/Vector on the PlaylistTrackEntity directly.
@@ -1641,6 +1681,12 @@ public class LibraryService : ILibraryService
             Loudness = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.Loudness) ?? SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(entity.AudioFeatures?.LoudnessLUFS),
             TruePeak = entity.TruePeak,
             DynamicRange = entity.DynamicRange,
+
+            // Sonic Integrity (post-import / post-download spectral scan)
+            SpectralHash = entity.SpectralHash,
+            QualityDetails = entity.QualityDetails,
+            Integrity = entity.Integrity,
+            IsTranscoded = entity.IsTranscoded ?? false,
             
             WaveformData = libraryWaveform.PeakData,
             RmsData = libraryWaveform.RmsData,

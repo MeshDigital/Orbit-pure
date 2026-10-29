@@ -293,6 +293,17 @@ public class PlaylistTrack
     public int SearchRetryCount { get; set; } = 0;
     public int NotFoundRestartCount { get; set; } = 0;
 
+    // Phase 21: Smart Enrichment Retry System (PlaylistTracks table)
+    public SLSKDONET.Data.AnalysisStatus AnalysisStatus { get; set; } = SLSKDONET.Data.AnalysisStatus.None;
+    public int EnrichmentAttempts { get; set; } = 0;
+    public string? LastEnrichmentAttempt { get; set; }
+
+    // Phase 3.5: Vocal Intelligence (PlaylistTracks table)
+    public VocalType VocalType { get; set; } = VocalType.Instrumental;
+    public double? VocalIntensity { get; set; }
+    public double? VocalStartSeconds { get; set; }
+    public double? VocalEndSeconds { get; set; }
+
     public WaveformAnalysisData WaveformDataObj => new WaveformAnalysisData
     {
         PeakData = WaveformData ?? Array.Empty<byte>(),

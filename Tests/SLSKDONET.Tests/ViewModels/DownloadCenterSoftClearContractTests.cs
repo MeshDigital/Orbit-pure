@@ -95,6 +95,93 @@ public class DownloadCenterSoftClearContractTests
     }
 
     [Fact]
+    public void PlaylistTrackToEntity_DoesNotDropAnalysisColumns()
+    {
+        // Regression for the whole-row upsert blanking hazard: SavePlaylistTrackAsync and
+        // SavePlaylistTracksAsync call CurrentValues.SetValues(...) on the entity produced here,
+        // so any PlaylistTracks column this converter leaves unmapped gets reset to its CLR
+        // default on every save. Spectral forensics (written by the post-download scan), cue blobs,
+        // fingerprints, vocal/enrichment data, and queue state must all survive the round-trip.
+        var sut = (LibraryService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(LibraryService));
+        var model = new PlaylistTrack
+        {
+            Id = Guid.NewGuid(),
+            PlaylistId = Guid.NewGuid(),
+            Artist = "Artist",
+            Title = "Title",
+            TrackUniqueHash = "hash",
+            Status = TrackStatus.Downloaded,
+            CompletedAt = new DateTime(2024, 1, 2, 3, 4, 5, DateTimeKind.Utc),
+            Priority = 7,
+            IsUserPaused = true,
+            StalledReason = "stalled",
+            IsPrepared = true,
+            AnalysisStatus = AnalysisStatus.Failed,
+            EnrichmentAttempts = 3,
+            LastEnrichmentAttempt = "2024-01-01T00:00:00.0000000Z",
+            DropTimestamp = 12.5,
+            ManualEnergy = 8,
+            SourceProvenance = "provenance",
+            SearchRetryCount = 4,
+            NotFoundRestartCount = 5,
+            CuePointsJson = "{\"cues\":[]}",
+            AudioFingerprint = "fingerprint-bytes",
+            Danceability = 0.42,
+            Arousal = 0.77,
+            IsDjTool = true,
+            SubGenreConfidence = 0.88f,
+            SpectralHash = "spectral-hash",
+            SpectralSampleRateHz = 44100,
+            SpectralBitDepth = 24,
+            SpectralRolloffSteepness = 12.3,
+            SpectralMidBandEnergy = -40.1,
+            SpectralHighBandEnergy = -60.2,
+            SpectralRmsDbfs = -18.5,
+            SpectralCrestFactorDb = 9.6,
+            SpectralNoiseFloorDbfs = -95.7,
+            VocalType = VocalType.FullLyrics,
+            VocalIntensity = 0.9,
+            VocalStartSeconds = 5.0,
+            VocalEndSeconds = 210.0
+        };
+
+        var entity = (PlaylistTrackEntity)InvokePrivate(sut, "PlaylistTrackToEntity", model);
+
+        Assert.Equal(model.CompletedAt, entity.CompletedAt);
+        Assert.Equal(model.Priority, entity.Priority);
+        Assert.Equal(model.IsUserPaused, entity.IsUserPaused);
+        Assert.Equal(model.StalledReason, entity.StalledReason);
+        Assert.Equal(model.IsPrepared, entity.IsPrepared);
+        Assert.Equal(model.AnalysisStatus, entity.AnalysisStatus);
+        Assert.Equal(model.EnrichmentAttempts, entity.EnrichmentAttempts);
+        Assert.Equal(model.LastEnrichmentAttempt, entity.LastEnrichmentAttempt);
+        Assert.Equal(model.DropTimestamp, entity.DropTimestamp);
+        Assert.Equal(model.ManualEnergy, entity.ManualEnergy);
+        Assert.Equal(model.SourceProvenance, entity.SourceProvenance);
+        Assert.Equal(model.SearchRetryCount, entity.SearchRetryCount);
+        Assert.Equal(model.NotFoundRestartCount, entity.NotFoundRestartCount);
+        Assert.Equal(model.CuePointsJson, entity.CuePointsJson);
+        Assert.Equal(model.AudioFingerprint, entity.AudioFingerprint);
+        Assert.Equal(model.Danceability, entity.Danceability);
+        Assert.Equal(model.Arousal, entity.Arousal);
+        Assert.Equal(model.IsDjTool, entity.IsDjTool);
+        Assert.Equal(model.SubGenreConfidence, entity.SubGenreConfidence);
+        Assert.Equal(model.SpectralHash, entity.SpectralHash);
+        Assert.Equal(model.SpectralSampleRateHz, entity.SpectralSampleRateHz);
+        Assert.Equal(model.SpectralBitDepth, entity.SpectralBitDepth);
+        Assert.Equal(model.SpectralRolloffSteepness, entity.SpectralRolloffSteepness);
+        Assert.Equal(model.SpectralMidBandEnergy, entity.SpectralMidBandEnergy);
+        Assert.Equal(model.SpectralHighBandEnergy, entity.SpectralHighBandEnergy);
+        Assert.Equal(model.SpectralRmsDbfs, entity.SpectralRmsDbfs);
+        Assert.Equal(model.SpectralCrestFactorDb, entity.SpectralCrestFactorDb);
+        Assert.Equal(model.SpectralNoiseFloorDbfs, entity.SpectralNoiseFloorDbfs);
+        Assert.Equal(model.VocalType, entity.VocalType);
+        Assert.Equal(model.VocalIntensity, entity.VocalIntensity);
+        Assert.Equal(model.VocalStartSeconds, entity.VocalStartSeconds);
+        Assert.Equal(model.VocalEndSeconds, entity.VocalEndSeconds);
+    }
+
+    [Fact]
     public async Task CancelPlaylist_RemovesFromDownloadCenter_PreservesInLibraryDatabase()
     {
         // Arrange
