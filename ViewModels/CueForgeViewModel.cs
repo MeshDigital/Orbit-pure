@@ -121,6 +121,11 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     private string? _waveformRefreshError;
     private string _waveformRefreshStatus = "";
+
+    // "Force full re-analysis" runs are independent of which track is open: the queue keeps going
+    // when you switch. Keyed by hash so switching back restores the live status (and a finished
+    // run reloads the track), instead of the state being cleared with the selection.
+    private readonly Dictionary<string, string> _pendingAnalysis = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Live queue/progress detail, or the reason a manually requested analysis failed.</summary>
     public string WaveformRefreshStatus
     {
@@ -963,6 +968,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         SetWaveformRefreshError(null);
         WaveformRefreshStatus = "Queued for full analysis…";
         IsWaveformRefreshPending = true;
+        _pendingAnalysis[TrackHash] = WaveformRefreshStatus;
         Session.SetStatus("Full analysis queued: waveform, loudness, tempo/key/grid, cues and available AI metrics. Your ORBIT cues stay local; nothing is written to Rekordbox.");
         _eventBus.Publish(new TrackAnalysisRequestedEvent(TrackHash, AnalysisTier.Tier1, IsHighPriority: true));
         return Task.CompletedTask;
@@ -970,17 +976,29 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     private void OnWaveformRefreshProgress(AnalysisProgressEvent evt)
     {
-        if (!IsWaveformRefreshPending || TrackHash == null ||
-            !string.Equals(evt.TrackGlobalId, TrackHash, StringComparison.OrdinalIgnoreCase)) return;
-        WaveformRefreshStatus = evt.StageCount > 0
+        if (TrackHash == null || !_pendingAnalysis.ContainsKey(evt.TrackGlobalId)) return;
+
+        var text = evt.StageCount > 0
             ? $"Stage {evt.StageIndex}/{evt.StageCount} · {evt.CurrentStep} · {evt.ProgressPercent}%"
             : $"{evt.CurrentStep} · {evt.ProgressPercent}%";
+        _pendingAnalysis[evt.TrackGlobalId] = text;
+
+        // Only the open track has a visible banner; the others keep their latest status for when
+        // the user switches back (the run itself is never cancelled by a track switch).
+        if (string.Equals(evt.TrackGlobalId, TrackHash, StringComparison.OrdinalIgnoreCase))
+            WaveformRefreshStatus = text;
     }
 
     private async Task OnWaveformRefreshCompletedAsync(TrackAnalysisUpdatedEvent evt)
     {
-        if (!IsWaveformRefreshPending || TrackHash == null ||
-            !string.Equals(evt.TrackGlobalId, TrackHash, StringComparison.OrdinalIgnoreCase)) return;
+        if (TrackHash == null || !_pendingAnalysis.ContainsKey(evt.TrackGlobalId)) return;
+
+        _pendingAnalysis.Remove(evt.TrackGlobalId);
+
+        // The run finished for a track that is no longer open: just drop its pending state. When
+        // the user returns, LoadTrackAsync reads the fresh features from the database.
+        if (!string.Equals(evt.TrackGlobalId, TrackHash, StringComparison.OrdinalIgnoreCase))
+            return;
 
         // Reloading the track also reloads its cue session. Save a draft first, exactly as a manual
         // track switch would; if saving fails, keep the current editor and its unsaved work intact.
@@ -1001,8 +1019,12 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     private void OnWaveformRefreshFailed(TrackAnalysisFailedEvent evt)
     {
-        if (!IsWaveformRefreshPending || TrackHash == null ||
-            !string.Equals(evt.TrackGlobalId, TrackHash, StringComparison.OrdinalIgnoreCase)) return;
+        if (TrackHash == null || !_pendingAnalysis.ContainsKey(evt.TrackGlobalId)) return;
+
+        _pendingAnalysis.Remove(evt.TrackGlobalId);
+        if (!string.Equals(evt.TrackGlobalId, TrackHash, StringComparison.OrdinalIgnoreCase))
+            return;
+
         IsWaveformRefreshPending = false;
         WaveformRefreshStatus = $"Full analysis failed: {evt.Error}";
         SetWaveformRefreshError(evt.Error);
@@ -1070,9 +1092,10 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         WaveformLow = null; WaveformMid = null; WaveformHigh = null;
         IsWaveformMissing = false;
         IsWaveformOutdated = false;
-        IsWaveformRefreshPending = false;
+        // A run started on this track keeps going when the selection moves away; restore it.
+        IsWaveformRefreshPending = _pendingAnalysis.TryGetValue(trackHash, out var pendingStatus);
         SetWaveformRefreshError(null);
-        WaveformRefreshStatus = "";
+        WaveformRefreshStatus = pendingStatus ?? "";
         WaveformZoom = 1.0; WaveformScroll = 0;
         CurrentPlayPosition = 0;
         TimeTillDropSeconds = null;

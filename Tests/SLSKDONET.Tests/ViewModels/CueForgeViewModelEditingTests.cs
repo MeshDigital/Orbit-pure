@@ -715,6 +715,39 @@ public class CueForgeViewModelEditingTests
     }
 
     [Fact]
+    public async Task RefreshWaveform_PendingStateSurvivesSwitchingTracks_AndRestoresOnReturn()
+    {
+        using var bus = new EventBusService();
+        const string other = "track-b";
+        var library = new Mock<ILibraryService>();
+        library.Setup(l => l.GetAudioFeaturesByHashAsync(Hash)).ReturnsAsync(new AudioFeaturesEntity
+        {
+            TrackUniqueHash = Hash, WaveformBlobSampleCount = 1, WaveformBlob = new byte[] { 1, 2, 3 },
+        });
+        library.Setup(l => l.GetAudioFeaturesByHashAsync(other)).ReturnsAsync(new AudioFeaturesEntity
+        {
+            TrackUniqueHash = other, WaveformBlobSampleCount = 1, WaveformBlob = new byte[] { 1, 2, 3 },
+        });
+        using var vm = new CueForgeViewModel(new FakeCueStore(), new FakeTransport(), new AppConfig(),
+            libraryService: library.Object, eventBus: bus, ui: a => { a(); return Task.CompletedTask; });
+
+        await vm.LoadTrackAsync(Hash, "A", "X");
+        await vm.RefreshWaveformCommand.Execute();
+        Assert.True(vm.IsWaveformRefreshPending);
+
+        // Switching away must not cancel or forget the run for the track that was left.
+        await vm.LoadTrackAsync(other, "B", "Y");
+        Assert.False(vm.IsWaveformRefreshPending);
+
+        bus.Publish(new AnalysisProgressEvent(Hash, "Extracting waveform", 25, StageIndex: 3, StageCount: 8));
+
+        // Coming back restores the live status instead of showing a blank/not-analysing track.
+        await vm.LoadTrackAsync(Hash, "A", "X");
+        Assert.True(vm.IsWaveformRefreshPending);
+        Assert.Equal("Stage 3/8 · Extracting waveform · 25%", vm.WaveformRefreshStatus);
+    }
+
+    [Fact]
     public async Task RefreshWaveform_CurrentAnalysisStillOffersFullReanalysis()
     {
         using var bus = new EventBusService();
