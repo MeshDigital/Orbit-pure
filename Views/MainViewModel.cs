@@ -1632,17 +1632,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         // navigating somewhere in-app; a failure to launch the browser is non-fatal.
         if (!string.IsNullOrWhiteSpace(toast.OpenUrl))
         {
-            try
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(toast.OpenUrl)
-                {
-                    UseShellExecute = true
-                });
-            }
-            catch
-            {
-                // No default browser / blocked by policy — the URL is also in the toast text.
-            }
+            // Update notices carry the exact release page. Only absolute http/https is opened;
+            // a failure to launch the browser is non-fatal (the URL is also in the toast text).
+            ExternalUrlHelper.TryOpen(toast.OpenUrl);
 
             return;
         }

@@ -135,15 +135,24 @@ public sealed class ChatMessageViewModel : ReactiveObject
 
         IsLoadingImage = true;
         ImageError = null;
+        string? localPath = null;
         try
         {
-            var localPath = await _attachments.ResolveLocalImagePathAsync(_remoteUsername, _imageVirtualPath, ImageFileName, IsOutgoing).ConfigureAwait(true);
+            localPath = await _attachments.ResolveLocalImagePathAsync(_remoteUsername, _imageVirtualPath, ImageFileName, IsOutgoing, ImageSizeBytes).ConfigureAwait(true);
             await using var stream = File.OpenRead(localPath);
             Image = new Bitmap(stream);
         }
         catch (Exception ex)
         {
             Serilog.Log.Warning(ex, "Failed to load chat image attachment {FileName} from {RemoteUsername}", ImageFileName, _remoteUsername);
+
+            // Don't leave a peer-supplied file behind when it couldn't be decoded.
+            if (!IsOutgoing && !string.IsNullOrEmpty(localPath))
+            {
+                try { File.Delete(localPath); }
+                catch (Exception deleteEx) { Serilog.Log.Warning(deleteEx, "Failed to delete rejected chat image {Path}", localPath); }
+            }
+
             ImageError = "Couldn't load image";
         }
         finally

@@ -974,19 +974,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private bool TryOpenSourceUrl(string url)
-    {
-        try
-        {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to open source URL {Url}", url);
-            return false;
-        }
-    }
+    private bool TryOpenSourceUrl(string url) => SLSKDONET.Utils.ExternalUrlHelper.TryOpen(url);
 
     /// <summary>
     /// Re-maps cue points for every already-analysed track in the playlist, without re-running

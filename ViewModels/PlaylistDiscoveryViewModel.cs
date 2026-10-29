@@ -422,14 +422,8 @@ public sealed class PlaylistDiscoveryViewModel : ReactiveObject, IDisposable
     {
         var url = s?.Candidate.BeatportUrl ?? s?.Candidate.DeezerUrl;
         if (string.IsNullOrEmpty(url)) return;
-        try
-        {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[Discover] Could not open {Url}", url);
-        }
+        if (!ExternalUrlHelper.TryOpen(url))
+            _logger.LogWarning("[Discover] Could not open {Url}", url);
     }
 
     // ── Preview (30 s / 2 min store clips) ──────────────────────────────────

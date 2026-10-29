@@ -137,14 +137,8 @@ public sealed class EnrichmentSetupGateway : ISetupEnrichmentGateway, IDisposabl
 
     public void OpenUrl(string url)
     {
-        try
-        {
-            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Setup: could not open {Url}", url);
-        }
+        if (!SLSKDONET.Utils.ExternalUrlHelper.TryOpen(url))
+            _logger.LogWarning("Setup: could not open {Url}", url);
     }
 
     public void Dispose()

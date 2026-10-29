@@ -95,7 +95,10 @@ public sealed class ChatAttachmentService
         var storedPath = Path.Combine(AttachmentsDirectory, storedFileName);
         File.Copy(localSourceFilePath, storedPath, overwrite: false);
 
-        var virtualPath = storedPath.Replace('/', '\\');
+        // Privacy: never expose the real on-disk path (which contains the Windows username) to
+        // peers. Use a virtual alias as the grant key and in the offer; the real path stays
+        // inside the grant only.
+        var virtualPath = $"ORBIT-Chat\\{storedFileName}";
         _outgoingGrants[virtualPath] = new ChatAttachmentGrant(storedPath, recipientUsername, DateTime.UtcNow);
         EvictOldestIfOverCap(_outgoingGrants, g => g.CreatedAtUtc);
 
@@ -107,8 +110,11 @@ public sealed class ChatAttachmentService
     /// <summary>
     /// Resolves an image offer to a local file path — either the copy we already hold (if we're
     /// the one who sent it) or a freshly peer-to-peer downloaded copy (if we received it).
+    /// Incoming offers are validated before anything touches the Skia decoder: the peer-declared
+    /// size and extension are checked, the transfer is capped, and the downloaded bytes are
+    /// verified to be an actual image (magic bytes) — a file that fails any check is deleted.
     /// </summary>
-    public async Task<string> ResolveLocalImagePathAsync(string peerUsername, string virtualPath, string fileName, bool isOutgoing, CancellationToken ct = default)
+    public async Task<string> ResolveLocalImagePathAsync(string peerUsername, string virtualPath, string fileName, bool isOutgoing, long sizeBytes, CancellationToken ct = default)
     {
         if (isOutgoing && _outgoingGrants.TryGetValue(virtualPath, out var grant) && File.Exists(grant.LocalPath))
             return grant.LocalPath;
@@ -116,19 +122,97 @@ public sealed class ChatAttachmentService
         if (_downloadedByVirtualPath.TryGetValue(virtualPath, out var cached) && File.Exists(cached.LocalPath))
             return cached.LocalPath;
 
-        Directory.CreateDirectory(AttachmentsDirectory);
+        // The peer controls both fields on the incoming path, so enforce them here (outgoing
+        // offers are already validated in PrepareOutgoingImage).
+        if (sizeBytes <= 0 || sizeBytes > MaxImageBytes)
+        {
+            _logger.LogWarning("Rejected incoming chat image offer of {Size} bytes (max {Max})", sizeBytes, MaxImageBytes);
+            throw new InvalidOperationException($"Image is too large — max {MaxImageBytes / 1024 / 1024} MB.");
+        }
+
         var extension = Path.GetExtension(fileName);
+        if (!AllowedImageExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("Rejected incoming chat image with disallowed extension '{Extension}'", extension);
+            throw new InvalidOperationException($"'{extension}' isn't a supported image type.");
+        }
+
+        Directory.CreateDirectory(AttachmentsDirectory);
         var localPath = Path.Combine(AttachmentsDirectory, $"recv_{Guid.NewGuid():N}{extension}");
 
         var adapter = _serviceProvider.GetRequiredService<ISoulseekAdapter>();
-        var success = await adapter.DownloadAsync(peerUsername, virtualPath, localPath, ct: ct).ConfigureAwait(false);
+        var success = await adapter.DownloadAsync(peerUsername, virtualPath, localPath, size: sizeBytes, ct: ct).ConfigureAwait(false);
 
         if (!success || !File.Exists(localPath))
             throw new IOException($"Failed to download image from {peerUsername}.");
 
+        // The peer can lie about the advertised size — enforce the cap on the bytes actually written.
+        var downloadedInfo = new FileInfo(localPath);
+        if (downloadedInfo.Length > MaxImageBytes)
+        {
+            DeleteRejectedFile(localPath);
+            _logger.LogWarning("Incoming chat image exceeded the size cap after download ({Size} bytes)", downloadedInfo.Length);
+            throw new InvalidOperationException($"Image is too large — max {MaxImageBytes / 1024 / 1024} MB.");
+        }
+
+        // Validate the content is a real image before any decoder sees it; delete it if not.
+        if (!IsAllowedImageContent(localPath))
+        {
+            DeleteRejectedFile(localPath);
+            _logger.LogWarning("Incoming chat image failed magic-byte validation: {Path}", localPath);
+            throw new InvalidOperationException("File is not a valid image.");
+        }
+
         _downloadedByVirtualPath[virtualPath] = (localPath, DateTime.UtcNow);
         EvictOldestIfOverCap(_downloadedByVirtualPath, v => v.CreatedAtUtc);
         return localPath;
+    }
+
+    /// <summary>Best-effort deletion of a rejected download; failures are logged, not thrown.</summary>
+    private void DeleteRejectedFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to delete rejected chat image {Path}", path);
+        }
+    }
+
+    /// <summary>Checks the file header (magic bytes) against the supported image formats.</summary>
+    private static bool IsAllowedImageContent(string path)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            Span<byte> header = stackalloc byte[12];
+            var read = fs.Read(header);
+            return read switch
+            {
+                // PNG: 89 50 4E 47 0D 0A 1A 0A
+                >= 8 when header[0] == 0x89 && header[1] == (byte)'P' && header[2] == (byte)'N' && header[3] == (byte)'G'
+                    && header[4] == 0x0D && header[5] == 0x0A && header[6] == 0x1A && header[7] == 0x0A => true,
+                // JPEG: FF D8 FF
+                >= 3 when header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF => true,
+                // GIF: "GIF87a" or "GIF89a"
+                >= 6 when header[0] == (byte)'G' && header[1] == (byte)'I' && header[2] == (byte)'F'
+                    && header[3] == (byte)'8' && (header[4] == (byte)'7' || header[4] == (byte)'9') && header[5] == (byte)'a' => true,
+                // BMP: "BM"
+                >= 2 when header[0] == (byte)'B' && header[1] == (byte)'M' => true,
+                // WebP: "RIFF" .... "WEBP"
+                >= 12 when header[0] == (byte)'R' && header[1] == (byte)'I' && header[2] == (byte)'F' && header[3] == (byte)'F'
+                    && header[8] == (byte)'W' && header[9] == (byte)'E' && header[10] == (byte)'B' && header[11] == (byte)'P' => true,
+                _ => false
+            };
+        }
+        catch (Exception)
+        {
+            // Unreadable files are treated as invalid; the caller logs and deletes.
+            return false;
+        }
     }
 
     /// <summary>

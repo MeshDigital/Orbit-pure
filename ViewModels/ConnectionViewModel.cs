@@ -270,19 +270,9 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
 
     private void OpenAccountHelpUrl()
     {
-        try
-        {
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "https://www.slsknet.org/news/node/1",
-                UseShellExecute = true
-            };
-            System.Diagnostics.Process.Start(psi);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to open Soulseek account help URL. Please visit https://www.slsknet.org/news/node/1 manually.");
-        }
+        const string url = "https://www.slsknet.org/news/node/1";
+        if (!SLSKDONET.Utils.ExternalUrlHelper.TryOpen(url))
+            _logger.LogWarning("Failed to open Soulseek account help URL. Please visit {Url} manually.", url);
     }
 
     public void Disconnect()

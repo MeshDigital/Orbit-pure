@@ -690,50 +690,17 @@ public class SpotifyAuthService
     }
 
     /// <summary>
-    /// Opens the default browser to the specified URL.
+    /// Opens the default browser to the specified URL (an absolute http/https URL). The previous
+    /// <c>cmd /c start</c> fallback is intentionally removed: letting the shell re-parse a URL is
+    /// exactly the scheme-injection risk this helper is meant to close.
     /// </summary>
     private void OpenBrowser(string url)
     {
-        try
-        {
-            // Cross-platform browser opening
-            if (OperatingSystem.IsWindows())
-            {
-                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-            }
-            else if (OperatingSystem.IsMacOS())
-            {
-                Process.Start("open", url);
-            }
-            else if (OperatingSystem.IsLinux())
-            {
-                Process.Start("xdg-open", url);
-            }
-            else
-            {
-                _logger.LogWarning("Unsupported platform for opening browser");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to open browser with default method. Attempting fallback...");
-            
-            try
-            {
-                // Fallback for Windows: explorer "url"
-                if (OperatingSystem.IsWindows())
-                {
-                     // Escape the URL for cmd/explorer
-                     url = url.Replace("&", "^&"); 
-                     Process.Start(new ProcessStartInfo("cmd", $"/c start {url}") { CreateNoWindow = true });
-                }
-            }
-            catch (Exception fallbackEx)
-            {
-                 _logger.LogError(fallbackEx, "Fallback browser launch also failed");
-                 throw new InvalidOperationException($"Failed to open browser. Please manually navigate to: {url}", ex);
-            }
-        }
+        if (ExternalUrlHelper.TryOpen(url))
+            return;
+
+        _logger.LogError("Failed to open browser for Spotify sign-in. Please navigate manually to: {Url}", url);
+        throw new InvalidOperationException($"Failed to open browser. Please manually navigate to: {url}");
     }
 
     /// <summary>

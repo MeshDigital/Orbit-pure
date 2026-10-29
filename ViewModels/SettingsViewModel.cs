@@ -1148,13 +1148,9 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private void OpenSpotifyDashboard()
     {
         const string url = "https://developer.spotify.com/dashboard/create";
-        try
+        if (!SLSKDONET.Utils.ExternalUrlHelper.TryOpen(url))
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = url, UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not open the Spotify developer dashboard");
+            _logger.LogWarning("Could not open the Spotify developer dashboard");
             _eventBus.Publish(new ToastRequestedEvent("Couldn't open browser", $"Open {url} manually.", NotificationType.Warning, TimeSpan.FromSeconds(6)));
         }
     }
@@ -2486,13 +2482,9 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public void OpenFfmpegDownloadPage()
     {
         const string url = "https://ffmpeg.org/download.html";
-        try
+        if (!SLSKDONET.Utils.ExternalUrlHelper.TryOpen(url))
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = url, UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not open the FFmpeg download page");
+            _logger.LogWarning("Could not open the FFmpeg download page");
             _eventBus.Publish(new ToastRequestedEvent("Couldn't open browser", $"Open {url} manually to download FFmpeg.", NotificationType.Warning, TimeSpan.FromSeconds(6)));
         }
     }
