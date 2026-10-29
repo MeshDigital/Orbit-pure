@@ -258,6 +258,32 @@ the mix continues once the edit is saved instead of staying silent on the inspec
 queue's `CurrentTrack` is never replaced by the borrowed file, so auto-advance and next/previous
 keep working.
 
+## The docked browser follows the playlist, not a snapshot
+
+The left browser is a view of one playlist: `LoadPlaylistBrowserAsync` reads it with
+`ILibraryService.GetPagedPlaylistTracksAsync(playlistId, downloadedOnly: true)`, whose default order is
+the persisted `SortOrder` (then `TrackNumber`, then `Id`). That list also drives the highlighted row,
+`BrowserPosition` ("Track 3 of 24") and `PreviousTrackCommand`/`NextTrackCommand`.
+
+Because the view model is a singleton, the list used to be exactly what the playlist looked like when
+the page was last open. Reordering the playlist elsewhere — Library's **Reorder for better flow** /
+**Auto-Arrange**, **Automix**, or Flow Builder's **Save order** — left Cue Forge showing the old
+sequence until the app restarted. Two things keep it current now:
+
+- **`OnViewActivatedAsync`** re-reads the browser on every visit to the page (after following the
+  playing track), so a reorder done while Cue Forge was closed is picked up.
+- **`PlaylistTrackOrderChangedEvent`** is published by `LibraryService.SaveTrackOrderAsync` — the one
+  write path for playlist order — and Cue Forge re-reads when it names the selected playlist (and the
+  Library grid refreshes for it too). A load that finishes after a newer one started is discarded
+  (`_browserLoadVersion`), so a slow response can't restore an older order.
+
+`SaveTrackOrderAsync` also guarantees the order readers rely on: after any reorder the playlist's rows
+carry `SortOrder` 1..N — one row per position, no ties — including rows the arrange operation didn't
+process (a partial list is treated as a permutation among the positions those rows already occupy).
+Before that, "Reorder for better flow" only wrote the rows that happened to be loaded in the
+virtualized grid, leaving duplicate positions behind; `ORDER BY SortOrder` then had no defined answer,
+so the grid, Cue Forge and the player could each show a different order.
+
 ## Transition overlay (Flow Builder)
 
 `TransitionOverlayModel` (pure) puts A's outgoing part and B's incoming part on one timeline in seconds

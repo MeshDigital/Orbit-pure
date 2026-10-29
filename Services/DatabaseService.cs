@@ -888,6 +888,13 @@ public class DatabaseService
         await _trackRepository.SavePlaylistTracksAsync(tracks);
     }
 
+    /// <summary>Order-only write (SortOrder/TrackNumber) for a whole playlist — see
+    /// <see cref="ITrackRepository.SavePlaylistTrackOrderAsync"/>.</summary>
+    public async Task SavePlaylistTrackOrderAsync(Guid playlistId, IReadOnlyList<Guid> orderedTrackIds)
+    {
+        await _trackRepository.SavePlaylistTrackOrderAsync(playlistId, orderedTrackIds);
+    }
+
     public async Task DeletePlaylistTracksAsync(Guid jobId)
     {
         await _trackRepository.DeletePlaylistTracksAsync(jobId);

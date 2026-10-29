@@ -1138,6 +1138,16 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
                 _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
         }));
 
+        // A reorder saved from another surface (Flow Builder's "Save order", Automix, Combine,
+        // Auto-Arrange) is a content change for the grid too: without this, going back to a
+        // playlist edited elsewhere kept showing the old order until something else reloaded it.
+        _disposables.Add(eventBus.GetEvent<PlaylistTrackOrderChangedEvent>().Subscribe(evt =>
+        {
+            var currentProjectId = _mainViewModel?.LibraryViewModel?.SelectedProject?.Id;
+            if (currentProjectId == evt.PlaylistId)
+                _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
+        }));
+
         // A folder import adds LibraryEntries in batches and publishes ONE completion event; All
         // Tracks refreshes once on it (no per-file refresh storm, no "0 tracks" mid-import).
         _disposables.Add(eventBus.GetEvent<LibraryImportCompletedEvent>().Subscribe(evt =>
@@ -1917,69 +1927,71 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
     /// PlaylistIntelligenceViewModel's CreateAutomixPlaylistAsync + ApplyAutomixAsync, collapsed
     /// into a single in-place action since there's no separate staging step here.
     /// </summary>
+    /// <remarks>
+    /// The playlist's rows are read from the database, <b>not</b> from <see cref="FilteredTracks"/>.
+    /// The grid is virtualized: only the pages the user scrolled through are loaded, so the old
+    /// behaviour reordered just those rows and left every other row on its previous
+    /// <c>SortOrder</c>. The playlist then held duplicate positions, <c>ORDER BY SortOrder</c> had
+    /// no defined answer for them, and the grid, Cue Forge's browser and the player each showed a
+    /// different order (and paged reads could repeat or skip rows). Reading the whole playlist and
+    /// arranging all of it keeps the persisted order total and unambiguous.
+    /// </remarks>
     private async Task SuggestReorderForBetterFlowAsync()
     {
-        var source = FilteredTracks;
-        var playlistId = source.FirstOrDefault()?.Model?.PlaylistId ?? Guid.Empty;
+        var playlistId = _mainViewModel?.LibraryViewModel?.SelectedProject?.Id
+                         ?? FilteredTracks.FirstOrDefault()?.Model?.PlaylistId
+                         ?? Guid.Empty;
         if (playlistId == Guid.Empty) return;
 
-        // Capped at PlaylistOptimizer's own O(n²) safety limit — a playlist larger than that gets
-        // its first MaxOptimizeTracks analyzed tracks reordered rather than failing outright.
-        var tracks = (source as VirtualizedTrackCollection)?.GetSubset(Services.Playlist.PlaylistOptimizer.MaxOptimizeTracks).ToList()
-            ?? source.Take(Services.Playlist.PlaylistOptimizer.MaxOptimizeTracks).ToList();
+        // Whole playlist, in its current persisted order.
+        var allTracks = await _libraryService.LoadPlaylistTracksAsync(playlistId);
+        if (allTracks.Count < 2) return;
 
         // Only tracks whose audio is actually on disk can be meaningfully mixed/reordered — a
         // Pending/Review/OnHold row has no file to beatmatch or preview, and its stored BPM/key
         // (if any) may be stale metadata rather than analysis of a file we actually have. Model.
         // Status is this codebase's established "is the file really here" signal (see
         // PlaylistTrackViewModel.IsGhost's doc comment) — stronger than AvailabilityState.
-        var eligible = tracks
-            .Where(t => !t.IsPlaceholder && t.Model?.Status == TrackStatus.Downloaded && (t.HasBpm || t.HasAnalysisData))
+        //
+        // Rows that can't take part keep their slot in the playlist: SaveTrackOrderAsync treats a
+        // partial list as a permutation among the positions its rows already occupy, so the
+        // wanted-but-missing tracks don't jump around every time the set is re-arranged.
+        var eligible = allTracks
+            .Where(t => t.Status == TrackStatus.Downloaded
+                        && !string.IsNullOrEmpty(t.ResolvedFilePath)
+                        && System.IO.File.Exists(t.ResolvedFilePath))
             .ToList();
         if (eligible.Count < 2) return;
 
-        // Not-yet-downloaded (but real, already-loaded) tracks are excluded from optimization but
-        // must keep a valid, non-colliding SortOrder — appended after the reordered set, in their
-        // original relative order, mirroring PlaylistOptimizer's own "unanalyzed tracks appended
-        // at the end" convention for tracks it can't score.
-        //
-        // Placeholders are excluded here too, deliberately never touched: GetSubset's cache-miss
-        // path (VirtualizedTrackCollection, still-loading pages) returns the SAME shared
-        // PlaylistTrackViewModel.Placeholder singleton for every unloaded slot, not a distinct
-        // instance per row. Including it here would mutate that shared instance's SortOrder
-        // repeatedly and — far worse — add the same fake "Loading…" Model reference into
-        // orderedModels once per unloaded slot, corrupting the SaveTrackOrderAsync write. A
-        // playlist with unloaded rows at reorder time simply leaves those specific rows' SortOrder
-        // untouched rather than risking that.
-        var notEligible = tracks.Where(t => !t.IsPlaceholder && !eligible.Contains(t)).ToList();
+        // Capped at PlaylistOptimizer's own O(n²) safety limit — a playlist larger than that gets
+        // its first MaxOptimizeTracks eligible tracks reordered rather than failing outright.
+        var toOptimize = eligible.Take(Services.Playlist.PlaylistOptimizer.MaxOptimizeTracks).ToList();
 
-        var hashes = eligible.Select(t => t.GlobalId).Where(h => !string.IsNullOrEmpty(h)).ToList();
+        // The same track can legitimately appear more than once in a set (a replay); the optimizer
+        // works on hashes, so keep every occurrence and move them together.
+        var rowsByHash = toOptimize
+            .Where(t => !string.IsNullOrEmpty(t.TrackUniqueHash))
+            .GroupBy(t => t.TrackUniqueHash, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+        if (rowsByHash.Count < 2) return;
 
         try
         {
-            var result = await _playlistOptimizer.OptimizeAsync(hashes);
+            var result = await _playlistOptimizer.OptimizeAsync(rowsByHash.Keys);
             if (result.OrderedHashes.Count < 2) return;
 
-            var lookup = eligible.ToDictionary(t => t.GlobalId);
-            var orderedModels = new List<PlaylistTrack>();
-            int i = 1;
+            var orderedModels = new List<PlaylistTrack>(toOptimize.Count);
+            var seen = new HashSet<Guid>();
             foreach (var hash in result.OrderedHashes)
             {
-                if (!lookup.TryGetValue(hash, out var track) || track.Model is null) continue;
-                track.Model.SortOrder = i;
-                track.Model.TrackNumber = i;
-                orderedModels.Add(track.Model);
-                i++;
+                if (!rowsByHash.TryGetValue(hash, out var rows)) continue;
+                foreach (var row in rows)
+                {
+                    if (seen.Add(row.Id)) orderedModels.Add(row);
+                }
             }
 
-            foreach (var track in notEligible)
-            {
-                if (track.Model is null) continue;
-                track.Model.SortOrder = i;
-                track.Model.TrackNumber = i;
-                orderedModels.Add(track.Model);
-                i++;
-            }
+            if (orderedModels.Count < 2) return;
 
             await _libraryService.SaveTrackOrderAsync(playlistId, orderedModels);
 

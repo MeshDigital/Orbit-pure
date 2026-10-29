@@ -37,6 +37,21 @@ see early builds. Full detail: **[DOCS/RELEASE_NOTES_0.2.1.md](DOCS/RELEASE_NOTE
   their track for the visit; `[CueForge] LastTrack*` now persists through `ConfigManager`; rebuilding the
   docked browser no longer reports its transient first-row selection as a click.
 
+### 🔀 One playlist order, everywhere
+- Reordering a playlist no longer leaves duplicate positions behind. "Reorder for better flow" used to
+  arrange only the rows loaded in the virtualized grid and "Auto-Arrange"/"Automix" only their arranged
+  subset, so every other row kept its old `SortOrder` — with `ORDER BY SortOrder` undefined for the ties,
+  the grid, Cue Forge's browser and the player could each show a different order (and paged reads could
+  repeat or skip rows). `SaveTrackOrderAsync` is now the single write path and always renumbers the whole
+  playlist 1..N (a partial list permutes only the slots its rows already occupy), writing nothing but
+  `SortOrder`/`TrackNumber`.
+- Queries tie-break on `TrackNumber` then `Id`, so even legacy playlists with duplicate positions read
+  the same order in every surface and every page.
+- Cue Forge's docked browser re-reads the playlist when the page opens and on the new
+  `PlaylistTrackOrderChangedEvent` (published by `SaveTrackOrderAsync`), so its list, highlighted row,
+  "Track N of M" and Previous/Next follow the reordered playlist instead of the order it had when the page
+  was last open. The Library grid also refreshes on that event.
+
 ### ▶️ Player and update check
 - A stopped deck can no longer keep playing: `Stop()` detaches the decks before disposing, so WASAPI's
   synchronous `PlaybackStopped` no longer promotes the preloaded deck into an unreachable playback.

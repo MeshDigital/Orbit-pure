@@ -927,19 +927,98 @@ public class LibraryService : ILibraryService
         CreatedAt = folder.CreatedAt
     };
 
+    /// <summary>
+    /// Persists a playlist's track order.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the single write path for playlist order, and it enforces the invariant every reader
+    /// relies on: after the call, the playlist's rows carry <c>SortOrder</c> 1..N — one row per
+    /// position, no gaps, no ties. Callers used to write only the rows they had arranged (the
+    /// virtualized grid's loaded page, the downloaded subset, the staged automix), leaving every
+    /// other row on its old — often equal — position; <c>ORDER BY SortOrder</c> then had no defined
+    /// answer for the duplicates, so the grid, Cue Forge's browser and the player could each show a
+    /// different order, and paged reads could even repeat or skip rows.
+    /// </para>
+    /// <para>
+    /// Two shapes of input are supported. A complete list (all rows of the playlist) is the new
+    /// order outright, as Flow Builder's "Save order" and the Combine flow provide. A partial list
+    /// — only the tracks an arrange operation could process — is treated as a permutation: those
+    /// rows are reordered among the positions they already occupy, and every other row keeps its
+    /// place. Either way, the whole playlist is renumbered 1..N.
+    /// </para>
+    /// <para>
+    /// Only <c>SortOrder</c>/<c>TrackNumber</c> are written (see
+    /// <c>TrackRepository.SavePlaylistTrackOrderAsync</c>): a reorder must never round-trip the
+    /// rest of a row through the model mapping, which would blank columns it doesn't carry.
+    /// </para>
+    /// </remarks>
     public async Task SaveTrackOrderAsync(Guid playlistId, IEnumerable<PlaylistTrack> tracks)
     {
+        var requested = (tracks ?? Enumerable.Empty<PlaylistTrack>()).ToList();
+        if (requested.Count == 0) return;
+
         try
         {
-            // Convert to models and persist batch
-            var entities = tracks.Select(PlaylistTrackToEntity).ToList();
-            await _databaseService.SavePlaylistTracksAsync(entities).ConfigureAwait(false);
+            var current = playlistId == Guid.Empty
+                ? new List<PlaylistTrack>()
+                : await LoadPlaylistTracksAsync(playlistId).ConfigureAwait(false);
+
+            var ordered = BuildTotalPlaylistOrder(current, requested);
+
+            var orderedIds = ordered.Select(t => t.Id).ToList();
+            await _databaseService.SavePlaylistTrackOrderAsync(playlistId, orderedIds).ConfigureAwait(false);
+
+            // Every surface that renders this playlist (Library grid, Cue Forge browser, player
+            // queue) re-reads the order on this instead of keeping the snapshot it loaded earlier.
+            _eventBus.Publish(new PlaylistTrackOrderChangedEvent(playlistId, orderedIds));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to persist track order for playlist {Id}", playlistId);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Turns "the caller's order for some or all of the playlist's rows" into one total order for
+    /// all of them. See <see cref="SaveTrackOrderAsync"/> for the two supported shapes.
+    /// </summary>
+    internal static List<PlaylistTrack> BuildTotalPlaylistOrder(
+        IReadOnlyList<PlaylistTrack> current, IReadOnlyList<PlaylistTrack> requested)
+    {
+        // No membership loaded (an "All Tracks" id, or a failed read): the caller's list is all we
+        // have, so persist it as given rather than dropping the reorder on the floor.
+        if (current.Count == 0) return requested.ToList();
+
+        var currentById = current.ToDictionary(t => t.Id);
+        var requestedRows = new List<PlaylistTrack>(requested.Count);
+        var requestedIds = new HashSet<Guid>();
+        foreach (var track in requested)
+        {
+            // Only rows that really belong to this playlist take part; bridge tracks the caller
+            // hasn't added yet (or a stale row deleted meanwhile) must not create phantom slots.
+            if (currentById.TryGetValue(track.Id, out var currentRow) && requestedIds.Add(track.Id))
+                requestedRows.Add(currentRow);
+        }
+
+        if (requestedRows.Count == 0) return current.ToList();
+        if (requestedRows.Count == current.Count) return requestedRows;
+
+        // Partial arrange: keep the playlist's shape (and any tracks that couldn't be arranged
+        // exactly where they were) and permute only the arranged rows among their own positions.
+        var movedIds = requestedIds;
+        var result = current.ToList();
+        var slots = new List<int>(requestedRows.Count);
+        for (var i = 0; i < current.Count; i++)
+        {
+            if (movedIds.Contains(current[i].Id)) slots.Add(i);
+        }
+
+        for (var i = 0; i < slots.Count && i < requestedRows.Count; i++)
+            result[slots[i]] = requestedRows[i];
+
+        return result;
     }
 
     // ===== INDEX 3: PlaylistTrack (Relational Index - Database Backed) =====

@@ -2868,8 +2868,9 @@ public partial class LibraryViewModel
         {
             var tracks = await _libraryService.LoadPlaylistTracksAsync(job.Id);
             // Not-yet-downloaded tracks have no file to derive fingerprint/BPM data from, so they
-            // can't take part in similarity scoring — excluded here, left untouched in the saved
-            // order below (Set Plan / manual placement for wanted-but-missing tracks is unaffected).
+            // can't take part in similarity scoring. They aren't passed to SaveTrackOrderAsync at
+            // all: a partial list is a permutation, so those rows keep the slots they already
+            // occupy (and the playlist still ends up renumbered 1..N with no duplicate positions).
             var eligible = tracks
                 .Where(t => !string.IsNullOrEmpty(t.ResolvedFilePath) && File.Exists(t.ResolvedFilePath))
                 .ToList();
@@ -2935,20 +2936,32 @@ public partial class LibraryViewModel
                 return;
             }
 
-            var newIndexByHash = new Dictionary<string, int>(StringComparer.Ordinal);
-            for (int i = 0; i < result.OrderedTrackHashes.Count; i++)
-                newIndexByHash[result.OrderedTrackHashes[i]] = i;
+            // SaveTrackOrderAsync takes the LIST ORDER as the new sequence (it renumbers the
+            // playlist itself), so this must hand over the tracks already ordered — not the
+            // original list with a SortOrder written onto each item.
+            var rowsByHash = eligible
+                .GroupBy(t => t.TrackUniqueHash, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
 
-            foreach (var track in eligible)
+            var ordered = new List<PlaylistTrack>(eligible.Count);
+            var added = new HashSet<Guid>();
+            foreach (var hash in result.OrderedTrackHashes)
             {
-                if (newIndexByHash.TryGetValue(track.TrackUniqueHash, out var newIndex))
+                if (!rowsByHash.TryGetValue(hash, out var rows)) continue;
+                foreach (var row in rows)
                 {
-                    track.SortOrder = newIndex;
-                    track.TrackNumber = newIndex + 1;
+                    // A replay of the same track: both copies move with their position.
+                    if (added.Add(row.Id)) ordered.Add(row);
                 }
             }
+            foreach (var track in eligible)
+            {
+                // Defensive: a row the reorder service didn't mention keeps its place in the list
+                // (it still ends up at a unique position once the playlist is renumbered).
+                if (added.Add(track.Id)) ordered.Add(track);
+            }
 
-            await _libraryService.SaveTrackOrderAsync(job.Id, eligible);
+            await _libraryService.SaveTrackOrderAsync(job.Id, ordered);
             await ExecuteRefreshLibraryAsync();
             _notificationService.Show("Auto-Arrange",
                 NumFormat.Ui($"Rearranged {result.OrderedTrackHashes.Count} tracks in '{job.SourceTitle}' (avg transition score {result.AverageTransitionScore:P0}).") +

@@ -132,7 +132,50 @@ public class TrackRepository : ITrackRepository
             .Include(t => t.AudioFeatures) // Phase 21: Eager load Brain data
             .Where(t => t.PlaylistId == playlistId)
             .OrderBy(t => t.SortOrder)
+            // Legacy playlists can still carry duplicate SortOrder values (the pre-fix reorders
+            // wrote only the rows that happened to be loaded in the virtualized grid, leaving the
+            // rest on their old — often equal — positions). A tiebreak makes the order total, so
+            // every reader and every paged query agrees on it instead of inheriting SQLite's
+            // unspecified ordering for equal keys.
+            .ThenBy(t => t.TrackNumber)
+            .ThenBy(t => t.Id)
             .ToListAsync();
+    }
+
+    /// <summary>
+    /// Writes only <c>SortOrder</c>/<c>TrackNumber</c> for a playlist's rows, in the given order.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not routed through <see cref="SavePlaylistTracksAsync"/>: that upsert writes
+    /// every column from a round-tripped model, and the model↔entity mapping does not carry some
+    /// columns (fingerprints, the legacy cue blob, spectral forensics), so saving untouched rows
+    /// that way would blank them. A reorder must move rows, never rewrite their analysis.
+    /// </remarks>
+    public async Task SavePlaylistTrackOrderAsync(Guid playlistId, IReadOnlyList<Guid> orderedTrackIds)
+    {
+        if (orderedTrackIds.Count == 0) return;
+
+        await _writeSemaphore.WaitAsync();
+        try
+        {
+            using var context = new AppDbContext();
+            var existing = await context.PlaylistTracks
+                .Where(t => t.PlaylistId == playlistId)
+                .ToDictionaryAsync(t => t.Id);
+
+            for (var index = 0; index < orderedTrackIds.Count; index++)
+            {
+                if (!existing.TryGetValue(orderedTrackIds[index], out var track)) continue;
+                track.SortOrder = index + 1;
+                track.TrackNumber = index + 1;
+            }
+
+            await context.SaveChangesAsync();
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
     }
 
     public async Task<PlaylistTrackEntity?> GetPlaylistTrackByHashAsync(Guid playlistId, string hash)
@@ -248,15 +291,25 @@ public class TrackRepository : ITrackRepository
 
     private static IQueryable<PlaylistTrackEntity> ApplyPlaylistTrackSort(IQueryable<PlaylistTrackEntity> query, TrackSortColumn sortColumn, bool descending)
     {
+        // Every branch ends on TrackNumber/Id: with equal sort keys SQLite's order is unspecified,
+        // and the grid pages with Skip/Take, so two pages of the same query could overlap or skip
+        // rows. That also made the grid and Cue Forge's browser (one unpaged query) disagree on
+        // playlists whose SortOrder still held legacy duplicates.
         return sortColumn switch
         {
             TrackSortColumn.Artist => descending
-                ? query.OrderByDescending(t => t.Artist).ThenBy(t => t.Title)
-                : query.OrderBy(t => t.Artist).ThenBy(t => t.Title),
-            TrackSortColumn.Title => descending ? query.OrderByDescending(t => t.Title) : query.OrderBy(t => t.Title),
-            TrackSortColumn.Bpm => descending ? query.OrderByDescending(t => t.BPM) : query.OrderBy(t => t.BPM),
-            TrackSortColumn.Duration => descending ? query.OrderByDescending(t => t.CanonicalDuration) : query.OrderBy(t => t.CanonicalDuration),
-            _ => query.OrderBy(t => t.SortOrder)
+                ? query.OrderByDescending(t => t.Artist).ThenByDescending(t => t.Title).ThenBy(t => t.TrackNumber).ThenBy(t => t.Id)
+                : query.OrderBy(t => t.Artist).ThenBy(t => t.Title).ThenBy(t => t.TrackNumber).ThenBy(t => t.Id),
+            TrackSortColumn.Title => descending
+                ? query.OrderByDescending(t => t.Title).ThenBy(t => t.TrackNumber).ThenBy(t => t.Id)
+                : query.OrderBy(t => t.Title).ThenBy(t => t.TrackNumber).ThenBy(t => t.Id),
+            TrackSortColumn.Bpm => descending
+                ? query.OrderByDescending(t => t.BPM).ThenBy(t => t.TrackNumber).ThenBy(t => t.Id)
+                : query.OrderBy(t => t.BPM).ThenBy(t => t.TrackNumber).ThenBy(t => t.Id),
+            TrackSortColumn.Duration => descending
+                ? query.OrderByDescending(t => t.CanonicalDuration).ThenBy(t => t.TrackNumber).ThenBy(t => t.Id)
+                : query.OrderBy(t => t.CanonicalDuration).ThenBy(t => t.TrackNumber).ThenBy(t => t.Id),
+            _ => query.OrderBy(t => t.SortOrder).ThenBy(t => t.TrackNumber).ThenBy(t => t.Id)
         };
     }
 

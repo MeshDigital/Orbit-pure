@@ -58,6 +58,11 @@ public interface ITrackRepository
         bool? isUserPaused = null, bool clearRetryState = false, bool? isClearedFromDownloadCenter = null,
         int? priority = null);
     Task SavePlaylistTracksAsync(IEnumerable<PlaylistTrackEntity> tracks);
+    /// <summary>
+    /// Persists a playlist's row order by writing only <c>SortOrder</c>/<c>TrackNumber</c>
+    /// (never the rest of the row) for the ids in <paramref name="orderedTrackIds"/>.
+    /// </summary>
+    Task SavePlaylistTrackOrderAsync(Guid playlistId, IReadOnlyList<Guid> orderedTrackIds);
     Task DeletePlaylistTracksAsync(Guid playlistId);
     Task UpdatePlaylistTracksPriorityAsync(Guid playlistId, int newPriority);
     Task UpdatePlaylistTrackPriorityAsync(Guid trackId, int newPriority);
