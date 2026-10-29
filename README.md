@@ -4,6 +4,17 @@ ORBIT is a music library and DJ prep tool. It finds tracks on Soulseek, checks t
 
 Think of it as: search + downloads + a music library + a lightweight DJ workstation, in one app.
 
+## Download
+
+**Early stable — ORBIT 0.2.1** for Windows x64: **[download the installer](https://github.com/MeshDigital/Orbit-pure/releases/latest)** ·
+[what changed](DOCS/RELEASE_NOTES_0.2.1.md)
+
+The same release carries a portable zip (no installer) and a build manifest. Install is per-user with no
+admin prompt; updating over an older build is in place, and neither install nor uninstall touches
+`%APPDATA%\ORBIT` — your library, config, cues and analysis stay put.
+
+Older and pre-release builds (alpha/beta) live on the [releases page](https://github.com/MeshDigital/Orbit-pure/releases).
+
 > **Before you use it:** ORBIT connects to the Soulseek P2P network, where your IP address is visible to other peers. Like any real Soulseek client, it also shares files back to the network — anyone can browse and download from your configured shared folder. Use a VPN if that matters to you, and only download or share what you're legally allowed to.
 
 ---
