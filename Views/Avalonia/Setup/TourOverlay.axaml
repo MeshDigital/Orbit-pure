@@ -12,18 +12,22 @@
     <!--
       Quick tour coach marks. The four scrim rectangles leave a hole over the highlighted
       navigation item; positions come from the real control bounds (code-behind), so the tour
-      follows sidebar resize / collapse. Esc skips, Enter or Right = Next, Left = Back.
+      follows sidebar resize / collapse. Esc skips, Enter or Right = Next, Left = Back,
+      and clicking the dimmed backdrop advances too.
     -->
 
-    <Canvas x:Name="Root" Background="Transparent">
+    <Canvas x:Name="Root" Background="Transparent" PointerPressed="OnBackdropPressed">
         <Rectangle x:Name="ScrimTop" Fill="{StaticResource BrushScrim}"/>
         <Rectangle x:Name="ScrimBottom" Fill="{StaticResource BrushScrim}"/>
         <Rectangle x:Name="ScrimLeft" Fill="{StaticResource BrushScrim}"/>
         <Rectangle x:Name="ScrimRight" Fill="{StaticResource BrushScrim}"/>
 
+        <!-- Transparent background makes the highlight a real hit target, so the tour stays
+             locked: a click on the highlighted nav item advances instead of navigating away. -->
         <Border x:Name="Highlight"
+                Background="Transparent"
                 BorderBrush="{StaticResource BrushAccent}" BorderThickness="2"
-                CornerRadius="{StaticResource RadiusMd}" IsHitTestVisible="False"/>
+                CornerRadius="{StaticResource RadiusMd}"/>
 
         <Border x:Name="Card" Classes="dialog" Width="320" Padding="16">
             <StackPanel Spacing="8">
@@ -31,6 +35,7 @@
                     <TextBlock Classes="section" Text="QUICK TOUR" VerticalAlignment="Center"/>
                     <TextBlock Grid.Column="1" Classes="caption mono" Text="{Binding PositionText}" VerticalAlignment="Center"/>
                 </Grid>
+                <ProgressBar Classes="meter" Minimum="0" Maximum="1" Value="{Binding Progress}" Height="4"/>
                 <TextBlock Classes="h3" Text="{Binding Title}"/>
                 <TextBlock Classes="body-sm" Foreground="{StaticResource BrushText1}" Text="{Binding Body}" TextWrapping="Wrap"/>
                 <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
@@ -40,6 +45,8 @@
                             Command="{Binding BackCommand}" IsVisible="{Binding !IsFirst}"/>
                     <Button Grid.Column="2" Classes="primary small" Content="{Binding NextLabel}" Command="{Binding NextCommand}"/>
                 </Grid>
+                <TextBlock Classes="caption" Foreground="{StaticResource BrushText1}" TextWrapping="Wrap"
+                           Text="Esc skips · ← / → navigate · click the dimmed area for next"/>
             </StackPanel>
         </Border>
     </Canvas>

@@ -6,6 +6,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using SLSKDONET.ViewModels.Setup;
 
 namespace SLSKDONET.Views.Avalonia.Setup;
@@ -19,10 +20,23 @@ public partial class TourOverlay : UserControl
 {
     private const double Gap = 16;
     private const double HighlightInflate = 4;
+    private const double CardWidth = 320;
+    private const double CardHeight = 180;
 
     private QuickTourViewModel? _vm;
     private Rect _lastTarget = new(-1, -1, 0, 0);
     private Size _lastSize;
+    private bool _repositioning;
+
+    // Resolved once from the XAML name scope, then cached. They are plain children of this control,
+    // so they are always present after InitializeComponent; a miss is handled gracefully instead of
+    // a null-forgiving crash on the layout thread (which took the app down on fresh installs).
+    private Control? _scrimTop;
+    private Control? _scrimBottom;
+    private Control? _scrimLeft;
+    private Control? _scrimRight;
+    private Control? _highlight;
+    private Control? _card;
 
     public TourOverlay()
     {
@@ -59,12 +73,13 @@ public partial class TourOverlay : UserControl
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(QuickTourViewModel.CurrentTarget) or nameof(QuickTourViewModel.IsOpen))
-        {
-            var target = FindTarget(_vm?.CurrentTarget);
-            target?.BringIntoView();
-            Dispatcher.UIThread.Post(() => Reposition(force: true), DispatcherPriority.Loaded);
-        }
+        if (e.PropertyName is not (nameof(QuickTourViewModel.CurrentTarget) or nameof(QuickTourViewModel.IsOpen))) return;
+
+        // Keep the highlighted nav item in view (the sidebar scrolls), then re-place the coach mark.
+        var target = FindTarget(_vm?.CurrentTarget);
+        if (target is { IsEffectivelyVisible: true })
+            target.BringIntoView();
+        Dispatcher.UIThread.Post(() => Reposition(force: true), DispatcherPriority.Loaded);
     }
 
     private Control? FindTarget(string? name)
@@ -80,65 +95,103 @@ public partial class TourOverlay : UserControl
                && TopLevel.GetTopLevel(this) is { } top && control.TranslatePoint(new Point(0, 0), top) != null;
     }
 
+    /// <summary>Caches the six named children; false when any is missing (nothing to position, never a crash).</summary>
+    private bool TryEnsureParts()
+    {
+        _scrimTop ??= this.FindControl<Control>("ScrimTop");
+        _scrimBottom ??= this.FindControl<Control>("ScrimBottom");
+        _scrimLeft ??= this.FindControl<Control>("ScrimLeft");
+        _scrimRight ??= this.FindControl<Control>("ScrimRight");
+        _highlight ??= this.FindControl<Control>("Highlight");
+        _card ??= this.FindControl<Control>("Card");
+        return _scrimTop != null && _scrimBottom != null && _scrimLeft != null
+               && _scrimRight != null && _highlight != null && _card != null;
+    }
+
     private void Reposition(bool force)
     {
         if (_vm is not { IsOpen: true }) return;
-
-        var size = Bounds.Size;
-        var target = FindTarget(_vm.CurrentTarget);
-        Rect rect;
-        if (target is { IsEffectivelyVisible: true } && target.TranslatePoint(new Point(0, 0), this) is { } origin
-            && target.Bounds.Width > 0)
+        if (_repositioning) return; // LayoutUpdated re-entrancy: one pass at a time.
+        _repositioning = true;
+        try
         {
-            rect = new Rect(origin, target.Bounds.Size).Inflate(HighlightInflate);
+            var size = Bounds.Size;
+            if (size.Width <= 0 || size.Height <= 0) return; // not measured yet; LayoutUpdated will call back
+
+            var target = FindTarget(_vm.CurrentTarget);
+            Rect rect;
+            if (target is { IsEffectivelyVisible: true }
+                && target.TranslatePoint(new Point(0, 0), this) is { } origin
+                && target.Bounds.Width > 0 && target.Bounds.Height > 0)
+            {
+                rect = new Rect(origin, target.Bounds.Size).Inflate(HighlightInflate);
+            }
+            else
+            {
+                // Target hidden mid-tour: centre the card rather than throwing on a missing target.
+                rect = new Rect(size.Width / 2, size.Height / 2, 0, 0);
+            }
+
+            if (!force && rect == _lastTarget && size == _lastSize) return;
+            _lastTarget = rect;
+            _lastSize = size;
+
+            if (!TryEnsureParts()) return;
+
+            Place(_scrimTop!, 0, 0, size.Width, Math.Max(0, rect.Top));
+            Place(_scrimBottom!, 0, rect.Bottom, size.Width, Math.Max(0, size.Height - rect.Bottom));
+            Place(_scrimLeft!, 0, rect.Top, Math.Max(0, rect.Left), rect.Height);
+            Place(_scrimRight!, rect.Right, rect.Top, Math.Max(0, size.Width - rect.Right), rect.Height);
+
+            _highlight!.IsVisible = rect.Width > 0;
+            Place(_highlight, rect.X, rect.Y, Math.Max(0, rect.Width), Math.Max(0, rect.Height));
+
+            PlaceCard(_card!, rect, size);
         }
-        else
+        catch (Exception ex)
         {
-            rect = new Rect(size.Width / 2, size.Height / 2, 0, 0); // target hidden mid-tour: just centre the card
+            // Best-effort positioning must never take the app down; surface it for diagnosis.
+            Serilog.Log.Warning(ex, "Quick tour: positioning the coach mark failed");
         }
+        finally
+        {
+            _repositioning = false;
+        }
+    }
 
-        if (!force && rect == _lastTarget && size == _lastSize) return;
-        _lastTarget = rect;
-        _lastSize = size;
+    /// <summary>Places the card next to the target: right, then left, then below, then above.</summary>
+    private void PlaceCard(Control card, Rect rect, Size size)
+    {
+        var cardWidth = card.Bounds.Width > 0 ? card.Bounds.Width : CardWidth;
+        var cardHeight = card.Bounds.Height > 0 ? card.Bounds.Height : CardHeight;
 
-        var scrimTop = this.FindControl<Control>("ScrimTop")!;
-        var scrimBottom = this.FindControl<Control>("ScrimBottom")!;
-        var scrimLeft = this.FindControl<Control>("ScrimLeft")!;
-        var scrimRight = this.FindControl<Control>("ScrimRight")!;
-        var highlight = this.FindControl<Control>("Highlight")!;
-        var card = this.FindControl<Control>("Card")!;
-
-        Place(scrimTop, 0, 0, size.Width, Math.Max(0, rect.Top));
-        Place(scrimBottom, 0, rect.Bottom, size.Width, Math.Max(0, size.Height - rect.Bottom));
-        Place(scrimLeft, 0, rect.Top, Math.Max(0, rect.Left), rect.Height);
-        Place(scrimRight, rect.Right, rect.Top, Math.Max(0, size.Width - rect.Right), rect.Height);
-
-        highlight.IsVisible = rect.Width > 0;
-        Place(highlight, rect.X, rect.Y, rect.Width, rect.Height);
-
-        var cardWidth = card.Bounds.Width > 0 ? card.Bounds.Width : 320;
-        var cardHeight = card.Bounds.Height > 0 ? card.Bounds.Height : 180;
         double x, y;
         if (rect.Width <= 0)
         {
             x = (size.Width - cardWidth) / 2;
             y = (size.Height - cardHeight) / 2;
         }
-        else if (rect.Right + Gap + cardWidth <= size.Width - Gap)
+        else if (size.Width - (rect.Right + Gap) >= cardWidth)
         {
             x = rect.Right + Gap;
             y = rect.Top;
         }
-        else if (rect.Left - Gap - cardWidth >= Gap)
+        else if (rect.Left - Gap >= cardWidth)
         {
             x = rect.Left - Gap - cardWidth;
             y = rect.Top;
         }
-        else
+        else if (size.Height - (rect.Bottom + Gap) >= cardHeight)
         {
             x = rect.Left;
             y = rect.Bottom + Gap;
         }
+        else
+        {
+            x = rect.Left;
+            y = rect.Top - Gap - cardHeight;
+        }
+
         Canvas.SetLeft(card, Math.Clamp(x, Gap, Math.Max(Gap, size.Width - cardWidth - Gap)));
         Canvas.SetTop(card, Math.Clamp(y, Gap, Math.Max(Gap, size.Height - cardHeight - Gap)));
     }
@@ -149,6 +202,16 @@ public partial class TourOverlay : UserControl
         Canvas.SetTop(control, y);
         control.Width = Math.Max(0, width);
         control.Height = Math.Max(0, height);
+    }
+
+    /// <summary>Clicking the dimmed backdrop advances the tour (button clicks are handled and never reach here).</summary>
+    private void OnBackdropPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.Handled || _vm is not { IsOpen: true }) return;
+        // The card (Next / Back / Skip) is its own click target.
+        if (_card != null && e.Source is Visual source && _card.IsVisualAncestorOf(source)) return;
+        _vm.Next();
+        e.Handled = true;
     }
 
     private void OnKeyDown(object? sender, KeyEventArgs e)

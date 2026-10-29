@@ -74,4 +74,42 @@ public class QuickTourViewModelTests
         Assert.Null(tour.CurrentTarget);
         Assert.True(state.IsTourCompleted);
     }
+
+    [Fact]
+    public void Progress_TracksTheCurrentStep()
+    {
+        var tour = new QuickTourViewModel(new FakeSetupState(), NullLogger.Instance);
+        Assert.Equal(0.0, tour.Progress); // nothing started yet
+        tour.Start(_ => true);
+        Assert.Equal(0.1, tour.Progress, 3); // 1 / 10
+        tour.Next();
+        Assert.Equal(0.2, tour.Progress, 3); // 2 / 10
+        for (var i = 0; i < 8; i++) tour.Next();
+        Assert.Equal(1.0, tour.Progress, 3); // 10 / 10
+    }
+
+    [Fact]
+    public void Back_AtFirstStep_IsNoOp()
+    {
+        var tour = new QuickTourViewModel(new FakeSetupState(), NullLogger.Instance);
+        tour.Start(_ => true);
+        tour.Back();
+        Assert.Equal(0, tour.Index);
+        Assert.Equal("NavSearch", tour.CurrentTarget);
+    }
+
+    [Fact]
+    public void Close_IsIdempotent()
+    {
+        var state = new FakeSetupState();
+        var tour = new QuickTourViewModel(state, NullLogger.Instance);
+        tour.Start(_ => true);
+        tour.Close(completed: false);
+        Assert.False(tour.IsOpen);
+
+        // A second close must not throw and must leave the tour closed.
+        tour.Close(completed: true);
+        Assert.False(tour.IsOpen);
+        Assert.True(state.IsTourCompleted);
+    }
 }
