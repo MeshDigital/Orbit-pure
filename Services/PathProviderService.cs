@@ -46,7 +46,7 @@ public class PathProviderService
         var safeSegments = segments.Select(Slugify).ToArray();
         
         var relativePath = Path.Combine(safeSegments) + "." + extension;
-        var fullPath = Path.Combine(_config.DownloadDirectory ?? "Downloads", relativePath);
+        var fullPath = ResolveWithinDownloadDirectory(relativePath);
 
         // Ensure directory exists
         var directory = Path.GetDirectoryName(fullPath);
@@ -64,16 +64,13 @@ public class PathProviderService
         var safeAlbum = Slugify(album);
         var safeTitle = Slugify(title);
 
-        var folderPath = Path.Combine(
-            _config.DownloadDirectory ?? "Downloads",
-            safeArtist,
-            safeAlbum
-        );
+        var fullPath = ResolveWithinDownloadDirectory(Path.Combine(safeArtist, safeAlbum, $"{safeTitle}.{extension}"));
 
         // Ensure directory exists
-        Directory.CreateDirectory(folderPath);
+        var directory = Path.GetDirectoryName(fullPath);
+        if (directory != null) Directory.CreateDirectory(directory);
 
-        return Path.Combine(folderPath, $"{safeTitle}.{extension}");
+        return fullPath;
     }
 
     /// <summary>
@@ -88,12 +85,15 @@ public class PathProviderService
 
         // Invalid characters for Windows/Linux filesystems
         var invalidChars = new[] { '?', ':', '*', '<', '>', '|', '"', '/', '\\' };
-        
+
         var result = input;
         foreach (var c in invalidChars)
         {
             result = result.Replace(c, '_');
         }
+
+        // Strip control characters — a peer could embed them to craft confusing names.
+        result = new string(result.Where(c => !char.IsControl(c)).ToArray());
 
         // Trim and limit length to prevent path length issues
         result = result.Trim();
@@ -102,8 +102,73 @@ public class PathProviderService
             result = result.Substring(0, 200);
             _logger.LogWarning("Truncated long filename from {Original} to {Truncated}", input.Length, 200);
         }
-        
+
+        if (string.IsNullOrWhiteSpace(result)) return "Unknown";
+
+        // Neutralize dot-only segments ("." / ".." / "...") so a peer-influenced artist/album
+        // can never escape the download directory through path traversal.
+        if (result.All(c => c == '.'))
+            return "_";
+
+        // Windows ignores trailing dots and spaces, so strip them to avoid surprise collisions
+        // and reserved-name bypasses (e.g. "CON." or "CON ").
+        result = result.TrimEnd('.', ' ');
+
+        // Windows reserved device names (CON, PRN, AUX, NUL, COM0-9, LPT0-9) cannot be used as
+        // file or folder names; prefix them so they remain valid but harmless.
+        var baseName = result.Split('.')[0];
+        if (IsReservedDeviceName(baseName))
+            result = "_" + result;
+
         return string.IsNullOrWhiteSpace(result) ? "Unknown" : result;
+    }
+
+    /// <summary>
+    /// True for Windows reserved device names that cannot be used as file or folder names.
+    /// </summary>
+    private static bool IsReservedDeviceName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+
+        if (name.Equals("CON", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("AUX", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("NUL", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if ((name.StartsWith("COM", StringComparison.OrdinalIgnoreCase) ||
+             name.StartsWith("LPT", StringComparison.OrdinalIgnoreCase)) &&
+            name.Length == 4 &&
+            name[3] >= '0' && name[3] <= '9')
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves a path under the download directory and guarantees it stays inside it. If a
+    /// peer-influenced segment would escape (an absolute path or a stray ".." that slipped past
+    /// <see cref="Slugify"/>), it logs and falls back to a safe leaf filename inside the directory.
+    /// </summary>
+    private string ResolveWithinDownloadDirectory(string relativeOrCombinedPath)
+    {
+        var downloadDir = Path.GetFullPath(_config.DownloadDirectory ?? "Downloads");
+        var full = Path.GetFullPath(Path.Combine(downloadDir, relativeOrCombinedPath));
+
+        var prefix = downloadDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var isContained = full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(full, downloadDir, StringComparison.OrdinalIgnoreCase);
+
+        if (isContained)
+            return full;
+
+        _logger.LogWarning("Blocked download path escape: {Path} would leave the download directory {Dir}; using a safe filename instead.", full, downloadDir);
+
+        var leaf = Path.GetFileName(relativeOrCombinedPath);
+        if (string.IsNullOrWhiteSpace(leaf) || leaf is "." or "..")
+            leaf = "download";
+
+        return Path.GetFullPath(Path.Combine(downloadDir, leaf));
     }
 
     /// <summary>
@@ -142,11 +207,7 @@ public class PathProviderService
         var safeArtist = Slugify(artist);
         var safeAlbum = Slugify(album);
 
-        return Path.Combine(
-            _config.DownloadDirectory ?? "Downloads",
-            safeArtist,
-            safeAlbum
-        );
+        return ResolveWithinDownloadDirectory(Path.Combine(safeArtist, safeAlbum));
     }
 
     /// <summary>
