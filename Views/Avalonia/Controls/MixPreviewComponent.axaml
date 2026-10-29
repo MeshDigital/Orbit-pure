@@ -133,27 +133,12 @@
                  the slider underneath it, just grabbed directly). -->
             <Border Grid.Row="1" Background="{StaticResource BrushHover}" BorderBrush="{StaticResource BrushBorder1}" BorderThickness="1" CornerRadius="4" Padding="8,3" Margin="0,0,0,6">
                 <Panel>
-                <TextBlock IsVisible="{Binding IsCueEditMode}" FontSize="10" Foreground="{StaticResource BrushAccent}" TextWrapping="Wrap"
-                           Text="Edit cues: drag a cue line to move it (snaps to the grid) • click a cue to edit it below • right-click → add a cue • click elsewhere to audition • Use as mix point sets the transition"/>
-                <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding !IsCueEditMode}">
-                    <TextBlock Text="Click a cue (line or chip) to set the trigger point" FontSize="10" Foreground="{StaticResource BrushText1}"/>
-                    <TextBlock Text="•" FontSize="10" Foreground="{StaticResource BrushText3}"/>
-                    <TextBlock Text="Click elsewhere to audition that spot" FontSize="10" Foreground="{StaticResource BrushText1}"/>
-                    <TextBlock Text="•" FontSize="10" Foreground="{StaticResource BrushText3}"/>
-                    <TextBlock Text="Drag to pan" FontSize="10" Foreground="{StaticResource BrushText1}"/>
-                    <TextBlock Text="•" FontSize="10" Foreground="{StaticResource BrushText3}"/>
-                    <TextBlock Text="Right-click → Add cue here" FontSize="10" Foreground="{StaticResource BrushText1}"/>
-                    <TextBlock Text="•" FontSize="10" Foreground="{StaticResource BrushText3}"/>
-                    <StackPanel Orientation="Horizontal" Spacing="3">
-                        <PathIcon Data="{StaticResource star_regular}" Width="10" Height="10" Foreground="{StaticResource BrushWarning}"/>
-                        <TextBlock Text="= what Auto suggested" FontSize="10" Foreground="{StaticResource BrushText1}"/>
-                    </StackPanel>
-                    <TextBlock Text="•" FontSize="10" Foreground="{StaticResource BrushText3}"/>
-                    <StackPanel Orientation="Horizontal" Spacing="3">
-                        <Rectangle Width="10" Height="2" Fill="{StaticResource BrushWarning}"/>
-                        <TextBlock Text="= mix start/end point" FontSize="10" Foreground="{StaticResource BrushText1}"/>
-                    </StackPanel>
-                </StackPanel>
+                    <TextBlock IsVisible="{Binding IsCueEditMode}" FontSize="10" Foreground="{StaticResource BrushAccent}" TextTrimming="CharacterEllipsis"
+                               ToolTip.Tip="Drag a cue line to move it (snaps to the grid) • click a cue to edit it below • right-click → add a cue • click elsewhere to audition • Use as mix point sets the transition"
+                               Text="Edit cues: drag a cue line to move it · click to edit · right-click → add · click elsewhere to audition"/>
+                    <TextBlock IsVisible="{Binding !IsCueEditMode}" FontSize="10" Foreground="{StaticResource BrushText1}" TextTrimming="CharacterEllipsis"
+                               ToolTip.Tip="Click a cue (line or chip) to set the trigger point · click elsewhere to audition that spot · drag to pan · right-click → add a cue here"
+                               Text="Click a cue to set the trigger point · click elsewhere to audition · drag to pan · right-click → add cue"/>
                 </Panel>
             </Border>
 

@@ -48,108 +48,50 @@
             </Button>
         </StackPanel>
 
-        <ScrollViewer IsVisible="{Binding HasLoadedPair}">
-        <StackPanel Spacing="16" Margin="16,12">
+        <!-- Content scrolls; Save is pinned below so it's always reachable without hunting. -->
+        <Grid RowDefinitions="*,Auto" IsVisible="{Binding HasLoadedPair}">
+            <ScrollViewer Grid.Row="0">
+            <StackPanel Spacing="12" Margin="16,12">
 
-            <controls:MixPreviewComponent/>
+                <controls:MixPreviewComponent/>
 
-            <!-- Shows the system's reasoning, not just its pick: SuggestTransitionPointsAsync's
-                 tempo/key/vocal-aware mix-out (A) / mix-in (B) points. -->
-            <Border Classes="card"
-                    IsVisible="{Binding TransitionPointReasoning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                <StackPanel Spacing="4">
-                    <StackPanel Orientation="Horizontal" Spacing="16">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <TextBlock Classes="caption" Text="Mix-out" VerticalAlignment="Center"/>
-                            <TextBlock Classes="mono" Text="{Binding SourceTriggerDisplay}" VerticalAlignment="Center"/>
+                <!-- Shows the system's reasoning, not just its pick: SuggestTransitionPointsAsync's
+                     tempo/key/vocal-aware mix-out (A) / mix-in (B) points. -->
+                <Border Classes="card"
+                        IsVisible="{Binding TransitionPointReasoning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <StackPanel Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="16">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Classes="caption" Text="Mix-out" VerticalAlignment="Center"/>
+                                <TextBlock Classes="mono" Text="{Binding SourceTriggerDisplay}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Classes="caption" Text="Mix-in" VerticalAlignment="Center"/>
+                                <TextBlock Classes="mono" Text="{Binding TargetTriggerDisplay}" VerticalAlignment="Center"/>
+                            </StackPanel>
                         </StackPanel>
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <TextBlock Classes="caption" Text="Mix-in" VerticalAlignment="Center"/>
-                            <TextBlock Classes="mono" Text="{Binding TargetTriggerDisplay}" VerticalAlignment="Center"/>
-                        </StackPanel>
+                        <TextBlock Classes="caption" Text="{Binding TransitionPointReasoning}" TextWrapping="Wrap"/>
                     </StackPanel>
-                    <TextBlock Classes="caption" Text="{Binding TransitionPointReasoning}" TextWrapping="Wrap"/>
-                </StackPanel>
-            </Border>
-
-            <!-- Hand-correct either track's BPM right here: feeds the Auto preset's tempo-jump
-                 detection and the bar-length to duration math. -->
-            <StackPanel Spacing="8">
-                <TextBlock Classes="section" Text="TEMPO"/>
-                <Border Classes="param-row">
-                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
-                        <TextBlock Grid.Column="0" Classes="caption" Text="Out" Width="32" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="1" Classes="label" Text="{Binding OutgoingTrack.Title}"/>
-                        <NumericUpDown Grid.Column="2" Classes="num" Margin="8,0,0,0"
-                                       Value="{Binding OutgoingBpm, Mode=TwoWay}"
-                                       Minimum="40" Maximum="250" Increment="0.1" FormatString="0.0"/>
-                        <Button Grid.Column="3" Classes="icon small" Margin="4,0,0,0"
-                                Command="{Binding SaveOutgoingBpmCommand}" ToolTip.Tip="Save outgoing BPM">
-                            <PathIcon Data="{StaticResource icon_check}" Width="14" Height="14"/>
-                        </Button>
-                    </Grid>
                 </Border>
-                <Border Classes="param-row">
-                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
-                        <TextBlock Grid.Column="0" Classes="caption" Text="In" Width="32" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="1" Classes="label" Text="{Binding IncomingTrack.Title}"/>
-                        <NumericUpDown Grid.Column="2" Classes="num" Margin="8,0,0,0"
-                                       Value="{Binding IncomingBpm, Mode=TwoWay}"
-                                       Minimum="40" Maximum="250" Increment="0.1" FormatString="0.0"/>
-                        <Button Grid.Column="3" Classes="icon small" Margin="4,0,0,0"
-                                Command="{Binding SaveIncomingBpmCommand}" ToolTip.Tip="Save incoming BPM">
-                            <PathIcon Data="{StaticResource icon_check}" Width="14" Height="14"/>
-                        </Button>
-                    </Grid>
-                </Border>
-            </StackPanel>
 
-            <!-- Presets: single-select chips. -->
-            <StackPanel Spacing="8">
-                <TextBlock Classes="section" Text="PRESETS"/>
-                <ItemsControl ItemsSource="{x:Static vm:MixTransitionViewModel.PresetNames}">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <WrapPanel Orientation="Horizontal"/>
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:CompileBindings="False">
-                            <RadioButton Classes="chip" GroupName="mixPreset" Margin="0,0,4,4"
-                                         Content="{Binding}"
-                                         Command="{Binding $parent[ItemsControl].DataContext.SelectPresetCommand}"
-                                         CommandParameter="{Binding}">
-                                <RadioButton.IsChecked>
-                                    <MultiBinding Converter="{StaticResource EqualityConverter}" Mode="OneWay">
-                                        <Binding Path="$parent[ItemsControl].DataContext.SelectedPreset"/>
-                                        <Binding/>
-                                    </MultiBinding>
-                                </RadioButton.IsChecked>
-                            </RadioButton>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </StackPanel>
-
-            <!-- Bar length: segmented control. -->
-            <StackPanel Spacing="8">
-                <TextBlock Classes="section" Text="BAR LENGTH"/>
-                <Border Classes="segmented" HorizontalAlignment="Left">
-                    <ItemsControl ItemsSource="{x:Static vm:MixTransitionViewModel.DurationBarOptions}">
+                <!-- Presets: single-select chips. -->
+                <StackPanel Spacing="6">
+                    <TextBlock Classes="section" Text="PRESETS"/>
+                    <ItemsControl ItemsSource="{x:Static vm:MixTransitionViewModel.PresetNames}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <StackPanel Orientation="Horizontal" Spacing="2"/>
+                                <WrapPanel Orientation="Horizontal"/>
                             </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:CompileBindings="False">
-                                <RadioButton Classes="chip" GroupName="mixBars"
-                                             Content="{Binding StringFormat='{}{0} bars'}"
-                                             Command="{Binding $parent[ItemsControl].DataContext.SelectBarsCommand}"
+                                <RadioButton Classes="chip" GroupName="mixPreset" Margin="0,0,4,4"
+                                             Content="{Binding}"
+                                             Command="{Binding $parent[ItemsControl].DataContext.SelectPresetCommand}"
                                              CommandParameter="{Binding}">
                                     <RadioButton.IsChecked>
                                         <MultiBinding Converter="{StaticResource EqualityConverter}" Mode="OneWay">
-                                            <Binding Path="$parent[ItemsControl].DataContext.DurationBars"/>
+                                            <Binding Path="$parent[ItemsControl].DataContext.SelectedPreset"/>
                                             <Binding/>
                                         </MultiBinding>
                                     </RadioButton.IsChecked>
@@ -157,119 +99,185 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                </Border>
+                </StackPanel>
+
+                <!-- Bar length: segmented control. -->
+                <StackPanel Spacing="6">
+                    <TextBlock Classes="section" Text="BAR LENGTH"/>
+                    <Border Classes="segmented" HorizontalAlignment="Left">
+                        <ItemsControl ItemsSource="{x:Static vm:MixTransitionViewModel.DurationBarOptions}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="2"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:CompileBindings="False">
+                                    <RadioButton Classes="chip" GroupName="mixBars"
+                                                 Content="{Binding StringFormat='{}{0} bars'}"
+                                                 Command="{Binding $parent[ItemsControl].DataContext.SelectBarsCommand}"
+                                                 CommandParameter="{Binding}">
+                                        <RadioButton.IsChecked>
+                                            <MultiBinding Converter="{StaticResource EqualityConverter}" Mode="OneWay">
+                                                <Binding Path="$parent[ItemsControl].DataContext.DurationBars"/>
+                                                <Binding/>
+                                            </MultiBinding>
+                                        </RadioButton.IsChecked>
+                                    </RadioButton>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
+                </StackPanel>
+
+                <!-- Hand-correct either track's BPM (feeds the Auto preset's tempo-jump detection
+                     and bar-length→duration math). Collapsed by default: it's the long tail, not
+                     the everyday path. -->
+                <Expander Header="Tempo correction" IsExpanded="False" HorizontalAlignment="Stretch">
+                    <StackPanel Spacing="8" Margin="0,8,0,0">
+                        <Border Classes="param-row">
+                            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                <TextBlock Grid.Column="0" Classes="caption" Text="Out" Width="32" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Classes="label" Text="{Binding OutgoingTrack.Title}"/>
+                                <NumericUpDown Grid.Column="2" Classes="num" Margin="8,0,0,0"
+                                               Value="{Binding OutgoingBpm, Mode=TwoWay}"
+                                               Minimum="40" Maximum="250" Increment="0.1" FormatString="0.0"/>
+                                <Button Grid.Column="3" Classes="icon small" Margin="4,0,0,0"
+                                        Command="{Binding SaveOutgoingBpmCommand}" ToolTip.Tip="Save outgoing BPM">
+                                    <PathIcon Data="{StaticResource icon_check}" Width="14" Height="14"/>
+                                </Button>
+                            </Grid>
+                        </Border>
+                        <Border Classes="param-row">
+                            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                <TextBlock Grid.Column="0" Classes="caption" Text="In" Width="32" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Classes="label" Text="{Binding IncomingTrack.Title}"/>
+                                <NumericUpDown Grid.Column="2" Classes="num" Margin="8,0,0,0"
+                                               Value="{Binding IncomingBpm, Mode=TwoWay}"
+                                               Minimum="40" Maximum="250" Increment="0.1" FormatString="0.0"/>
+                                <Button Grid.Column="3" Classes="icon small" Margin="4,0,0,0"
+                                        Command="{Binding SaveIncomingBpmCommand}" ToolTip.Tip="Save incoming BPM">
+                                    <PathIcon Data="{StaticResource icon_check}" Width="14" Height="14"/>
+                                </Button>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+                </Expander>
+
+                <!-- Custom preset parameters (only for the Custom preset). -->
+                <Expander Header="Custom blend settings" IsVisible="{Binding IsCustomMode}" IsExpanded="True" HorizontalAlignment="Stretch">
+                    <StackPanel Spacing="4" Margin="0,8,0,0">
+                        <Border Classes="param-row">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="label" Text="Echo decay"/>
+                                <NumericUpDown Grid.Column="1" Classes="num" Value="{Binding CustomEchoDecayFactor, Mode=TwoWay}"
+                                               Minimum="0" Maximum="0.99" Increment="0.05" FormatString="0.00"/>
+                            </Grid>
+                        </Border>
+
+                        <Border Classes="param-row">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="label" Text="Filter start (Hz)"/>
+                                <NumericUpDown Grid.Column="1" Classes="num" Value="{Binding CustomFilterStartFrequency, Mode=TwoWay}"
+                                               Minimum="20" Maximum="20000" Increment="100" FormatString="0"/>
+                            </Grid>
+                        </Border>
+
+                        <Border Classes="param-row">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="label" Text="Filter end (Hz)"/>
+                                <NumericUpDown Grid.Column="1" Classes="num" Value="{Binding CustomFilterEndFrequency, Mode=TwoWay}"
+                                               Minimum="20" Maximum="20000" Increment="100" FormatString="0"/>
+                            </Grid>
+                        </Border>
+
+                        <Border Classes="param-row">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="label" Text="Wave duck depth"
+                                           ToolTip.Tip="Rhythmic gain dip on every downbeat (the Wave preset's sidechain-style handover). 0 = no ducking, 1 = full silence at the dip."/>
+                                <NumericUpDown Grid.Column="1" Classes="num" Value="{Binding CustomWaveDuckDepth, Mode=TwoWay}"
+                                               Minimum="0" Maximum="1" Increment="0.05" FormatString="0.00"/>
+                            </Grid>
+                        </Border>
+
+                        <Border Classes="param-row">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="label" Text="Filter sweeps up (Rise)"
+                                           ToolTip.Tip="On: the incoming track sweeps up into the drop. Off: the outgoing track sweeps down instead."/>
+                                <CheckBox Grid.Column="1" IsChecked="{Binding CustomFilterSweepRising, Mode=TwoWay}" IsThreeState="False"/>
+                            </Grid>
+                        </Border>
+
+                        <!-- EQ band swap: checked bands hand off outgoing to incoming instead of crossfading. -->
+                        <Border Classes="param-row">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="label" Text="EQ swap bands"
+                                           ToolTip.Tip="Which bands hand off from outgoing to incoming instead of crossfading together: the classic bass swap, extended to mid/high."/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                    <ToggleButton Classes="chip" Content="Low" IsChecked="{Binding CustomEqSwapLow, Mode=TwoWay}" ToolTip.Tip="Swap the low band"/>
+                                    <ToggleButton Classes="chip" Content="Mid" IsChecked="{Binding CustomEqSwapMid, Mode=TwoWay}" ToolTip.Tip="Swap the mid band"/>
+                                    <ToggleButton Classes="chip" Content="High" IsChecked="{Binding CustomEqSwapHigh, Mode=TwoWay}" ToolTip.Tip="Swap the high band"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <Border Classes="param-row">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="label" Text="Low/mid crossover (Hz)"/>
+                                <NumericUpDown Grid.Column="1" Classes="num" Value="{Binding CustomEqLowCrossoverHz, Mode=TwoWay}"
+                                               Minimum="60" Maximum="1000" Increment="10" FormatString="0"/>
+                            </Grid>
+                        </Border>
+
+                        <Border Classes="param-row">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="label" Text="Mid/high crossover (Hz)"/>
+                                <NumericUpDown Grid.Column="1" Classes="num" Value="{Binding CustomEqHighCrossoverHz, Mode=TwoWay}"
+                                               Minimum="1000" Maximum="16000" Increment="100" FormatString="0"/>
+                            </Grid>
+                        </Border>
+
+                        <!-- Double Drop: loops a bar-aligned tail of the outgoing track once or twice, then
+                             crossfades into the incoming drop. Switches the effective type to DoubleDrop. -->
+                        <Border Classes="param-row">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="label" Text="Double drop (loop before drop)"
+                                           ToolTip.Tip="Loop a bar-aligned tail of the outgoing track once or twice, then crossfade into the incoming track's drop."/>
+                                <CheckBox Grid.Column="1" IsChecked="{Binding CustomLoopEnabled, Mode=TwoWay}" IsThreeState="False"/>
+                            </Grid>
+                        </Border>
+
+                        <Border Classes="param-row" IsVisible="{Binding CustomLoopEnabled}">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="label" Text="Loop length (bars)"/>
+                                <NumericUpDown Grid.Column="1" Classes="num" Value="{Binding CustomLoopBars, Mode=TwoWay}"
+                                               Minimum="8" Maximum="16" Increment="8" FormatString="0"/>
+                            </Grid>
+                        </Border>
+
+                        <Border Classes="param-row" IsVisible="{Binding CustomLoopEnabled}">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="label" Text="Loop repeats"
+                                           ToolTip.Tip="How many extra times the loop plays before dropping into the incoming track (1 or 2)."/>
+                                <NumericUpDown Grid.Column="1" Classes="num" Value="{Binding CustomLoopRepeats, Mode=TwoWay}"
+                                               Minimum="1" Maximum="2" Increment="1" FormatString="0"/>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+                </Expander>
             </StackPanel>
+            </ScrollViewer>
 
-            <!-- Custom preset parameters -->
-            <StackPanel Spacing="4" IsVisible="{Binding IsCustomMode}">
-                <TextBlock Classes="section" Text="CUSTOM" Margin="0,0,0,4"/>
-
-                <Border Classes="param-row">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Classes="label" Text="Echo decay"/>
-                        <NumericUpDown Grid.Column="1" Classes="num" Value="{Binding CustomEchoDecayFactor, Mode=TwoWay}"
-                                       Minimum="0" Maximum="0.99" Increment="0.05" FormatString="0.00"/>
-                    </Grid>
-                </Border>
-
-                <Border Classes="param-row">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Classes="label" Text="Filter start (Hz)"/>
-                        <NumericUpDown Grid.Column="1" Classes="num" Value="{Binding CustomFilterStartFrequency, Mode=TwoWay}"
-                                       Minimum="20" Maximum="20000" Increment="100" FormatString="0"/>
-                    </Grid>
-                </Border>
-
-                <Border Classes="param-row">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Classes="label" Text="Filter end (Hz)"/>
-                        <NumericUpDown Grid.Column="1" Classes="num" Value="{Binding CustomFilterEndFrequency, Mode=TwoWay}"
-                                       Minimum="20" Maximum="20000" Increment="100" FormatString="0"/>
-                    </Grid>
-                </Border>
-
-                <Border Classes="param-row">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Classes="label" Text="Wave duck depth"
-                                   ToolTip.Tip="Rhythmic gain dip on every downbeat (the Wave preset's sidechain-style handover). 0 = no ducking, 1 = full silence at the dip."/>
-                        <NumericUpDown Grid.Column="1" Classes="num" Value="{Binding CustomWaveDuckDepth, Mode=TwoWay}"
-                                       Minimum="0" Maximum="1" Increment="0.05" FormatString="0.00"/>
-                    </Grid>
-                </Border>
-
-                <Border Classes="param-row">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Classes="label" Text="Filter sweeps up (Rise)"
-                                   ToolTip.Tip="On: the incoming track sweeps up into the drop. Off: the outgoing track sweeps down instead."/>
-                        <CheckBox Grid.Column="1" IsChecked="{Binding CustomFilterSweepRising, Mode=TwoWay}" IsThreeState="False"/>
-                    </Grid>
-                </Border>
-
-                <!-- EQ band swap: checked bands hand off outgoing to incoming instead of crossfading. -->
-                <Border Classes="param-row">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Classes="label" Text="EQ swap bands"
-                                   ToolTip.Tip="Which bands hand off from outgoing to incoming instead of crossfading together: the classic bass swap, extended to mid/high."/>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
-                            <ToggleButton Classes="chip" Content="Low" IsChecked="{Binding CustomEqSwapLow, Mode=TwoWay}" ToolTip.Tip="Swap the low band"/>
-                            <ToggleButton Classes="chip" Content="Mid" IsChecked="{Binding CustomEqSwapMid, Mode=TwoWay}" ToolTip.Tip="Swap the mid band"/>
-                            <ToggleButton Classes="chip" Content="High" IsChecked="{Binding CustomEqSwapHigh, Mode=TwoWay}" ToolTip.Tip="Swap the high band"/>
-                        </StackPanel>
-                    </Grid>
-                </Border>
-
-                <Border Classes="param-row">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Classes="label" Text="Low/mid crossover (Hz)"/>
-                        <NumericUpDown Grid.Column="1" Classes="num" Value="{Binding CustomEqLowCrossoverHz, Mode=TwoWay}"
-                                       Minimum="60" Maximum="1000" Increment="10" FormatString="0"/>
-                    </Grid>
-                </Border>
-
-                <Border Classes="param-row">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Classes="label" Text="Mid/high crossover (Hz)"/>
-                        <NumericUpDown Grid.Column="1" Classes="num" Value="{Binding CustomEqHighCrossoverHz, Mode=TwoWay}"
-                                       Minimum="1000" Maximum="16000" Increment="100" FormatString="0"/>
-                    </Grid>
-                </Border>
-
-                <!-- Double Drop: loops a bar-aligned tail of the outgoing track once or twice, then
-                     crossfades into the incoming drop. Switches the effective type to DoubleDrop. -->
-                <Border Classes="param-row">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Classes="label" Text="Double drop (loop before drop)"
-                                   ToolTip.Tip="Loop a bar-aligned tail of the outgoing track once or twice, then crossfade into the incoming track's drop."/>
-                        <CheckBox Grid.Column="1" IsChecked="{Binding CustomLoopEnabled, Mode=TwoWay}" IsThreeState="False"/>
-                    </Grid>
-                </Border>
-
-                <Border Classes="param-row" IsVisible="{Binding CustomLoopEnabled}">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Classes="label" Text="Loop length (bars)"/>
-                        <NumericUpDown Grid.Column="1" Classes="num" Value="{Binding CustomLoopBars, Mode=TwoWay}"
-                                       Minimum="8" Maximum="16" Increment="8" FormatString="0"/>
-                    </Grid>
-                </Border>
-
-                <Border Classes="param-row" IsVisible="{Binding CustomLoopEnabled}">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Classes="label" Text="Loop repeats"
-                                   ToolTip.Tip="How many extra times the loop plays before dropping into the incoming track (1 or 2)."/>
-                        <NumericUpDown Grid.Column="1" Classes="num" Value="{Binding CustomLoopRepeats, Mode=TwoWay}"
-                                       Minimum="1" Maximum="2" Increment="1" FormatString="0"/>
-                    </Grid>
-                </Border>
-            </StackPanel>
-
-            <StackPanel Spacing="8">
-                <Button Classes="primary" Content="Save transition" Command="{Binding SaveCommand}"
-                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
-                <TextBlock Classes="caption" Text="{Binding StatusMessage}"
-                           HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"
-                           IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-            </StackPanel>
-        </StackPanel>
-        </ScrollViewer>
+            <!-- Pinned save footer — always reachable regardless of how far the content scrolls. -->
+            <Border Grid.Row="1" Padding="16,10" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,1,0,0">
+                <StackPanel Spacing="8">
+                    <Button Classes="primary" Content="Save transition" Command="{Binding SaveCommand}"
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+                    <TextBlock Classes="caption" Text="{Binding StatusMessage}"
+                               HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"
+                               IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Panel>
 </UserControl>
