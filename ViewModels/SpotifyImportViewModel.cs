@@ -872,7 +872,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
 
     private static void OpenUrl(string url)
     {
-        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        SLSKDONET.Utils.ExternalUrlHelper.TryOpen(url);
     }
 
     public async Task LoadPlaylistAsync()
