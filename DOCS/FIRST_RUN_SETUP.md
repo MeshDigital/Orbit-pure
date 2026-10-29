@@ -1,8 +1,9 @@
 # First-run setup wizard and quick tour
 
 New installs get a short setup wizard (Soulseek account, folders, optional Spotify, audio and
-analysis) and an optional coach-mark tour of the main pages. Existing installs never see the
-wizard unless they ask for it.
+analysis) and an optional coach-mark tour of the main pages. An install that completed an older
+wizard version — or predates the wizard — gets a short **What's new** re-onboarding instead of the
+full flow; the full wizard only appears on a genuinely fresh install or when asked for it.
 
 ## When the wizard appears
 
@@ -12,14 +13,15 @@ before the main window opens. It gathers signals and hands them to the pure
 
 | Signal | Meaning |
 |---|---|
-| `[Setup] Completed = True` | Already done: no wizard (`AlreadyCompleted`) |
-| Soulseek username in config, or a stored password | Existing install |
-| Download folder that isn't the built-in fallback (`~/Downloads/SLSKDONET`), or a shared folder | Existing install |
-| Any track in `LibraryEntries`/`Tracks`, or a Library Source other than the download folder | Existing install |
-| None of the above | Fresh install: show the wizard |
+| `[Setup] Completed = True`, `Version` ≥ `CurrentSetupVersion` | Already done: no wizard (`AlreadyCompleted`) |
+| `[Setup] Completed = True`, `Version` < `CurrentSetupVersion` | Completed an older wizard: show **What's new** (`UpgradeWizard`) |
+| Soulseek username in config, or a stored password | Existing install (pre-wizard): show **What's new** |
+| Download folder that isn't the built-in fallback (`~/Downloads/SLSKDONET`), or a shared folder | Existing install (pre-wizard) |
+| Any track in `LibraryEntries`/`Tracks`, or a Library Source other than the download folder | Existing install (pre-wizard) |
+| None of the above | Fresh install: show the full wizard |
 
-An existing install is marked `[Setup] Completed = True` / `Version = 1` silently and keeps
-working as before. Finishing or skipping the wizard sets the same flag.
+Finishing or skipping any flow sets `[Setup] Completed = True` and writes the current
+`FirstRunDetector.CurrentSetupVersion`, so the popup does not reappear until the next release bumps it.
 
 ## Steps and what they write
 

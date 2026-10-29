@@ -18,13 +18,13 @@ public sealed class WhatsNewStepViewModel : SetupStepViewModel
 
     public IReadOnlyList<WhatsNewItem> Items { get; } = new[]
     {
-        new WhatsNewItem("Cue Forge overhaul", "Drop cues land on the real drop, with a docked track list, Preparation menu, layers, grid repair and a tri-band waveform."),
+        new WhatsNewItem("Cue Forge: the right track, every time", "Auditioning a cue now always plays the track on screen, even after an auto-mix cross (the player attachment is fixed)."),
+        new WhatsNewItem("Analysis with real progress", "A track analysis now shows its stage (for example \"Stage 3 of 8 · Extracting waveform\") instead of sitting at 20%."),
+        new WhatsNewItem("Essentia-missing alert", "If the Essentia extractor isn't installed, ORBIT says so up front — BPM, key and mood are skipped rather than failing quietly."),
+        new WhatsNewItem("Re-analysis survives track switches", "Queue a force re-analysis, switch tracks, and come back: the live status is still there (the run never cancels)."),
+        new WhatsNewItem("Mix panel: fix and analyse", "The Mix sidepanel flags a deck with missing analysis or no cues and can open it in Cue Forge ready to analyse."),
         new WhatsNewItem("Flow Mode plans your mixes", "Automatically picks the next track from key, tempo, energy and mood — and explains each choice."),
         new WhatsNewItem("Honest analysis coverage", "Eight analysis engines with per-track coverage; fill only what's missing instead of re-running everything."),
-        new WhatsNewItem("Rekordbox import", "Read Rekordbox 6/7 cues and loops through the new RekordboxBridge companion."),
-        new WhatsNewItem("Edit Lab", "Stem-based DJ edits render offline and land back in your library."),
-        new WhatsNewItem("A faster, clearer app", "Quicker startup, per-playlist view state, a music-reactive visualizer, and a decluttered Library."),
-        new WhatsNewItem("FFmpeg and THIS PC", "FFmpeg installs itself; the wizard shows which heavy features this machine can run."),
-        new WhatsNewItem("Send feedback", "Ctrl+Shift+F zips a screenshot, note and scrubbed logs to your clipboard — nothing is uploaded."),
+        new WhatsNewItem("Rekordbox import", "Read Rekordbox 6/7 cues and loops through the RekordboxBridge companion."),
     };
 }

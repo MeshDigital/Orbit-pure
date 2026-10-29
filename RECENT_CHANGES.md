@@ -2,6 +2,37 @@
 
 ---
 
+## [0.2.3] — 2026-10-29
+
+Patch on the 0.2 early-stable line. Cue Forge always auditions the track on screen, analysis shows the
+real stage (and warns when Essentia is missing), a forced re-analysis survives switching tracks, and the
+Mix sidepanel flags a broken analysis/cue set with a one-click fix. First release to ship the
+version-gated "What's new" re-onboarding. Full detail: **[DOCS/RELEASE_NOTES_0.2.3.md](DOCS/RELEASE_NOTES_0.2.3.md)**.
+
+### 🎛️ Cue Forge
+- **Player attachment fixed**: after an auto-mix cross the queue can still name the outgoing track while
+  the player holds the incoming file. Cue Forge now trusts the loaded file first, hands a borrowed player
+  back when navigating, and re-checks attachment before a cue audition seeks.
+- **Force re-analysis survives track switches**: pending state is tracked per track hash, so leaving and
+  returning restores the live stage (the queue never cancels). A run that finishes while the track is
+  closed just loads its fresh features on return.
+
+### 📊 Analysis
+- **Real staged progress**: the pipeline's per-stage callback is wired, so the bar moves through eight
+  stages ("Stage 3/8 · Extracting waveform · 41%") instead of sitting at 20%; progress is monotonic.
+- **Essentia-missing alert**: a toast plus step text says BPM/key/mood are skipped when the extractor
+  isn't installed, instead of failing later with a dependency-shaped error.
+
+### 🎚️ Mix sidepanel
+- **Needs-attention warning** when either deck has incomplete analysis or no cues, with a **Fix &
+  analyse** button that opens the track in Cue Forge and immediately queues full analysis.
+
+### 🚀 Setup
+- First release to ship the version-gated **What's new** re-onboarding for existing users (fresh installs
+  still get the full wizard; Settings → Advanced → Setup reopens it).
+
+---
+
 ## [0.2.2] — 2026-10-29
 
 Hardening + prep-quality release (19 commits since 0.2.1). Cue Forge tempo override, a clean "clear"
