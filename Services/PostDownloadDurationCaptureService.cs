@@ -61,8 +61,6 @@ public sealed class PostDownloadDurationCaptureService : IDisposable
             var entity = await _databaseService.GetPlaylistTrackByHashAsync(evt.ProjectId, evt.TrackGlobalId);
             if (entity == null) return;
 
-            if (entity.CanonicalDuration is > 0) return; // already known — nothing to do
-
             var filePath = entity.ResolvedFilePath;
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return;
 
@@ -82,10 +80,30 @@ public sealed class PostDownloadDurationCaptureService : IDisposable
 
             if (durationSeconds <= 0) return;
 
-            await _databaseService.UpdateDurationAsync(evt.TrackGlobalId, durationSeconds);
-            _eventBus.Publish(new TrackMetadataUpdatedEvent(evt.TrackGlobalId));
+            var canonicalMs = entity.CanonicalDuration;
+            if (canonicalMs is not > 0)
+            {
+                // No canonical duration yet — backfill it (existing behaviour).
+                await _databaseService.UpdateDurationAsync(evt.TrackGlobalId, durationSeconds);
+                _eventBus.Publish(new TrackMetadataUpdatedEvent(evt.TrackGlobalId));
 
-            _logger.LogInformation("Captured duration {Seconds}s for '{Title}'", durationSeconds, entity.Title);
+                _logger.LogInformation("Captured duration {Seconds}s for '{Title}'", durationSeconds, entity.Title);
+                return;
+            }
+
+            // Canonical duration is already known (from search/Spotify metadata). Compare the real
+            // file length: a >5% gap means this file is a slowed/sped edit, an excerpt, or a
+            // mis-matched download. Surface it so the user isn't left wondering why the file's
+            // actual length differs from the matched track (e.g. a "101 BPM" slowed mix of a
+            // "174 BPM" track).
+            var canonicalSeconds = canonicalMs.Value / 1000.0;
+            var drift = Math.Abs(durationSeconds - canonicalSeconds) / canonicalSeconds;
+            if (drift > 0.05)
+            {
+                _logger.LogWarning(
+                    "Duration mismatch for '{Title}': file is {Actual}s but the matched track is {Canonical}s ({Drift:P0}) — likely a mix/edit or mis-matched download",
+                    entity.Title, durationSeconds, canonicalSeconds, drift);
+            }
         }
         catch (Exception ex)
         {
