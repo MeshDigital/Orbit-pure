@@ -549,15 +549,21 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(HasBrowserStatus));
     }
 
+    /// <summary>Set by every browser read; a read that finishes after a newer one started is
+    /// discarded so a slow response can never put the list back on an older order.</summary>
+    private int _browserLoadVersion;
+
     private async Task LoadPlaylistBrowserAsync(Guid playlistId)
     {
         if (_libraryService == null) return;
+        var version = ++_browserLoadVersion;
         BrowserStatus = "Loading tracks…";
         this.RaisePropertyChanged(nameof(HasBrowserStatus));
         try
         {
             var tracks = await _libraryService.GetPagedPlaylistTracksAsync(
                 playlistId, skip: 0, take: 2000, downloadedOnly: true);
+            if (version != _browserLoadVersion) return;
 
             var items = tracks
                 .Where(t => !string.IsNullOrEmpty(t.TrackUniqueHash))
@@ -575,10 +581,21 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         }
         catch (Exception ex)
         {
+            if (version != _browserLoadVersion) return;
             _logger.LogWarning(ex, "CueForge: failed to load browser tracks for playlist {Id}", playlistId);
             BrowserStatus = "Couldn't load this playlist's tracks. See the log for details.";
             this.RaisePropertyChanged(nameof(HasBrowserStatus));
         }
+    }
+
+    /// <summary>A playlist was reordered somewhere in the app (see
+    /// <see cref="PlaylistTrackOrderChangedEvent"/>). If it's the one the browser is showing,
+    /// re-read it — the open track, the selection and Next/Previous must follow the new order.</summary>
+    private async Task OnPlaylistOrderChangedAsync(PlaylistTrackOrderChangedEvent evt)
+    {
+        if (_libraryService == null) return;
+        if (SelectedPlaylist is not { } selected || selected.Id != evt.PlaylistId) return;
+        await LoadPlaylistBrowserAsync(selected.Id);
     }
 
     private void ApplyBrowserFilter(string query)
@@ -883,6 +900,14 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             _eventBus.GetEvent<AnalysisProgressEvent>()
                 .ObserveOn(RxApp.MainThreadScheduler)
                 .Subscribe(OnWaveformRefreshProgress)
+                .DisposeWith(_disposables);
+            // The docked browser is a snapshot of one playlist. When that playlist is reordered
+            // by any surface (Library's Reorder for better flow / Auto-Arrange, Flow Builder's
+            // "Save order", Automix), re-read it so the list, the highlighted row, "Track N of M"
+            // and Previous/Next all follow the playlist's current order.
+            _eventBus.GetEvent<PlaylistTrackOrderChangedEvent>()
+                .ObserveOn(RxApp.MainThreadScheduler)
+                .Subscribe(evt => _ = OnPlaylistOrderChangedAsync(evt))
                 .DisposeWith(_disposables);
         }
 
@@ -1220,11 +1245,44 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private PlayerBorrow? _borrow;
 
     /// <summary>True when the shared player currently holds this track's audio.</summary>
-    public bool IsAttachedToPlayer =>
-        TrackHash != null &&
-        ((_trackFilePath != null && string.Equals(_transport.CurrentFilePath, _trackFilePath, StringComparison.OrdinalIgnoreCase)) ||
-         string.Equals(_transport.CurrentTrackHash, TrackHash, StringComparison.OrdinalIgnoreCase) && _transport.CurrentFilePath != null &&
-         (_trackFilePath == null || string.Equals(_transport.CurrentFilePath, _trackFilePath, StringComparison.OrdinalIgnoreCase)));
+    public bool IsAttachedToPlayer
+    {
+        get
+        {
+            if (TrackHash is null) return false;
+
+            // The player's queue position is the authority on "what is loaded": the engine can be
+            // playing a track while the cached file path still points at the previous one (see
+            // PlayerViewModel.SetNowPlayingState), so comparing file paths alone said "not attached"
+            // for the track that was audibly playing — no playhead, no pause icon, "sometimes".
+            if (string.Equals(_transport.CurrentTrackHash, TrackHash, StringComparison.OrdinalIgnoreCase) &&
+                _transport.CurrentFilePath is not null)
+            {
+                return true;
+            }
+
+            // Cue Forge also borrows the player for a track the queue is not on (auditioning the
+            // incoming track, or a pad on a track the mix hasn't reached yet). Then the file that is
+            // actually loaded is the only thing that identifies it.
+            return SameAudioFile(_transport.CurrentFilePath, _trackFilePath);
+        }
+    }
+
+    private static bool SameAudioFile(string? loaded, string? ours)
+    {
+        if (string.IsNullOrEmpty(loaded) || string.IsNullOrEmpty(ours)) return false;
+        if (string.Equals(loaded, ours, StringComparison.OrdinalIgnoreCase)) return true;
+        try
+        {
+            return string.Equals(
+                System.IO.Path.GetFullPath(loaded), System.IO.Path.GetFullPath(ours),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false; // malformed path — fall back to the hash check above
+        }
+    }
 
     /// <summary>Loads this track into the shared player if it isn't there yet, remembering what
     /// was loaded before so <see cref="OnViewDeactivated"/> can hand it back.</summary>
@@ -1264,16 +1322,37 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     /// once — but the view model is a singleton created at startup, so by the time you actually open
     /// the page it had no playing track to follow and kept whatever track was last edited.
     /// </summary>
-    public Task OnViewActivatedAsync()
+    public async Task OnViewActivatedAsync()
     {
         bool pinned = DateTime.UtcNow < _keepExplicitTrackUntilUtc;
         _keepExplicitTrackUntilUtc = default;
-        if (pinned) return Task.CompletedTask;
 
-        if (_transport.CurrentTrackHash is not { Length: > 0 } playing) return Task.CompletedTask;
-        if (string.Equals(playing, TrackHash, StringComparison.OrdinalIgnoreCase)) return Task.CompletedTask;
+        if (!pinned &&
+            _transport.CurrentTrackHash is { Length: > 0 } playing &&
+            !string.Equals(playing, TrackHash, StringComparison.OrdinalIgnoreCase))
+        {
+            var playlistBefore = SelectedPlaylist?.Id;
+            await LoadTrackAsync(playing, _transport.Title, _transport.Artist);
+            // Loading the playing track follows it into its own playlist, and that switch already
+            // read the browser fresh — don't read it a second time.
+            if (SelectedPlaylist?.Id != playlistBefore) return;
+        }
+        else
+        {
+            // Already on the open track (or the visit is pinned to it): re-read the player straight
+            // away so the playhead and the play/pause icon are right the moment the page comes back
+            // — even if the track was paused, seeked or advanced while another page was open.
+            if (IsAttachedToPlayer)
+                OnPlayerPosition(_transport.PositionFraction, _transport.LengthSeconds);
+            this.RaisePropertyChanged(nameof(IsPlaying));
+        }
 
-        return LoadTrackAsync(playing, _transport.Title, _transport.Artist);
+        // The view model is a singleton, so the browser list is whatever the playlist looked like
+        // the last time this page was open. Re-read it on every visit: a playlist reordered (or
+        // edited) while Cue Forge was closed must show its current order here too — the list, the
+        // highlighted row, "Track N of M" and Previous/Next.
+        if (_libraryService != null && SelectedPlaylist is { } selected)
+            await LoadPlaylistBrowserAsync(selected.Id);
     }
 
     /// <summary>

@@ -271,6 +271,44 @@ public class CueForgeViewModelEditingTests
         Assert.Equal(Hash, vm.TrackHash);
     }
 
+    /// <summary>
+    /// The engine hands over to the next track itself on a gapless/crossfade advance (OnTrackAdvanced
+    /// never calls LoadTrackCore), so the player's cached file path still pointed at the previous
+    /// track. Cue Forge compared paths, decided it was not attached, and showed no playhead and a
+    /// Play icon for the track that was audibly playing — "sometimes it is, sometimes it isn't".
+    /// </summary>
+    [Fact]
+    public async Task PlayingTrack_ShowsAsPlaying_EvenWhenThePlayerStillCachesThePreviousFile()
+    {
+        var (vm, _, player) = await CreateLoaded();
+        player.CurrentTrackHash = Hash;
+        player.CurrentFilePath = "C:/music/previous-track.flac";
+        player.IsPlaying = true;
+
+        Assert.True(vm.IsAttachedToPlayer);
+        Assert.True(vm.IsPlaying);
+    }
+
+    [Fact]
+    public async Task AuditioningATrackTheQueueIsNotOn_IsStillAttachedByFile()
+    {
+        var (vm, _, player) = await CreateLoaded();
+        player.CurrentTrackHash = "queue-track";            // the queue is on something else
+        player.CurrentFilePath = "C:/music/track-a.flac";   // Cue Forge borrowed the player for this
+
+        Assert.True(vm.IsAttachedToPlayer);
+    }
+
+    [Fact]
+    public async Task APlayingTrackIsNotMistakenForTheOpenOne()
+    {
+        var (vm, _, player) = await CreateLoaded();
+        player.CurrentTrackHash = "some-other-track";
+        player.CurrentFilePath = "C:/music/track-b.flac";
+
+        Assert.False(vm.IsAttachedToPlayer);
+    }
+
     [Fact]
     public async Task AddCueAtPlayhead_SnapsToBeat_AndTakesFirstFreePad()
     {

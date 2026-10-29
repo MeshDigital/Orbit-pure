@@ -2124,6 +2124,15 @@ namespace SLSKDONET.ViewModels
             CurrentQueueIndex = index;
             CurrentTrack = track;
 
+            // CurrentFilePath prefers this cached path over CurrentTrack's, and it used to be set
+            // only by LoadTrackCore. OnTrackAdvanced (the engine promoting its preloaded deck on a
+            // gapless/crossfade hand-over) never calls LoadTrackCore — so after every automatic
+            // advance this still reported the PREVIOUS track's file, and anything asking "is the
+            // player on this track?" (Cue Forge's attach check, reveal file, …) got a stale answer
+            // until the next manually started track.
+            if (track.Model?.ResolvedFilePath is { Length: > 0 } advancedPath)
+                _currentFilePath = advancedPath;
+
             // TrackTitle/TrackArtist (what the bottom player bar actually displays) are otherwise
             // only set inside LoadTrackCore — fine for PlayTrackAtIndex, which calls PlayTrack()
             // right after this, but OnTrackAdvanced (the engine autonomously promoting a deck on
