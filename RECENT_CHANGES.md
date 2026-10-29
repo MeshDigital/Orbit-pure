@@ -2,6 +2,34 @@
 
 ---
 
+## [0.2.2] — 2026-10-29
+
+Hardening + prep-quality release (19 commits since 0.2.1). Cue Forge tempo override, a clean "clear"
+that resets the inspector, playlist force re-analysis, duration-mismatch detection, spectral scan on
+library imports, library entity round-trip completeness, the playlist-order fix, and the security
+batch. Full detail: **[DOCS/RELEASE_NOTES_0.2.2.md](DOCS/RELEASE_NOTES_0.2.2.md)**.
+
+### 🎛️ Cue Forge
+- **Tempo override** in grid repair: ×2 / ÷2 buttons and a manual BPM field, persisted via `ManualBPM`
+  so the correction survives re-analysis.
+- **Clear all cues** now clears the selection too, so the inspector returns to AUTO-GENERATE (it used
+  to stay stuck on a ghost cue).
+- Stays attached to the **playing** track after an automatic crossfade advance.
+
+### 🧾 Library / analysis
+- **Duration mismatch** is probed on every match and surfaced in the inspector (>~5% off canonical).
+- **Spectral (fake-lossless) scan** now runs on library imports, not just downloads.
+- **Force re-analyse** a whole playlist from the Analysis page.
+- **Entity round-trip** is complete: whole-row saves no longer blank unmapped columns.
+- **Playlist order** is one canonical order across every view.
+
+### 🔒 Security
+- Chat-image validation + no local-path leaks; download paths contained; Spotify secret DPAPI-encrypted;
+  external links via validated http(s); SQLitePCLRaw and Tmds.DBus pinned past CVEs.
+
+### 🗂️ Schema
+- Adds `ManualBPM` (nullable) to tracks on first run via `SchemaMigratorService`.
+
 ## [0.2.1] — 2026-10-29
 
 Patch on the 0.2 early-stable line (six commits since 0.2.0, no migration). Cue placement accuracy,

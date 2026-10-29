@@ -6,8 +6,8 @@ Think of it as: search + downloads + a music library + a lightweight DJ workstat
 
 ## Download
 
-**Early stable — ORBIT 0.2.1** for Windows x64: **[download the installer](https://github.com/MeshDigital/Orbit-pure/releases/latest)** ·
-[what changed](DOCS/RELEASE_NOTES_0.2.1.md)
+**Early stable — ORBIT 0.2.2** for Windows x64: **[download the installer](https://github.com/MeshDigital/Orbit-pure/releases/latest)** ·
+[what changed](DOCS/RELEASE_NOTES_0.2.2.md)
 
 The same release carries a portable zip (no installer) and a build manifest. Install is per-user with no
 admin prompt; updating over an older build is in place, and neither install nor uninstall touches
