@@ -18,7 +18,7 @@ public record TrackStructureAnalysisCompletedEvent(
 
 // Phase 24: Stem Workspace Communication
 public record OpenStemWorkspaceRequestEvent(PlaylistTrack Track, string? PreferredDeck = null, bool OpenStemRack = false);
-public record AnalysisProgressEvent(string TrackGlobalId, string CurrentStep, int ProgressPercent, float BpmConfidence = 0, float KeyConfidence = 0, float IntegrityScore = 0);
+public record AnalysisProgressEvent(string TrackGlobalId, string CurrentStep, int ProgressPercent, float BpmConfidence = 0, float KeyConfidence = 0, float IntegrityScore = 0, int StageIndex = 0, int StageCount = 0);
 public record TrackAnalysisFailedEvent(string TrackGlobalId, string Error);
 /// <summary>
 /// Requests an analysis run for one track.

@@ -1549,7 +1549,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             track.AnalysisStatus = AnalysisRunStatus.Processing;
 
         track.ProgressPercent = evt.ProgressPercent;
-        track.CurrentStep = evt.CurrentStep;
+        track.CurrentStep = evt.StageCount > 0
+            ? $"Stage {evt.StageIndex}/{evt.StageCount} · {evt.CurrentStep}"
+            : evt.CurrentStep;
         ProcessingState = AnalysisProcessingState.Processing;
         RefreshComputedState();
     }

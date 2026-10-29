@@ -180,6 +180,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                                        AnalysisEngine.Cues | AnalysisEngine.Tempo | AnalysisEngine.Mood)) != 0;
             if (needsPcm)
             {
+                progress?.Report((32, "Measuring loudness & energy..."));
                 try
                 {
                     (pcmSamples, pcmSampleRate, pcmChannels) = AudioIngestionPipeline.ReadPcmFloat(tempWav);
@@ -293,6 +294,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 if (engines.Has(AnalysisEngine.Mood))
                 try
                 {
+                    progress?.Report((40, "Running AI genre/mood..."));
                     var mono16k = EffnetMelSpectrogramExtractor.ResampleTo16k(mono, pcmSampleRate);
                     var embeddingResult = await _effnetEmbedding.ExtractAsync(mono16k, cancellationToken).ConfigureAwait(false);
                     if (embeddingResult is not null)
@@ -342,7 +344,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             var needsEssentia = (engines & (AnalysisEngine.Tempo | AnalysisEngine.Key | AnalysisEngine.Mood)) != 0;
             if (_essentia.IsAvailable && needsEssentia)
             {
-                progress?.Report((45, "Running BPM/key analysis..."));
+                progress?.Report((52, "Running BPM/key analysis..."));
                 essentiaOutput = await _essentia.RunAsync(tempWav, cancellationToken)
                     .ConfigureAwait(false);
 
@@ -445,7 +447,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             }
             else
             {
-                _logger.LogDebug("[AudioAnalysis] Essentia not available — skipping BPM/key detection");
+                _logger.LogWarning("[AudioAnalysis] Essentia extractor not installed — skipping BPM/key detection");
             }
 
             // ── Step 5b: Genre inference + canonical normalisation ──────
@@ -472,7 +474,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             // ── Step 6: Cue point detection ───────────────────────────────
             if (engines.Has(AnalysisEngine.Structure) && features.Bpm > 0 && features.TrackDuration > 0)
             {
-                progress?.Report((70, "Detecting cue points..."));
+                progress?.Report((72, "Detecting cue points..."));
                 var cues = await _cues
                     .DetectAndPersistAsync(trackUniqueHash, features, essentiaOutput, cancellationToken)
                     .ConfigureAwait(false);
@@ -509,8 +511,11 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             var missingOutputs = verifiableOutputs & ~presentOutputs;
             if (missingOutputs != AnalysisEngine.None)
             {
+                var hint = !_essentia.IsAvailable && (missingOutputs & (AnalysisEngine.Tempo | AnalysisEngine.Key)) != 0
+                    ? " The Essentia extractor is not installed, so BPM and key cannot be produced."
+                    : string.Empty;
                 throw new InvalidOperationException(
-                    $"Analysis did not produce requested outputs: {AnalysisEngines.Describe(missingOutputs)}. " +
+                    $"Analysis did not produce requested outputs: {AnalysisEngines.Describe(missingOutputs)}.{hint} " +
                     "Check dependency health and the analysis logs; partial results were preserved.");
             }
 
