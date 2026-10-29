@@ -349,7 +349,11 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         var selected = SelectedCue;
         Cues.Clear();
         foreach (var c in cues) Cues.Add(c);
-        if (selected != null && cues.Contains(selected)) SelectedCue = selected;
+        // Keep the selection only when the same cue object survives the replace. Otherwise drop it,
+        // so "Clear all cues" (or a regenerate that removed the cue) can't leave a ghost selection
+        // that hides the AUTO-GENERATE panel. Mirrors LoadCuesClean.
+        if (selected != null && !Cues.Contains(selected)) selected = null;
+        SelectedCue = selected;
         RefreshBaseline();
     }
 

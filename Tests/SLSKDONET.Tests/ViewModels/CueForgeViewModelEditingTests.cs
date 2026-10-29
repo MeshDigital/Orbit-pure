@@ -123,6 +123,24 @@ public class CueForgeViewModelEditingTests
     }
 
     [Fact]
+    public async Task ClearCues_WithACueSelected_ClearsTheSelectionSoAutoGenerateIsReachable()
+    {
+        var (vm, _, _) = await CreateLoaded();
+        vm.Session.ReplaceAllCues(new[]
+        {
+            new OrbitCue { Timestamp = 10, Name = "[IN -16]", Role = CueRole.Build },
+        }, "seeded");
+        vm.Session.SelectedCue = vm.Session.Cues[0];
+        Assert.True(vm.Session.HasSelectedCue);
+
+        vm.ClearCuesCommand.Execute().Subscribe();
+
+        Assert.Empty(vm.Session.Cues);
+        Assert.Null(vm.Session.SelectedCue);
+        Assert.False(vm.Session.HasSelectedCue);
+    }
+
+    [Fact]
     public async Task OpeningATrack_DoesNotTakeOverTheSharedPlayer()
     {
         var (vm, _, player) = await CreateLoaded();
