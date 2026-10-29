@@ -290,21 +290,58 @@ public class CueForgeViewModelEditingTests
     }
 
     /// <summary>
-    /// The engine hands over to the next track itself on a gapless/crossfade advance (OnTrackAdvanced
-    /// never calls LoadTrackCore), so the player's cached file path still pointed at the previous
-    /// track. Cue Forge compared paths, decided it was not attached, and showed no playhead and a
-    /// Play icon for the track that was audibly playing — "sometimes it is, sometimes it isn't".
+    /// Queue identity is not audio identity. While Cue Forge has borrowed the player for another
+    /// track (here: the incoming one the DJ is about to mix in), the queue still names the track
+    /// on screen. The player is holding a different file, so Cue Forge must not consider itself
+    /// attached — otherwise a cue click seeks/plays that other file instead.
     /// </summary>
     [Fact]
-    public async Task PlayingTrack_ShowsAsPlaying_EvenWhenThePlayerStillCachesThePreviousFile()
+    public async Task QueueTrack_IsNotTreatedAsAttached_WhenThePlayerHoldsAnotherFile()
+    {
+        var (vm, _, player) = await CreateLoaded();
+        player.CurrentTrackHash = Hash;                      // queue says the open track…
+        player.CurrentFilePath = "C:/music/track-b.flac";    // …but the player holds the incoming
+        player.IsPlaying = true;
+
+        Assert.False(vm.IsAttachedToPlayer);
+        Assert.False(vm.IsPlaying);
+    }
+
+    [Fact]
+    public async Task ClickingACue_WhenThePlayerHoldsAnotherFile_LoadsTheCueTrackFirst()
     {
         var (vm, _, player) = await CreateLoaded();
         player.CurrentTrackHash = Hash;
-        player.CurrentFilePath = "C:/music/previous-track.flac";
+        player.CurrentFilePath = "C:/music/track-b.flac";
         player.IsPlaying = true;
+        vm.Session.ReplaceAllCues(new[]
+        {
+            new OrbitCue { Timestamp = 30.0, Name = "[DROP 1]", Role = CueRole.Drop },
+        }, "seeded");
 
-        Assert.True(vm.IsAttachedToPlayer);
-        Assert.True(vm.IsPlaying);
+        vm.Session.PrelistenCue(vm.Session.Cues[0]);
+
+        Assert.Equal("C:/music/track-a.flac", player.CurrentFilePath);
+        Assert.True(player.IsPlaying);
+        Assert.Contains("C:/music/track-a.flac", player.Loads);
+    }
+
+    [Fact]
+    public async Task SwitchingTracks_HandsTheBorrowedPlayerBack()
+    {
+        var (vm, _, player) = await CreateLoaded();
+        player.IsPlaying = true;
+        player.CurrentFilePath = "C:/music/playlist-track.flac";
+        player.PositionFraction = 0.5;
+
+        await vm.PlayPauseCommand.Execute();               // borrows the player for track-a
+        Assert.Equal("C:/music/track-a.flac", player.CurrentFilePath);
+
+        await vm.LoadTrackAsync("track-b", "Next", "Artist");
+
+        Assert.Equal("C:/music/playlist-track.flac", player.CurrentFilePath);
+        Assert.True(player.IsPlaying);
+        Assert.Equal(0.5, player.Seeks.Last(), 6);
     }
 
     [Fact]

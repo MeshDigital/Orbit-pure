@@ -1070,6 +1070,12 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     public async Task LoadTrackAsync(string trackHash, string? title = null, string? artist = null)
     {
+        // If Cue Forge borrowed the shared player for the track being left, give it back before
+        // opening the next track. Otherwise the player keeps playing the auditioned file while the
+        // page shows a different track, and the next cue click seeks/plays the wrong audio.
+        if (!string.Equals(Session.TrackHash, trackHash, StringComparison.OrdinalIgnoreCase))
+            HandBackPlayer(resumePlayback: true);
+
         // Never silently drop unsaved edits for the track being left.
         string? autoSaved = null;
         if (Session.IsDirty && Session.TrackHash is not null &&
@@ -1326,20 +1332,19 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         {
             if (TrackHash is null) return false;
 
-            // The player's queue position is the authority on "what is loaded": the engine can be
-            // playing a track while the cached file path still points at the previous one (see
-            // PlayerViewModel.SetNowPlayingState), so comparing file paths alone said "not attached"
-            // for the track that was audibly playing — no playhead, no pause icon, "sometimes".
-            if (string.Equals(_transport.CurrentTrackHash, TrackHash, StringComparison.OrdinalIgnoreCase) &&
-                _transport.CurrentFilePath is not null)
-            {
-                return true;
-            }
+            // The loaded file is the authority on what Play/Seek will act on. CurrentTrackHash is
+            // QUEUE identity, not audio identity: while Cue Forge has borrowed the player for the
+            // incoming track (or the engine is mid-crossfade), the queue still names the outgoing
+            // track. Trusting the hash first made the outgoing track look attached while the player
+            // actually held the incoming file, so clicking an outgoing cue seeked and played the
+            // incoming track instead of the one on screen.
+            if (_transport.CurrentFilePath is { Length: > 0 } loaded)
+                return SameAudioFile(loaded, _trackFilePath);
 
-            // Cue Forge also borrows the player for a track the queue is not on (auditioning the
-            // incoming track, or a pad on a track the mix hasn't reached yet). Then the file that is
-            // actually loaded is the only thing that identifies it.
-            return SameAudioFile(_transport.CurrentFilePath, _trackFilePath);
+            // No loaded path reported yet (the player was just opened): fall back to queue
+            // identity. Cue Forge also borrows the player for a track the queue is not on, and in
+            // that case the path check above is the one that identifies it.
+            return string.Equals(_transport.CurrentTrackHash, TrackHash, StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -1586,6 +1591,11 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private void PlayFrom(double seconds)
     {
         if (!EnsurePlayerHasTrack()) return;
+
+        // Re-check before seeking: loading is asynchronous in the real player and a racing track
+        // change must never turn a cue audition into a seek of somebody else's audio.
+        if (!IsAttachedToPlayer) return;
+
         SeekPlayer(seconds);
         _transport.Play();
         this.RaisePropertyChanged(nameof(IsPlaying));
