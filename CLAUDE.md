@@ -10,6 +10,27 @@ UI contract: `DOCS/UI_DESIGN_SYSTEM.md`.
 - Never commit to `master`. Work on a feature/hardening branch; small, focused commits.
 - Every commit: `dotnet build SLSKDONET.csproj` with 0 errors, and `Tests/SLSKDONET.Tests/Architecture/*` green.
 
+## First-run & upgrade onboarding ("What's new")
+
+Every release gets the same popup behaviour, driven by one version number — never by ad-hoc code:
+
+- `Services/Setup/FirstRunDetector.CurrentSetupVersion` is the single source of truth. At startup the
+  saved `[Setup] Version` in `config.ini` is compared against it.
+- Fresh install → the full first-run wizard. An install with an older `SetupVersion` (or a pre-wizard
+  install) → the "What's new" re-onboarding. Current version → nothing. Settings → Advanced → Setup
+  always reopens the full wizard by hand.
+
+**Release checklist (skip this and the popup silently never fires):**
+1. Any release that ships user-facing changes MUST bump `CurrentSetupVersion`.
+2. Refresh `ViewModels/Setup/WhatsNewStepViewModel.Items` to describe that release's changes — that
+   list is the popup's copy; stale items mislead existing users.
+3. Keep `Tests/SLSKDONET.Tests/Setup/FirstRunDetectorTests` covering "older version → UpgradeWizard".
+
+The version int is independent of the marketing version (the 0.10 → 0.2 line reset), so never compare
+against `Assembly`/`FileVersion` — use `CurrentSetupVersion` only. When a future release adds a new
+*configurable* wizard step (not just copy), add it to the upgrade list in `SetupWizardViewModel`'s
+step builder so upgraders are offered only that step.
+
 ## No vibecoding
 1. **No placebo UI.** Every Button / MenuItem / ToggleButton / Slider binds to a real command or
    property backed by real behaviour. Unfinished features are hidden, not shown as dead buttons.

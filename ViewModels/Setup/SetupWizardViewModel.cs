@@ -21,8 +21,17 @@ public enum SetupWizardOutcome
     Skipped,
 }
 
+public enum SetupWizardMode
+{
+    /// <summary>Genuine first run: Welcome → Soulseek → Folders → Connections → Metadata → Audio → Done.</summary>
+    FirstRun,
+    /// <summary>Re-onboarding an existing install: What's new → Done.</summary>
+    Upgrade,
+}
+
 /// <summary>
-/// The first-run setup wizard: Welcome → Soulseek → Folders → Connections → Audio → Done.
+/// The setup wizard. First run: Welcome → Soulseek → Folders → Connections → Metadata → Audio → Done.
+/// Upgrade: What's new → Done (existing values are kept; the page just points out what changed).
 /// Each step keeps its own edits (Back never loses them) and saves only when the user presses
 /// Next on it. Finishing or skipping marks [Setup] Completed, so the wizard never reappears unasked;
 /// Settings → Advanced → Setup reopens it.
@@ -54,7 +63,8 @@ public sealed class SetupWizardViewModel : SetupObservable, IDisposable
         INotificationService? notifications = null,
         ISetupEnrichmentGateway? enrichment = null,
         SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? activity = null,
-        Action<Action>? postToUi = null)
+        Action<Action>? postToUi = null,
+        SetupWizardMode mode = SetupWizardMode.FirstRun)
     {
         _state = state;
         _notifications = notifications;
@@ -62,6 +72,7 @@ public sealed class SetupWizardViewModel : SetupObservable, IDisposable
         Activity = activity;
 
         Welcome = new WelcomeStepViewModel();
+        WhatsNew = new WhatsNewStepViewModel();
         Soulseek = new SoulseekStepViewModel(soulseek, logger);
         Folders = new FoldersStepViewModel(settings, libraryFolders, folders, folderPicker, logger);
         Connections = new ConnectionsStepViewModel(spotify, logger);
@@ -70,9 +81,22 @@ public sealed class SetupWizardViewModel : SetupObservable, IDisposable
         Done = new DoneStepViewModel(libraryFolders) { Metadata = Metadata, Activity = activity };
 
         // Metadata comes after Connections: its Spotify row shows the state that step left.
-        var steps = new List<SetupStepViewModel> { Welcome, Soulseek, Folders, Connections };
-        if (Metadata != null) steps.Add(Metadata);
-        steps.Add(Audio);
+        // Upgrade mode keeps existing values and only shows the What's new page; when a future
+        // version adds a configurable step, add it to this list so upgraders are offered just that.
+        var steps = new List<SetupStepViewModel>();
+        if (mode == SetupWizardMode.FirstRun)
+        {
+            steps.Add(Welcome);
+            steps.Add(Soulseek);
+            steps.Add(Folders);
+            steps.Add(Connections);
+            if (Metadata != null) steps.Add(Metadata);
+            steps.Add(Audio);
+        }
+        else
+        {
+            steps.Add(WhatsNew);
+        }
         steps.Add(Done);
         Steps = new ReadOnlyCollection<SetupStepViewModel>(steps);
         Indicators = new ReadOnlyCollection<SetupStepIndicator>(Steps.Select((s, i) => new SetupStepIndicator(i + 1, s)).ToList());
@@ -95,6 +119,10 @@ public sealed class SetupWizardViewModel : SetupObservable, IDisposable
     }
 
     public WelcomeStepViewModel Welcome { get; }
+
+    /// <summary>The "what's new" landing page (only present in <see cref="SetupWizardMode.Upgrade"/>).</summary>
+    public WhatsNewStepViewModel WhatsNew { get; }
+
     public SoulseekStepViewModel Soulseek { get; }
     public FoldersStepViewModel Folders { get; }
     public ConnectionsStepViewModel Connections { get; }

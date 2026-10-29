@@ -29,3 +29,4 @@ Please describe the tests that you ran to verify your changes.
 - [ ] My changes generate no new warnings
 - [ ] I have added tests that prove my fix is effective or that my feature works
 - [ ] New and existing unit tests pass locally with my changes
+- [ ] If user-facing: bumped `CurrentSetupVersion` and refreshed the What's-new items

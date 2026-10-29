@@ -410,20 +410,17 @@ public static class AnalysisModelInventory
 public sealed class FirstRunCoordinator
 {
     private readonly AppConfig _config;
-    private readonly ISetupStateStore _state;
     private readonly ISoulseekCredentialService _credentials;
     private readonly IDbContextFactory<AppDbContext>? _dbFactory;
     private readonly ILogger<FirstRunCoordinator> _logger;
 
     public FirstRunCoordinator(
         AppConfig config,
-        ISetupStateStore state,
         ISoulseekCredentialService credentials,
         ILogger<FirstRunCoordinator> logger,
         IDbContextFactory<AppDbContext>? dbFactory = null)
     {
         _config = config;
-        _state = state;
         _credentials = credentials;
         _logger = logger;
         _dbFactory = dbFactory;
@@ -461,28 +458,16 @@ public sealed class FirstRunCoordinator
             }
         }
 
-        return new FirstRunSignals(_config.SetupCompleted, _config.Username, hasCredentials,
+        return new FirstRunSignals(_config.SetupCompleted, _config.SetupVersion, _config.Username, hasCredentials,
             _config.DownloadDirectory, _config.SharedFolderPath, tracks, folders);
     }
 
-    /// <summary>Evaluates the install; an existing install is marked completed here (config.ini is saved).</summary>
+    /// <summary>Evaluates the install. The wizard itself writes [Setup] Completed when it closes.</summary>
     public async Task<FirstRunResult> EvaluateAsync()
     {
         var signals = await GatherSignalsAsync();
         var result = FirstRunDetector.Evaluate(signals, AppConfig.FallbackDownloadDirectory);
         _logger.LogInformation("First-run check: {Decision} ({Evidence})", result.Decision, string.Join(", ", result.Evidence));
-        if (result.ShouldMarkCompleted)
-        {
-            try
-            {
-                _state.MarkSetupCompleted();
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // Still never show the wizard to an existing user this session.
-                _logger.LogError(ex, "First-run check: could not save [Setup] Completed for an existing install");
-            }
-        }
         return result;
     }
 }

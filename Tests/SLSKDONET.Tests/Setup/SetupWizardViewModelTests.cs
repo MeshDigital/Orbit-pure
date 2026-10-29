@@ -330,7 +330,7 @@ public class SetupWizardViewModelTests
         using var sandbox = new SetupSandbox();
         var bus = new EventBusService();
         var closedCalls = 0;
-        var shell = new SetupShellViewModel(() => sandbox.CreateWizard(), sandbox.State, NullLogger<SetupShellViewModel>.Instance, bus,
+        var shell = new SetupShellViewModel(_ => sandbox.CreateWizard(), sandbox.State, NullLogger<SetupShellViewModel>.Instance, bus,
             onWizardClosed: () => closedCalls++, postToUi: a => a());
         var tourRequests = 0;
         shell.Tour.StartRequested += (_, _) => tourRequests++;

@@ -225,7 +225,9 @@ Add screenshots to help explain your changes.
 2. **Beta Testing**: Community testing and feedback collection
 3. **Bug Fixes**: Address issues discovered during beta
 4. **Release Candidate**: Final testing and validation
-5. **Production Release**: Official release with documentation
+5. **What's-new onboarding**: Bump `FirstRunDetector.CurrentSetupVersion` and refresh the
+   `WhatsNewStepViewModel` items so existing users get this release's popup (see `CLAUDE.md`)
+6. **Production Release**: Official release with documentation
 
 ---
 

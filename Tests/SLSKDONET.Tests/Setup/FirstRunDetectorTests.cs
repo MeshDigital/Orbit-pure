@@ -12,7 +12,7 @@ public class FirstRunDetectorTests
 {
     private static readonly string Fallback = AppConfig.FallbackDownloadDirectory;
 
-    private static FirstRunSignals Fresh() => new(false, null, false, Fallback, null, 0, 0);
+    private static FirstRunSignals Fresh() => new(false, 0, null, false, Fallback, null, 0, 0);
 
     [Fact]
     public void FreshInstall_ShowsWizard()
@@ -20,7 +20,7 @@ public class FirstRunDetectorTests
         var result = FirstRunDetector.Evaluate(Fresh(), Fallback);
         Assert.Equal(FirstRunDecision.ShowWizard, result.Decision);
         Assert.True(result.ShouldShowWizard);
-        Assert.False(result.ShouldMarkCompleted);
+        Assert.False(result.IsUpgrade);
     }
 
     [Fact]
@@ -31,12 +31,24 @@ public class FirstRunDetectorTests
     }
 
     [Fact]
-    public void CompletedFlag_NeverShows()
+    public void CompletedAtCurrentVersion_NeverShows()
     {
-        var result = FirstRunDetector.Evaluate(Fresh() with { SetupCompleted = true }, Fallback);
+        var result = FirstRunDetector.Evaluate(
+            Fresh() with { SetupCompleted = true, SetupVersion = FirstRunDetector.CurrentSetupVersion }, Fallback);
         Assert.Equal(FirstRunDecision.AlreadyCompleted, result.Decision);
         Assert.False(result.ShouldShowWizard);
-        Assert.False(result.ShouldMarkCompleted);
+        Assert.False(result.IsUpgrade);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void CompletedAtOlderVersion_ShowsUpgrade(int setupVersion)
+    {
+        var result = FirstRunDetector.Evaluate(Fresh() with { SetupCompleted = true, SetupVersion = setupVersion }, Fallback);
+        Assert.Equal(FirstRunDecision.UpgradeWizard, result.Decision);
+        Assert.True(result.ShouldShowWizard);
+        Assert.True(result.IsUpgrade);
     }
 
     public static TheoryData<FirstRunSignals> ExistingInstalls() => new()
@@ -51,12 +63,12 @@ public class FirstRunDetectorTests
 
     [Theory]
     [MemberData(nameof(ExistingInstalls))]
-    public void ExistingInstall_IsMarkedCompleted_AndNeverShown(FirstRunSignals signals)
+    public void PreWizardExistingInstall_IsOfferedWhatIsNew(FirstRunSignals signals)
     {
         var result = FirstRunDetector.Evaluate(signals, Fallback);
-        Assert.Equal(FirstRunDecision.ExistingInstall, result.Decision);
-        Assert.False(result.ShouldShowWizard);
-        Assert.True(result.ShouldMarkCompleted);
+        Assert.Equal(FirstRunDecision.UpgradeWizard, result.Decision);
+        Assert.True(result.ShouldShowWizard);
+        Assert.True(result.IsUpgrade);
         Assert.NotEmpty(result.Evidence);
     }
 
@@ -68,34 +80,41 @@ public class FirstRunDetectorTests
     }
 
     [Fact]
-    public async Task Coordinator_ExistingUser_WritesCompletedFlagToTempConfig()
+    public async Task Coordinator_PreWizardUser_ReportsUpgrade_AndDoesNotWriteConfig()
     {
         using var sandbox = new SetupSandbox();
         sandbox.Config.Username = "existing-user";
-        var store = new ConfigSetupStateStore(sandbox.Config, sandbox.ConfigManager, NullLogger<ConfigSetupStateStore>.Instance);
-        var coordinator = new FirstRunCoordinator(sandbox.Config, store, new NoCredentials(), NullLogger<FirstRunCoordinator>.Instance);
+        var coordinator = new FirstRunCoordinator(sandbox.Config, new NoCredentials(), NullLogger<FirstRunCoordinator>.Instance);
 
         var result = await coordinator.EvaluateAsync();
 
-        Assert.Equal(FirstRunDecision.ExistingInstall, result.Decision);
-        var reloaded = new ConfigManager(sandbox.ConfigPath).Load();
-        Assert.True(reloaded.SetupCompleted);
-        Assert.Equal(FirstRunDetector.CurrentSetupVersion, reloaded.SetupVersion);
-
-        // Second start: already completed, still no wizard.
-        var second = await new FirstRunCoordinator(reloaded, store, new NoCredentials(), NullLogger<FirstRunCoordinator>.Instance).EvaluateAsync();
-        Assert.Equal(FirstRunDecision.AlreadyCompleted, second.Decision);
+        Assert.Equal(FirstRunDecision.UpgradeWizard, result.Decision);
+        // No silent marking anymore: the wizard writes [Setup] Completed when it closes.
+        Assert.False(File.Exists(sandbox.ConfigPath));
     }
 
     [Fact]
     public async Task Coordinator_FreshInstall_DoesNotWriteConfig()
     {
         using var sandbox = new SetupSandbox();
-        var store = new ConfigSetupStateStore(sandbox.Config, sandbox.ConfigManager, NullLogger<ConfigSetupStateStore>.Instance);
-        var result = await new FirstRunCoordinator(sandbox.Config, store, new NoCredentials(), NullLogger<FirstRunCoordinator>.Instance).EvaluateAsync();
+        var result = await new FirstRunCoordinator(sandbox.Config, new NoCredentials(), NullLogger<FirstRunCoordinator>.Instance).EvaluateAsync();
 
         Assert.True(result.ShouldShowWizard);
         Assert.False(File.Exists(sandbox.ConfigPath));
+    }
+
+    [Fact]
+    public async Task Coordinator_CompletedAtCurrentVersion_DoesNotShow()
+    {
+        using var sandbox = new SetupSandbox();
+        sandbox.Config.SetupCompleted = true;
+        sandbox.Config.SetupVersion = FirstRunDetector.CurrentSetupVersion;
+        var coordinator = new FirstRunCoordinator(sandbox.Config, new NoCredentials(), NullLogger<FirstRunCoordinator>.Instance);
+
+        var result = await coordinator.EvaluateAsync();
+
+        Assert.Equal(FirstRunDecision.AlreadyCompleted, result.Decision);
+        Assert.False(result.ShouldShowWizard);
     }
 
     [Fact]
@@ -103,7 +122,7 @@ public class FirstRunDetectorTests
     {
         using var sandbox = new SetupSandbox();
         sandbox.Config.SetupCompleted = true;
-        sandbox.Config.SetupVersion = 1;
+        sandbox.Config.SetupVersion = 2;
         sandbox.Config.TourCompleted = true;
         sandbox.Config.AnalyzeNewDownloads = false;
         sandbox.Config.EditLabOutputDirectory = sandbox.Dir("edits");
@@ -111,7 +130,7 @@ public class FirstRunDetectorTests
 
         var loaded = new ConfigManager(sandbox.ConfigPath).Load();
         Assert.True(loaded.SetupCompleted);
-        Assert.Equal(1, loaded.SetupVersion);
+        Assert.Equal(2, loaded.SetupVersion);
         Assert.True(loaded.TourCompleted);
         Assert.False(loaded.AnalyzeNewDownloads);
         Assert.Equal(sandbox.Dir("edits"), loaded.EditLabOutputDirectory);

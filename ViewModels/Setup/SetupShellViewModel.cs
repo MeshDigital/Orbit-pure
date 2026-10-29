@@ -13,7 +13,7 @@ namespace SLSKDONET.ViewModels.Setup;
 /// </summary>
 public sealed class SetupShellViewModel : SetupObservable, IDisposable
 {
-    private readonly Func<SetupWizardViewModel> _wizardFactory;
+    private readonly Func<SetupWizardMode, SetupWizardViewModel> _wizardFactory;
     private readonly ILogger<SetupShellViewModel> _logger;
     private readonly IDisposable? _openSubscription;
     private readonly IDisposable? _tourSubscription;
@@ -23,7 +23,7 @@ public sealed class SetupShellViewModel : SetupObservable, IDisposable
     private SetupWizardViewModel? _wizard;
 
     public SetupShellViewModel(
-        Func<SetupWizardViewModel> wizardFactory,
+        Func<SetupWizardMode, SetupWizardViewModel> wizardFactory,
         ISetupStateStore state,
         ILogger<SetupShellViewModel> logger,
         IEventBus? eventBus = null,
@@ -42,7 +42,7 @@ public sealed class SetupShellViewModel : SetupObservable, IDisposable
         if (eventBus != null)
         {
             _openSubscription = eventBus.GetEvent<OpenSetupWizardRequestedEvent>()
-                .Subscribe(_ => _post(OpenWizard));
+                .Subscribe(_ => _post(() => OpenWizard()));
             _tourSubscription = eventBus.GetEvent<StartTourRequestedEvent>()
                 .Subscribe(_ => _post(StartTour));
         }
@@ -63,15 +63,15 @@ public sealed class SetupShellViewModel : SetupObservable, IDisposable
     public bool IsWizardOpen => Wizard != null;
 
     /// <summary>Opens a fresh wizard (current values loaded from config). No-op while one is open.</summary>
-    public void OpenWizard()
+    public void OpenWizard(SetupWizardMode mode = SetupWizardMode.FirstRun)
     {
         if (Wizard != null) return;
         if (Tour.IsOpen) Tour.Close(completed: false);
 
-        var wizard = _wizardFactory();
+        var wizard = _wizardFactory(mode);
         wizard.Closed += OnWizardClosed;
         Wizard = wizard;
-        _logger.LogInformation("Setup wizard opened");
+        _logger.LogInformation("Setup wizard opened ({Mode})", mode);
         _onWizardOpened?.Invoke();
         _ = InitializeWizardAsync(wizard);
     }

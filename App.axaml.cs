@@ -236,14 +236,17 @@ public partial class App : Application
                         
                         Serilog.Log.Information("✅ Database initialization completed successfully");
 
-                        // First-run setup: decide before the UI exists. An install that has an
-                        // account, chosen folders or tracks is marked completed here and never
-                        // sees the wizard; only a genuinely fresh one does.
+                        // First-run / upgrade onboarding: decide before the UI exists. A fresh install
+                        // gets the full wizard; an install on an older wizard version gets "what's new".
                         var showSetupWizard = false;
+                        var setupMode = ViewModels.Setup.SetupWizardMode.FirstRun;
                         try
                         {
                             var firstRun = await Services.GetRequiredService<Services.Setup.FirstRunCoordinator>().EvaluateAsync();
                             showSetupWizard = firstRun.ShouldShowWizard;
+                            setupMode = firstRun.IsUpgrade
+                                ? ViewModels.Setup.SetupWizardMode.Upgrade
+                                : ViewModels.Setup.SetupWizardMode.FirstRun;
                         }
                         catch (Exception setupEx)
                         {
@@ -303,7 +306,7 @@ public partial class App : Application
                             Services.GetRequiredService<UiStallWatchdog>().Start();
 
                             if (showSetupWizard)
-                                mainVm?.Setup?.OpenWizard();
+                                mainVm?.Setup?.OpenWizard(setupMode);
 
                             // Tray icon (live tooltip + menu) and the Windows taskbar button
                             // (thumbnail Previous/Play/Next + download progress).
@@ -792,7 +795,20 @@ public partial class App : Application
         services.AddSingleton<Services.Setup.FirstRunCoordinator>();
         services.AddTransient<ViewModels.Setup.SetupWizardViewModel>();
         services.AddSingleton(sp => new ViewModels.Setup.SetupShellViewModel(
-            () => sp.GetRequiredService<ViewModels.Setup.SetupWizardViewModel>(),
+            mode => new ViewModels.Setup.SetupWizardViewModel(
+                sp.GetRequiredService<Services.Setup.ISetupStateStore>(),
+                sp.GetRequiredService<Services.Setup.ISoulseekSetupGateway>(),
+                sp.GetRequiredService<Services.Setup.ISetupSettingsGateway>(),
+                sp.GetRequiredService<Services.Setup.ILibraryFolderSetupGateway>(),
+                sp.GetRequiredService<Services.Setup.ISetupFolderService>(),
+                sp.GetRequiredService<IFileInteractionService>(),
+                sp.GetRequiredService<Services.Setup.ISpotifySetupGateway>(),
+                sp.GetRequiredService<Services.Setup.IAudioSetupGateway>(),
+                sp.GetRequiredService<ILogger<ViewModels.Setup.SetupWizardViewModel>>(),
+                notifications: sp.GetService<INotificationService>(),
+                enrichment: sp.GetService<Services.Setup.ISetupEnrichmentGateway>(),
+                activity: sp.GetService<ViewModels.Activity.BackgroundActivityHubViewModel>(),
+                mode: mode),
             sp.GetRequiredService<Services.Setup.ISetupStateStore>(),
             sp.GetRequiredService<ILogger<ViewModels.Setup.SetupShellViewModel>>(),
             sp.GetRequiredService<IEventBus>(),
