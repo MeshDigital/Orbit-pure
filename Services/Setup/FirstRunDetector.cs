@@ -7,6 +7,7 @@ namespace SLSKDONET.Services.Setup;
 /// <summary>What ORBIT knows about this install at startup, gathered before the main window shows.</summary>
 public sealed record FirstRunSignals(
     bool SetupCompleted,
+    int SetupVersion,
     string? Username,
     bool HasStoredCredentials,
     string? DownloadDirectory,
@@ -16,32 +17,38 @@ public sealed record FirstRunSignals(
 
 public enum FirstRunDecision
 {
-    /// <summary>[Setup] Completed is already set: nothing to do.</summary>
+    /// <summary>[Setup] Completed is set at (or past) the current wizard version: nothing to do.</summary>
     AlreadyCompleted,
 
-    /// <summary>The install was used before the wizard existed: mark setup completed silently, never show it.</summary>
-    ExistingInstall,
-
-    /// <summary>A genuinely fresh install: show the wizard.</summary>
+    /// <summary>A genuinely fresh install: show the full first-run wizard.</summary>
     ShowWizard,
+
+    /// <summary>
+    /// An install that completed an older wizard version, or was used before the wizard existed:
+    /// show the "what's new" re-onboarding instead of the full first-run flow.
+    /// </summary>
+    UpgradeWizard,
 }
 
 public sealed record FirstRunResult(FirstRunDecision Decision, IReadOnlyList<string> Evidence)
 {
-    public bool ShouldShowWizard => Decision == FirstRunDecision.ShowWizard;
-    public bool ShouldMarkCompleted => Decision == FirstRunDecision.ExistingInstall;
+    public bool ShouldShowWizard => Decision is FirstRunDecision.ShowWizard or FirstRunDecision.UpgradeWizard;
+    public bool IsUpgrade => Decision == FirstRunDecision.UpgradeWizard;
 }
 
 /// <summary>
-/// Decides whether the first-run setup wizard appears. Pure: no I/O, so every rule is unit-tested.
-/// An install that has ever been used (a Soulseek name or stored password, a download or shared
-/// folder the user chose, tracks or library folders in the database) is an existing install: it
-/// is marked completed and never sees the wizard unasked.
+/// Decides whether the setup wizard appears. Pure: no I/O, so every rule is unit-tested.
+/// A fresh install sees the full wizard. An install that already completed the wizard at the
+/// current version sees nothing. Anything older — a completed wizard from a previous version,
+/// or an install used before the wizard existed — is offered the "what's new" re-onboarding.
 /// </summary>
 public static class FirstRunDetector
 {
-    /// <summary>Bump when the wizard gains steps an existing user should be offered (not used to re-show it yet).</summary>
-    public const int CurrentSetupVersion = 1;
+    /// <summary>
+    /// Bump when the wizard gains steps or content an existing user should be offered. On startup,
+    /// any install whose saved <see cref="Configuration.AppConfig.SetupVersion"/> is below this is re-onboarded.
+    /// </summary>
+    public const int CurrentSetupVersion = 2;
 
     /// <param name="fallbackDownloadDirectory">
     /// The folder ORBIT fills in when config.ini has none (<see cref="Configuration.AppConfig.FallbackDownloadDirectory"/>).
@@ -50,8 +57,14 @@ public static class FirstRunDetector
     public static FirstRunResult Evaluate(FirstRunSignals signals, string? fallbackDownloadDirectory)
     {
         ArgumentNullException.ThrowIfNull(signals);
+
         if (signals.SetupCompleted)
-            return new FirstRunResult(FirstRunDecision.AlreadyCompleted, new[] { "[Setup] Completed is set" });
+        {
+            return signals.SetupVersion < CurrentSetupVersion
+                ? new FirstRunResult(FirstRunDecision.UpgradeWizard,
+                    new[] { $"[Setup] Completed at version {signals.SetupVersion}, current is {CurrentSetupVersion}" })
+                : new FirstRunResult(FirstRunDecision.AlreadyCompleted, new[] { "[Setup] Completed is set" });
+        }
 
         var evidence = new List<string>();
         if (!string.IsNullOrWhiteSpace(signals.Username)) evidence.Add("Soulseek username in config");
@@ -62,7 +75,7 @@ public static class FirstRunDetector
         if (signals.LibraryFolderCount > 0) evidence.Add($"{signals.LibraryFolderCount} library folders");
 
         return evidence.Count > 0
-            ? new FirstRunResult(FirstRunDecision.ExistingInstall, evidence)
+            ? new FirstRunResult(FirstRunDecision.UpgradeWizard, evidence)
             : new FirstRunResult(FirstRunDecision.ShowWizard, new[] { "no account, folders or tracks yet" });
     }
 

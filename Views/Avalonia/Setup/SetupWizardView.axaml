@@ -152,6 +152,31 @@
                                 </StackPanel>
                             </DataTemplate>
 
+                            <!-- What's new (upgrade re-onboarding) -->
+                            <DataTemplate DataType="setup:WhatsNewStepViewModel" x:DataType="setup:WhatsNewStepViewModel">
+                                <StackPanel Spacing="16" Margin="0,24,0,8">
+                                    <PathIcon Data="{StaticResource icon_wand}" Width="{StaticResource IconSizeXl}" Height="{StaticResource IconSizeXl}"
+                                              Foreground="{StaticResource BrushAccent}" HorizontalAlignment="Left"/>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="display" Text="{Binding Title}"/>
+                                        <TextBlock Classes="body" Foreground="{StaticResource BrushText1}" Text="{Binding Subtitle}"/>
+                                    </StackPanel>
+                                    <ItemsControl ItemsSource="{Binding Items}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="setup:WhatsNewItem" x:DataType="setup:WhatsNewItem">
+                                                <Border Classes="card" Padding="16,12" Margin="0,4">
+                                                    <StackPanel Spacing="2">
+                                                        <TextBlock Classes="body" FontWeight="SemiBold" Text="{Binding Title}"/>
+                                                        <TextBlock Classes="caption" Text="{Binding Detail}"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock Classes="caption" Text="Run setup again or take the tour any time from Settings → Advanced → Setup."/>
+                                </StackPanel>
+                            </DataTemplate>
+
                             <!-- 2. Soulseek -->
                             <DataTemplate DataType="setup:SoulseekStepViewModel" x:DataType="setup:SoulseekStepViewModel">
                                 <StackPanel Spacing="16">
