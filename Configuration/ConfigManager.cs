@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using System.IO;
 using System.Text.Json;
+using SLSKDONET.Services;
 
 namespace SLSKDONET.Configuration;
 
@@ -14,6 +15,12 @@ public class ConfigManager
     // Many callers fire-and-forget SaveAsync; without this, two saves could open config.ini at
     // the same time and one failed with "file is being used by another process".
     private readonly object _saveLock = new();
+    // The Spotify client secret is DPAPI-protected before it is written to config.ini (the
+    // Soulseek password and Spotify refresh token are already kept in secure storage). Legacy
+    // plaintext values are still read back so existing configs keep working, and are re-encrypted
+    // on the next save.
+    private const string ProtectedSecretPrefix = "enc:";
+    private readonly ProtectedDataService _protectedData = new();
 
     public ConfigManager(string? configPath = null)
     {
@@ -101,7 +108,7 @@ public class ConfigManager
                 // [Spotify]
                 SpotifyUsePublicOnly = !bool.TryParse(config["Spotify:SpotifyUsePublicOnly"], out var supo) || supo, // Default true
                 SpotifyClientId = config["Spotify:SpotifyClientId"],
-                SpotifyClientSecret = config["Spotify:SpotifyClientSecret"],
+                SpotifyClientSecret = DecodeSpotifySecret(config["Spotify:SpotifyClientSecret"]),
                 SpotifyUseApi = !bool.TryParse(config["Spotify:MetadataEnrichmentEnabled"], out var sua) || sua,
                 SpotifyRememberAuth = !bool.TryParse(config["Spotify:SpotifyRememberAuth"], out var sra) || sra, // Default true
                 SpotifyCallbackPort = int.TryParse(config["Spotify:SpotifyCallbackPort"], out var scp) ? scp : 5000,
@@ -396,7 +403,7 @@ public class ConfigManager
         iniContent.AppendLine();
         iniContent.AppendLine("[Spotify]");
         iniContent.AppendLine($"SpotifyClientId = {config.SpotifyClientId}");
-        iniContent.AppendLine($"SpotifyClientSecret = {config.SpotifyClientSecret}");
+        iniContent.AppendLine($"SpotifyClientSecret = {EncodeSpotifySecret(config.SpotifyClientSecret)}");
         iniContent.AppendLine($"SpotifyUsePublicOnly = {config.SpotifyUsePublicOnly}");
         iniContent.AppendLine($"SpotifyCallbackPort = {config.SpotifyCallbackPort}");
         iniContent.AppendLine($"SpotifyRedirectUri = {config.SpotifyRedirectUri}");
@@ -530,6 +537,39 @@ public class ConfigManager
             WriteAtomically(_configPath, iniContent.ToString());
             _config = config;
         }
+    }
+
+    /// <summary>DPAPI-protects the Spotify client secret before it is persisted to config.ini.</summary>
+    private string? EncodeSpotifySecret(string? secret)
+    {
+        if (string.IsNullOrWhiteSpace(secret)) return secret;
+
+        var protectedValue = _protectedData.Protect(secret);
+        if (protectedValue == null)
+        {
+            // Non-Windows dev only — DPAPI isn't available there. The shipped Windows build always protects.
+            Serilog.Log.Warning("[ConfigManager] Secure storage unavailable; Spotify client secret will be saved unencrypted.");
+            return secret;
+        }
+
+        return ProtectedSecretPrefix + protectedValue;
+    }
+
+    /// <summary>
+    /// Reads back the Spotify client secret. Encrypted values (the <c>enc:</c> prefix) are
+    /// decrypted; legacy plaintext values pass through unchanged and are re-encrypted on save.
+    /// </summary>
+    private string? DecodeSpotifySecret(string? stored)
+    {
+        if (string.IsNullOrWhiteSpace(stored)) return stored;
+        if (!stored.StartsWith(ProtectedSecretPrefix, StringComparison.Ordinal)) return stored;
+
+        var unprotected = _protectedData.Unprotect(stored[ProtectedSecretPrefix.Length..]);
+        if (unprotected == null)
+        {
+            Serilog.Log.Warning("[ConfigManager] Failed to decrypt the Spotify client secret (wrong user context or corrupted data); it will be cleared.");
+        }
+        return unprotected;
     }
 
     /// <summary>
