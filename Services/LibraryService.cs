@@ -1209,6 +1209,12 @@ public class LibraryService : ILibraryService
         }
     }
 
+    public async Task UpdateBpmAsync(string trackHash, double bpm)
+    {
+        await _databaseService.UpdateBpmAsync(trackHash, bpm).ConfigureAwait(false);
+        _cache.InvalidateGlobalLibrary();
+    }
+
     public async Task SavePlaylistTracksAsync(List<PlaylistTrack> tracks)
     {
         try

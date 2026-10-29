@@ -197,6 +197,14 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             ? Math.Round(GridBpm).ToString(CultureInfo.InvariantCulture)
             : GridBpm.ToString("F1", CultureInfo.InvariantCulture);
 
+    private string _manualBpmInput = "";
+    /// <summary>User-typed BPM for the manual tempo override.</summary>
+    public string ManualBpmInput
+    {
+        get => _manualBpmInput;
+        set => this.RaiseAndSetIfChanged(ref _manualBpmInput, value);
+    }
+
     // ── Playback State ─────────────────────────────────────────────────────
 
     private double _currentPlayPosition;
@@ -672,6 +680,11 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<string, Unit> SlipGridCommand { get; }
     /// <summary>Puts the downbeat back where the analysis had it when the track was opened.</summary>
     public ReactiveCommand<Unit, Unit> ResetGridCommand { get; }
+    /// <summary>Corrects a wrong detected tempo: double / halve the grid BPM.</summary>
+    public ReactiveCommand<Unit, Unit> DoubleBpmCommand { get; }
+    public ReactiveCommand<Unit, Unit> HalveBpmCommand { get; }
+    /// <summary>Applies the manually-typed BPM in <see cref="ManualBpmInput"/>.</summary>
+    public ReactiveCommand<Unit, Unit> ApplyManualBpmCommand { get; }
 
     private double _analysedDownbeat;
     private bool _isGridEdited;
@@ -841,6 +854,9 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         SetDownbeatAtPlayheadCommand = ReactiveCommand.CreateFromTask(SetDownbeatAtPlayheadAsync, canAct);
         SlipGridCommand = ReactiveCommand.CreateFromTask<string>(SlipGridAsync, canAct);
         ResetGridCommand = ReactiveCommand.CreateFromTask(ResetGridAsync, this.WhenAnyValue(x => x.IsGridEdited));
+        DoubleBpmCommand = ReactiveCommand.CreateFromTask(() => ApplyBpmAsync(GridBpm * 2), hasTrack);
+        HalveBpmCommand = ReactiveCommand.CreateFromTask(() => ApplyBpmAsync(GridBpm / 2), hasTrack);
+        ApplyManualBpmCommand = ReactiveCommand.CreateFromTask(ApplyManualBpmAsync, hasTrack);
 
         ZoomInCommand     = ReactiveCommand.Create(() => ZoomAroundPlayhead(1.5));
         ZoomOutCommand    = ReactiveCommand.Create(() => ZoomAroundPlayhead(1 / 1.5));
@@ -1205,6 +1221,34 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(TimeTillDropBars));
         this.RaisePropertyChanged(nameof(TimeTillDropDisplay));
         this.RaisePropertyChanged(nameof(HasTimeTillDrop));
+    }
+
+    /// <summary>Applies a corrected tempo, rescales the grid, and persists ManualBPM so it survives re-analysis.</summary>
+    private async Task ApplyBpmAsync(double newBpm)
+    {
+        if (newBpm is < 40 or > 400) return; // sanity bound
+        _preciseBpm = newBpm;
+        Bpm = (int)Math.Round(newBpm);
+        RaiseGridChanged();
+        ManualBpmInput = newBpm.ToString("0.#", CultureInfo.InvariantCulture);
+
+        if (TrackHash is not { } hash || _libraryService is null) return;
+        try
+        {
+            await _libraryService.UpdateBpmAsync(hash, newBpm);
+            _eventBus?.Publish(new TrackMetadataUpdatedEvent(hash));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "CueForge: failed to save BPM for {Hash}", hash);
+        }
+    }
+
+    private async Task ApplyManualBpmAsync()
+    {
+        if (!double.TryParse(ManualBpmInput, NumberStyles.Float, CultureInfo.InvariantCulture, out var bpm))
+            return;
+        await ApplyBpmAsync(bpm);
     }
 
     public void UpdateCamelotKeyDisplay(string camelotKey)

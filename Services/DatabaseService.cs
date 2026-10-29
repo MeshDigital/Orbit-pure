@@ -863,6 +863,12 @@ public class DatabaseService
         }
     }
 
+    /// <summary>Writes a corrected BPM (and ManualBPM) for a track across Library, Tracks and PlaylistTracks.</summary>
+    public async Task UpdateBpmAsync(string trackHash, double bpm)
+    {
+        await _trackRepository.UpdateBpmAsync(trackHash, bpm);
+    }
+
     /// <summary>
     /// Saves or updates an AudioFeatures entity (Essentia analysis results).
     /// </summary>

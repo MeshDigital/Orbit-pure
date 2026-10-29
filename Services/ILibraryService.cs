@@ -326,6 +326,9 @@ public interface ILibraryService
     Task UpdateRatingAsync(string trackHash, int rating);
     Task UpdateColorTagAsync(string trackHash, string? colorTag);
 
+    /// <summary>Writes a corrected BPM (and ManualBPM) for a track across Library, Tracks and PlaylistTracks.</summary>
+    Task UpdateBpmAsync(string trackHash, double bpm);
+
     /// <summary>
     /// Searches tracks across all playlists.
     /// </summary>

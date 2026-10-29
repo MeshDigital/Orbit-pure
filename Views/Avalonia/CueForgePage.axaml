@@ -148,6 +148,12 @@
                     <StackPanel Spacing="2">
                         <TextBlock Classes="section" Text="BPM"/>
                         <TextBlock Classes="mono" Text="{Binding BpmDisplay}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,4,0,0">
+                            <Button Classes="small" Command="{Binding HalveBpmCommand}" Content="÷2" ToolTip.Tip="Halve the tempo (fix a double-counted BPM)"/>
+                            <Button Classes="small" Command="{Binding DoubleBpmCommand}" Content="×2" ToolTip.Tip="Double the tempo (fix a half-counted BPM)"/>
+                            <TextBox Width="46" Text="{Binding ManualBpmInput}" Watermark="BPM" VerticalAlignment="Center"/>
+                            <Button Classes="small" Command="{Binding ApplyManualBpmCommand}" Content="Set" ToolTip.Tip="Set a manual BPM"/>
+                        </StackPanel>
                     </StackPanel>
                     <StackPanel Spacing="2" ToolTip.Tip="{Binding CompatibleCamelotKeys}">
                         <TextBlock Classes="section" Text="KEY"/>
