@@ -776,6 +776,37 @@ public class DatabaseService
     }
 
     /// <summary>
+    /// Persists the core spectral integrity verdict for a library entry after a post-import scan.
+    /// LibraryEntries carry only the core verdict (Integrity + IsTranscoded + QualityDetails); the
+    /// extended per-band forensics written by <see cref="UpdateSpectralVerdictAsync"/> are a
+    /// PlaylistTracks-only feature.
+    /// </summary>
+    public async Task UpdateLibraryEntrySpectralVerdictAsync(
+        string uniqueHash,
+        bool isTranscoded,
+        SLSKDONET.Data.IntegrityLevel integrityLevel,
+        string? qualityDetails)
+    {
+        if (string.IsNullOrWhiteSpace(uniqueHash)) return;
+
+        await _writeSemaphore.WaitAsync();
+        try
+        {
+            using var context = new AppDbContext();
+            await context.Database.ExecuteSqlInterpolatedAsync($@"
+                UPDATE LibraryEntries
+                SET Integrity      = {(int)integrityLevel},
+                    IsTranscoded   = {isTranscoded},
+                    QualityDetails = {qualityDetails}
+                WHERE UniqueHash = {uniqueHash}");
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>
     /// Writes a verified track duration to every table that carries its own copy
     /// (PlaylistTracks.CanonicalDuration in ms, Tracks.CanonicalDuration in ms,
     /// LibraryEntries.DurationSeconds in seconds — TrackRepository.GetPagedAllTracksAsync derives

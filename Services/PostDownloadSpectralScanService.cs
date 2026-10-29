@@ -75,6 +75,18 @@ public sealed class PostDownloadSpectralScanService : IDisposable
                     _ = ScanAsync(evt);
             });
         _disposables.Add(subscription);
+
+        // Subscribe to library-import batches so imported lossless files get the same fake-lossless
+        // scan as downloads — previously only the download path was wired, so a library-imported
+        // AAC→FLAC transcode was never flagged.
+        var importSubscription = _eventBus.GetEvent<LibraryEntriesAddedEvent>()
+            .Subscribe(evt =>
+            {
+                if (evt.TrackHashes is null) return;
+                foreach (var hash in evt.TrackHashes)
+                    _ = ScanLibraryEntryAsync(hash);
+            });
+        _disposables.Add(importSubscription);
     }
 
     // ── core analysis ─────────────────────────────────────────────────────────
@@ -125,31 +137,12 @@ public sealed class PostDownloadSpectralScanService : IDisposable
 
             var result = await _integrityService.AnalyseAsync(filePath);
 
-            // ── map verdict to storage fields ──────────────────────────────────
-            var isTranscoded = !result.IsGenuineLossless &&
-                               result.Verdict != AudioAuthenticityVerdict.Unknown;
+            var (isTranscoded, integrityLevel, qualityDetails, frequencyCutoffHz) = MapVerdict(result);
 
-            var integrityLevel = result.Verdict switch
-            {
-                AudioAuthenticityVerdict.GenuineLossless         => IntegrityLevel.Gold,
-                AudioAuthenticityVerdict.TranscodedHighBitrate   => IntegrityLevel.Suspicious,
-                AudioAuthenticityVerdict.TranscodedMediumBitrate => IntegrityLevel.Suspicious,
-                AudioAuthenticityVerdict.TranscodedLowBitrate    => IntegrityLevel.Suspicious,
-                _                                                => IntegrityLevel.None
-            };
-
+            // Human-readable cutoff for the log lines below.
             var cutoffKhz = result.SpectralCutoffHz > 0
                 ? NumFormat.Ui($"{result.SpectralCutoffHz / 1000.0:F1} kHz")
                 : "unknown";
-
-            // QualityDetails is read by UnifiedTrackViewModel for the forensic HUD and tooltip.
-            var qualityDetails = result.Verdict == AudioAuthenticityVerdict.Unknown
-                ? result.Reason
-                : NumFormat.Ui($"{result.Verdict} | cutoff: {cutoffKhz} | confidence: {result.Confidence:P0}");
-
-            var frequencyCutoffHz = result.SpectralCutoffHz > 0
-                ? (int?)result.SpectralCutoffHz
-                : null;
 
             // dBFS values are negative by definition — use a sentinel of −120.0 (defined as
             // the floor in ComputeDynamics) to detect "not computed" vs. a real near-zero measurement.
@@ -183,6 +176,100 @@ public sealed class PostDownloadSpectralScanService : IDisposable
         {
             _logger.LogWarning(ex, "Spectral scan failed for track {Hash}", evt.TrackGlobalId);
             _auditLogger.Log(evt.TrackGlobalId, $"[Spectral] ERROR: Spectral scan failed: {ex.Message}", isError: true);
+        }
+    }
+
+    /// <summary>Maps an analysis result to the persisted verdict fields shared by both scan paths.</summary>
+    private static (bool IsTranscoded, IntegrityLevel IntegrityLevel, string QualityDetails, int? FrequencyCutoffHz)
+        MapVerdict(SpectralIntegrityResult result)
+    {
+        var isTranscoded = !result.IsGenuineLossless &&
+                           result.Verdict != AudioAuthenticityVerdict.Unknown;
+
+        var integrityLevel = result.Verdict switch
+        {
+            AudioAuthenticityVerdict.GenuineLossless         => IntegrityLevel.Gold,
+            AudioAuthenticityVerdict.TranscodedHighBitrate   => IntegrityLevel.Suspicious,
+            AudioAuthenticityVerdict.TranscodedMediumBitrate => IntegrityLevel.Suspicious,
+            AudioAuthenticityVerdict.TranscodedLowBitrate    => IntegrityLevel.Suspicious,
+            _                                                => IntegrityLevel.None
+        };
+
+        var cutoffKhz = result.SpectralCutoffHz > 0
+            ? NumFormat.Ui($"{result.SpectralCutoffHz / 1000.0:F1} kHz")
+            : "unknown";
+
+        // QualityDetails is read by UnifiedTrackViewModel for the forensic HUD and tooltip.
+        var qualityDetails = result.Verdict == AudioAuthenticityVerdict.Unknown
+            ? result.Reason
+            : NumFormat.Ui($"{result.Verdict} | cutoff: {cutoffKhz} | confidence: {result.Confidence:P0}");
+
+        var frequencyCutoffHz = result.SpectralCutoffHz > 0
+            ? (int?)result.SpectralCutoffHz
+            : null;
+
+        return (isTranscoded, integrityLevel, qualityDetails, frequencyCutoffHz);
+    }
+
+    /// <summary>
+    /// Runs the same spectral integrity scan on a freshly-imported library entry. LibraryEntries
+    /// carry only the core verdict (Integrity + IsTranscoded + QualityDetails); the extended
+    /// per-band forensics are a PlaylistTracks-only feature.
+    /// </summary>
+    private async Task ScanLibraryEntryAsync(string uniqueHash)
+    {
+        if (!_config.EnableVbrFraudDetection)
+        {
+            return;
+        }
+
+        try
+        {
+            var entry = await _databaseService.FindLibraryEntryAsync(uniqueHash);
+            if (entry == null)
+            {
+                return;
+            }
+
+            var filePath = entry.FilePath;
+            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+            {
+                return;
+            }
+
+            // Only scan lossless formats — MP3/AAC are always lossy by definition.
+            var ext = Path.GetExtension(filePath);
+            if (!SLSKDONET.Services.Audio.AudioFormats.IsLossless(ext))
+                return;
+
+            // De-duplicate across both download and import scans: same file, same bytes.
+            if (!_scannedPaths.TryAdd(filePath, 0))
+            {
+                return;
+            }
+
+            _logger.LogInformation("Spectral scan starting for imported '{Title}' — {Path}",
+                entry.Title, filePath);
+            _auditLogger.Log(uniqueHash, $"[Spectral] Starting post-import spectral scan | File: {filePath}");
+
+            var result = await _integrityService.AnalyseAsync(filePath);
+
+            var (isTranscoded, integrityLevel, qualityDetails, _) = MapVerdict(result);
+
+            await _databaseService.UpdateLibraryEntrySpectralVerdictAsync(
+                uniqueHash, isTranscoded, integrityLevel, qualityDetails);
+
+            _eventBus.Publish(new TrackMetadataUpdatedEvent(uniqueHash));
+
+            _logger.LogInformation(
+                "Spectral verdict for imported '{Title}': {Verdict} (conf: {Conf:P0})",
+                entry.Title, result.Verdict, result.Confidence);
+            _auditLogger.Log(uniqueHash, $"[Spectral] VERDICT (import): {result.Verdict} | Confidence: {result.Confidence:P0} | QualityDetails: {qualityDetails}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Spectral scan failed for imported track {Hash}", uniqueHash);
+            _auditLogger.Log(uniqueHash, $"[Spectral] ERROR: Import spectral scan failed: {ex.Message}", isError: true);
         }
     }
 

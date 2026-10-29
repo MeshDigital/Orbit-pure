@@ -27,6 +27,7 @@ public class PostDownloadSpectralScanServiceTests : IDisposable
     private readonly Mock<ITrackAuditLogger> _auditMock = new();
     private readonly Mock<IEventBus> _eventBusMock = new();
     private readonly Subject<TrackStateChangedEvent> _stateSubject = new();
+    private readonly Subject<LibraryEntriesAddedEvent> _librarySubject = new();
     private readonly SLSKDONET.Configuration.AppConfig _config = new() { EnableVbrFraudDetection = true };
 
     // DatabaseService has no virtual methods so we use GetUninitializedObject to
@@ -39,6 +40,9 @@ public class PostDownloadSpectralScanServiceTests : IDisposable
         _eventBusMock
             .Setup(b => b.GetEvent<TrackStateChangedEvent>())
             .Returns(_stateSubject);
+        _eventBusMock
+            .Setup(b => b.GetEvent<LibraryEntriesAddedEvent>())
+            .Returns(_librarySubject);
     }
 
     private PostDownloadSpectralScanService CreateSut() =>
@@ -124,6 +128,33 @@ public class PostDownloadSpectralScanServiceTests : IDisposable
             _integrityMock.Verify(s => s.AnalyseAsync(It.IsAny<string>(), default), Times.Never);
         }
         finally { if (File.Exists(tmp)) File.Delete(tmp); }
+    }
+
+    // ── import path gate ──────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task ImportEvent_WhenConfigDisabled_DoesNotTriggerAnalysis()
+    {
+        _config.EnableVbrFraudDetection = false;
+        using var sut = CreateSut();
+
+        _librarySubject.OnNext(new LibraryEntriesAddedEvent(new[] { "hash" }, LibraryImportTrigger.Maintenance));
+        await Task.Delay(50);
+
+        _integrityMock.Verify(s => s.AnalyseAsync(It.IsAny<string>(), default), Times.Never);
+    }
+
+    [Fact]
+    public async Task ImportEvent_WhenDbThrows_DoesNotCrash_AndAnalyseIsNotCalled()
+    {
+        // The uninitialized DatabaseService throws when FindLibraryEntryAsync touches its fields;
+        // ScanLibraryEntryAsync must catch it without crashing (same contract as the download path).
+        using var sut = CreateSut();
+
+        _librarySubject.OnNext(new LibraryEntriesAddedEvent(new[] { "hash" }, LibraryImportTrigger.Maintenance));
+        await Task.Delay(100);
+
+        _integrityMock.Verify(s => s.AnalyseAsync(It.IsAny<string>(), default), Times.Never);
     }
 
     // ── dispose ───────────────────────────────────────────────────────────────
