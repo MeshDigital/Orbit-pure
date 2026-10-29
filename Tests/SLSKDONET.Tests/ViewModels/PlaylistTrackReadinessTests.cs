@@ -81,6 +81,41 @@ public class PlaylistTrackReadinessTests
         Assert.Same(missing.RetryCommand, missing.PreparationRepairCommand);
     }
 
+    [Fact]
+    public void DurationMismatch_IsReported_WhenFileLengthDivergesMoreThanFivePercent()
+    {
+        using var track = new PlaylistTrackViewModel(new PlaylistTrack
+        {
+            TrackUniqueHash = "duration-hash",
+            Artist = "Artist",
+            Title = "Track",
+            Status = TrackStatus.Downloaded,
+            CanonicalDuration = 160_000,   // matched track: 2:40
+            ActualDurationSeconds = 113,   // file on disk: 1:53 — a slowed mix excerpt
+        });
+
+        Assert.True(track.HasDurationMismatch);
+        Assert.NotNull(track.DurationMismatchWarning);
+        Assert.Contains("mix/edit", track.DurationMismatchWarning);
+    }
+
+    [Fact]
+    public void DurationMatch_IsNotReported_WhenFileLengthIsClose()
+    {
+        using var track = new PlaylistTrackViewModel(new PlaylistTrack
+        {
+            TrackUniqueHash = "duration-hash",
+            Artist = "Artist",
+            Title = "Track",
+            Status = TrackStatus.Downloaded,
+            CanonicalDuration = 160_000,   // 2:40
+            ActualDurationSeconds = 159,   // ~2:39 — within 5%
+        });
+
+        Assert.False(track.HasDurationMismatch);
+        Assert.Null(track.DurationMismatchWarning);
+    }
+
     private static PlaylistTrackViewModel CreateTrack() => new(new PlaylistTrack
     {
         TrackUniqueHash = "readiness-hash",

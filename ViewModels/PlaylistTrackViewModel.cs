@@ -979,6 +979,17 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
     }
     public string DurationDisplay => Model.CanonicalDuration.HasValue ? TimeSpan.FromMilliseconds(Model.CanonicalDuration.Value).ToString(@"mm\:ss") : "—";
 
+    /// <summary>True when the actual file length diverges from the matched track's canonical duration
+    /// by more than 5% — a slowed/sped edit, an excerpt, or a mis-matched download.</summary>
+    public bool HasDurationMismatch =>
+        Model.CanonicalDuration is > 0 && Model.ActualDurationSeconds is > 0
+        && Math.Abs(Model.ActualDurationSeconds.Value - Model.CanonicalDuration.Value / 1000.0)
+            / (Model.CanonicalDuration.Value / 1000.0) > 0.05;
+
+    public string? DurationMismatchWarning => HasDurationMismatch
+        ? $"File is {TimeSpan.FromSeconds(Model.ActualDurationSeconds!.Value).ToString(@"mm\:ss")} but matched track is {TimeSpan.FromMilliseconds(Model.CanonicalDuration!.Value).ToString(@"mm\:ss")} — likely a mix/edit"
+        : null;
+
     // Curation & Trust
     // Phase 0.6: Truth in UI (Must be completed to be verified)
     public bool IsSecure => Model.Status == TrackStatus.Downloaded && Model.QualityConfidence > 0.9 && !string.IsNullOrEmpty(Model.ResolvedFilePath);

@@ -79,6 +79,9 @@
             <Border Classes="fact" ToolTip.Tip="Duration">
                 <TextBlock Text="{Binding DurationDisplay}"/>
             </Border>
+            <Border Classes="fact warning" IsVisible="{Binding HasDurationMismatch}" ToolTip.Tip="{Binding DurationMismatchWarning}">
+                <TextBlock Text="Duration mismatch"/>
+            </Border>
             <Border Classes="fact" IsVisible="{Binding HasFormatFact}" ToolTip.Tip="Format · bitrate (kbps)">
                 <TextBlock Text="{Binding FormatBitrateDisplay}"/>
             </Border>

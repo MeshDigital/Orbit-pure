@@ -321,6 +321,7 @@ public class PlaylistTrackEntity
     public string? Genres { get; set; }
     public int? Popularity { get; set; }
     public int? CanonicalDuration { get; set; }
+    public int? ActualDurationSeconds { get; set; }
     public DateTime? ReleaseDate { get; set; }
     public string? Label { get; set; }
     public string? Comments { get; set; }

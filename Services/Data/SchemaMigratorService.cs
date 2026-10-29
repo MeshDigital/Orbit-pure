@@ -1566,6 +1566,12 @@ public class SchemaMigratorService
                 command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""IsPrepared"" INTEGER NOT NULL DEFAULT 0;";
                 await command.ExecuteNonQueryAsync();
             }
+            if (!ColumnExists("PlaylistTracks", "ActualDurationSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding ActualDurationSeconds to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""ActualDurationSeconds"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
             if (!ColumnExists("PlaylistTracks", "DropTimestamp"))
             {
                 _logger.LogInformation("Patching Schema: Adding DropTimestamp to PlaylistTracks...");

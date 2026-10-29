@@ -124,6 +124,7 @@ public class DownloadCenterSoftClearContractTests
             SourceProvenance = "provenance",
             SearchRetryCount = 4,
             NotFoundRestartCount = 5,
+            ActualDurationSeconds = 113,
             CuePointsJson = "{\"cues\":[]}",
             AudioFingerprint = "fingerprint-bytes",
             Danceability = 0.42,
@@ -160,6 +161,7 @@ public class DownloadCenterSoftClearContractTests
         Assert.Equal(model.SourceProvenance, entity.SourceProvenance);
         Assert.Equal(model.SearchRetryCount, entity.SearchRetryCount);
         Assert.Equal(model.NotFoundRestartCount, entity.NotFoundRestartCount);
+        Assert.Equal(model.ActualDurationSeconds, entity.ActualDurationSeconds);
         Assert.Equal(model.CuePointsJson, entity.CuePointsJson);
         Assert.Equal(model.AudioFingerprint, entity.AudioFingerprint);
         Assert.Equal(model.Danceability, entity.Danceability);

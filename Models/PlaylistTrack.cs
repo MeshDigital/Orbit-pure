@@ -124,6 +124,9 @@ public class PlaylistTrack
     public string? Genres { get; set; }
     public int? Popularity { get; set; }
     public int? CanonicalDuration { get; set; }
+    /// <summary>Real on-disk file length in seconds (probed after download). Compared against
+    /// <see cref="CanonicalDuration"/> (ms) to surface slowed/sped edits and mis-matched files.</summary>
+    public int? ActualDurationSeconds { get; set; }
     public DateTime? ReleaseDate { get; set; }
     public string? Label { get; set; }
     public string? Comments { get; set; }

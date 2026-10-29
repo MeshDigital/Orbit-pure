@@ -1418,6 +1418,7 @@ public class LibraryService : ILibraryService
             Genres = entity.Genres,
             Popularity = entity.Popularity,
             CanonicalDuration = entity.CanonicalDuration,
+            ActualDurationSeconds = entity.ActualDurationSeconds,
             ReleaseDate = entity.ReleaseDate,
 
             // Musical Intelligence (Fallback to AudioFeatures if direct columns are not populated)
@@ -1542,6 +1543,7 @@ public class LibraryService : ILibraryService
             Genres = track.Genres,
             Popularity = track.Popularity,
             CanonicalDuration = track.CanonicalDuration,
+            ActualDurationSeconds = track.ActualDurationSeconds,
             ReleaseDate = track.ReleaseDate,
 
             // Musical Intelligence

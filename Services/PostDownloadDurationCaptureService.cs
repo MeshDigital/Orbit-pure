@@ -80,13 +80,16 @@ public sealed class PostDownloadDurationCaptureService : IDisposable
 
             if (durationSeconds <= 0) return;
 
+            // Record the real file length on every probe — the inspector compares it against
+            // CanonicalDuration to surface slowed/sped edits and mis-matched downloads.
+            await _databaseService.UpdateActualDurationAsync(evt.TrackGlobalId, durationSeconds);
+            _eventBus.Publish(new TrackMetadataUpdatedEvent(evt.TrackGlobalId));
+
             var canonicalMs = entity.CanonicalDuration;
             if (canonicalMs is not > 0)
             {
                 // No canonical duration yet — backfill it (existing behaviour).
                 await _databaseService.UpdateDurationAsync(evt.TrackGlobalId, durationSeconds);
-                _eventBus.Publish(new TrackMetadataUpdatedEvent(evt.TrackGlobalId));
-
                 _logger.LogInformation("Captured duration {Seconds}s for '{Title}'", durationSeconds, entity.Title);
                 return;
             }
