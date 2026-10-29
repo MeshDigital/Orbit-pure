@@ -840,6 +840,36 @@ public class DatabaseService
     }
 
     /// <summary>
+    /// Records the actual on-disk file length (seconds) on every PlaylistTracks row for a track.
+    /// Unlike <see cref="UpdateDurationAsync"/> this writes unconditionally: the real file length is
+    /// authoritative, and the inspector compares it against CanonicalDuration to surface slowed/sped
+    /// edits, excerpts and mis-matched downloads.
+    /// </summary>
+    public async Task UpdateActualDurationAsync(string trackUniqueHash, int durationSeconds)
+    {
+        if (string.IsNullOrWhiteSpace(trackUniqueHash) || durationSeconds <= 0) return;
+
+        await _writeSemaphore.WaitAsync();
+        try
+        {
+            using var context = new AppDbContext();
+            await context.Database.ExecuteSqlInterpolatedAsync($@"
+                UPDATE PlaylistTracks SET ActualDurationSeconds = {durationSeconds}
+                WHERE TrackUniqueHash = {trackUniqueHash}");
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>Writes a corrected BPM (and ManualBPM) for a track across Library, Tracks and PlaylistTracks.</summary>
+    public async Task UpdateBpmAsync(string trackHash, double bpm)
+    {
+        await _trackRepository.UpdateBpmAsync(trackHash, bpm);
+    }
+
+    /// <summary>
     /// Saves or updates an AudioFeatures entity (Essentia analysis results).
     /// </summary>
     public async Task SaveAudioFeaturesAsync(AudioFeaturesEntity features)

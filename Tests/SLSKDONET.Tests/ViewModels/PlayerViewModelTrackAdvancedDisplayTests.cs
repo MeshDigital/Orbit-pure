@@ -66,4 +66,23 @@ public class PlayerViewModelTrackAdvancedDisplayTests
         Assert.Equal("Lean On", sut.TrackTitle);
         Assert.Equal("Major Lazer & DJ Snake", sut.TrackArtist);
     }
+
+    [Fact]
+    public void OnTrackAdvanced_UpdatesCurrentFilePath_ToThePromotedTrack()
+    {
+        // Regression for b6bcf91: CurrentFilePath used to be set only inside LoadTrackCore, so an
+        // automatic crossfade/gapless advance left it on the PREVIOUS track's path. Anything asking
+        // "is the player on this track?" (Cue Forge's attach check, reveal-file, …) then got a stale
+        // answer. SetNowPlayingState must keep _currentFilePath in sync with CurrentTrack.
+        var sut = CreateSut(out _);
+        sut.Queue.Add(CreateTrack("Kanine", "Bloodstream", "a.wav"));
+        sut.Queue.Add(CreateTrack("Major Lazer & DJ Snake", "Lean On", "b.wav"));
+        SetField(sut, "_currentQueueIndex", 0);
+        SetField(sut, "_currentFilePath", "a.wav"); // stale: still the previous track
+        SetField(sut, "_preloadedQueueIndex", 1);
+
+        InvokeOnTrackAdvanced(sut);
+
+        Assert.Equal("b.wav", sut.CurrentFilePath);
+    }
 }

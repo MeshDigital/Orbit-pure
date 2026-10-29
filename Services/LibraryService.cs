@@ -1209,6 +1209,12 @@ public class LibraryService : ILibraryService
         }
     }
 
+    public async Task UpdateBpmAsync(string trackHash, double bpm)
+    {
+        await _databaseService.UpdateBpmAsync(trackHash, bpm).ConfigureAwait(false);
+        _cache.InvalidateGlobalLibrary();
+    }
+
     public async Task SavePlaylistTracksAsync(List<PlaylistTrack> tracks)
     {
         try
@@ -1418,6 +1424,7 @@ public class LibraryService : ILibraryService
             Genres = entity.Genres,
             Popularity = entity.Popularity,
             CanonicalDuration = entity.CanonicalDuration,
+            ActualDurationSeconds = entity.ActualDurationSeconds,
             ReleaseDate = entity.ReleaseDate,
 
             // Musical Intelligence (Fallback to AudioFeatures if direct columns are not populated)
@@ -1542,6 +1549,7 @@ public class LibraryService : ILibraryService
             Genres = track.Genres,
             Popularity = track.Popularity,
             CanonicalDuration = track.CanonicalDuration,
+            ActualDurationSeconds = track.ActualDurationSeconds,
             ReleaseDate = track.ReleaseDate,
 
             // Musical Intelligence
