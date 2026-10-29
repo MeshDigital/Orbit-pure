@@ -229,6 +229,33 @@ public class TransitionOverlayTests
         Assert.Equal(2, vm.IncomingEditor.Session.Cues.Count);
     }
 
+    [Fact]
+    public async Task Attention_WarnsWhenADeckHasNoCues()
+    {
+        var vm = await LoadedEditorAsync();
+
+        Assert.True(vm.HasAttention);
+        Assert.True(vm.OutgoingNeedsAttention);
+        Assert.True(vm.IncomingNeedsAttention);
+        Assert.Contains("no cues", vm.AttentionMessage);
+    }
+
+    [Fact]
+    public async Task Attention_ClearsWhenBothDecksHaveCues()
+    {
+        var cueRows = new List<CuePointEntity>
+        {
+            new() { TrackUniqueHash = "hash-A", TimestampInSeconds = 12, Type = CuePointType.MixIn, Label = "Mix-In", SlotIndex = -1 },
+            new() { TrackUniqueHash = "hash-B", TimestampInSeconds = 12, Type = CuePointType.MixIn, Label = "Mix-In", SlotIndex = -1 },
+        };
+        var vm = await LoadedEditorAsync(cueRows: cueRows);
+
+        Assert.False(vm.HasAttention);
+        Assert.False(vm.OutgoingNeedsAttention);
+        Assert.False(vm.IncomingNeedsAttention);
+        Assert.Equal(string.Empty, vm.AttentionMessage);
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────────────
 
     private static async Task<MixTransitionViewModel> LoadedEditorAsync(ILibraryPreviewPlayer? preview = null, List<CuePointEntity>? cueRows = null)

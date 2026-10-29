@@ -55,6 +55,30 @@
 
                 <controls:MixPreviewComponent/>
 
+                <!-- Needs attention: either deck is missing analysis or has no cues. -->
+                <Border IsVisible="{Binding HasAttention}" Padding="12,8"
+                        CornerRadius="{StaticResource RadiusMd}"
+                        Background="{StaticResource BrushWarningSubtle}"
+                        BorderBrush="{StaticResource BrushWarningBorder}" BorderThickness="1">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*">
+                            <PathIcon Data="{StaticResource icon_alert}" Width="16" Height="16"
+                                      Foreground="{StaticResource BrushWarning}" Margin="0,0,8,0" VerticalAlignment="Top"/>
+                            <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding AttentionMessage}" TextWrapping="Wrap"/>
+                        </Grid>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Classes="secondary small" Content="Fix &amp; analyse outgoing"
+                                    Command="{Binding FixOutgoingInCueForgeCommand}"
+                                    IsVisible="{Binding OutgoingNeedsAttention}"
+                                    ToolTip.Tip="Opens this track in Cue Forge and starts a full analysis"/>
+                            <Button Classes="secondary small" Content="Fix &amp; analyse incoming"
+                                    Command="{Binding FixIncomingInCueForgeCommand}"
+                                    IsVisible="{Binding IncomingNeedsAttention}"
+                                    ToolTip.Tip="Opens this track in Cue Forge and starts a full analysis"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
                 <!-- Shows the system's reasoning, not just its pick: SuggestTransitionPointsAsync's
                      tempo/key/vocal-aware mix-out (A) / mix-in (B) points. -->
                 <Border Classes="card"

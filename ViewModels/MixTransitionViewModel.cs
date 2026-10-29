@@ -201,6 +201,10 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         // wrong here has a one-click path back to the tool that actually edits cue points.
         OpenOutgoingInCueForgeCommand = ReactiveCommand.CreateFromTask(() => OpenTrackInCueForgeAsync(OutgoingTrack));
         OpenIncomingInCueForgeCommand = ReactiveCommand.CreateFromTask(() => OpenTrackInCueForgeAsync(IncomingTrack));
+        // "Fix & analyse" — opens the track in Cue Forge and immediately queues a full analysis,
+        // so a pair with missing analysis or no cues has a one-click path to being corrected.
+        FixOutgoingInCueForgeCommand = ReactiveCommand.CreateFromTask(() => OpenTrackInCueForgeAsync(OutgoingTrack, startFullAnalysis: true));
+        FixIncomingInCueForgeCommand = ReactiveCommand.CreateFromTask(() => OpenTrackInCueForgeAsync(IncomingTrack, startFullAnalysis: true));
         // Waveform right-click → "Add cue here": jumps to Cue Forge, adds a real cue at the
         // clicked time, and selects it — a purely ad-hoc waveform click can't set a *good*
         // transition point (it's not beat/phrase aligned), but it's exactly how a user finds
@@ -820,6 +824,10 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     /// underlying cue data needs hand-correcting.</summary>
     public ReactiveCommand<Unit, Unit> OpenOutgoingInCueForgeCommand { get; }
     public ReactiveCommand<Unit, Unit> OpenIncomingInCueForgeCommand { get; }
+
+    /// <summary>Opens a deck in Cue Forge and starts a full analysis for it (see <see cref="AttentionMessage"/>).</summary>
+    public ReactiveCommand<Unit, Unit> FixOutgoingInCueForgeCommand { get; }
+    public ReactiveCommand<Unit, Unit> FixIncomingInCueForgeCommand { get; }
     public ReactiveCommand<double, Unit> AddCueToOutgoingInCueForgeCommand { get; }
     public ReactiveCommand<double, Unit> AddCueToIncomingInCueForgeCommand { get; }
     public ReactiveCommand<double, Unit> PreviewSeekOutgoingCommand { get; }
@@ -1452,12 +1460,28 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         IsDirty = !string.Equals(_baselineSnapshot, BuildSnapshot(), StringComparison.Ordinal);
     }
 
-    // ── Missing cues ─────────────────────────────────────────────────────────────────────
+    // ── Missing cues / needs attention ───────────────────────────────────────────────────
     private string _missingCuesMessage = string.Empty;
     /// <summary>"No cues on X yet" when a deck has nothing to pick a mix point from.</summary>
     public string MissingCuesMessage { get => _missingCuesMessage; private set => this.RaiseAndSetIfChanged(ref _missingCuesMessage, value); }
     public bool OutgoingHasNoCues => HasLoadedPair && OutgoingEditor.Session.Cues.Count == 0;
     public bool IncomingHasNoCues => HasLoadedPair && IncomingEditor.Session.Cues.Count == 0;
+
+    private string _attentionMessage = string.Empty;
+    /// <summary>What is wrong with either deck's analysis/cues, or empty when both are usable.</summary>
+    public string AttentionMessage
+    {
+        get => _attentionMessage;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _attentionMessage, value);
+            this.RaisePropertyChanged(nameof(HasAttention));
+        }
+    }
+
+    public bool HasAttention => !string.IsNullOrEmpty(AttentionMessage);
+    public bool OutgoingNeedsAttention => HasLoadedPair && OutgoingTrack != null && (OutgoingTrack.NeedsAnalysis || OutgoingHasNoCues);
+    public bool IncomingNeedsAttention => HasLoadedPair && IncomingTrack != null && (IncomingTrack.NeedsAnalysis || IncomingHasNoCues);
 
     private void RefreshMissingCues()
     {
@@ -1468,6 +1492,36 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         if (IncomingHasNoCues && IncomingTrack != null) missing.Add(IncomingTrack.Title);
         MissingCuesMessage = missing.Count == 0 ? string.Empty
             : $"No cues on {string.Join(" and ", missing)} yet. Generate cues to pick mix points on phrases.";
+
+        RefreshAttention();
+    }
+
+    private void RefreshAttention()
+    {
+        this.RaisePropertyChanged(nameof(OutgoingNeedsAttention));
+        this.RaisePropertyChanged(nameof(IncomingNeedsAttention));
+
+        var parts = new List<string>();
+        if (OutgoingTrack != null)
+        {
+            var issues = DescribeAttention(OutgoingTrack, OutgoingHasNoCues);
+            if (issues != null) parts.Add($"Outgoing \"{OutgoingTrack.Title}\": {issues}");
+        }
+        if (IncomingTrack != null)
+        {
+            var issues = DescribeAttention(IncomingTrack, IncomingHasNoCues);
+            if (issues != null) parts.Add($"Incoming \"{IncomingTrack.Title}\": {issues}");
+        }
+
+        AttentionMessage = parts.Count == 0 ? string.Empty : string.Join(" · ", parts) + ".";
+    }
+
+    private static string? DescribeAttention(PlaylistTrackViewModel track, bool noCues)
+    {
+        var issues = new List<string>();
+        if (track.NeedsAnalysis) issues.Add("analysis missing or incomplete");
+        if (noCues) issues.Add("no cues");
+        return issues.Count == 0 ? null : string.Join(" and ", issues);
     }
 
     // ── Presets ──────────────────────────────────────────────────────────────────────────
@@ -1610,7 +1664,7 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         }
     }
 
-    private async Task OpenTrackInCueForgeAsync(PlaylistTrackViewModel? track)
+    private async Task OpenTrackInCueForgeAsync(PlaylistTrackViewModel? track, bool startFullAnalysis = false)
     {
         var hash = track?.Model?.TrackUniqueHash;
         if (string.IsNullOrWhiteSpace(hash)) return;
@@ -1630,6 +1684,11 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         {
             cueForgeViewModel.SetMixTransitionOrigin(_playlistId, OutgoingTrack.Id, IncomingTrack.Id);
         }
+
+        // The "Fix and analyse" path: Cue Forge now has the track loaded, so a full analysis can
+        // be queued immediately — its own pending banner then tracks the run and reloads on completion.
+        if (startFullAnalysis)
+            await cueForgeViewModel.StartFullAnalysisAsync();
 
         _eventBus.Publish(new NavigateToPageEvent("CueForge"));
     }

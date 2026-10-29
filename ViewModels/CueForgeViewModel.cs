@@ -974,6 +974,12 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Public entry point for hosts (e.g. the Mix sidepanel's "Fix and analyse") that open Cue
+    /// Forge on a track and want a full re-analysis queued for it immediately.
+    /// </summary>
+    public Task StartFullAnalysisAsync() => RefreshWaveformAsync();
+
     private void OnWaveformRefreshProgress(AnalysisProgressEvent evt)
     {
         if (TrackHash == null || !_pendingAnalysis.ContainsKey(evt.TrackGlobalId)) return;
