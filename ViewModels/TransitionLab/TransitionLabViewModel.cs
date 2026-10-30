@@ -8,6 +8,7 @@ using ReactiveUI;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Services.Audio;
+using SLSKDONET.Services.AudioAnalysis;
 using SLSKDONET.Services.KnowledgeLifecycle;
 using SLSKDONET.Services.Timeline;
 
@@ -72,7 +73,7 @@ public sealed class TransitionLabViewModel : ReactiveObject
         TargetTrackHash = targetTrackHash;
     }
 
-    /// <summary>Resolves file paths/titles/BPM for the pair so audition and persistence have targets.</summary>
+    /// <summary>Resolves file paths/titles/BPM/RMS/beat-grid/cues so the canvas and audition have real data.</summary>
     public async Task LoadAsync(string sourceTrackHash, string targetTrackHash)
     {
         SetTrackPair(sourceTrackHash, targetTrackHash);
@@ -92,6 +93,11 @@ public sealed class TransitionLabViewModel : ReactiveObject
             .ConfigureAwait(false);
         var featuresByHash = features.ToDictionary(f => f.TrackUniqueHash, StringComparer.Ordinal);
 
+        var cues = await db.CuePoints
+            .Where(c => hashes.Contains(c.TrackUniqueHash))
+            .ToListAsync()
+            .ConfigureAwait(false);
+
         if (byHash.TryGetValue(sourceTrackHash, out var source))
         {
             _sourceFilePath = source.FilePath ?? string.Empty;
@@ -105,8 +111,53 @@ public sealed class TransitionLabViewModel : ReactiveObject
         if (featuresByHash.TryGetValue(sourceTrackHash, out var sourceFeatures))
             _projectBpm = sourceFeatures.Bpm > 0 ? sourceFeatures.Bpm : 120.0;
 
-        _sourceTrigger = 0.0;
-        _targetTrigger = 0.0;
+        var outgoing = BuildTrackWaveformData(sourceTrackHash, byHash, featuresByHash, cues, isOutgoing: true);
+        var incoming = BuildTrackWaveformData(targetTrackHash, byHash, featuresByHash, cues, isOutgoing: false);
+        WaveformData = new TransitionWaveformData(outgoing, incoming, Template.BarsBeforeMix);
+
+        _sourceTrigger = outgoing.MixAnchorSeconds;
+        _targetTrigger = incoming.MixAnchorSeconds;
+    }
+
+    private static TrackWaveformData BuildTrackWaveformData(
+        string hash,
+        IReadOnlyDictionary<string, LibraryEntryEntity> entries,
+        IReadOnlyDictionary<string, AudioFeaturesEntity> features,
+        IReadOnlyList<CuePointEntity> cues,
+        bool isOutgoing)
+    {
+        entries.TryGetValue(hash, out var entry);
+        features.TryGetValue(hash, out var audioFeatures);
+
+        var rmsProfile = WaveformRenderer.ComputeRmsProfile(entry?.RmsData ?? Array.Empty<byte>(), targetBins: 512);
+        var duration = audioFeatures?.TrackDuration > 0 ? audioFeatures.TrackDuration : 300.0;
+        var bpm = audioFeatures?.Bpm > 0 ? (double)audioFeatures.Bpm : 120.0;
+        var beatTicks = BeatGridFitter.ParseTicks(audioFeatures?.BeatGridJson);
+
+        var trackCues = cues.Where(c => c.TrackUniqueHash == hash).ToList();
+        var mixAnchor = ResolveMixAnchor(trackCues, duration, audioFeatures?.DownbeatOffsetSeconds, isOutgoing);
+
+        return new TrackWaveformData(rmsProfile, duration, bpm, beatTicks, mixAnchor);
+    }
+
+    private static double ResolveMixAnchor(
+        IReadOnlyList<CuePointEntity> cues,
+        double duration,
+        double? downbeatOffsetSeconds,
+        bool isOutgoing)
+    {
+        if (isOutgoing)
+        {
+            return cues.FirstOrDefault(c => c.Type == CuePointType.MixOut)?.TimestampInSeconds
+                ?? cues.FirstOrDefault(c => c.Type == CuePointType.OutroStart)?.TimestampInSeconds
+                ?? cues.FirstOrDefault(c => c.Type == CuePointType.Outro)?.TimestampInSeconds
+                ?? duration; // absolute boundary fallback
+        }
+
+        return cues.FirstOrDefault(c => c.Type == CuePointType.MixIn)?.TimestampInSeconds
+            ?? cues.FirstOrDefault(c => c.Type == CuePointType.Intro)?.TimestampInSeconds
+            ?? cues.FirstOrDefault(c => c.Type == CuePointType.IntroEnd)?.TimestampInSeconds
+            ?? (downbeatOffsetSeconds is > 0 ? downbeatOffsetSeconds.Value : 0.0); // first downbeat / start fallback
     }
 
     private async Task AuditionAsync()

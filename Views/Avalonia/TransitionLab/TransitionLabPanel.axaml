@@ -3,14 +3,32 @@
              xmlns:lab="using:SLSKDONET.Views.Avalonia.TransitionLab"
              x:Class="SLSKDONET.Views.Avalonia.TransitionLab.TransitionLabPanel">
     <DockPanel>
-        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" Margin="8">
-            <Button Content="Audition" Command="{Binding AuditionCommand}" />
-            <Button Content="Save Template" Command="{Binding SaveTemplateCommand}" />
-            <Button Content="Save Knowledge" Command="{Binding SaveKnowledgeCommand}" />
-            <TextBlock VerticalAlignment="Center" Text="Rating" />
-            <Slider Width="140" Minimum="0" Maximum="100" Value="{Binding Score.UserRating, Mode=TwoWay}" />
-            <CheckBox Content="Verified" VerticalAlignment="Center" IsChecked="{Binding Score.Verified}" />
-        </StackPanel>
+        <Grid DockPanel.Dock="Bottom" RowDefinitions="Auto,Auto" Margin="8">
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8">
+                <Button Content="Audition" Command="{Binding AuditionCommand}" />
+                <Button Content="Save Template" Command="{Binding SaveTemplateCommand}" />
+                <Button Content="Save Knowledge" Command="{Binding SaveKnowledgeCommand}" />
+                <TextBlock VerticalAlignment="Center" Text="Rating" />
+                <Slider Width="140" Minimum="0" Maximum="100" Value="{Binding Score.UserRating, Mode=TwoWay}" />
+                <CheckBox Content="Verified" VerticalAlignment="Center" IsChecked="{Binding Score.Verified}" />
+            </StackPanel>
+
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+                <TextBlock VerticalAlignment="Center" Text="Bars" />
+                <TextBox Width="48" Text="{Binding Template.BarsBeforeMix, Mode=TwoWay}" />
+                <TextBlock VerticalAlignment="Center" Text="SourceCue" />
+                <TextBox Width="48" Text="{Binding Template.SourceCueRole, Mode=TwoWay}" />
+                <TextBlock VerticalAlignment="Center" Text="TargetCue" />
+                <TextBox Width="48" Text="{Binding Template.TargetCueRole, Mode=TwoWay}" />
+                <CheckBox Content="Bass Swap" VerticalAlignment="Center" IsChecked="{Binding Template.EqSwapLow}" />
+                <CheckBox Content="Mid Swap" VerticalAlignment="Center" IsChecked="{Binding Template.EqSwapMid}" />
+                <CheckBox Content="High Swap" VerticalAlignment="Center" IsChecked="{Binding Template.EqSwapHigh}" />
+                <TextBlock VerticalAlignment="Center" Text="Loop" />
+                <TextBox Width="40" Text="{Binding Template.LoopBars, Mode=TwoWay}" />
+                <TextBox Width="40" Text="{Binding Template.LoopRepeats, Mode=TwoWay}" />
+            </StackPanel>
+        </Grid>
+
         <lab:TransitionWaveformCanvas Source="{Binding WaveformData}" />
     </DockPanel>
 </UserControl>
