@@ -1,15 +1,28 @@
 using System;
+using System.Linq;
+using System.Reactive;
+using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using ReactiveUI;
+using SLSKDONET.Data;
+using SLSKDONET.Data.Entities;
+using SLSKDONET.Services.Audio;
+using SLSKDONET.Services.KnowledgeLifecycle;
 
 namespace SLSKDONET.ViewModels.TransitionLab;
 
 /// <summary>
-/// Slice K6: the Transition Lab surface — a template editor, a score/rating panel, and the outgoing
-/// / incoming track pair. Audition / save commands are added in later slices once the preview player
-/// and persistence are wired.
+/// Slice K6: the Transition Lab surface — a template editor, a score/rating panel, and the
+/// outgoing/incoming track pair. Commands audition the overlap window, save a reusable template, and
+/// upsert the knowledge edge (5-tuple UNIQUE) with the DJ's manual rating.
 /// </summary>
 public sealed class TransitionLabViewModel : ReactiveObject
 {
+    private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly ITransitionPreviewPlayer _previewPlayer;
+    private readonly ILogger<TransitionLabViewModel> _logger;
+
     public TransitionTemplateViewModel Template { get; } = new();
     public TransitionScoreViewModel Score { get; } = new();
 
@@ -19,9 +32,118 @@ public sealed class TransitionLabViewModel : ReactiveObject
     private string _targetTrackHash = string.Empty;
     public string TargetTrackHash { get => _targetTrackHash; set => this.RaiseAndSetIfChanged(ref _targetTrackHash, value); }
 
+    private string _sourceFilePath = string.Empty;
+    private string _targetFilePath = string.Empty;
+    private string _sourceTitle = string.Empty;
+    private string _targetTitle = string.Empty;
+    private double _projectBpm = 120.0;
+    private double _sourceTrigger;
+    private double _targetTrigger;
+
+    public ReactiveCommand<Unit, Unit> AuditionCommand { get; }
+    public ReactiveCommand<Unit, Unit> SaveTemplateCommand { get; }
+    public ReactiveCommand<Unit, Unit> SaveKnowledgeCommand { get; }
+
+    public TransitionLabViewModel(
+        IDbContextFactory<AppDbContext> dbFactory,
+        ITransitionPreviewPlayer previewPlayer,
+        ILogger<TransitionLabViewModel> logger)
+    {
+        _dbFactory = dbFactory;
+        _previewPlayer = previewPlayer;
+        _logger = logger;
+
+        AuditionCommand = ReactiveCommand.CreateFromTask(AuditionAsync);
+        SaveTemplateCommand = ReactiveCommand.CreateFromTask(SaveTemplateAsync);
+        SaveKnowledgeCommand = ReactiveCommand.CreateFromTask(SaveKnowledgeAsync);
+    }
+
     public void SetTrackPair(string sourceTrackHash, string targetTrackHash)
     {
         SourceTrackHash = sourceTrackHash;
         TargetTrackHash = targetTrackHash;
+    }
+
+    /// <summary>Resolves file paths/titles/BPM for the pair so audition and persistence have targets.</summary>
+    public async Task LoadAsync(string sourceTrackHash, string targetTrackHash)
+    {
+        SetTrackPair(sourceTrackHash, targetTrackHash);
+
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+        var hashes = new[] { sourceTrackHash, targetTrackHash };
+
+        var entries = await db.LibraryEntries
+            .Where(e => hashes.Contains(e.UniqueHash))
+            .ToListAsync()
+            .ConfigureAwait(false);
+        var byHash = entries.ToDictionary(e => e.UniqueHash, StringComparer.Ordinal);
+
+        var features = await db.AudioFeatures
+            .Where(f => hashes.Contains(f.TrackUniqueHash))
+            .ToListAsync()
+            .ConfigureAwait(false);
+        var featuresByHash = features.ToDictionary(f => f.TrackUniqueHash, StringComparer.Ordinal);
+
+        if (byHash.TryGetValue(sourceTrackHash, out var source))
+        {
+            _sourceFilePath = source.FilePath ?? string.Empty;
+            _sourceTitle = source.Title ?? string.Empty;
+        }
+        if (byHash.TryGetValue(targetTrackHash, out var target))
+        {
+            _targetFilePath = target.FilePath ?? string.Empty;
+            _targetTitle = target.Title ?? string.Empty;
+        }
+        if (featuresByHash.TryGetValue(sourceTrackHash, out var sourceFeatures))
+            _projectBpm = sourceFeatures.Bpm > 0 ? sourceFeatures.Bpm : 120.0;
+
+        _sourceTrigger = 0.0;
+        _targetTrigger = 0.0;
+    }
+
+    private async Task AuditionAsync()
+    {
+        if (string.IsNullOrEmpty(_sourceFilePath) || string.IsNullOrEmpty(_targetFilePath))
+            return;
+
+        try
+        {
+            await _previewPlayer.StartTransitionPreviewAsync(
+                _sourceTitle, _sourceFilePath, _sourceTrigger,
+                _targetTitle, _targetFilePath, _targetTrigger,
+                Template.ToTransitionModel(), _projectBpm)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[TransitionLab] audition failed");
+        }
+    }
+
+    private async Task SaveTemplateAsync()
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+        db.TransitionTemplates.Add(Template.ToEntity("Transition Lab"));
+        await db.SaveChangesAsync().ConfigureAwait(false);
+    }
+
+    private async Task SaveKnowledgeAsync()
+    {
+        if (string.IsNullOrEmpty(SourceTrackHash) || string.IsNullOrEmpty(TargetTrackHash))
+            return;
+
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        var edge = await KnowledgeLifecycleRepository
+            .GetOrCreateKnowledgeEdgeAsync(db, SourceTrackHash, TargetTrackHash, KnowledgeTransitionType.Blend)
+            .ConfigureAwait(false);
+
+        if (Score.UserRating is double rating)
+            await KnowledgeLifecycleRepository
+                .AddEvidenceAsync(db, edge.Id, TransitionEvidenceSource.ManualRating, rating, 0.9, null)
+                .ConfigureAwait(false);
+
+        edge.Verified = Score.Verified;
+        await KnowledgeLifecycleRepository.RecomputeAsync(edge.Id, db).ConfigureAwait(false);
     }
 }
