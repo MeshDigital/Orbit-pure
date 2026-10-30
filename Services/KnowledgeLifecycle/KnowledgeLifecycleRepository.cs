@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
+using SLSKDONET.Models;
 
 namespace SLSKDONET.Services.KnowledgeLifecycle;
 
@@ -124,5 +125,75 @@ public static class KnowledgeLifecycleRepository
         db.DjFingerprints.Add(fingerprint);
         await db.SaveChangesAsync().ConfigureAwait(false);
         return fingerprint;
+    }
+
+    /// <summary>
+    /// Maps a SetProject's slots (ordered by Position) to exportable <see cref="PlaylistTrack"/>
+    /// models, resolving file paths/titles via <see cref="LibraryEntryEntity"/> and annotating each
+    /// slot's <c>Comments</c> with the incoming transition's recScore / confidence / freshness.
+    /// </summary>
+    public static async Task<List<PlaylistTrack>> BuildAnnotatedSetExportAsync(AppDbContext db, Guid setProjectId)
+    {
+        var set = await db.SetLists
+            .Include(s => s.Tracks)
+            .FirstOrDefaultAsync(s => s.Id == setProjectId)
+            .ConfigureAwait(false);
+        if (set is null)
+            return new List<PlaylistTrack>();
+
+        var ordered = set.Tracks.OrderBy(t => t.Position).ToList();
+        var hashes = ordered
+            .Select(t => t.TrackUniqueHash)
+            .Where(h => !string.IsNullOrWhiteSpace(h))
+            .Distinct()
+            .ToList();
+
+        var entryList = await db.LibraryEntries
+            .Where(e => hashes.Contains(e.UniqueHash))
+            .ToListAsync()
+            .ConfigureAwait(false);
+        var entries = entryList.ToDictionary(e => e.UniqueHash, StringComparer.Ordinal);
+
+        var fingerprint = await GetOrCreateFingerprintAsync(db).ConfigureAwait(false);
+
+        var tracks = new List<PlaylistTrack>();
+        for (var i = 0; i < ordered.Count; i++)
+        {
+            var slot = ordered[i];
+            entries.TryGetValue(slot.TrackUniqueHash, out var entry);
+
+            var track = new PlaylistTrack
+            {
+                TrackUniqueHash = slot.TrackUniqueHash,
+                ResolvedFilePath = entry?.FilePath ?? string.Empty,
+                Title = entry?.Title ?? string.Empty,
+                Artist = entry?.Artist ?? string.Empty,
+                TrackNumber = i + 1,
+            };
+
+            if (i > 0)
+            {
+                var from = ordered[i - 1];
+                var edge = await db.TransitionKnowledge
+                    .FirstOrDefaultAsync(x =>
+                        x.SourceTrackId == from.TrackUniqueHash &&
+                        x.TargetTrackId == slot.TrackUniqueHash)
+                    .ConfigureAwait(false);
+
+                if (edge is not null)
+                {
+                    var djFit = DjFingerprintService.ComputeDjFit(
+                        edge.TransitionType,
+                        fingerprint.PreferredTransitionTypesJson,
+                        fingerprint.AvoidancePatternsJson);
+                    var rec = KnowledgeScoringService.ComputeRecommendationScore(edge, djFit);
+                    track.Comments = $"ORBIT rec={rec:F1} conf={edge.ConfidenceLevel} fresh={edge.Freshness:F1}";
+                }
+            }
+
+            tracks.Add(track);
+        }
+
+        return tracks;
     }
 }

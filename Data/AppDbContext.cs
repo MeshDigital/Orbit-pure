@@ -58,6 +58,11 @@ public class AppDbContext : DbContext
     public DbSet<Entities.DjFingerprintEntity> DjFingerprints { get; set; } // Phase 2: per-DJ preference profile
     public DbSet<Entities.PerformanceSessionEntity> PerformanceSessions { get; set; } // Phase 2: played-set reality for plan-vs-reality diff
     public DbSet<Entities.PerformanceSessionTrackEntity> PerformanceSessionTracks { get; set; } // Phase 2: tracks within a performance session
+    public DbSet<Entities.TransitionTemplateEntity> TransitionTemplates { get; set; } // Phase 1: reusable "how to mix" recipes
+    public DbSet<Entities.SetStoryEdgeEntity> SetStoryEdges { get; set; } // Phase 1: Story Graph branching edges
+    public DbSet<Entities.MixRecipeEntity> MixRecipes { get; set; } // Phase 1: reusable branching patterns
+    public DbSet<Entities.EventProfileEntity> EventProfiles { get; set; } // Phase 1: event context for a set
+    public DbSet<Entities.TrackCrowdProfileEntity> TrackCrowdProfiles { get; set; } // Phase 1: persisted CrowdProfileVector
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -368,5 +373,23 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Entities.PerformanceSessionTrackEntity>()
             .HasIndex(e => new { e.SessionId, e.SequenceOrder })
             .HasDatabaseName("IX_PerformanceSessionTracks_Session_Sequence");
+
+        // ── Phase 1: UI data model ───────────────────────────────────────
+        modelBuilder.Entity<Entities.TransitionTemplateEntity>()
+            .HasIndex(t => t.Name)
+            .HasDatabaseName("IX_TransitionTemplates_Name");
+
+        modelBuilder.Entity<Entities.SetStoryEdgeEntity>()
+            .HasOne<Entities.SetListEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.SetProjectId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<Entities.SetStoryEdgeEntity>()
+            .HasIndex(e => new { e.SetProjectId, e.FromSlotId, e.ToSlotId })
+            .HasDatabaseName("IX_SetStoryEdges_Set_From_To");
+
+        modelBuilder.Entity<Entities.EventProfileEntity>()
+            .HasIndex(e => e.Name)
+            .HasDatabaseName("IX_EventProfiles_Name");
     }
 }
