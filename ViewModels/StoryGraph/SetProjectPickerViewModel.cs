@@ -20,7 +20,7 @@ public sealed record SetProjectPickerItem(Guid Id, string Name, SetProjectStatus
 /// <see cref="OpenSetProjectsRequestedEvent"/>. Lists every <see cref="SetListEntity"/> with its
 /// name, status and event profile; selecting one publishes the event and raises <see cref="Selected"/>.
 /// </summary>
-public sealed class SetProjectPickerViewModel : ReactiveObject
+public sealed class SetProjectPickerViewModel : ReactiveObject, IDisposable
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly IEventBus _eventBus;
@@ -74,5 +74,11 @@ public sealed class SetProjectPickerViewModel : ReactiveObject
             return;
         _eventBus.Publish(new OpenSetProjectsRequestedEvent(SelectedItem.Id));
         Selected?.Invoke(this, SelectedItem.Id);
+    }
+
+    public void Dispose()
+    {
+        Selected = null;
+        SelectCommand.Dispose();
     }
 }

@@ -1536,6 +1536,7 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         "Rolling" => "Long hard bass swap over the phrase.",
         "Relaxed" => "Bass and mids hand over together, gently.",
         "Drop Sync" => "Lines B's drop up with the end of A's build.",
+        "1-Bar Drop Swap" => "Holds the bass to the last bar, then swaps hard into B's drop.",
         "Fade" => "Plain equal-power crossfade.",
         "Rise" => "Filter sweep into the incoming track.",
         "Blend" => "EQ bass swap: lows hand over, mids and highs blend.",

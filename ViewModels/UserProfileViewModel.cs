@@ -104,7 +104,7 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
     }
 
     public bool HasReliabilityScore => ReliabilityScore is not null;
-    public string ReliabilityScoreDisplay => ReliabilityScore is double s ? $"{s:P0}" : string.Empty;
+    public string ReliabilityScoreDisplay => ReliabilityScore is double s ? SLSKDONET.Utils.NumFormat.Percent(s) : string.Empty;
 
     /// <summary>
     /// Speed/share-count/country data bundled with the server's watch acknowledgement — cheaper
