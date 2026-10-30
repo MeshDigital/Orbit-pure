@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Text.Json;
 
 namespace SLSKDONET.Models.Musical;
 
@@ -74,4 +76,52 @@ public sealed class CrowdProfileVector
             return 1.0;
         return 1.0 - (dot / (Math.Sqrt(na) * Math.Sqrt(nb)));
     }
+
+    /// <summary>Serializes the vector as { dimension: [mean, variance] }.</summary>
+    public string ToJson()
+    {
+        var dict = new Dictionary<string, double[]>
+        {
+            ["Energy"] = new[] { Energy.Mean, Energy.Variance },
+            ["Aggression"] = new[] { Aggression.Mean, Aggression.Variance },
+            ["Emotion"] = new[] { Emotion.Mean, Emotion.Variance },
+            ["Darkness"] = new[] { Darkness.Mean, Darkness.Variance },
+            ["Groove"] = new[] { Groove.Mean, Groove.Variance },
+            ["Mainstream"] = new[] { Mainstream.Mean, Mainstream.Variance },
+        };
+        return JsonSerializer.Serialize(dict);
+    }
+
+    /// <summary>Deserializes a vector; null on empty/malformed input.</summary>
+    public static CrowdProfileVector? FromJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
+
+        try
+        {
+            var dict = JsonSerializer.Deserialize<Dictionary<string, double[]>>(json);
+            if (dict is null)
+                return null;
+
+            return new CrowdProfileVector
+            {
+                Energy = Metric(dict, "Energy"),
+                Aggression = Metric(dict, "Aggression"),
+                Emotion = Metric(dict, "Emotion"),
+                Darkness = Metric(dict, "Darkness"),
+                Groove = Metric(dict, "Groove"),
+                Mainstream = Metric(dict, "Mainstream"),
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static CrowdMetric Metric(Dictionary<string, double[]> dict, string key)
+        => dict.TryGetValue(key, out var value) && value.Length >= 2
+            ? new CrowdMetric(value[0], value[1])
+            : new CrowdMetric(0, 0);
 }
