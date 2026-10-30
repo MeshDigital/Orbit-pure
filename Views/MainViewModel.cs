@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using System.Reactive.Disposables;
 using Microsoft.Extensions.DependencyInjection; // Added for GetRequiredService
+using Microsoft.EntityFrameworkCore;
+using SLSKDONET.Data;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Configuration;
 using SLSKDONET.Services;
@@ -36,6 +38,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private readonly ISoulseekCredentialService _credentialService;
     private readonly INavigationService _navigationService;
     private readonly IEventBus _eventBus;
+    private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly DownloadManager _downloadManager;
     private readonly ISpotifyMetadataService _spotifyMetadata;
     private readonly SpotifyAuthService _spotifyAuth;
@@ -119,6 +122,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         SpotifyAuthService spotifyAuth,
         IFileInteractionService fileInteractionService,
         IEventBus eventBus,
+        IDbContextFactory<AppDbContext> dbFactory,
         NativeDependencyHealthService dependencyHealthService,
         IDialogService dialogService,
         ILibraryService libraryService,
@@ -143,6 +147,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         
         // Assign missing fields
         _eventBus = eventBus;
+        _dbFactory = dbFactory;
         _downloadManager = downloadManager;
         _spotifyMetadata = spotifyMetadata;
         _spotifyAuth = spotifyAuth;
@@ -251,6 +256,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateImportCommand = new RelayCommand(NavigateToImport); // Phase 6D
         NavigateAnalysisCommand = new RelayCommand(NavigateToAnalysis);
         NavigateWorkstationCommand = new RelayCommand(NavigateToWorkstation);
+        NavigateSetProjectsCommand = new RelayCommand(NavigateToSetProjects);
         NavigateDecksCommand = new RelayCommand(NavigateToDecks);
         NavigateTimelineCommand = new RelayCommand(NavigateToTimeline);
         NavigateEditLabCommand = new RelayCommand(NavigateToEditLab);
@@ -1223,6 +1229,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateImportCommand { get; } // Phase 6D
     public ICommand NavigateAnalysisCommand { get; }
     public ICommand NavigateWorkstationCommand { get; }
+    public ICommand NavigateSetProjectsCommand { get; }
     public ICommand NavigateDecksCommand { get; }
     public ICommand NavigateTimelineCommand { get; }
     public ICommand NavigateEditLabCommand { get; }
@@ -1377,6 +1384,14 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void NavigateToWorkstation()
     {
         _navigationService.NavigateTo("Workstation");
+    }
+
+    private void NavigateToSetProjects()
+    {
+        _navigationService.NavigateTo("Workstation");
+        var pickerVm = new SLSKDONET.ViewModels.StoryGraph.SetProjectPickerViewModel(_dbFactory, _eventBus);
+        var window = new SLSKDONET.Views.Avalonia.StoryGraph.SetProjectPickerWindow(pickerVm);
+        window.Show();
     }
 
     private void NavigateToDecks() => NavigateToWorkstation();

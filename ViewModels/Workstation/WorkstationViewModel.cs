@@ -34,6 +34,8 @@ public enum WorkstationMode
     Waveform,
     /// <summary>SET PLAN: playlist sequence, transition scoring, energy arc.</summary>
     Flow,
+    /// <summary>SET PROJECTS: the Story Graph canvas (branching set paths).</summary>
+    StoryGraph,
 }
 
 public sealed class WorkstationToolOptionViewModel : ReactiveObject
@@ -776,13 +778,15 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         get => _activeMode;
         set
         {
-            // Workstation has one job: professional DJ preparation. Legacy Flow mode requests
-            // and restored sessions fold back to Prep; in-app MIX lives in Flow Builder.
-            value = WorkstationMode.Waveform;
+            // Legacy Flow mode requests and restored sessions fold back to Prep (in-app MIX lives
+            // in Flow Builder); StoryGraph (Set Projects) is a distinct surface that is allowed through.
+            if (value == WorkstationMode.Flow)
+                value = WorkstationMode.Waveform;
             if (_activeMode == value) return;
             this.RaiseAndSetIfChanged(ref _activeMode, value);
             this.RaisePropertyChanged(nameof(IsWaveformMode));
             this.RaisePropertyChanged(nameof(IsFlowMode));
+            this.RaisePropertyChanged(nameof(IsStoryGraphActive));
             SynchronizeToolSelection();
             RaiseHeaderProperties();
         }
@@ -790,6 +794,25 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
 
     public bool IsWaveformMode => ActiveMode == WorkstationMode.Waveform;
     public bool IsFlowMode     => ActiveMode == WorkstationMode.Flow;
+    public bool IsStoryGraphActive => ActiveMode == WorkstationMode.StoryGraph;
+
+    /// <summary>The Story Graph child view model for the Set Projects surface.</summary>
+    public SLSKDONET.ViewModels.StoryGraph.StoryGraphViewModel StoryGraph { get; }
+
+    /// <summary>Loads a SetProject's Story Graph and switches the cockpit to the Story Graph surface.</summary>
+    public async Task LoadStoryGraphAsync(Guid setProjectId)
+    {
+        await StoryGraph.LoadSetAsync(setProjectId);
+        ActiveMode = WorkstationMode.StoryGraph;
+    }
+
+    private async Task HandleSetProjectsOpenAsync(OpenSetProjectsRequestedEvent evt)
+    {
+        if (evt.SetProjectId is Guid setId)
+            await LoadStoryGraphAsync(setId);
+        else
+            ActiveMode = WorkstationMode.StoryGraph;
+    }
 
     // ── Inline Export panel (shown in Export mode) ────────────────────────────
 
@@ -952,6 +975,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         _sessionService    = sessionService;
         _orbBundleService  = orbBundleService;
         _undoService       = undoService;
+        StoryGraph = new SLSKDONET.ViewModels.StoryGraph.StoryGraphViewModel(dbFactory, undoService);
         _analyzeJob        = analyzeJob;
         _eventBus          = eventBus;
         _appConfig         = appConfig;
@@ -988,6 +1012,11 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         _eventBus.GetEvent<AddToTimelineRequestEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(evt => _ = HandleFlowLaunchRequestAsync(evt))
+            .DisposeWith(_disposables);
+
+        _eventBus.GetEvent<OpenSetProjectsRequestedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(evt => _ = HandleSetProjectsOpenAsync(evt))
             .DisposeWith(_disposables);
 
         _eventBus.GetEvent<AnalysisQueueStatusChangedEvent>()

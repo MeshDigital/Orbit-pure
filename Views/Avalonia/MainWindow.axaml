@@ -467,6 +467,15 @@
                                     </StackPanel>
                                 </Button>
 
+                                <Button x:Name="NavSetProjects" Classes="nav" Command="{Binding NavigateSetProjectsCommand}"
+                                        ToolTip.Tip="Set Projects — Plan branching set paths on the Story Graph"
+                                        Classes.selected="{Binding IsWorkstationOverlayActive}">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_waves}"/>
+                                        <TextBlock Text="Set Projects" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
                                 <Button x:Name="NavWorkstation" Classes="nav" Command="{Binding NavigateWorkstationCommand}"
                                         ToolTip.Tip="Workstation — Verify files, beat grids, cues and loops for professional DJ preparation (Ctrl+Shift+P)"
                                         Classes.selected="{Binding IsWorkstationOverlayActive}">

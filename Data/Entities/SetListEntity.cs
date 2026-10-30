@@ -19,6 +19,17 @@ namespace SLSKDONET.Data.Entities
         Custom
     }
 
+    /// <summary>The lifecycle stage of a SetProject.</summary>
+    public enum SetProjectStatus
+    {
+        Draft = 0,
+        Planning = 1,
+        Prepared = 2,
+        Ready = 3,
+        Played = 4,
+        Archived = 5,
+    }
+
     /// <summary>
     /// Phase 3: Set-Prep Intelligence.
     /// Represents a saved set-list with intelligent flow metadata.
@@ -31,6 +42,12 @@ namespace SLSKDONET.Data.Entities
         public string Name { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime LastModifiedAt { get; set; } = DateTime.UtcNow;
+
+        /// <summary>Lifecycle stage of this SetProject.</summary>
+        public SetProjectStatus Status { get; set; } = SetProjectStatus.Draft;
+
+        /// <summary>Optional event context this set is planned for.</summary>
+        public Guid? EventProfileId { get; set; }
 
         /// <summary>
         /// Overall flow continuity score (0-1.0).
