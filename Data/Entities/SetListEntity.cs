@@ -73,6 +73,12 @@ namespace SLSKDONET.Data.Entities
 
         public int Position { get; set; }
 
+        /// <summary>Structural role of this slot in the set (role belongs to the slot, not the track).</summary>
+        public SetSlotRole SlotRole { get; set; } = SetSlotRole.Builder;
+
+        /// <summary>Target crowd/energy level (0-100) at this point in the set.</summary>
+        public double? EnergyTarget { get; set; }
+
         // Transition Metadata
         public TransitionArchetype TransitionType { get; set; } = TransitionArchetype.LongBlend;
         public double ManualOffset { get; set; }
