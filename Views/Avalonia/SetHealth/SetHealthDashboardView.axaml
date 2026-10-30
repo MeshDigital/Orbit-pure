@@ -1,7 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="SLSKDONET.Views.Avalonia.SetHealth.SetHealthDashboardView">
-    <StackPanel Spacing="6" Margin="12">
+    <StackPanel Spacing="8" Margin="12">
         <TextBlock Classes="h3" Text="Set Health" />
 
         <TextBlock Text="Overall" />
