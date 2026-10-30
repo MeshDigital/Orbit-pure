@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Standalone Pro DJ Link packet capture. Binds UDP 50000 (read-only, ReuseAddress) and dumps every
+    raw packet as hex + length so the ProDjLinkPacketParser offsets can be mapped against the real
+    Pioneer wire format. Independent of the ORBIT app — run it directly on the rack machine.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>ProDjLinkCapture</AssemblyName>
+    <RootNamespace>SLSKDONET.Tools.ProDjLinkCapture</RootNamespace>
+  </PropertyGroup>
+
+</Project>
