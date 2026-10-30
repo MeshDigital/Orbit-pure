@@ -154,7 +154,17 @@ public static class KnowledgeLifecycleRepository
             .ConfigureAwait(false);
         var entries = entryList.ToDictionary(e => e.UniqueHash, StringComparer.Ordinal);
 
-        var fingerprint = await GetOrCreateFingerprintAsync(db).ConfigureAwait(false);
+        var eventProfile = set.EventProfileId is Guid epId
+            ? await db.EventProfiles.FirstOrDefaultAsync(e => e.Id == epId).ConfigureAwait(false)
+            : null;
+
+        var edgeList = await db.TransitionKnowledge
+            .Where(e => hashes.Contains(e.SourceTrackId) && hashes.Contains(e.TargetTrackId))
+            .ToListAsync()
+            .ConfigureAwait(false);
+        var edgeByPair = edgeList.ToDictionary(e => (e.SourceTrackId, e.TargetTrackId));
+
+        var health = ComputeSetHealth(ordered, edgeByPair, eventProfile);
 
         var tracks = new List<PlaylistTrack>();
         for (var i = 0; i < ordered.Count; i++)
@@ -171,29 +181,40 @@ public static class KnowledgeLifecycleRepository
                 TrackNumber = i + 1,
             };
 
-            if (i > 0)
+            if (i > 0 && edgeByPair.TryGetValue((ordered[i - 1].TrackUniqueHash, slot.TrackUniqueHash), out var edge))
             {
-                var from = ordered[i - 1];
-                var edge = await db.TransitionKnowledge
-                    .FirstOrDefaultAsync(x =>
-                        x.SourceTrackId == from.TrackUniqueHash &&
-                        x.TargetTrackId == slot.TrackUniqueHash)
-                    .ConfigureAwait(false);
-
-                if (edge is not null)
-                {
-                    var djFit = DjFingerprintService.ComputeDjFit(
-                        edge.TransitionType,
-                        fingerprint.PreferredTransitionTypesJson,
-                        fingerprint.AvoidancePatternsJson);
-                    var rec = KnowledgeScoringService.ComputeRecommendationScore(edge, djFit);
-                    track.Comments = $"ORBIT rec={rec:F1} conf={edge.ConfidenceLevel} fresh={edge.Freshness:F1}";
-                }
+                track.Comments = AnnotatedCommentFormatter.FormatComment(health, edge.ConfidenceLevel, edge.Freshness);
             }
 
             tracks.Add(track);
         }
 
         return tracks;
+    }
+
+    private static SetHealthReport ComputeSetHealth(
+        IReadOnlyList<SetTrackEntity> ordered,
+        IReadOnlyDictionary<(string Source, string Target), TransitionKnowledgeEntity> edgeByPair,
+        EventProfileEntity? eventProfile)
+    {
+        var edgeScores = new List<double>();
+        var energyTargets = new List<double>();
+        var roles = new List<SetSlotRole>();
+
+        for (var i = 0; i < ordered.Count; i++)
+        {
+            var slot = ordered[i];
+            energyTargets.Add(slot.EnergyTarget ?? 50.0);
+            roles.Add(slot.SlotRole);
+
+            if (i > 0)
+            {
+                var from = ordered[i - 1];
+                var edge = edgeByPair.TryGetValue((from.TrackUniqueHash, slot.TrackUniqueHash), out var e) ? e : null;
+                edgeScores.Add(edge?.CompatibilityScore ?? 50.0);
+            }
+        }
+
+        return SetHealthService.Compute(edgeScores, energyTargets, roles, eventProfile, preparationCompleteness: 1.0);
     }
 }
