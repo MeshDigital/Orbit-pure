@@ -257,6 +257,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateAnalysisCommand = new RelayCommand(NavigateToAnalysis);
         NavigateWorkstationCommand = new RelayCommand(NavigateToWorkstation);
         NavigateSetProjectsCommand = new RelayCommand(NavigateToSetProjects);
+        NavigateTransitionLabCommand = new RelayCommand(NavigateToTransitionLab);
         NavigateDecksCommand = new RelayCommand(NavigateToDecks);
         NavigateTimelineCommand = new RelayCommand(NavigateToTimeline);
         NavigateEditLabCommand = new RelayCommand(NavigateToEditLab);
@@ -1230,6 +1231,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateAnalysisCommand { get; }
     public ICommand NavigateWorkstationCommand { get; }
     public ICommand NavigateSetProjectsCommand { get; }
+    public ICommand NavigateTransitionLabCommand { get; }
     public ICommand NavigateDecksCommand { get; }
     public ICommand NavigateTimelineCommand { get; }
     public ICommand NavigateEditLabCommand { get; }
@@ -1392,6 +1394,12 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         var pickerVm = new SLSKDONET.ViewModels.StoryGraph.SetProjectPickerViewModel(_dbFactory, _eventBus);
         var window = new SLSKDONET.Views.Avalonia.StoryGraph.SetProjectPickerWindow(pickerVm);
         window.Show();
+    }
+
+    private void NavigateToTransitionLab()
+    {
+        _navigationService.NavigateTo("Workstation");
+        _eventBus.Publish(new OpenTransitionLabRequestedEvent());
     }
 
     private void NavigateToDecks() => NavigateToWorkstation();

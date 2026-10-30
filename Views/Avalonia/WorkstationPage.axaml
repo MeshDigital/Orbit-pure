@@ -7,6 +7,7 @@
              xmlns:models="clr-namespace:SLSKDONET.Models"
              xmlns:ctrl="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              xmlns:story="clr-namespace:SLSKDONET.Views.Avalonia.StoryGraph"
+             xmlns:lab="clr-namespace:SLSKDONET.Views.Avalonia.TransitionLab"
              mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="900"
              x:Class="SLSKDONET.Views.Avalonia.WorkstationPage"
              x:DataType="vm:WorkstationViewModel"
@@ -292,6 +293,12 @@
                                        DataContext="{Binding StoryGraph}"
                                        Margin="184,16,24,16"
                                        ZIndex="30" />
+
+                <!-- Transition Lab: dual-track overlap audition + template/rating editor -->
+                <lab:TransitionLabPanel IsVisible="{Binding IsTransitionLabActive}"
+                                        DataContext="{Binding TransitionLab}"
+                                        Margin="184,16,24,16"
+                                        ZIndex="31" />
 
                 <!-- Set Plan: passive transition overlay on top of the deck lanes -->
                 <Canvas IsVisible="{Binding IsFlowOverlayVisible}"

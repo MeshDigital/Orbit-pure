@@ -9,6 +9,7 @@ using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Services.Audio;
 using SLSKDONET.Services.KnowledgeLifecycle;
+using SLSKDONET.Services.Timeline;
 
 namespace SLSKDONET.ViewModels.TransitionLab;
 
@@ -21,7 +22,7 @@ public sealed class TransitionLabViewModel : ReactiveObject
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly ITransitionPreviewPlayer _previewPlayer;
-    private readonly ILogger<TransitionLabViewModel> _logger;
+    private readonly ILogger<TransitionLabViewModel>? _logger;
 
     public TransitionTemplateViewModel Template { get; } = new();
     public TransitionScoreViewModel Score { get; } = new();
@@ -40,6 +41,13 @@ public sealed class TransitionLabViewModel : ReactiveObject
     private double _sourceTrigger;
     private double _targetTrigger;
 
+    private TransitionWaveformData? _waveformData;
+    public TransitionWaveformData? WaveformData
+    {
+        get => _waveformData;
+        set => this.RaiseAndSetIfChanged(ref _waveformData, value);
+    }
+
     public ReactiveCommand<Unit, Unit> AuditionCommand { get; }
     public ReactiveCommand<Unit, Unit> SaveTemplateCommand { get; }
     public ReactiveCommand<Unit, Unit> SaveKnowledgeCommand { get; }
@@ -47,7 +55,7 @@ public sealed class TransitionLabViewModel : ReactiveObject
     public TransitionLabViewModel(
         IDbContextFactory<AppDbContext> dbFactory,
         ITransitionPreviewPlayer previewPlayer,
-        ILogger<TransitionLabViewModel> logger)
+        ILogger<TransitionLabViewModel>? logger = null)
     {
         _dbFactory = dbFactory;
         _previewPlayer = previewPlayer;
@@ -116,7 +124,7 @@ public sealed class TransitionLabViewModel : ReactiveObject
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[TransitionLab] audition failed");
+            _logger?.LogWarning(ex, "[TransitionLab] audition failed");
         }
     }
 

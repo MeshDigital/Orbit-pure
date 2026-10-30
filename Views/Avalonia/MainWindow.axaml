@@ -476,6 +476,15 @@
                                     </StackPanel>
                                 </Button>
 
+                                <Button x:Name="NavTransitionLab" Classes="nav" Command="{Binding NavigateTransitionLabCommand}"
+                                        ToolTip.Tip="Transition Lab — Audition, edit and rate transitions between two tracks"
+                                        Classes.selected="{Binding IsWorkstationOverlayActive}">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_mix}"/>
+                                        <TextBlock Text="Transition Lab" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
                                 <Button x:Name="NavWorkstation" Classes="nav" Command="{Binding NavigateWorkstationCommand}"
                                         ToolTip.Tip="Workstation — Verify files, beat grids, cues and loops for professional DJ preparation (Ctrl+Shift+P)"
                                         Classes.selected="{Binding IsWorkstationOverlayActive}">
