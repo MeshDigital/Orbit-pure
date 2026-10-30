@@ -251,6 +251,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateImportCommand = new RelayCommand(NavigateToImport); // Phase 6D
         NavigateAnalysisCommand = new RelayCommand(NavigateToAnalysis);
         NavigateWorkstationCommand = new RelayCommand(NavigateToWorkstation);
+        NavigateSetProjectsCommand = new RelayCommand(NavigateToSetProjects);
         NavigateDecksCommand = new RelayCommand(NavigateToDecks);
         NavigateTimelineCommand = new RelayCommand(NavigateToTimeline);
         NavigateEditLabCommand = new RelayCommand(NavigateToEditLab);
@@ -1223,6 +1224,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateImportCommand { get; } // Phase 6D
     public ICommand NavigateAnalysisCommand { get; }
     public ICommand NavigateWorkstationCommand { get; }
+    public ICommand NavigateSetProjectsCommand { get; }
     public ICommand NavigateDecksCommand { get; }
     public ICommand NavigateTimelineCommand { get; }
     public ICommand NavigateEditLabCommand { get; }
@@ -1377,6 +1379,12 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void NavigateToWorkstation()
     {
         _navigationService.NavigateTo("Workstation");
+    }
+
+    private void NavigateToSetProjects()
+    {
+        _navigationService.NavigateTo("Workstation");
+        _eventBus.Publish(new OpenSetProjectsRequestedEvent());
     }
 
     private void NavigateToDecks() => NavigateToWorkstation();

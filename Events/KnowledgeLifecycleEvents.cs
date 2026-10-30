@@ -16,3 +16,6 @@ public record PerformanceSessionRecordedEvent(Guid SessionId);
 /// written; otherwise only the XML is produced.
 /// </summary>
 public record SetExportRequestedEvent(Guid SetProjectId, string DestinationRoot, bool FilesAndXml = true);
+
+/// <summary>Requests the Set Projects (Story Graph) surface, optionally for a specific set.</summary>
+public record OpenSetProjectsRequestedEvent(Guid? SetProjectId = null);

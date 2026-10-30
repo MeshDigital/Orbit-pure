@@ -806,6 +806,14 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         ActiveMode = WorkstationMode.StoryGraph;
     }
 
+    private async Task HandleSetProjectsOpenAsync(OpenSetProjectsRequestedEvent evt)
+    {
+        if (evt.SetProjectId is Guid setId)
+            await LoadStoryGraphAsync(setId);
+        else
+            ActiveMode = WorkstationMode.StoryGraph;
+    }
+
     // ── Inline Export panel (shown in Export mode) ────────────────────────────
 
     /// <summary>
@@ -1004,6 +1012,11 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         _eventBus.GetEvent<AddToTimelineRequestEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(evt => _ = HandleFlowLaunchRequestAsync(evt))
+            .DisposeWith(_disposables);
+
+        _eventBus.GetEvent<OpenSetProjectsRequestedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(evt => _ = HandleSetProjectsOpenAsync(evt))
             .DisposeWith(_disposables);
 
         _eventBus.GetEvent<AnalysisQueueStatusChangedEvent>()
