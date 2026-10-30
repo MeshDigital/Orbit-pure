@@ -36,7 +36,34 @@ public sealed class StoryGraphViewModel : ReactiveObject
     public Guid? SelectedSlotId
     {
         get => _selectedSlotId;
-        set => this.RaiseAndSetIfChanged(ref _selectedSlotId, value);
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _selectedSlotId, value);
+            this.RaisePropertyChanged(nameof(SelectedSlotRole));
+            this.RaisePropertyChanged(nameof(SelectedSlotEnergyTarget));
+        }
+    }
+
+    /// <summary>The selected slot's role; setting it mutates the slot through the undo stack.</summary>
+    public SetSlotRole SelectedSlotRole
+    {
+        get => _slots.FirstOrDefault(s => s.Id == SelectedSlotId)?.SlotRole ?? SLSKDONET.Data.Entities.SetSlotRole.Builder;
+        set
+        {
+            if (SelectedSlotId is Guid id)
+                SetSlotRole(id, value);
+        }
+    }
+
+    /// <summary>The selected slot's energy target; setting it mutates the slot through the undo stack.</summary>
+    public double? SelectedSlotEnergyTarget
+    {
+        get => _slots.FirstOrDefault(s => s.Id == SelectedSlotId)?.EnergyTarget;
+        set
+        {
+            if (SelectedSlotId is Guid id)
+                SetSlotEnergyTarget(id, value);
+        }
     }
 
     public bool CanUndo => _undoService.CanUndo;
@@ -44,6 +71,9 @@ public sealed class StoryGraphViewModel : ReactiveObject
 
     public ReactiveCommand<Unit, Unit> UndoCommand { get; }
     public ReactiveCommand<Unit, Unit> RedoCommand { get; }
+
+    /// <summary>All slot roles, for the inspector's role selector.</summary>
+    public IReadOnlyList<SetSlotRole> RoleOptions { get; } = Enum.GetValues<SetSlotRole>();
 
     public StoryGraphViewModel(IDbContextFactory<AppDbContext> dbFactory, IUndoService undoService)
     {
@@ -102,6 +132,7 @@ public sealed class StoryGraphViewModel : ReactiveObject
         _undoService.Push(operation);
         Recompute();
         RaiseUndoStateChanged();
+        this.RaisePropertyChanged(nameof(SelectedSlotRole));
     }
 
     public void SetSlotEnergyTarget(Guid slotId, double? energy)
@@ -120,6 +151,7 @@ public sealed class StoryGraphViewModel : ReactiveObject
         _undoService.Push(operation);
         Recompute();
         RaiseUndoStateChanged();
+        this.RaisePropertyChanged(nameof(SelectedSlotEnergyTarget));
     }
 
     public void Undo()

@@ -1,0 +1,19 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:SLSKDONET.Views.Avalonia.StoryGraph"
+             x:Class="SLSKDONET.Views.Avalonia.StoryGraph.StoryGraphPanel">
+    <DockPanel>
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" Margin="8">
+            <Button Content="Undo" Command="{Binding UndoCommand}" />
+            <Button Content="Redo" Command="{Binding RedoCommand}" />
+            <TextBlock VerticalAlignment="Center" Text="Role" />
+            <ComboBox MinWidth="120"
+                      ItemsSource="{Binding RoleOptions}"
+                      SelectedItem="{Binding SelectedSlotRole, Mode=TwoWay}" />
+            <TextBlock VerticalAlignment="Center" Text="Energy" />
+            <Slider Width="160" Minimum="0" Maximum="100"
+                    Value="{Binding SelectedSlotEnergyTarget, Mode=TwoWay}" />
+        </StackPanel>
+        <local:StoryGraphView ViewModel="{Binding}" />
+    </DockPanel>
+</UserControl>
