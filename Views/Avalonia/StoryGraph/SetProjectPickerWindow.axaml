@@ -1,0 +1,27 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SLSKDONET.Views.Avalonia.StoryGraph.SetProjectPickerWindow"
+        Width="440" Height="520"
+        Title="Set Projects"
+        WindowStartupLocation="CenterOwner">
+    <DockPanel Margin="16">
+        <TextBlock DockPanel.Dock="Top" Classes="h2" Text="Open a Set Project" Margin="0,0,0,12" />
+
+        <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,12,0,0">
+            <Button Grid.Column="1" Classes="primary" Content="Open"
+                    Command="{Binding SelectCommand}" />
+        </Grid>
+
+        <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem, Mode=TwoWay}">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Spacing="2" Margin="0,4">
+                        <TextBlock Text="{Binding Name}" />
+                        <TextBlock Classes="caption" Text="{Binding Status}" />
+                        <TextBlock Classes="caption" Text="{Binding EventProfileName}" />
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </DockPanel>
+</Window>
