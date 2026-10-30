@@ -1147,6 +1147,9 @@ public partial class App : Application
         services.AddSingleton<Services.KnowledgeLifecycle.IKnowledgeAgent, Services.KnowledgeLifecycle.PerformanceAnalystAgent>();
         services.AddSingleton<Services.KnowledgeLifecycle.IKnowledgeAgent, Services.KnowledgeLifecycle.ExportAgent>();
         services.AddHostedService<Services.KnowledgeLifecycle.KnowledgeSwarmHost>();
+
+        // ── Slice K5: Story Graph canvas ────────────────────────────────
+        services.AddTransient<SLSKDONET.ViewModels.StoryGraph.StoryGraphViewModel>();
     }
 
     /// <summary>
