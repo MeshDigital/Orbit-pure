@@ -43,6 +43,7 @@ public sealed class OrbitCopilot : IOrbitCopilot
 
         var features = await db.AudioFeatures
             .Where(f => f.Bpm > 0 && f.TrackDuration > 0)
+            .OrderBy(f => f.TrackUniqueHash)
             .ToListAsync(ct)
             .ConfigureAwait(false);
 
