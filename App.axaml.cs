@@ -695,6 +695,7 @@ public partial class App : Application
 
         // Database
         services.AddDbContextFactory<AppDbContext>();
+        services.AddScoped<SLSKDONET.Services.Copilot.IOrbitCopilot, SLSKDONET.Services.Copilot.OrbitCopilot>();
         services.AddSingleton<SchemaMigratorService>();
         services.AddSingleton<SLSKDONET.Services.Repositories.ITrackRepository, SLSKDONET.Services.Repositories.TrackRepository>();
         services.AddSingleton<SLSKDONET.Services.Repositories.ITransitionRepository, SLSKDONET.Services.Repositories.TransitionRepository>();
