@@ -696,6 +696,8 @@ public partial class App : Application
         // Database
         services.AddDbContextFactory<AppDbContext>();
         services.AddScoped<SLSKDONET.Services.Copilot.IOrbitCopilot, SLSKDONET.Services.Copilot.OrbitCopilot>();
+        services.AddSingleton<SLSKDONET.Services.ProDjLink.HardwareDeviceManager>();
+        services.AddSingleton<SLSKDONET.Services.ProDjLink.IPacketParser, SLSKDONET.Services.ProDjLink.ProDjLinkPacketParser>();
         services.AddSingleton<SchemaMigratorService>();
         services.AddSingleton<SLSKDONET.Services.Repositories.ITrackRepository, SLSKDONET.Services.Repositories.TrackRepository>();
         services.AddSingleton<SLSKDONET.Services.Repositories.ITransitionRepository, SLSKDONET.Services.Repositories.TransitionRepository>();
@@ -1148,6 +1150,7 @@ public partial class App : Application
         services.AddSingleton<Services.KnowledgeLifecycle.IKnowledgeAgent, Services.KnowledgeLifecycle.PerformanceAnalystAgent>();
         services.AddSingleton<Services.KnowledgeLifecycle.IKnowledgeAgent, Services.KnowledgeLifecycle.ExportAgent>();
         services.AddHostedService<Services.KnowledgeLifecycle.KnowledgeSwarmHost>();
+        services.AddHostedService<Services.ProDjLink.ProDjLinkListener>();
 
         // ── Slice K5: Story Graph canvas ────────────────────────────────
         services.AddTransient<SLSKDONET.ViewModels.StoryGraph.StoryGraphViewModel>();
