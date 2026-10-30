@@ -1,0 +1,16 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:lab="using:SLSKDONET.Views.Avalonia.TransitionLab"
+             x:Class="SLSKDONET.Views.Avalonia.TransitionLab.TransitionLabPanel">
+    <DockPanel>
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" Margin="8">
+            <Button Content="Audition" Command="{Binding AuditionCommand}" />
+            <Button Content="Save Template" Command="{Binding SaveTemplateCommand}" />
+            <Button Content="Save Knowledge" Command="{Binding SaveKnowledgeCommand}" />
+            <TextBlock VerticalAlignment="Center" Text="Rating" />
+            <Slider Width="140" Minimum="0" Maximum="100" Value="{Binding Score.UserRating, Mode=TwoWay}" />
+            <CheckBox Content="Verified" VerticalAlignment="Center" IsChecked="{Binding Score.Verified}" />
+        </StackPanel>
+        <lab:TransitionWaveformCanvas Source="{Binding WaveformData}" />
+    </DockPanel>
+</UserControl>

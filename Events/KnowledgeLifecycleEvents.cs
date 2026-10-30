@@ -19,3 +19,6 @@ public record SetExportRequestedEvent(Guid SetProjectId, string DestinationRoot,
 
 /// <summary>Requests the Set Projects (Story Graph) surface, optionally for a specific set.</summary>
 public record OpenSetProjectsRequestedEvent(Guid? SetProjectId = null);
+
+/// <summary>Requests the Transition Lab surface, optionally for a specific track pair.</summary>
+public record OpenTransitionLabRequestedEvent(string? SourceTrackHash = null, string? TargetTrackHash = null);
