@@ -989,6 +989,7 @@ public partial class App : Application
         services.AddSingleton<Services.AudioAnalysis.BeatgridDetectionService>();
         services.AddSingleton<Services.AudioAnalysis.BpmDetectionService>();
         services.AddSingleton<Services.AudioAnalysis.KeyDetectionService>();
+        services.AddSingleton<Services.AudioAnalysis.InProcessTempoKeyEngine>();
         services.AddSingleton<Services.AudioAnalysis.EnergyScoringService>();
         services.AddSingleton<Services.AudioAnalysis.HarmonicAnalysisService>();
         services.AddSingleton<Services.AudioAnalysis.HarmonicCompatibilityService>();

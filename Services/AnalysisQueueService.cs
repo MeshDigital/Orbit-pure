@@ -39,6 +39,7 @@ public class AnalysisQueueService : IDisposable
     private readonly IAudioAnalysisService? _audioAnalysisService;
     private readonly AnalyzeTrackStructureJob? _analyzeTrackStructureJob;
     private readonly AudioCorruptionScannerService? _corruptionScanner;
+    private readonly AppConfig? _config;
     private readonly IDisposable _requestSubscription;
     private readonly SemaphoreSlim _parallelismGate;
     private readonly SemaphoreSlim _dispatchSignal = new(0);
@@ -80,6 +81,7 @@ public class AnalysisQueueService : IDisposable
         _audioAnalysisService = audioAnalysisService;
         _analyzeTrackStructureJob = analyzeTrackStructureJob;
         _corruptionScanner = corruptionScanner;
+        _config = config;
 
         int requested = config?.MaxConcurrentAnalyses ?? 0;
         MaxWorkers = requested > 0
@@ -344,7 +346,10 @@ public class AnalysisQueueService : IDisposable
             PublishProgress(evt.TrackGlobalId, "Analyzing audio", 20);
 
             var analysis = await _audioAnalysisService
-                .AnalyzeFileAsync(filePath, evt.TrackGlobalId, engines: evt.Engines, cancellationToken: CancellationToken.None)
+                .AnalyzeFileAsync(filePath, evt.TrackGlobalId,
+                    engines: evt.Engines,
+                    audioEngine: AnalysisAudioEngineExtensions.ParseAudioEngine(_config?.AnalysisAudioEngine),
+                    cancellationToken: CancellationToken.None)
                 .ConfigureAwait(false);
 
             if (analysis is null)

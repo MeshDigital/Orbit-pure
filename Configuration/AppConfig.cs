@@ -256,6 +256,10 @@ public class AppConfig
     /// <summary>Queue every finished download for analysis (BPM, key, cues, loudness). [Analysis] AnalyzeNewDownloads.</summary>
     public bool AnalyzeNewDownloads { get; set; } = true;
 
+    /// <summary>Which backend produces BPM/key/beat-grid during analysis: "Essentia" (external CLI) or
+    /// "InProcess" (NWaves/NAudio, no external binary). [Analysis] AnalysisAudioEngine.</summary>
+    public string AnalysisAudioEngine { get; set; } = "Essentia";
+
     // Edit Lab: where rendered edits are written. Empty = <download folder>/ORBIT Edits. [EditLab] OutputDirectory.
     public string? EditLabOutputDirectory { get; set; }
 

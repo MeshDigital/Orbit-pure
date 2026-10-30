@@ -871,17 +871,29 @@
                         </StackPanel>
 
                         <StackPanel Classes="settings-section"
-                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Analysis analyse analyze new downloads automatically BPM key cues queue'}">
+                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Analysis analyse analyze new downloads automatically BPM key cues queue engine nwaves naudio'}">
                             <TextBlock Classes="section" Text="ANALYSIS"/>
                             <Border Classes="card">
-                                <Grid Classes="row" ColumnDefinitions="*,Auto">
-                                    <StackPanel Classes="label">
-                                        <TextBlock Classes="body" Text="Analyse new downloads automatically"/>
-                                        <TextBlock Classes="caption" Text="BPM, key, energy, loudness and cues for every finished download. Off: queue analysis yourself from the Library or Analysis page."/>
-                                    </StackPanel>
-                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding AnalyzeNewDownloads, Mode=TwoWay}"
-                                                  AutomationProperties.Name="Analyse new downloads automatically"/>
-                                </Grid>
+                                <StackPanel>
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                        <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="Analyse new downloads automatically"/>
+                                            <TextBlock Classes="caption" Text="BPM, key, energy, loudness and cues for every finished download. Off: queue analysis yourself from the Library or Analysis page."/>
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding AnalyzeNewDownloads, Mode=TwoWay}"
+                                                      AutomationProperties.Name="Analyse new downloads automatically"/>
+                                    </Grid>
+                                    <Border Classes="divider"/>
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                        <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="BPM / key engine"/>
+                                            <TextBlock Classes="caption" Text="Essentia uses the bundled external extractor. InProcess analyses the decoded audio with NWaves/NAudio — no external binary, and no temp-WAV round trip."/>
+                                        </StackPanel>
+                                        <ComboBox Grid.Column="1" Classes="field" Width="200"
+                                                  ItemsSource="{x:Static vm:SettingsViewModel.AvailableAnalysisAudioEngines}"
+                                                  SelectedItem="{Binding AnalysisAudioEngine, Mode=TwoWay}"/>
+                                    </Grid>
+                                </StackPanel>
                             </Border>
                         </StackPanel>
 

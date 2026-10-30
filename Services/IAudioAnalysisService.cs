@@ -17,9 +17,12 @@ public interface IAudioAnalysisService
     /// Which analysis engines to run. Defaults to every engine one pipeline pass can produce; pass
     /// only the missing ones to re-run a track partially (see <see cref="AnalysisEngine"/>).
     /// </param>
+    /// <param name="audioEngine">
+    /// Which backend produces BPM/key/beat-grid for this run (see <see cref="AnalysisAudioEngine"/>).
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A populated AudioAnalysisEntity or null if analysis fails.</returns>
-    Task<AudioAnalysisEntity?> AnalyzeFileAsync(string filePath, string trackUniqueHash, IProgress<(int Percent, string Step)>? progress = null, string? correlationId = null, AnalysisEngine engines = AnalysisEngine.Pipeline, System.Threading.CancellationToken cancellationToken = default);
+    Task<AudioAnalysisEntity?> AnalyzeFileAsync(string filePath, string trackUniqueHash, IProgress<(int Percent, string Step)>? progress = null, string? correlationId = null, AnalysisEngine engines = AnalysisEngine.Pipeline, AnalysisAudioEngine audioEngine = AnalysisAudioEngine.Essentia, System.Threading.CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Retrieves stored analysis data for a track.
