@@ -6,6 +6,7 @@
              xmlns:wsViews="clr-namespace:SLSKDONET.Views.Avalonia.Workstation"
              xmlns:models="clr-namespace:SLSKDONET.Models"
              xmlns:ctrl="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:story="clr-namespace:SLSKDONET.Views.Avalonia.StoryGraph"
              mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="900"
              x:Class="SLSKDONET.Views.Avalonia.WorkstationPage"
              x:DataType="vm:WorkstationViewModel"
@@ -285,6 +286,12 @@
                         </Button>
                     </StackPanel>
                 </ScrollViewer>
+
+                <!-- Set Projects: Story Graph canvas (mutually exclusive with the deck lanes) -->
+                <story:StoryGraphPanel IsVisible="{Binding IsStoryGraphActive}"
+                                       DataContext="{Binding StoryGraph}"
+                                       Margin="184,16,24,16"
+                                       ZIndex="30" />
 
                 <!-- Set Plan: passive transition overlay on top of the deck lanes -->
                 <Canvas IsVisible="{Binding IsFlowOverlayVisible}"
