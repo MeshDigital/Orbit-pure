@@ -1145,6 +1145,7 @@ public partial class App : Application
         // ── Phase 2: Knowledge Lifecycle agent swarm ─────────────────────
         services.AddSingleton<Services.KnowledgeLifecycle.IKnowledgeAgent, Services.KnowledgeLifecycle.TransitionAgent>();
         services.AddSingleton<Services.KnowledgeLifecycle.IKnowledgeAgent, Services.KnowledgeLifecycle.PerformanceAnalystAgent>();
+        services.AddSingleton<Services.KnowledgeLifecycle.IKnowledgeAgent, Services.KnowledgeLifecycle.ExportAgent>();
         services.AddHostedService<Services.KnowledgeLifecycle.KnowledgeSwarmHost>();
     }
 

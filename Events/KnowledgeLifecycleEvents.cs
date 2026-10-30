@@ -8,3 +8,9 @@ namespace SLSKDONET.Models;
 /// consumes it to reconcile the plan against reality and write <c>TransitionEvidence</c>.
 /// </summary>
 public record PerformanceSessionRecordedEvent(Guid SessionId);
+
+/// <summary>
+/// Requests that a <see cref="SLSKDONET.Data.Entities.SetListEntity"/> (SetProject) be compiled for
+/// export, with the knowledge graph's confidence/freshness metadata attached.
+/// </summary>
+public record SetExportRequestedEvent(Guid SetProjectId);
