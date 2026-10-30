@@ -1141,6 +1141,10 @@ public partial class App : Application
                 sp.GetRequiredService<IEventBus>(),
                 sp.GetRequiredService<AppConfig>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.AutoDownload.GhostAcquisitionOrchestrator>>()));
+
+        // ── Phase 2: Knowledge Lifecycle agent swarm ─────────────────────
+        services.AddSingleton<Services.KnowledgeLifecycle.IKnowledgeAgent, Services.KnowledgeLifecycle.TransitionAgent>();
+        services.AddHostedService<Services.KnowledgeLifecycle.KnowledgeSwarmHost>();
     }
 
     /// <summary>
