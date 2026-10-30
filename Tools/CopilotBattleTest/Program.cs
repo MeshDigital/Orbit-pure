@@ -2,7 +2,10 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
+using SLSKDONET.Services;
 using SLSKDONET.Services.Copilot;
 
 namespace SLSKDONET.Tools.CopilotBattleTest;
@@ -29,6 +32,22 @@ public static class Program
             var target = Arg(args, "--target");
             var setArg = Arg(args, "--set");
             var outPath = Arg(args, "--out");
+
+            // Optional schema migration (runs SchemaMigratorService + SchemaReconciler against the
+            // default library path, READ-WRITE, so the Phase 2 tables exist before the copilot runs).
+            if (args.Any(a => string.Equals(a, "--migrate", StringComparison.OrdinalIgnoreCase)))
+            {
+                Console.WriteLine("Reconciling schema (SchemaReconciler)...");
+                var migOptions = new DbContextOptionsBuilder<AppDbContext>()
+                    .UseSqlite($"Data Source={SLSKDONET.Data.OrbitPaths.LibraryDbPath}")
+                    .Options;
+                using var migCtx = new AppDbContext(migOptions);
+                var conn = migCtx.Database.GetDbConnection();
+                var reconcileReport = SchemaReconciler.Reconcile(migCtx, conn, new ConsoleLogger<AppDbContext>());
+                Console.WriteLine($"Created tables: [{string.Join(", ", reconcileReport.CreatedTables)}]");
+                Console.WriteLine($"Added columns:  [{string.Join(", ", reconcileReport.AddedColumns)}]");
+                Console.WriteLine($"Failures:       [{string.Join("; ", reconcileReport.Failures)}]");
+            }
 
             var options = new DbContextOptionsBuilder<AppDbContext>()
                 .UseSqlite(new SqliteConnectionStringBuilder { DataSource = dbPath, Mode = SqliteOpenMode.ReadOnly }.ToString())
@@ -185,6 +204,16 @@ public static class Program
 
         public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
             => Task.FromResult(new AppDbContext(_options));
+    }
+
+    private sealed class ConsoleLogger<T> : ILogger<T>
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Information;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Console.WriteLine($"[{logLevel}] {formatter(state, exception)}");
     }
 
     private sealed record SpineTrackEntry(int Position, string Hash, string Title, string Artist, double Bpm, double Energy);
