@@ -1399,7 +1399,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void NavigateToTransitionLab()
     {
         _navigationService.NavigateTo("Workstation");
-        _eventBus.Publish(new OpenTransitionLabRequestedEvent());
+        var pickerVm = new SLSKDONET.ViewModels.TransitionLab.TrackPairPickerViewModel(_dbFactory, _eventBus);
+        var window = new SLSKDONET.Views.Avalonia.TransitionLab.TrackPairPickerWindow(pickerVm);
+        window.Show();
     }
 
     private void NavigateToDecks() => NavigateToWorkstation();

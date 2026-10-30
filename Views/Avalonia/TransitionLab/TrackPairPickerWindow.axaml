@@ -1,0 +1,44 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SLSKDONET.Views.Avalonia.TransitionLab.TrackPairPickerWindow"
+        Width="720" Height="520"
+        Title="Choose a Transition Pair"
+        WindowStartupLocation="CenterOwner">
+    <DockPanel Margin="16">
+        <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,12,0,0">
+            <Button Grid.Column="1" Classes="primary" Content="Open Transition Lab"
+                    Command="{Binding ConfirmCommand}" />
+        </Grid>
+
+        <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,*">
+            <TextBlock Grid.Row="0" Grid.Column="0" Classes="h3" Text="Outgoing (Track A)" />
+            <TextBlock Grid.Row="0" Grid.Column="2" Classes="h3" Text="Incoming (Track B)" />
+
+            <ListBox Grid.Row="1" Grid.Column="0"
+                     ItemsSource="{Binding AvailableTracks}"
+                     SelectedItem="{Binding SelectedSource, Mode=TwoWay}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Spacing="1" Margin="0,2">
+                            <TextBlock Text="{Binding Title}" />
+                            <TextBlock Classes="caption" Text="{Binding Artist}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <ListBox Grid.Row="1" Grid.Column="2"
+                     ItemsSource="{Binding AvailableTracks}"
+                     SelectedItem="{Binding SelectedTarget, Mode=TwoWay}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Spacing="1" Margin="0,2">
+                            <TextBlock Text="{Binding Title}" />
+                            <TextBlock Classes="caption" Text="{Binding Artist}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+    </DockPanel>
+</Window>
