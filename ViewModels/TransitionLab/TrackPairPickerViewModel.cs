@@ -18,7 +18,7 @@ public sealed record TrackPickerItem(string TrackUniqueHash, string Title, strin
 /// Slice K6.1: lightweight modal for choosing the outgoing (source) and incoming (target) tracks for
 /// the Transition Lab. On confirm it publishes <see cref="OpenTransitionLabRequestedEvent"/>.
 /// </summary>
-public sealed class TrackPairPickerViewModel : ReactiveObject
+public sealed class TrackPairPickerViewModel : ReactiveObject, IDisposable
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly IEventBus _eventBus;
@@ -67,5 +67,11 @@ public sealed class TrackPairPickerViewModel : ReactiveObject
             SelectedSource.TrackUniqueHash,
             SelectedTarget.TrackUniqueHash));
         Confirmed?.Invoke(this, (SelectedSource.TrackUniqueHash, SelectedTarget.TrackUniqueHash));
+    }
+
+    public void Dispose()
+    {
+        Confirmed = null;
+        ConfirmCommand.Dispose();
     }
 }
