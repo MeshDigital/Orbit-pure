@@ -20,6 +20,8 @@ public class RoomViewModel : ReactiveObject, IDisposable
     private readonly ChatAttachmentService _chatAttachments;
     private readonly IFileInteractionService _fileInteraction;
     private readonly IDialogService _dialogService;
+    private readonly IEventBus _eventBus;
+    private readonly PeerReliabilityService _peerReliability;
     private readonly ILogger _logger;
     private readonly CompositeDisposable _disposables = new();
 
@@ -66,6 +68,7 @@ public class RoomViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> LoadOlderMessagesCommand { get; }
     public ReactiveCommand<ChatMessageViewModel, Unit> DeleteMessageCommand { get; }
     public ReactiveCommand<Unit, Unit> ClearRoomHistoryCommand { get; }
+    public ReactiveCommand<string, Unit> OpenUserProfileCommand { get; }
 
     private string? _imageSendError;
     public string? ImageSendError
@@ -95,7 +98,7 @@ public class RoomViewModel : ReactiveObject, IDisposable
         private set => this.RaiseAndSetIfChanged(ref _hasMoreHistory, value);
     }
 
-    public RoomViewModel(string roomName, bool isPrivate, RoomChatService roomChat, ChatAttachmentService chatAttachments, IFileInteractionService fileInteraction, IDialogService dialogService, IEventBus eventBus, ILogger logger)
+    public RoomViewModel(string roomName, bool isPrivate, RoomChatService roomChat, ChatAttachmentService chatAttachments, IFileInteractionService fileInteraction, IDialogService dialogService, IEventBus eventBus, PeerReliabilityService peerReliability, ILogger logger)
     {
         RoomName = roomName;
         IsPrivate = isPrivate;
@@ -103,6 +106,8 @@ public class RoomViewModel : ReactiveObject, IDisposable
         _chatAttachments = chatAttachments;
         _fileInteraction = fileInteraction;
         _dialogService = dialogService;
+        _eventBus = eventBus;
+        _peerReliability = peerReliability;
         _logger = logger;
 
         var canSend = this.WhenAnyValue(x => x.MessageInput, text => !string.IsNullOrWhiteSpace(text));
@@ -114,6 +119,13 @@ public class RoomViewModel : ReactiveObject, IDisposable
 
         DeleteMessageCommand = ReactiveCommand.CreateFromTask<ChatMessageViewModel>(DeleteMessageAsync);
         ClearRoomHistoryCommand = ReactiveCommand.CreateFromTask(ClearRoomHistoryAsync);
+
+        OpenUserProfileCommand = ReactiveCommand.Create<string>(username =>
+        {
+            if (string.IsNullOrWhiteSpace(username))
+                return;
+            _eventBus.Publish(new OpenUserProfileRequestEvent(username));
+        });
 
         this.WhenAnyValue(x => x.SearchText)
             .Throttle(TimeSpan.FromMilliseconds(200), RxApp.MainThreadScheduler)
@@ -177,7 +189,7 @@ public class RoomViewModel : ReactiveObject, IDisposable
         }
 
         if (!Members.Any(m => string.Equals(m.Username, username, StringComparison.OrdinalIgnoreCase)))
-            Members.Add(new RoomMemberSnapshot(username, presence, 0, 0, 0, null));
+            Members.Add(new RoomMemberSnapshot(username, presence, 0, 0, 0, null, _peerReliability.TryGetReliabilityScore(username)));
     }
 
     public async Task LoadHistoryAsync(IReadOnlyList<RoomMemberSnapshot>? initialMembers = null)
@@ -188,6 +200,8 @@ public class RoomViewModel : ReactiveObject, IDisposable
             foreach (var member in initialMembers)
                 Members.Add(member);
         }
+
+        PopulateReliabilityScores();
 
         HasMoreHistory = false; // avoid a flash of "Load earlier" before the first page has actually loaded
         try
@@ -337,6 +351,21 @@ public class RoomViewModel : ReactiveObject, IDisposable
         {
             _logger.LogWarning(ex, "Failed to send image to room {RoomName}", RoomName);
             ImageSendError = ex.Message;
+        }
+    }
+
+    /// <summary>Batches reliability scores for the current roster once (a single in-memory
+    /// dictionary pass), stamping them onto each member. Unknown or never-downloaded peers stay
+    /// unbadged (ReliabilityScore = null). Runs on roster load so large rooms render instantly.</summary>
+    private void PopulateReliabilityScores()
+    {
+        var scores = _peerReliability.GetReliabilityScores(Members.Select(m => m.Username));
+        for (var i = 0; i < Members.Count; i++)
+        {
+            var member = Members[i];
+            var score = scores.TryGetValue(member.Username, out var value) ? (double?)value : null;
+            if (member.ReliabilityScore != score)
+                Members[i] = member with { ReliabilityScore = score };
         }
     }
 

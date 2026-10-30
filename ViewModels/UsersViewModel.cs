@@ -192,6 +192,14 @@ public class UsersViewModel : ReactiveObject, IDisposable
             .Subscribe(OnIncomingMessage)
             .DisposeWith(_disposables);
 
+        // A username clicked in room chat (message bubble or member roster) opens that peer's
+        // profile here — the same path an incoming 1:1 message uses, so chat becomes a discovery
+        // entry point without RoomViewModel needing a direct UsersViewModel reference.
+        _eventBus.GetEvent<OpenUserProfileRequestEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e => _ = OpenProfileAsync(e.Username))
+            .DisposeWith(_disposables);
+
         this.WhenAnyValue(x => x.SelectedProfile)
             .Subscribe(profile => _eventBus.Publish(new ActiveConversationChangedEvent(profile?.Username)))
             .DisposeWith(_disposables);

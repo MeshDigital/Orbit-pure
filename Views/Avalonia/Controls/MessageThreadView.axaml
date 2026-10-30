@@ -106,8 +106,15 @@
                                     </Border>
 
                                     <StackPanel Grid.Column="1" Spacing="2">
-                                        <TextBlock Classes="caption" FontWeight="SemiBold" Text="{Binding SenderUsername}"
-                                                   Margin="2,0,0,0" IsVisible="{Binding ShowIncomingHeader}"/>
+                                        <Button Classes="ghost" Padding="2,0,0,0" Margin="2,0,0,0"
+                                                HorizontalContentAlignment="Left"
+                                                IsVisible="{Binding ShowIncomingHeader}"
+                                                IsHitTestVisible="{Binding #Root.OpenUserCommand, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                                Command="{Binding #Root.OpenUserCommand}"
+                                                CommandParameter="{Binding SenderUsername}"
+                                                ToolTip.Tip="Open this user's profile">
+                                            <TextBlock Classes="caption" FontWeight="SemiBold" Text="{Binding SenderUsername}"/>
+                                        </Button>
 
                                         <Border Classes="bubble" Classes.outgoing="{Binding IsOutgoing}">
                                             <Grid ColumnDefinitions="*,Auto">

@@ -29,3 +29,9 @@ public record ActiveConversationChangedEvent(string? Username);
 
 /// <summary>Same as <see cref="ActiveConversationChangedEvent"/>, for the currently-open chat room.</summary>
 public record ActiveRoomChangedEvent(string? RoomName);
+
+/// <summary>Published when the user clicks a peer's username in room chat (a message bubble or the
+/// member roster) — asks the Users page to open that peer's profile, the same path an incoming 1:1
+/// message already uses. Chat is the discovery entry point, so this closes the loop from a room full
+/// of strangers to their Browse Shares / Download History / Chat surfaces.</summary>
+public record OpenUserProfileRequestEvent(string Username);
