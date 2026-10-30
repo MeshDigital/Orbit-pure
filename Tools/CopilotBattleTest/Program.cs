@@ -35,6 +35,7 @@ public static class Program
             var outPath = Arg(args, "--out");
             var seed = Arg(args, "--seed");
             var targetBpm = double.TryParse(Arg(args, "--target-bpm"), out var tb) ? tb : (double?)null;
+            var mockVocals = args.Any(a => string.Equals(a, "--mock-vocals", StringComparison.OrdinalIgnoreCase));
 
             // Optional schema migration (runs SchemaMigratorService + SchemaReconciler against the
             // default library path, READ-WRITE, so the Phase 2 tables exist before the copilot runs).
@@ -59,7 +60,7 @@ public static class Program
             var factory = new CliDbContextFactory(options);
             var copilot = new OrbitCopilot(factory);
 
-            var report = await RunAsync(copilot, factory, dbPath, minutes, bpmVariance, source, target, setArg, seed, targetBpm);
+            var report = await RunAsync(copilot, factory, dbPath, minutes, bpmVariance, source, target, setArg, seed, targetBpm, mockVocals);
             var text = RenderText(report);
 
             Console.WriteLine(text);
@@ -90,7 +91,8 @@ public static class Program
         string? target,
         string? setArg,
         string? seed,
-        double? targetBpm)
+        double? targetBpm,
+        bool mockVocals)
     {
         var report = new BattleReport
         {
@@ -102,7 +104,7 @@ public static class Program
         var build = await copilot.BuildSetAsync(new SetBuildRequest(minutes, EventProfile: null, bpmVariance, SeedTrackHash: seed, TargetBpm: targetBpm));
         report.SetBuild = await ResolveSpineAsync(factory, build.SpineTrackHashes);
         report.SetBuildDurationMinutes = build.DurationMinutes;
-        report.SpineClashes = await ResolveSpineClashesAsync(factory, build.SpineTrackHashes);
+        report.SpineClashes = await ResolveSpineClashesAsync(factory, build.SpineTrackHashes, mockVocals);
 
         // 2. Bridge Finder.
         if (!string.IsNullOrWhiteSpace(source) && !string.IsNullOrWhiteSpace(target))
@@ -150,7 +152,7 @@ public static class Program
         return result;
     }
 
-    private static async Task<List<ClashReport>> ResolveSpineClashesAsync(CliDbContextFactory factory, IReadOnlyList<string> spineHashes)
+    private static async Task<List<ClashReport>> ResolveSpineClashesAsync(CliDbContextFactory factory, IReadOnlyList<string> spineHashes, bool mockVocals)
     {
         if (spineHashes.Count < 2)
             return new List<ClashReport>();
@@ -179,9 +181,24 @@ public static class Program
             var mixOut = ResolveCue(trackCues, CuePointType.MixOut) ?? duration - 44.0;
             var mixIn = ResolveCue(trackCues, CuePointType.MixIn) ?? 44.0;
             var camelot = ClashDetector.CamelotNumberFromKey(f?.CamelotKey);
-            var vocalSegments = (f?.VocalDensity ?? 0f) > 0.5f
-                ? new[] { new VocalSegment(0.0, duration) }
-                : Array.Empty<VocalSegment>();
+
+            VocalSegment[] vocalSegments;
+            if (mockVocals)
+            {
+                // Synthetic temporal vocal blocks that deliberately bleed into the 44s mix-in and
+                // mix-out windows, forcing an intentional vocal overlap to verify the window math.
+                vocalSegments = new[]
+                {
+                    new VocalSegment(Math.Max(0.0, mixIn - 10.0), mixIn + 10.0),
+                    new VocalSegment(Math.Max(0.0, mixOut - 10.0), Math.Min(duration, mixOut + 10.0)),
+                };
+            }
+            else
+            {
+                vocalSegments = (f?.VocalDensity ?? 0f) > 0.5f
+                    ? new[] { new VocalSegment(0.0, duration) }
+                    : Array.Empty<VocalSegment>();
+            }
 
             spineData.Add(new TrackClashData(hash, mixOut, mixIn, barsBeforeMix, camelot, vocalSegments));
         }

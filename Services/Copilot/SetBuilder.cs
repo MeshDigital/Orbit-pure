@@ -57,7 +57,8 @@ public static class SetBuilder
                         ? conf
                         : 0.5;
                     return (Candidate: c, Cost: SetBuilderScoring.ComputeTransitionCost(
-                        fromEnergy, c.Energy, targetEnergy, c.Bpm, anchorBpm, maxBpmVariance, confidence));
+                        fromEnergy, c.Energy, targetEnergy, c.Bpm, anchorBpm, maxBpmVariance, confidence,
+                        current.CamelotNumber, c.CamelotNumber));
                 })
                 .Where(x => !double.IsInfinity(x.Cost))
                 .OrderBy(x => x.Cost)

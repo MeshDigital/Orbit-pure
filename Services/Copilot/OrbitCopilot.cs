@@ -60,7 +60,8 @@ public sealed class OrbitCopilot : IOrbitCopilot
                 entryByHash.TryGetValue(f.TrackUniqueHash, out var entry);
                 return new SpineCandidate(
                     f.TrackUniqueHash, f.Bpm, f.Energy * 100.0, f.TrackDuration,
-                    entry?.Title ?? string.Empty, entry?.Artist ?? string.Empty);
+                    entry?.Title ?? string.Empty, entry?.Artist ?? string.Empty,
+                    ClashDetector.CamelotNumberFromKey(f.CamelotKey));
             })
             .ToList();
 
