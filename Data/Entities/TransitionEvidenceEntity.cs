@@ -5,22 +5,12 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace SLSKDONET.Data.Entities;
 
 /// <summary>
-/// Where a piece of transition evidence came from (source weights in
-/// DOCS/workstation/KNOWLEDGE_LIFECYCLE_ARCHITECTURE.md §6.1).
-/// </summary>
-public enum TransitionEvidenceSource
-{
-    HarmonicMatch = 0,      // algorithmic: key/camelot distance
-    PhraseMatch = 1,        // algorithmic: phrase/energy alignment
-    CrowdSuccess = 2,       // real-world: rated crowd reaction
-    ManualRating = 3,       // explicit DJ rating in Transition Lab
-    PerformanceHistory = 4, // real-world: actually played live
-}
-
-/// <summary>
 /// Phase 2 (Knowledge Lifecycle): an atomic, immutable claim about a
-/// <see cref="TransitionKnowledgeEntity"/> edge. Aggregation over these rows is what produces the
-/// edge's scores, confidence and freshness — evidence is append-only, aggregates are recomputed.
+/// <see cref="TransitionKnowledgeEntity"/> edge.
+/// <para>
+/// <strong>SOURCE OF TRUTH</strong> — the knowledge edge's derived scores are recomputed from these
+/// rows. Evidence is append-only and never edited after the fact.
+/// </para>
 /// </summary>
 [Table("TransitionEvidence")]
 public class TransitionEvidenceEntity
@@ -35,13 +25,14 @@ public class TransitionEvidenceEntity
     /// <summary>0-100, normalised per source.</summary>
     public double Score { get; set; }
 
-    /// <summary>Source credibility weight (see §6.1).</summary>
-    public double Weight { get; set; }
+    /// <summary>Confidence in this evidence, 0.0-1.0 (a live crowd rating is more certain than a harmonic heuristic).</summary>
+    public double Confidence { get; set; } = 0.5;
 
-    /// <summary>Event profile id, venue, session id, etc.</summary>
-    public string? ContextJson { get; set; }
-
+    /// <summary>Optional typed link back to the performance session that produced this evidence.</summary>
     public Guid? PerformanceSessionId { get; set; }
 
-    public DateTime RecordedAtUtc { get; set; } = DateTime.UtcNow;
+    /// <summary>Event profile id, venue, session id, and any other provenance.</summary>
+    public string? MetadataJson { get; set; }
+
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

@@ -17,6 +17,19 @@ Audience: engineers implementing the autonomous knowledge-acquisition pipeline.
 > (`IEventBus`, `AnalysisQueueService`'s dispatch loop, `BackgroundJobQueue`, Avalonia worker
 > threads), coordinated through the shared SQLite store (`AppDbContext`).
 
+> **Truth vs. Aggregation (strict separation).** Two kinds of table coexist and must never be blurred:
+>
+> | Kind | Tables | Rule |
+> |---|---|---|
+> | **Source of truth** | `TransitionEvidence`, `PerformanceSession`, `PerformanceSessionTrack` | append-only facts; never recomputed from anything else |
+> | **Derived / materialized** | `TransitionKnowledge`, `DjFingerprint` | recomputed from source-of-truth rows; never hand-edited |
+
+> **Implementation note.** The authoritative entity shapes live in the code, not this doc:
+> `Data/Entities/KnowledgeLifecycleEnums.cs`, `Data/Entities/TransitionEvidenceEntity.cs`,
+> `Data/Entities/TransitionKnowledgeEntity.cs`, `Data/Entities/PerformanceSessionEntity.cs`,
+> `Data/Entities/DjFingerprintEntity.cs`, and `Models/Musical/CrowdProfileVector.cs`. The C# blocks
+> below are illustrative; the code is the contract.
+
 ---
 
 ## 0. Positioning — a living DJ intelligence platform
@@ -186,23 +199,21 @@ Rationale: one algorithmic match (weight 1.0) is only `Experimental`. A manual r
 live play with good crowd reaction (3.0+) jumps straight to `Likely`. Two independent strong
 real-world confirmations reach `Confirmed`. See §6.1 for the source-weight table.
 
-### 2.2 KnowledgeFreshness — exponential half-life decay
+### 2.2 KnowledgeFreshness — exponential decay
 
 Knowledge ages. A transition hammered in 2021 should not dominate a 2028 recommendation unless it
-kept being re-verified or is tagged `Classic`.
+kept being re-used or is tagged `Classic`.
 
 ```
-halfLife = 24 months   (configurable per DJ; genre-aware variants are a future tuning surface)
+λ = ln(2) / 24 months ≈ 0.029 per month     (half-life 24 months; per-DJ and genre-aware later)
 
-freshness(e) = 0.5 ^ ( (now − e.RecordedAtUtc) / halfLife )
-
-freshness(K) = max over evidence e of freshness(e)        # freshest evidence anchors the edge
-freshness(K) = 1.0 if K.IsClassic                          # Classic is decay-exempt
+freshness(K) = 100 · e^(−λ · yearsSinceLastUse(K)),   clamped to [0, 100]
+freshness(K) = 100.0 if K.IsClassic                    # Classic is decay-exempt
 ```
 
-Worked example (your 2021 → 2028 case): 84 months = 3.5 half-lives → `0.5^3.5 ≈ 0.088`, so the
-edge retains ~9% of its recommendation weight unless re-verified. A re-verification (new evidence)
-resets `LastVerifiedAtUtc` and restores freshness.
+Worked example (your 2021 → 2028 case): 7 years ≈ 3.5 half-lives → `100 · e^(−0.029·84) ≈ 8.8`, so
+the edge retains ~8.8 of 100 freshness unless re-used. A re-use bumps `LastUsedAtUtc` and restores
+freshness.
 
 ### 2.3 Final recommendation weight
 
@@ -372,20 +383,25 @@ track-hash-pair or session id), and re-delivery is safe — the same design that
 
 ## 6. Consolidated scoring & decay formulas
 
-### 6.1 Evidence source weights
+### 6.1 Evidence source credibility
 
-| Source | Weight | Rationale |
+Evidence carries its own `Confidence` (0.0-1.0); the source type sets the *default* confidence the
+agent assigns when it writes the row. Real-world sources start higher than algorithmic heuristics.
+
+| Source | Default confidence | Rationale |
 |---|---|---|
-| HarmonicMatch | 1.0 | weak — purely theoretical |
-| PhraseMatch | 1.5 | stronger — structure-aware, still theoretical |
-| PerformanceHistory | 2.5 | real — it was actually played |
-| CrowdSuccess | 3.0 | strongest — real + audience-validated |
-| ManualRating | 3.0 | strongest — explicit DJ intent |
+| BpmCompatibility | 0.4 | weak — purely theoretical |
+| HarmonyDetection | 0.4 | weak — purely theoretical |
+| PhraseMatch | 0.5 | structure-aware, still theoretical |
+| LivePerformance | 0.7 | real — it was actually played |
+| MashupSuccess | 0.8 | real — a mashup/double-drop that landed |
+| CrowdReaction | 0.9 | strongest — real + audience-validated |
+| ManualRating | 0.9 | strongest — explicit DJ intent |
 
-### 6.2 Aggregate score
+### 6.2 Compatibility score (derived)
 
 ```
-AggregateScore(K) = Σ (e.Score × e.Weight × freshness(e)) / Σ (e.Weight × freshness(e))
+CompatibilityScore(K) = Σ (e.Score × e.Confidence × freshness(e)) / Σ (e.Confidence × freshness(e))
 ```
 
 Recency-weighted so stale evidence (even strong 2021 ratings) contributes less to the *score* even
@@ -394,8 +410,7 @@ before the outer `freshness(K)` multiplier applies.
 ### 6.3 Freshness (recap)
 
 ```
-freshness(e) = 0.5 ^ ((now − e.RecordedAtUtc) / halfLife),   halfLife = 24mo default
-freshness(K) = IsClassic ? 1.0 : max_e freshness(e)
+freshness(K) = IsClassic ? 100.0 : 100 * Math.Exp(-λ * yearsSinceLastUse(K)),   λ = ln(2)/24mo ≈ 0.029
 ```
 
 ### 6.4 Recommendation score (recap)
@@ -412,45 +427,55 @@ All changes land via `SchemaMigratorService` raw-SQL patches (never `dotnet ef m
 `FreshDatabaseSchemaParityTests` guards new installs. New tables:
 
 ```sql
+-- Source of truth: append-only evidence
+CREATE TABLE TransitionEvidence (
+    Id TEXT PRIMARY KEY, TransitionKnowledgeId TEXT NOT NULL,
+    Source INTEGER NOT NULL, Score REAL NOT NULL, Confidence REAL NOT NULL DEFAULT 0.5,
+    PerformanceSessionId TEXT, MetadataJson TEXT, CreatedAt TEXT NOT NULL
+);
+CREATE INDEX IX_TransitionEvidence_Knowledge ON TransitionEvidence(TransitionKnowledgeId);
+
+-- Source of truth: played-set reality
+CREATE TABLE PerformanceSessions (
+    Id TEXT PRIMARY KEY, SetProjectId TEXT, EventProfileId TEXT, Venue TEXT,
+    CrowdMomentsJson TEXT, StartedAtUtc TEXT NOT NULL, EndedAtUtc TEXT NOT NULL, Notes TEXT
+);
+CREATE TABLE PerformanceSessionTracks (
+    Id TEXT PRIMARY KEY, SessionId TEXT NOT NULL, TrackId TEXT NOT NULL, SequenceOrder INTEGER NOT NULL,
+    Planned INTEGER NOT NULL DEFAULT 0, AudibleChange INTEGER NOT NULL DEFAULT 0,
+    TransitionType INTEGER, PlannedDurationSeconds REAL, ActualDurationSeconds REAL,
+    CrowdReaction REAL, PlannedSlotId TEXT, DeviationReason TEXT
+);
+CREATE INDEX IX_PerfSessionTracks_Session ON PerformanceSessionTracks(SessionId, SequenceOrder);
+
+-- Derived / materialized: recomputed from TransitionEvidence
+CREATE TABLE TransitionKnowledge (
+    Id TEXT PRIMARY KEY, SourceTrackId TEXT NOT NULL, TargetTrackId TEXT NOT NULL,
+    SourceCueId TEXT, TargetCueId TEXT, TransitionType INTEGER NOT NULL,
+    CompatibilityScore REAL, HarmonicScore REAL, BpmScore REAL, EnergyScore REAL,
+    VocalScore REAL, CrowdFitScore REAL, ConfidenceScore REAL,
+    ConfidenceLevel INTEGER NOT NULL DEFAULT 0, Freshness REAL NOT NULL DEFAULT 100.0,
+    EvidenceCount INTEGER NOT NULL DEFAULT 0, IsClassic INTEGER NOT NULL DEFAULT 0,
+    Verified INTEGER NOT NULL DEFAULT 0, LastUsedAtUtc TEXT NOT NULL, LastCalculatedUtc TEXT NOT NULL,
+    DefaultTemplateId TEXT, Notes TEXT, CreatedAtUtc TEXT NOT NULL, UpdatedAtUtc TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IX_TransitionKnowledge_Edge
+    ON TransitionKnowledge(SourceTrackId, TargetTrackId, SourceCueId, TargetCueId, TransitionType);
+
+-- Derived / materialized: DJ style profile
+CREATE TABLE DjFingerprints (
+    Id TEXT PRIMARY KEY, PreferredTransitionTypesJson TEXT, PreferredEnergyCurvesJson TEXT,
+    PreferredBpmMovementJson TEXT, PreferredGenresJson TEXT, AvoidancePatternsJson TEXT,
+    UpdatedAtUtc TEXT NOT NULL
+);
+
+-- Discovered hypotheses
 CREATE TABLE TransitionCandidates (
     Id TEXT PRIMARY KEY, SourceTrackId TEXT NOT NULL, TargetTrackId TEXT NOT NULL,
     CompatibilityScore REAL, HarmonicScore REAL, BpmScore REAL, EnergyScore REAL, PhraseScore REAL,
     DiscoverySource TEXT, DiscoveredAtUtc TEXT NOT NULL,
     IsPromoted INTEGER NOT NULL DEFAULT 0, PromotedKnowledgeId TEXT
 );
-CREATE INDEX IX_TransitionCandidates_Pair ON TransitionCandidates(SourceTrackId, TargetTrackId);
-
-CREATE TABLE TransitionEvidence (
-    Id TEXT PRIMARY KEY, TransitionKnowledgeId TEXT NOT NULL,
-    Source INTEGER NOT NULL, Score REAL NOT NULL, Weight REAL NOT NULL,
-    ContextJson TEXT, PerformanceSessionId TEXT, RecordedAtUtc TEXT NOT NULL
-);
-CREATE INDEX IX_TransitionEvidence_Knowledge ON TransitionEvidence(TransitionKnowledgeId);
-
-CREATE TABLE DjFingerprints (
-    Id TEXT PRIMARY KEY, PreferredTransitionTypesJson TEXT, EnergyCurveProfileJson TEXT,
-    AvoidancePatternsJson TEXT, GenreAffinityJson TEXT, UpdatedAtUtc TEXT NOT NULL
-);
-
-CREATE TABLE PerformanceSessions (
-    Id TEXT PRIMARY KEY, SetProjectId TEXT, EventProfileId TEXT, Venue TEXT,
-    StartedAtUtc TEXT NOT NULL, EndedAtUtc TEXT NOT NULL, Notes TEXT
-);
-CREATE TABLE PerformanceSessionTracks (
-    Id TEXT PRIMARY KEY, SessionId TEXT NOT NULL, TrackId TEXT NOT NULL, SequenceIndex INTEGER NOT NULL,
-    TransitionType INTEGER, PlannedDurationSeconds REAL, ActualDurationSeconds REAL,
-    CrowdReaction REAL, WasPlanned INTEGER NOT NULL DEFAULT 0, PlannedSlotId TEXT, DeviationReason TEXT
-);
-CREATE INDEX IX_PerfSessionTracks_Session ON PerformanceSessionTracks(SessionId, SequenceIndex);
-
--- TransitionKnowledge v2: add aggregate columns (non-destructive ADD COLUMN)
-ALTER TABLE TransitionKnowledge ADD COLUMN AggregateScore REAL;
-ALTER TABLE TransitionKnowledge ADD COLUMN PhraseScore REAL;
-ALTER TABLE TransitionKnowledge ADD COLUMN EvidenceCount INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE TransitionKnowledge ADD COLUMN Confidence INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE TransitionKnowledge ADD COLUMN Freshness REAL NOT NULL DEFAULT 1.0;
-ALTER TABLE TransitionKnowledge ADD COLUMN LastVerifiedAtUtc TEXT;
-ALTER TABLE TransitionKnowledge ADD COLUMN IsClassic INTEGER NOT NULL DEFAULT 0;
 ```
 
 ---

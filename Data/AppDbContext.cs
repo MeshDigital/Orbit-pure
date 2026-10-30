@@ -337,8 +337,9 @@ public class AppDbContext : DbContext
             .HasIndex(e => e.TargetTrackId)
             .HasDatabaseName("IX_TransitionKnowledge_TargetTrackId");
         modelBuilder.Entity<Entities.TransitionKnowledgeEntity>()
-            .HasIndex(e => new { e.SourceTrackId, e.TargetTrackId })
-            .HasDatabaseName("IX_TransitionKnowledge_Source_Target");
+            .HasIndex(e => new { e.SourceTrackId, e.TargetTrackId, e.SourceCueId, e.TargetCueId, e.TransitionType })
+            .IsUnique()
+            .HasDatabaseName("IX_TransitionKnowledge_Edge");
 
         // TransitionEvidence -> TransitionKnowledge (cascade: evidence dies with its edge).
         modelBuilder.Entity<Entities.TransitionEvidenceEntity>()
@@ -361,7 +362,7 @@ public class AppDbContext : DbContext
             .HasForeignKey(t => t.SessionId)
             .OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<Entities.PerformanceSessionTrackEntity>()
-            .HasIndex(e => new { e.SessionId, e.SequenceIndex })
+            .HasIndex(e => new { e.SessionId, e.SequenceOrder })
             .HasDatabaseName("IX_PerformanceSessionTracks_Session_Sequence");
     }
 }

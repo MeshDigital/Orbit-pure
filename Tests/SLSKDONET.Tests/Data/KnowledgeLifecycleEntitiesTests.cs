@@ -9,9 +9,9 @@ using Xunit;
 namespace SLSKDONET.Tests.Data;
 
 /// <summary>
-/// Phase 2 (Knowledge Lifecycle): round-trips the new knowledge-graph entities through the real
+/// Phase 2 (Knowledge Lifecycle): round-trips the knowledge-graph entities through the real
 /// startup schema path (<c>SchemaMigratorService</c> → <c>SchemaReconciler</c>), so a fresh install
-/// gets the tables and the aggregate/evidence/fingerprint/session relationships persist correctly.
+/// gets the tables and the truth/derived/evidence/fingerprint/session relationships persist.
 /// </summary>
 [Collection(NonParallelCollection.Name)]
 public class KnowledgeLifecycleEntitiesTests
@@ -26,16 +26,17 @@ public class KnowledgeLifecycleEntitiesTests
         {
             SourceTrackId = "hash-a",
             TargetTrackId = "hash-b",
-            TransitionType = 1,
-            AggregateScore = 88.0,
+            TransitionType = KnowledgeTransitionType.Blend,
+            CompatibilityScore = 88.0,
             HarmonicScore = 90.0,
             BpmScore = 85.0,
             EnergyScore = 82.0,
             VocalScore = 95.0,
             CrowdFitScore = 80.0,
+            ConfidenceScore = 0.8,
+            ConfidenceLevel = KnowledgeConfidenceLevel.Likely,
+            Freshness = 90.0,
             EvidenceCount = 2,
-            Confidence = KnowledgeConfidence.Likely,
-            Freshness = 0.9,
         };
 
         Guid knowledgeId;
@@ -62,7 +63,8 @@ public class KnowledgeLifecycleEntitiesTests
                 TransitionKnowledgeId = knowledge.Id,
                 Source = TransitionEvidenceSource.ManualRating,
                 Score = 92.0,
-                Weight = 3.0,
+                Confidence = 0.9,
+                MetadataJson = "{\"origin\":\"transition-lab\"}",
             });
 
             var session = new PerformanceSessionEntity
@@ -74,8 +76,9 @@ public class KnowledgeLifecycleEntitiesTests
             session.Tracks.Add(new PerformanceSessionTrackEntity
             {
                 TrackId = "hash-a",
-                SequenceIndex = 0,
-                WasPlanned = true,
+                SequenceOrder = 0,
+                Planned = true,
+                AudibleChange = false,
                 CrowdReaction = 80.0,
             });
             context.PerformanceSessions.Add(session);
@@ -89,21 +92,23 @@ public class KnowledgeLifecycleEntitiesTests
         {
             var loaded = await context.TransitionKnowledge.FindAsync(knowledgeId);
             Assert.NotNull(loaded);
-            Assert.Equal(KnowledgeConfidence.Likely, loaded.Confidence);
-            Assert.Equal(0.9, loaded.Freshness, 3);
+            Assert.Equal(KnowledgeConfidenceLevel.Likely, loaded.ConfidenceLevel);
+            Assert.Equal(90.0, loaded.Freshness, 3);
 
             var evidence = await context.TransitionEvidence
                 .Where(e => e.TransitionKnowledgeId == knowledgeId)
                 .ToListAsync();
             Assert.Single(evidence);
             Assert.Equal(TransitionEvidenceSource.ManualRating, evidence[0].Source);
-            Assert.Equal(3.0, evidence[0].Weight, 3);
+            Assert.Equal(0.9, evidence[0].Confidence, 3);
 
             var loadedSession = await context.PerformanceSessions
                 .Include(s => s.Tracks)
                 .FirstOrDefaultAsync(s => s.Id == sessionId);
             Assert.NotNull(loadedSession);
             Assert.Single(loadedSession.Tracks);
+            Assert.True(loadedSession.Tracks.First().Planned);
+            Assert.False(loadedSession.Tracks.First().AudibleChange);
             Assert.Equal(80.0, loadedSession.Tracks.First().CrowdReaction!.Value, 3);
         }
     }
