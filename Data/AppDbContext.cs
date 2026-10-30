@@ -52,6 +52,12 @@ public class AppDbContext : DbContext
     public DbSet<Entities.PlaylistTrackTransitionEntity> PlaylistTrackTransitions { get; set; } // Mix: saved per-track-pair transition config
     public DbSet<Entities.MetadataLookupCacheEntity> MetadataLookupCache { get; set; } // Enrichment: cached provider lookups
     public DbSet<Entities.MetadataProvenanceEntity> MetadataProvenance { get; set; } // Enrichment: per-field source of stored metadata
+    public DbSet<Entities.TransitionKnowledgeEntity> TransitionKnowledge { get; set; } // Phase 2: knowledge lifecycle edge (aggregate)
+    public DbSet<Entities.TransitionCandidateEntity> TransitionCandidates { get; set; } // Phase 2: auto-discovered transition hypotheses
+    public DbSet<Entities.TransitionEvidenceEntity> TransitionEvidence { get; set; } // Phase 2: atomic evidence behind each knowledge edge
+    public DbSet<Entities.DjFingerprintEntity> DjFingerprints { get; set; } // Phase 2: per-DJ preference profile
+    public DbSet<Entities.PerformanceSessionEntity> PerformanceSessions { get; set; } // Phase 2: played-set reality for plan-vs-reality diff
+    public DbSet<Entities.PerformanceSessionTrackEntity> PerformanceSessionTracks { get; set; } // Phase 2: tracks within a performance session
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -320,5 +326,47 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PrefetchQueueItem>()
             .HasIndex(p => p.EnqueuedAtUtc)
             .HasDatabaseName("IX_PrefetchQueue_EnqueuedAt");
+
+        // ── Phase 2: Knowledge Lifecycle ──────────────────────────────────
+        // TransitionKnowledge: hot lookup paths for the Transition Agent's scans and the
+        // Bridge Finder's 1-2 hop traversal.
+        modelBuilder.Entity<Entities.TransitionKnowledgeEntity>()
+            .HasIndex(e => e.SourceTrackId)
+            .HasDatabaseName("IX_TransitionKnowledge_SourceTrackId");
+        modelBuilder.Entity<Entities.TransitionKnowledgeEntity>()
+            .HasIndex(e => e.TargetTrackId)
+            .HasDatabaseName("IX_TransitionKnowledge_TargetTrackId");
+        modelBuilder.Entity<Entities.TransitionKnowledgeEntity>()
+            .HasIndex(e => new { e.SourceTrackId, e.TargetTrackId, e.SourceCueId, e.TargetCueId, e.TransitionType })
+            .IsUnique()
+            .HasDatabaseName("IX_TransitionKnowledge_Edge");
+
+        // TransitionEvidence -> TransitionKnowledge (cascade: evidence dies with its edge).
+        modelBuilder.Entity<Entities.TransitionEvidenceEntity>()
+            .HasOne<Entities.TransitionKnowledgeEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.TransitionKnowledgeId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<Entities.TransitionEvidenceEntity>()
+            .HasIndex(e => e.TransitionKnowledgeId)
+            .HasDatabaseName("IX_TransitionEvidence_KnowledgeId");
+
+        modelBuilder.Entity<Entities.TransitionCandidateEntity>()
+            .HasIndex(e => new { e.SourceTrackId, e.TargetTrackId })
+            .HasDatabaseName("IX_TransitionCandidates_Source_Target");
+        modelBuilder.Entity<Entities.TransitionCandidateEntity>()
+            .HasIndex(e => e.IdempotencyKey)
+            .IsUnique()
+            .HasDatabaseName("IX_TransitionCandidates_IdempotencyKey");
+
+        // PerformanceSession -> PerformanceSessionTrack (cascade).
+        modelBuilder.Entity<Entities.PerformanceSessionEntity>()
+            .HasMany(s => s.Tracks)
+            .WithOne()
+            .HasForeignKey(t => t.SessionId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<Entities.PerformanceSessionTrackEntity>()
+            .HasIndex(e => new { e.SessionId, e.SequenceOrder })
+            .HasDatabaseName("IX_PerformanceSessionTracks_Session_Sequence");
     }
 }
