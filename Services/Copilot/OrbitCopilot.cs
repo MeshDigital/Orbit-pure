@@ -47,8 +47,21 @@ public sealed class OrbitCopilot : IOrbitCopilot
             .ToListAsync(ct)
             .ConfigureAwait(false);
 
+        var featureHashes = features.Select(f => f.TrackUniqueHash).Distinct().ToList();
+        var entryList = await db.LibraryEntries
+            .Where(e => featureHashes.Contains(e.UniqueHash))
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        var entryByHash = entryList.ToDictionary(e => e.UniqueHash, StringComparer.Ordinal);
+
         var candidates = features
-            .Select(f => new SpineCandidate(f.TrackUniqueHash, f.Bpm, f.Energy * 100.0, f.TrackDuration))
+            .Select(f =>
+            {
+                entryByHash.TryGetValue(f.TrackUniqueHash, out var entry);
+                return new SpineCandidate(
+                    f.TrackUniqueHash, f.Bpm, f.Energy * 100.0, f.TrackDuration,
+                    entry?.Title ?? string.Empty, entry?.Artist ?? string.Empty);
+            })
             .ToList();
 
         // Narrow the candidate pool to the target BPM band first, so a 174 target seeds from D&B.

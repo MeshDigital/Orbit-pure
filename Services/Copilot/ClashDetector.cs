@@ -73,7 +73,10 @@ public static class ClashDetector
             if (aVocals && bVocals)
                 reports.Add(new ClashReport(outgoing.TrackUniqueHash, incoming.TrackUniqueHash, VocalOverlapReason));
 
-            if (CamelotDistance(outgoing.CamelotNumber, incoming.CamelotNumber) > maxCamelotDistance)
+            // Only flag harmonic dissonance when both keys are known; an unknown key (-1) is not
+            // evidence of a clash.
+            if (outgoing.CamelotNumber > 0 && incoming.CamelotNumber > 0
+                && CamelotDistance(outgoing.CamelotNumber, incoming.CamelotNumber) > maxCamelotDistance)
                 reports.Add(new ClashReport(outgoing.TrackUniqueHash, incoming.TrackUniqueHash, HarmonicDissonanceReason));
         }
 

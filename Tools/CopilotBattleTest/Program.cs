@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
+using SLSKDONET.Data.Entities;
 using SLSKDONET.Services;
 using SLSKDONET.Services.Copilot;
 
@@ -101,6 +102,7 @@ public static class Program
         var build = await copilot.BuildSetAsync(new SetBuildRequest(minutes, EventProfile: null, bpmVariance, SeedTrackHash: seed, TargetBpm: targetBpm));
         report.SetBuild = await ResolveSpineAsync(factory, build.SpineTrackHashes);
         report.SetBuildDurationMinutes = build.DurationMinutes;
+        report.SpineClashes = await ResolveSpineClashesAsync(factory, build.SpineTrackHashes);
 
         // 2. Bridge Finder.
         if (!string.IsNullOrWhiteSpace(source) && !string.IsNullOrWhiteSpace(target))
@@ -148,6 +150,48 @@ public static class Program
         return result;
     }
 
+    private static async Task<List<ClashReport>> ResolveSpineClashesAsync(CliDbContextFactory factory, IReadOnlyList<string> spineHashes)
+    {
+        if (spineHashes.Count < 2)
+            return new List<ClashReport>();
+
+        await using var db = factory.CreateDbContext();
+
+        var features = await db.AudioFeatures
+            .Where(f => spineHashes.Contains(f.TrackUniqueHash))
+            .ToListAsync();
+        var featureByHash = features.ToDictionary(f => f.TrackUniqueHash, StringComparer.Ordinal);
+
+        var cues = await db.CuePoints
+            .Where(c => spineHashes.Contains(c.TrackUniqueHash))
+            .ToListAsync();
+
+        const int barsBeforeMix = 32; // D&B long-blend default
+        var bpm = featureByHash.Values.FirstOrDefault(f => f.Bpm > 0)?.Bpm ?? 174.0;
+
+        var spineData = new List<TrackClashData>();
+        foreach (var hash in spineHashes)
+        {
+            featureByHash.TryGetValue(hash, out var f);
+            var trackCues = cues.Where(c => c.TrackUniqueHash == hash).ToList();
+            var duration = f?.TrackDuration > 0 ? f.TrackDuration : 300.0;
+
+            var mixOut = ResolveCue(trackCues, CuePointType.MixOut) ?? duration - 44.0;
+            var mixIn = ResolveCue(trackCues, CuePointType.MixIn) ?? 44.0;
+            var camelot = ClashDetector.CamelotNumberFromKey(f?.CamelotKey);
+            var vocalSegments = (f?.VocalDensity ?? 0f) > 0.5f
+                ? new[] { new VocalSegment(0.0, duration) }
+                : Array.Empty<VocalSegment>();
+
+            spineData.Add(new TrackClashData(hash, mixOut, mixIn, barsBeforeMix, camelot, vocalSegments));
+        }
+
+        return ClashDetector.DetectClashes(spineData, bpm).ToList();
+    }
+
+    private static double? ResolveCue(IReadOnlyList<CuePointEntity> cues, CuePointType type)
+        => cues.FirstOrDefault(c => c.Type == type)?.TimestampInSeconds;
+
     private static string RenderText(BattleReport report)
     {
         var sb = new StringBuilder();
@@ -185,6 +229,14 @@ public static class Program
             sb.AppendLine("--- Alternative Routes ---");
             foreach (var r in report.AlternativeRoutes)
                 sb.AppendLine($"  {r.SourceTrackHash} -> {r.TargetTrackHash}: {r.Score:F1}");
+        }
+
+        if (report.SpineClashes is { Count: > 0 })
+        {
+            sb.AppendLine("--- Spine Clashes (in-memory) ---");
+            foreach (var c in report.SpineClashes)
+                sb.AppendLine($"  {c.TrackHashA} -> {c.TrackHashB}: {c.Reason}");
+            sb.AppendLine();
         }
 
         return sb.ToString();
@@ -230,6 +282,7 @@ public static class Program
         public List<SpineTrackEntry>? SetBuild { get; set; }
         public List<BridgePath>? Bridges { get; set; }
         public List<ClashReport>? Clashes { get; set; }
+        public List<ClashReport>? SpineClashes { get; set; }
         public List<AlternativeRoute>? AlternativeRoutes { get; set; }
     }
 }

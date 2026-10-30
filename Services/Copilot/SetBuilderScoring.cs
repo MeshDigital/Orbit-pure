@@ -7,7 +7,9 @@ public sealed record SpineCandidate(
     string TrackUniqueHash,
     double Bpm,
     double Energy,
-    double DurationSeconds);
+    double DurationSeconds,
+    string Title = "",
+    string Artist = "");
 
 /// <summary>
 /// Slice K7b: the Set Builder cost function. Pure and unit-testable — a greedy-lookahead penalty
