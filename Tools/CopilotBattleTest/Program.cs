@@ -32,6 +32,8 @@ public static class Program
             var target = Arg(args, "--target");
             var setArg = Arg(args, "--set");
             var outPath = Arg(args, "--out");
+            var seed = Arg(args, "--seed");
+            var targetBpm = double.TryParse(Arg(args, "--target-bpm"), out var tb) ? tb : (double?)null;
 
             // Optional schema migration (runs SchemaMigratorService + SchemaReconciler against the
             // default library path, READ-WRITE, so the Phase 2 tables exist before the copilot runs).
@@ -56,7 +58,7 @@ public static class Program
             var factory = new CliDbContextFactory(options);
             var copilot = new OrbitCopilot(factory);
 
-            var report = await RunAsync(copilot, factory, dbPath, minutes, bpmVariance, source, target, setArg);
+            var report = await RunAsync(copilot, factory, dbPath, minutes, bpmVariance, source, target, setArg, seed, targetBpm);
             var text = RenderText(report);
 
             Console.WriteLine(text);
@@ -85,7 +87,9 @@ public static class Program
         double bpmVariance,
         string? source,
         string? target,
-        string? setArg)
+        string? setArg,
+        string? seed,
+        double? targetBpm)
     {
         var report = new BattleReport
         {
@@ -94,7 +98,7 @@ public static class Program
         };
 
         // 1. Set Builder.
-        var build = await copilot.BuildSetAsync(new SetBuildRequest(minutes, EventProfile: null, bpmVariance));
+        var build = await copilot.BuildSetAsync(new SetBuildRequest(minutes, EventProfile: null, bpmVariance, SeedTrackHash: seed, TargetBpm: targetBpm));
         report.SetBuild = await ResolveSpineAsync(factory, build.SpineTrackHashes);
         report.SetBuildDurationMinutes = build.DurationMinutes;
 

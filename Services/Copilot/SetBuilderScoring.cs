@@ -17,10 +17,13 @@ public sealed record SpineCandidate(
 /// </summary>
 public static class SetBuilderScoring
 {
-    // Weights: energy-curve fidelity dominates, then flow continuity and confidence share the rest.
-    public const double EnergyCurveWeight = 0.5;
-    public const double FlowWeight = 0.25;
-    public const double ConfidenceWeight = 0.25;
+    // Energy extraction is currently under-varianced (clusters ~0.77 across genres), so the energy
+    // curve + flow terms are down-weighted until Phase 1 re-calibration; BPM variance + confidence
+    // carry the balance.
+    public const double EnergyCurveWeight = 0.05;
+    public const double FlowWeight = 0.05;
+    public const double BpmVarianceWeight = 0.45;
+    public const double ConfidenceWeight = 0.45;
 
     /// <summary>
     /// Transition cost from a current slot to a candidate. Returns <see cref="double.PositiveInfinity"/>
@@ -44,10 +47,12 @@ public static class SetBuilderScoring
 
         var energyError = Math.Abs(candidateEnergy - targetEnergy) / 100.0;
         var flowError = Math.Abs(candidateEnergy - fromEnergy) / 100.0;
+        var bpmError = maxBpmVariance > 0 ? Math.Min(variance / maxBpmVariance, 1.0) : 0.0;
         var confidenceCost = 1.0 - Math.Clamp(confidence, 0.0, 1.0);
 
         return EnergyCurveWeight * energyError
              + FlowWeight * flowError
+             + BpmVarianceWeight * bpmError
              + ConfidenceWeight * confidenceCost;
     }
 }

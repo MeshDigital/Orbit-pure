@@ -50,6 +50,15 @@ public sealed class OrbitCopilot : IOrbitCopilot
         var candidates = features
             .Select(f => new SpineCandidate(f.TrackUniqueHash, f.Bpm, f.Energy * 100.0, f.TrackDuration))
             .ToList();
+
+        // Narrow the candidate pool to the target BPM band first, so a 174 target seeds from D&B.
+        if (request.TargetBpm is double targetBpm && targetBpm > 0)
+        {
+            var lo = targetBpm * (1 - request.MaxBpmVariance);
+            var hi = targetBpm * (1 + request.MaxBpmVariance);
+            candidates = candidates.Where(c => c.Bpm >= lo && c.Bpm <= hi).ToList();
+        }
+
         var hashes = candidates.Select(c => c.TrackUniqueHash).Distinct().ToList();
 
         var edges = await db.TransitionKnowledge
@@ -60,7 +69,11 @@ public sealed class OrbitCopilot : IOrbitCopilot
 
         var energyCurve = ParseEnergyCurve(request.EventProfile?.TargetEnergyCurveJson);
 
-        var spine = SetBuilder.BuildSpine(candidates, confidence, request.TargetMinutes, request.MaxBpmVariance, energyCurve);
+        var seedHash = request.SeedTrackHash;
+        if (seedHash is null && request.TargetBpm is double tb && tb > 0 && candidates.Count > 0)
+            seedHash = candidates.OrderBy(c => Math.Abs(c.Bpm - tb)).First().TrackUniqueHash;
+
+        var spine = SetBuilder.BuildSpine(candidates, confidence, request.TargetMinutes, request.MaxBpmVariance, energyCurve, seedHash);
         var duration = spine.Sum(h => candidates.First(c => c.TrackUniqueHash == h).DurationSeconds) / 60.0;
 
         return new SetBuildResult(spine, duration);
