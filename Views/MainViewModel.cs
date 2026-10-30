@@ -69,6 +69,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public HomeViewModel HomeViewModel { get; }
     public TimelineViewModel TimelineViewModel { get; }
     public StatusBarViewModel StatusBar { get; }
+    public SLSKDONET.ViewModels.Hardware.HardwareStatusViewModel HardwareStatus { get; }
     // Phase 24: Stem Workspace
     
     // Operation Glass Console: Unified Intelligence Center
@@ -131,6 +132,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         IRightPanelService rightPanelService,
         PerformanceTracker perfTracker,
         FlowBuilderViewModel flowBuilderViewModel,
+        SLSKDONET.ViewModels.Hardware.HardwareStatusViewModel hardwareStatus,
         SLSKDONET.ViewModels.Setup.SetupShellViewModel? setup = null,
         SLSKDONET.ViewModels.LibraryImportViewModel? import = null,
         SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? activity = null)
@@ -155,6 +157,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _libraryService = libraryService;
         _globalHotkeyService = globalHotkeyService;
         _flowBuilderViewModel = flowBuilderViewModel;
+        HardwareStatus = hardwareStatus;
 
         Sidebar = sidebarViewModel;
         Setup = setup;

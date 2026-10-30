@@ -18,16 +18,23 @@ public sealed class HardwareDeviceManager
     private readonly ConcurrentDictionary<string, HardwareDevice> _devices = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastSeen = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Fired whenever a device announces or is marked offline.</summary>
+    public event EventHandler? DevicesChanged;
+
     /// <summary>Upserts a device and marks it online as of <paramref name="now"/> (default: now).</summary>
     public void Announce(HardwareDevice device, DateTimeOffset? now = null)
     {
         _devices[device.MacAddress] = device;
         _lastSeen[device.MacAddress] = now ?? DateTimeOffset.UtcNow;
+        DevicesChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Explicitly marks a device offline.</summary>
     public void MarkOffline(string macAddress)
-        => _lastSeen[macAddress] = DateTimeOffset.MinValue;
+    {
+        _lastSeen[macAddress] = DateTimeOffset.MinValue;
+        DevicesChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     /// <summary>True when the device was seen within <see cref="OnlineTimeout"/> of <paramref name="now"/>.</summary>
     public bool IsOnline(string macAddress, DateTimeOffset? now = null)

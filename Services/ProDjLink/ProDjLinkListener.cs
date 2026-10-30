@@ -52,6 +52,12 @@ public sealed class ProDjLinkListener : BackgroundService
                     _registry.Announce(device);
                     _logger.LogDebug("[ProDjLink] announced {Mac} (player {Player})", device.MacAddress, device.PlayerNumber);
                 }
+                else
+                {
+                    // Raw hex of unrecognized packets so the byte offsets can be mapped against a
+                    // live capture (Phase 3.3).
+                    _logger.LogDebug("[ProDjLink] unrecognized packet: {Hex}", Convert.ToHexString(result.Buffer));
+                }
             }
         }
         catch (OperationCanceledException)

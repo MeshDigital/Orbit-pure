@@ -698,6 +698,7 @@ public partial class App : Application
         services.AddScoped<SLSKDONET.Services.Copilot.IOrbitCopilot, SLSKDONET.Services.Copilot.OrbitCopilot>();
         services.AddSingleton<SLSKDONET.Services.ProDjLink.HardwareDeviceManager>();
         services.AddSingleton<SLSKDONET.Services.ProDjLink.IPacketParser, SLSKDONET.Services.ProDjLink.ProDjLinkPacketParser>();
+        services.AddSingleton<SLSKDONET.ViewModels.Hardware.HardwareStatusViewModel>();
         services.AddSingleton<SchemaMigratorService>();
         services.AddSingleton<SLSKDONET.Services.Repositories.ITrackRepository, SLSKDONET.Services.Repositories.TrackRepository>();
         services.AddSingleton<SLSKDONET.Services.Repositories.ITransitionRepository, SLSKDONET.Services.Repositories.TransitionRepository>();

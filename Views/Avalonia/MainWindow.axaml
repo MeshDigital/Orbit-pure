@@ -10,6 +10,7 @@
          xmlns:vmDownloads="clr-namespace:SLSKDONET.ViewModels.Downloads"
          xmlns:vmDiag="clr-namespace:SLSKDONET.ViewModels.Diagnostics"
          xmlns:svc="clr-namespace:SLSKDONET.Services"
+          xmlns:hardware="clr-namespace:SLSKDONET.Views.Avalonia.Hardware"
          xmlns:setupViews="clr-namespace:SLSKDONET.Views.Avalonia.Setup"
         mc:Ignorable="d" d:DesignWidth="1400" d:DesignHeight="900"
         x:Class="SLSKDONET.Views.Avalonia.MainWindow"
@@ -186,6 +187,10 @@
                             <Ellipse Classes="status-dot" Fill="{Binding StatusBar.ShareHealthColor}"/>
                         </Button>
                     </StackPanel>
+
+                    <!-- Pro DJ Link hardware: Player decks + mixer -->
+                    <Rectangle Classes="sep"/>
+                    <hardware:HardwareStatusBar DataContext="{Binding HardwareStatus}" VerticalAlignment="Center"/>
 
                     <!-- Always-visible transport: the full player lives in the sidepanel/bottom
                          drawer, which are often closed, leaving no way to pause from anywhere. -->
