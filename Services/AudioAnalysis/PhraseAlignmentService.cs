@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
+using SLSKDONET.Engine.Analysis;
 using SLSKDONET.Models;
 
 namespace SLSKDONET.Services;
@@ -21,7 +22,10 @@ public interface IPhraseAlignmentService
         double bpm,
         string? genreHint,
         string? trackUniqueHash = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        double? trackDuration = null,
+        float? genreConfidence = null,
+        GenreSource genreSource = GenreSource.Unknown);
 
     TransitionPoint? DetermineOptimalTransitionTime(
         LibraryEntryEntity? outgoingTrack,
@@ -62,6 +66,15 @@ public sealed record GenreStructurePreset(
     int OutroBars,
     double ToleranceFactor = 0.20d)
 {
+    /// <summary>Minimum bars between Drop 1 and a mixable Drop 2 for this genre.</summary>
+    public double MinBarsBetweenDrops { get; init; } = 16;
+
+    /// <summary>Bars a "substantial" drop section is expected to last.</summary>
+    public double MinSubstantialDropBars { get; init; } = 16;
+
+    /// <summary>Bars of runway required after Drop 2 for a clean mix-out.</summary>
+    public double MinOutroRunwayBars { get; init; } = 16;
+
     public IReadOnlyList<(PhraseType Type, string Label, int Bars)> GetTemplate()
     {
         return new[]
@@ -89,10 +102,20 @@ public readonly record struct TransitionPoint(double Time, string Reason, float 
 public sealed class PhraseAlignmentService : IPhraseAlignmentService
 {
     private readonly ILogger<PhraseAlignmentService> _logger;
+    private readonly BreakbeatAnalysisStrategy? _breakbeatStrategy;
+    private readonly FourOnTheFloorAnalysisStrategy? _fourOnFloorStrategy;
+    private readonly BassMusicAnalysisStrategy? _bassMusicStrategy;
 
-    public PhraseAlignmentService(ILogger<PhraseAlignmentService>? logger = null)
+    public PhraseAlignmentService(
+        ILogger<PhraseAlignmentService>? logger = null,
+        BreakbeatAnalysisStrategy? breakbeatStrategy = null,
+        FourOnTheFloorAnalysisStrategy? fourOnFloorStrategy = null,
+        BassMusicAnalysisStrategy? bassMusicStrategy = null)
     {
         _logger = logger ?? NullLogger<PhraseAlignmentService>.Instance;
+        _breakbeatStrategy = breakbeatStrategy;
+        _fourOnFloorStrategy = fourOnFloorStrategy;
+        _bassMusicStrategy = bassMusicStrategy;
     }
 
     public static IReadOnlyDictionary<string, GenreStructurePreset> Presets { get; } =
@@ -121,8 +144,25 @@ public sealed class PhraseAlignmentService : IPhraseAlignmentService
             // than EDM's (widened 16->32 bars here), and the looser, less rigidly 4/4-locked
             // phrasing gets a slightly wider tolerance than the tightened four-on-the-floor
             // presets above. Starting point, tune by ear.
-            ["DnB"] = new("DnB", 32, 16, 32, 32, 16, 32, 32, 0.22d),
+            ["DnB"] = new("DnB", 32, 16, 32, 32, 16, 32, 32, 0.22d)
+            {
+                MinBarsBetweenDrops = 32,
+                MinSubstantialDropBars = 16,
+                MinOutroRunwayBars = 16,
+            },
+            // Dubstep/halftime: shorter, punchier drops and novelty-dominant impacts.
+            ["Dubstep"] = new("Dubstep", 16, 8, 16, 16, 8, 16, 16, 0.22d)
+            {
+                MinBarsBetweenDrops = 16,
+                MinSubstantialDropBars = 8,
+                MinOutroRunwayBars = 16,
+            },
             ["Trap"] = new("Trap", 16, 16, 32, 8, 16, 32, 16, 0.22d)
+            {
+                MinBarsBetweenDrops = 16,
+                MinSubstantialDropBars = 8,
+                MinOutroRunwayBars = 16,
+            }
         };
 
     public Task<IReadOnlyList<TrackPhraseEntity>> AlignPhrasesAsync(
@@ -130,7 +170,10 @@ public sealed class PhraseAlignmentService : IPhraseAlignmentService
         double bpm,
         string? genreHint,
         string? trackUniqueHash = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        double? trackDuration = null,
+        float? genreConfidence = null,
+        GenreSource genreSource = GenreSource.Unknown)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -140,14 +183,25 @@ public sealed class PhraseAlignmentService : IPhraseAlignmentService
             bpm = 128.0d;
         }
 
-        var preset = ResolvePreset(genreHint);
+        var preset = ResolvePreset(genreHint, bpm, genreConfidence, genreSource);
         var boundaryList = rawBoundaries?
             .Where(b => b is not null)
             .OrderBy(b => b.StartTimeSeconds)
             .ToList() ?? new List<RawBoundary>();
 
         var expectedSections = BuildExpectedSections(preset, bpm).ToList();
+        if (trackDuration is > 0)
+        {
+            // The genre template is longer than many real tracks (a DnB template can run 208
+            // bars). Do not invent sections that start past the end of the audio file.
+            expectedSections = expectedSections
+                .Where(s => s.StartSeconds < trackDuration.Value)
+                .ToList();
+        }
+
         var estimatedDuration = EstimateDurationSeconds(boundaryList, expectedSections);
+        if (trackDuration is > 0)
+            estimatedDuration = Math.Min(estimatedDuration, trackDuration.Value);
 
         var aligned = new List<AlignedPhraseCandidate>();
         var usedExpectedIndexes = new HashSet<int>();
@@ -159,15 +213,27 @@ public sealed class PhraseAlignmentService : IPhraseAlignmentService
             var bestMatch = FindBestExpectedMatch(raw, expectedSections, usedExpectedIndexes, preset);
             if (bestMatch is not null)
             {
-                usedExpectedIndexes.Add(bestMatch.Value.Index);
+                var match = bestMatch.Value;
+                double distance = Math.Abs(raw.StartTimeSeconds - match.Section.StartSeconds);
+                double tolerance = Math.Max(1.5d, match.Section.DurationSeconds * preset.ToleranceFactor);
+
+                // A label-compatible match is allowed outside the template tolerance (that is how
+                // a real drop found 9.8s before the genre-template drop got accepted), but the
+                // template's start must not be used in that case. Keep the structural engine's
+                // actual boundary; only snap to the template when it is genuinely close.
+                double startSeconds = distance <= tolerance
+                    ? match.Section.StartSeconds
+                    : raw.StartTimeSeconds;
+
+                usedExpectedIndexes.Add(match.Index);
                 aligned.Add(new AlignedPhraseCandidate(
-                    bestMatch.Value.Section.Type,
-                    bestMatch.Value.Section.Label,
-                    bestMatch.Value.Section.StartSeconds,
+                    match.Section.Type,
+                    match.Section.Label,
+                    startSeconds,
                     raw.EndTimeSeconds,
                     raw.EnergyLevel,
-                    CalculateConfidence(raw, bestMatch.Value.Section, preset, labelMatched: true),
-                    bestMatch.Value.Index));
+                    CalculateConfidence(raw, match.Section, preset, labelMatched: true),
+                    match.Index));
             }
             else
             {
@@ -256,6 +322,14 @@ public sealed class PhraseAlignmentService : IPhraseAlignmentService
             });
         }
 
+        if (trackDuration is > 0)
+        {
+            double end = trackDuration.Value;
+            phrases.RemoveAll(p => p.StartTimeSeconds >= end);
+            foreach (var p in phrases)
+                if (p.EndTimeSeconds > end) p.EndTimeSeconds = (float)end;
+        }
+
         _logger.LogDebug(
             "Aligned {BoundaryCount} raw boundaries into {PhraseCount} phrases using preset {Preset} at BPM {Bpm}.",
             boundaryList.Count,
@@ -323,65 +397,59 @@ public sealed class PhraseAlignmentService : IPhraseAlignmentService
         return new TransitionPoint(chosenBoundary, reason, vocalSafeTime > 0d ? 0.90f : 0.80f);
     }
 
-    private static GenreStructurePreset ResolvePreset(string? genreHint)
+    private GenreStructurePreset ResolvePreset(
+        string? genreHint, double bpm, float? genreConfidence = null, GenreSource genreSource = GenreSource.Unknown)
     {
-        if (string.IsNullOrWhiteSpace(genreHint))
-        {
-            return Presets["EDM"];
-        }
-
-        var normalized = new string(genreHint
+        var normalized = new string((genreHint ?? string.Empty)
             .Trim()
             .ToLowerInvariant()
             .Where(char.IsLetterOrDigit)
             .ToArray());
 
-        if (normalized.Contains("techhouse", StringComparison.OrdinalIgnoreCase))
-        {
-            return Presets["TechHouse"];
-        }
-
+        // Melodic techno is a distinct template that the broad FourOnTheFloor family collapses
+        // into TechHouse; keep the specific choice before consulting the family strategy.
         if (normalized.Contains("melodic", StringComparison.OrdinalIgnoreCase))
-        {
             return Presets["MelodicTechno"];
-        }
 
+        var classification = GenreFamilyClassifier.Classify(genreHint, (float)bpm, genreConfidence, genreSource);
+        IGenreFamilyAnalysisStrategy? strategy = classification.Family switch
+        {
+            GenreFamily.Breakbeat => _breakbeatStrategy,
+            GenreFamily.FourOnTheFloor => _fourOnFloorStrategy,
+            GenreFamily.Dubstep => _bassMusicStrategy,
+            _ => null,
+        };
+        if (strategy is not null)
+            return strategy.ResolvePreset(classification.Subgenre);
+
+        if (normalized.Contains("techhouse", StringComparison.OrdinalIgnoreCase))
+            return Presets["TechHouse"];
         if (normalized.Contains("trance", StringComparison.OrdinalIgnoreCase) ||
             normalized.Contains("uplifting", StringComparison.OrdinalIgnoreCase))
-        {
             return Presets["Trance"];
-        }
-
-        // Any other techno variant (peak-time, driving, industrial, etc.) — distinct from
-        // MelodicTechno above, which only genuinely melodic/atmospheric techno should hit.
         if (normalized.Contains("techn", StringComparison.OrdinalIgnoreCase))
-        {
             return Presets["Techno"];
-        }
-
         if (normalized.Contains("hous", StringComparison.OrdinalIgnoreCase))
-        {
             return Presets["House"];
-        }
+
+        if (normalized.Contains("dubstep", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("halftime", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("riddim", StringComparison.OrdinalIgnoreCase))
+            return Presets["Dubstep"];
 
         if (normalized.Contains("dnb", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("drumbass", StringComparison.OrdinalIgnoreCase) ||
             normalized.Contains("drumandbass", StringComparison.OrdinalIgnoreCase))
-        {
             return Presets["DnB"];
-        }
 
         if (normalized.Contains("trap", StringComparison.OrdinalIgnoreCase) ||
             normalized.Contains("hiphop", StringComparison.OrdinalIgnoreCase))
-        {
             return Presets["Trap"];
-        }
 
         if (normalized.Contains("pop", StringComparison.OrdinalIgnoreCase))
-        {
             return Presets["Pop"];
-        }
 
-        return Presets.TryGetValue(genreHint.Trim(), out var directPreset)
+        return Presets.TryGetValue(genreHint?.Trim() ?? string.Empty, out var directPreset)
             ? directPreset
             : Presets["EDM"];
     }

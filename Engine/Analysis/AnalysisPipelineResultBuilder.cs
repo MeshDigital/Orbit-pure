@@ -28,6 +28,12 @@ public static class AnalysisPipelineResultBuilder
             EssentiaAggressiveProbability = f.MoodAggressive,
             EssentiaDanceability = f.Danceability,
             Genre = !string.IsNullOrWhiteSpace(f.DetectedSubGenre) ? f.DetectedSubGenre : f.ElectronicSubgenre,
+            GenreConfidence = f.SubGenreConfidence > 0
+                ? f.SubGenreConfidence
+                : f.ElectronicSubgenreConfidence > 0 ? f.ElectronicSubgenreConfidence : 1f,
+            GenreSource = !string.IsNullOrWhiteSpace(f.DetectedSubGenre)
+                ? GenreSource.ModelInferred
+                : GenreSource.Unknown,
         };
 
         // Phrase source, highest precedence first:

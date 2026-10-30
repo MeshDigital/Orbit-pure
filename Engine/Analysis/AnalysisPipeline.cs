@@ -87,6 +87,17 @@ public sealed class AnalysisPipelineResult
     /// often don't have.
     /// </summary>
     public string? Genre { get; set; }
+
+    /// <summary>
+    /// Confidence of <see cref="Genre"/> (0–1), copied from the stored analysis. A low-confidence
+    /// genre label must not override a strong BPM bracket — e.g. a 175 BPM DnB track tagged
+    /// "Techno" at 0.18 confidence is Breakbeat, not TechHouse.
+    /// </summary>
+    public float GenreConfidence { get; set; } = 1f;
+
+    /// <summary>Where <see cref="Genre"/> came from. Model-inferred labels are advisory at
+    /// breakbeat tempos; user/local tags are authoritative.</summary>
+    public GenreSource GenreSource { get; set; } = GenreSource.Unknown;
 }
 
 /// <summary>

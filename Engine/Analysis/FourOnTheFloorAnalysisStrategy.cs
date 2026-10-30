@@ -35,6 +35,14 @@ public sealed class FourOnTheFloorAnalysisStrategy : IGenreFamilyAnalysisStrateg
     public DropSignalWeights GetSignalWeights()
         => new(SubBassWeight: 0.50f, EnergyJumpWeight: 0.35f, SpectralFluxWeight: 0.85f);
 
+    public DropScoringWeights ScoringWeights => new(
+        SubBassReturn: 0.15,
+        SpectralFluxNovelty: 0.10,
+        SustainedEnergy: 0.35,
+        PhraseConfidence: 0.15,
+        SectionLength: 0.15,
+        CueDetrAgreement: 0.10);
+
     public IReadOnlyList<(double Time, float Score)> GetFamilySpecificDropCandidates(
         AnalysisPipelineResult analysis, double bpm, double downbeatAnchor)
         => analysis.StructuralStrippingReturnTimestamps

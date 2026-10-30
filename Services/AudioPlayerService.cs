@@ -439,6 +439,7 @@ namespace SLSKDONET.Services
                         LowCrossover = pendingTransition.EqLowCrossoverHz,
                         HighCrossover = pendingTransition.EqHighCrossoverHz,
                         HardLowSwap = pendingTransition.EqHardLowSwap,
+                        HardLowSwapAtEnd = pendingTransition.EqHardLowSwapAtEnd,
                     },
                 };
                 var automation = _liveTransitionEngine.CalculateAutomation(region, (long)(t * samplePoints));

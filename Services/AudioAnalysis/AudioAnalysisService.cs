@@ -42,6 +42,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
     private readonly TrackFingerprintStore _trackFingerprintStore;
     private readonly BreakbeatAnalysisStrategy _breakbeatStrategy;
     private readonly FourOnTheFloorAnalysisStrategy _fourOnFloorStrategy;
+    private readonly BassMusicAnalysisStrategy _bassMusicStrategy;
     private readonly DatabaseService _db;
     private readonly ILogger<AudioAnalysisService> _logger;
     private readonly Rekordbox.IRekordboxPssiService? _rekordbox;
@@ -71,6 +72,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         TrackFingerprintStore trackFingerprintStore,
         BreakbeatAnalysisStrategy breakbeatStrategy,
         FourOnTheFloorAnalysisStrategy fourOnFloorStrategy,
+        BassMusicAnalysisStrategy bassMusicStrategy,
         DatabaseService db,
         ILogger<AudioAnalysisService> logger,
         Rekordbox.IRekordboxPssiService? rekordbox = null)
@@ -91,6 +93,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         _trackFingerprintStore = trackFingerprintStore;
         _breakbeatStrategy = breakbeatStrategy;
         _fourOnFloorStrategy = fourOnFloorStrategy;
+        _bassMusicStrategy = bassMusicStrategy;
         _db            = db;
         _logger        = logger;
 
@@ -129,6 +132,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             trackUniqueHash, Path.GetFileName(filePath));
 
         string? tempWav = null;
+        Task<EssentiaOutput?>? essentiaTask = null;
         try
         {
             // ── Step 1: Decode to 44.1 kHz stereo WAV ────────────────────
@@ -146,6 +150,17 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 _logger.LogWarning("[AudioAnalysis] Decode failed for {File}: {Msg}",
                     Path.GetFileName(filePath), ex.Message);
                 return null;
+            }
+
+            // ── Start Essentia extraction now (BPM/key/beat-grid) ─────────
+            // Essentia only needs the decoded WAV produced above, so start it before the waveform
+            // and in-process DSP/ONNX passes and let it run concurrently with them; its result is
+            // awaited at the BPM/key step. RunAsync is fail-open (null on any error) and honours
+            // the cancellation token, so a failure in the interim steps is handled at the await.
+            if (_essentia.IsAvailable &&
+                (engines & (AnalysisEngine.Tempo | AnalysisEngine.Key | AnalysisEngine.Mood)) != 0)
+            {
+                essentiaTask = _essentia.RunAsync(tempWav, cancellationToken);
             }
 
             // ── Step 2: Create or load the features entity ────────────────
@@ -339,12 +354,10 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
 
             // ── Step 5: Essentia BPM / Key / Beatgrid (optional) ─────────
             EssentiaOutput? essentiaOutput = null;
-            var needsEssentia = (engines & (AnalysisEngine.Tempo | AnalysisEngine.Key | AnalysisEngine.Mood)) != 0;
-            if (_essentia.IsAvailable && needsEssentia)
+            if (essentiaTask is not null)
             {
                 progress?.Report((45, "Running BPM/key analysis..."));
-                essentiaOutput = await _essentia.RunAsync(tempWav, cancellationToken)
-                    .ConfigureAwait(false);
+                essentiaOutput = await essentiaTask.ConfigureAwait(false);
 
                 if (essentiaOutput is not null)
                 {
@@ -535,6 +548,16 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         }
         finally
         {
+            // A pre-started Essentia extraction may still be running if an earlier step failed
+            // (it is only awaited at the BPM/key step). Observe its outcome so a late cancellation
+            // is never left unobserved; the temp-WAV delete below is best-effort and simply fails
+            // (and logs) if the extraction still holds the file open.
+            if (essentiaTask is { } essentia)
+            {
+                _ = essentia.ContinueWith(_ => { }, CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
+
             if (tempWav is not null)
             {
                 try { File.Delete(tempWav); }
@@ -765,11 +788,12 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         // are both settled, the correct seam for a genre-corroborated bracket correction (unlike
         // BpmDetectionService's genre-agnostic half-time correction, which runs before genre is
         // known and can't use it). See BreakbeatAnalysisStrategy/FourOnTheFloorAnalysisStrategy.
-        var classification = GenreFamilyClassifier.Classify(winner.Key, features.Bpm);
+        var classification = GenreFamilyClassifier.Classify(winner.Key, features.Bpm, finalConfidence, GenreSource.ModelInferred);
         IGenreFamilyAnalysisStrategy? strategy = classification.Family switch
         {
             GenreFamily.Breakbeat => _breakbeatStrategy,
             GenreFamily.FourOnTheFloor => _fourOnFloorStrategy,
+            GenreFamily.Dubstep => _bassMusicStrategy,
             _ => null
         };
         if (strategy != null)

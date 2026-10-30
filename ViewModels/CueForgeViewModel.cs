@@ -14,6 +14,7 @@ using ReactiveUI;
 using SLSKDONET.Configuration;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Engine.Analysis;
+using SLSKDONET.Engine.Cueing;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 
@@ -59,6 +60,45 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     /// and Auto-generate all use this one list, so what you see and what gets cued can never come
     /// from two different analyses.</summary>
     private IReadOnlyList<PhraseSegment> _resolvedPhrases = Array.Empty<PhraseSegment>();
+
+    // ── Cue generation profiles ─────────────────────────────────────────────
+    private CueGenerationProfile _selectedCueGenerationProfile = CueGenerationProfiles.Balanced;
+
+    /// <summary>Profiles available in the Cue Lab picker. The selected one is sticky (AppConfig).</summary>
+    public IReadOnlyList<CueGenerationProfile> AvailableCueGenerationProfiles => CueGenerationProfiles.All;
+
+    public CueGenerationProfile SelectedCueGenerationProfile
+    {
+        get => _selectedCueGenerationProfile;
+        set
+        {
+            if (value is null || ReferenceEquals(value, _selectedCueGenerationProfile)) return;
+            this.RaiseAndSetIfChanged(ref _selectedCueGenerationProfile, value);
+            _config.CueGenerationProfile = value.Id;
+            try { _configManager?.Save(_config); }
+            catch (Exception ex) { _logger.LogWarning(ex, "CueForge: could not save cue-generation profile"); }
+        }
+    }
+
+    /// <summary>Checkbox list for the read-only multi-profile comparison.</summary>
+    public ObservableCollection<CueGenerationProfileOption> ProfileComparisonOptions { get; } = new();
+
+    /// <summary>One rendered line per selected profile after Compare.</summary>
+    public ObservableCollection<string> ProfileComparisonRows { get; } = new();
+
+    private string? _profileComparisonStatus;
+    public string? ProfileComparisonStatus
+    {
+        get => _profileComparisonStatus;
+        private set => this.RaiseAndSetIfChanged(ref _profileComparisonStatus, value);
+    }
+
+    private bool _isComparingProfiles;
+    public bool IsComparingProfiles
+    {
+        get => _isComparingProfiles;
+        private set => this.RaiseAndSetIfChanged(ref _isComparingProfiles, value);
+    }
 
     // ── Track Context ──────────────────────────────────────────────────────
 
@@ -649,6 +689,10 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     public ReactiveCommand<Unit, Unit> AutoGenerateCuesCommand { get; }
 
+    /// <summary>Runs every checked profile against the current track and lists the results
+    /// without changing the cue set.</summary>
+    public ReactiveCommand<Unit, Unit> CompareProfilesCommand { get; }
+
     /// <summary>One click: empties the working set and resets the waveform view (zoom and scroll)
     /// so the track is a blank slate again. Undoable like every other cue edit.</summary>
     public ReactiveCommand<Unit, Unit> ClearCuesCommand { get; }
@@ -817,6 +861,9 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         _eventBus = eventBus;
         _rekordbox = rekordbox;
         _ui = ui ?? RunOnUiThread;
+        _selectedCueGenerationProfile = CueGenerationProfiles.Find(config.CueGenerationProfile);
+        foreach (var profile in CueGenerationProfiles.All)
+            ProfileComparisonOptions.Add(new CueGenerationProfileOption(profile, isSelected: true));
         _showEnergyCurve = config.WaveformShowEnergyCurve;
         _showOnsetDensity = config.WaveformShowOnsetDensity;
         _showVocalGhost = config.WaveformShowVocalGhost;
@@ -846,6 +893,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         var canRefresh = hasTrack.CombineLatest(notRefreshing, (h, r) => h && r);
 
         AutoGenerateCuesCommand = ReactiveCommand.CreateFromTask(AutoGenerateCuesAsync, canAct);
+        CompareProfilesCommand = ReactiveCommand.CreateFromTask(CompareProfilesAsync, canAct);
         ClearCuesCommand = ReactiveCommand.Create(ClearCues, hasTrack);
         RefreshWaveformCommand = ReactiveCommand.CreateFromTask(RefreshWaveformAsync, canRefresh);
         ImportRekordboxCuesCommand = ReactiveCommand.CreateFromTask(ImportRekordboxCuesAsync, canAct);
@@ -1642,6 +1690,65 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         if (!IsPlaying) SetPlayhead(0);
     }
 
+    private async Task CompareProfilesAsync()
+    {
+        if (TrackHash is null || _engineCueService is null || _libraryService is null) return;
+
+        var selected = ProfileComparisonOptions.Where(o => o.IsSelected).Select(o => o.Profile).ToList();
+        if (selected.Count == 0)
+        {
+            ProfileComparisonStatus = "Select at least one profile to compare.";
+            return;
+        }
+
+        IsComparingProfiles = true;
+        ProfileComparisonStatus = "Comparing…";
+        try
+        {
+            var features = await _libraryService.GetAudioFeaturesByHashAsync(TrackHash);
+            if (features is null)
+            {
+                ProfileComparisonStatus = "No analysis data for this track.";
+                return;
+            }
+
+            var analysis = BuildAnalysisResultFromFeatures(features, _resolvedPhrases);
+            double downbeat = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
+            var rows = new List<string>();
+
+            foreach (var profile in selected)
+            {
+                var (cues, path) = _engineCueService.GenerateCuesWithPath(
+                    trackHash: TrackHash,
+                    analysis: analysis,
+                    downbeatAnchor: downbeat,
+                    vocalStart: features.VocalStartSeconds.HasValue ? (double?)features.VocalStartSeconds.Value : null,
+                    vocalEnd: features.VocalEndSeconds.HasValue ? (double?)features.VocalEndSeconds.Value : null,
+                    vocalIntensity: features.VocalIntensity > 0 ? (double?)features.VocalIntensity : null,
+                    profile: profile);
+
+                var drops = cues.Where(c => c.Type == CuePointType.Drop)
+                    .OrderBy(c => c.TimestampInSeconds).ToList();
+                string d1 = drops.Count > 0 ? drops[0].TimestampInSeconds.ToString("0.00", CultureInfo.InvariantCulture) : "-";
+                string d2 = drops.Count > 1 ? drops[1].TimestampInSeconds.ToString("0.00", CultureInfo.InvariantCulture) : "-";
+                rows.Add($"{profile.Name,-22} {path,-15} D1 {d1,7}  D2 {d2,7}  {cues.Count} cues");
+            }
+
+            await _ui(() =>
+            {
+                ProfileComparisonRows.Clear();
+                foreach (var row in rows) ProfileComparisonRows.Add(row);
+                ProfileComparisonStatus = $"Compared {rows.Count} profile(s); cues were not changed.";
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "CueForge: profile comparison failed for {Hash}", TrackHash);
+            ProfileComparisonStatus = "Comparison failed; the cue set was not changed.";
+        }
+        finally { IsComparingProfiles = false; }
+    }
+
     private async Task AutoGenerateCuesAsync()
 
     {
@@ -1670,7 +1777,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 downbeatAnchor: downbeat,
                 vocalStart: features.VocalStartSeconds.HasValue ? (double?)features.VocalStartSeconds.Value : null,
                 vocalEnd: features.VocalEndSeconds.HasValue ? (double?)features.VocalEndSeconds.Value : null,
-                vocalIntensity: features.VocalIntensity > 0 ? (double?)features.VocalIntensity : null);
+                vocalIntensity: features.VocalIntensity > 0 ? (double?)features.VocalIntensity : null,
+                profile: SelectedCueGenerationProfile);
 
             var userCues = Session.Cues.Where(c => c.Source == CueSource.User).ToList();
             await _ui(() =>

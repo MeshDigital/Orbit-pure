@@ -94,6 +94,11 @@ public class TransitionModel
     /// transitions, whose midpoint is the incoming track's drop.</summary>
     public bool EqHardLowSwap { get; set; }
 
+    /// <summary>When set with <see cref="EqHardLowSwap"/>, the Low band stays on the outgoing track
+    /// for the whole window and swaps to the incoming track at the very end — the 1-Bar Drop Swap's
+    /// bass hand-over exactly on the impact.</summary>
+    public bool EqHardLowSwapAtEnd { get; set; }
+
     // ── DoubleDrop loop config ──────────────────────────────────────────
 
     /// <summary>Bar length of the looped tail for <see cref="TransitionType.DoubleDrop"/> — 8 or

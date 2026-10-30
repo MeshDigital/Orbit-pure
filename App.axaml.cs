@@ -888,6 +888,7 @@ public partial class App : Application
         services.AddSingleton<Services.DnBCueNamingService>();
         services.AddSingleton<Engine.Analysis.BreakbeatAnalysisStrategy>();
         services.AddSingleton<Engine.Analysis.FourOnTheFloorAnalysisStrategy>();
+        services.AddSingleton<Engine.Analysis.BassMusicAnalysisStrategy>();
         services.AddSingleton<Services.CamelotKeyDisplayService>();
         services.AddSingleton<Services.PhraseAlignmentService>();
         services.AddSingleton<Services.IPhraseAlignmentService>(sp =>

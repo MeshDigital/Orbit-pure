@@ -13,10 +13,23 @@ public class TransitionPresetLibraryTests
     [InlineData("Blend", TransitionType.EqSwap)]
     [InlineData("Wave", TransitionType.WaveDuck)]
     [InlineData("Melt", TransitionType.EchoOut)]
+    [InlineData("1-Bar Drop Swap", TransitionType.EqSwap)]
     public void Build_MapsPresetNameToExpectedTransitionType(string preset, TransitionType expected)
     {
         var model = TransitionPresetLibrary.Build(preset);
         Assert.Equal(expected, model.Type);
+    }
+
+    [Fact]
+    public void Build_OneBarDropSwap_IsOneBarWithAnEndOfWindowBassSwap()
+    {
+        var model = TransitionPresetLibrary.Build("1-Bar Drop Swap");
+
+        Assert.Equal(4.0, model.DurationBeats); // one bar
+        Assert.True(model.EqSwapLow);
+        Assert.True(model.EqHardLowSwap);
+        Assert.True(model.EqHardLowSwapAtEnd);
+        Assert.True(TransitionPresetLibrary.IsStructurePlanned("1-Bar Drop Swap"));
     }
 
     [Fact]

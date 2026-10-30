@@ -105,6 +105,10 @@ public class EqBandSwapConfig
 
     /// <summary>Swap the Low band in one step at the midpoint (bass swap on the drop).</summary>
     public bool HardLowSwap { get; set; }
+
+    /// <summary>With <see cref="HardLowSwap"/>, keep the outgoing bass through the window and
+    /// swap it at the very end instead of the midpoint (1-Bar Drop Swap).</summary>
+    public bool HardLowSwapAtEnd { get; set; }
     
     /// <summary>Whether to swap the Mid band.</summary>
     public bool SwapMid { get; set; } = false;
@@ -278,10 +282,14 @@ public class TransitionEngine
         float inLow = config.SwapLow ? (float)progress : 1.0f;
         if (config.SwapLow && config.HardLowSwap)
         {
-            // DJ bass swap: only one bassline at a time, switched exactly on the drop — the
-            // window's midpoint in TIME, whatever the gain curve does.
-            outLow = timeProgress < 0.5 ? 1f : 0f;
-            inLow = timeProgress < 0.5 ? 0f : 1f;
+            // DJ bass swap: only one bassline at a time, switched exactly on the drop. The
+            // midpoint is the default (Rolling/Drop Sync); the 1-Bar Drop Swap waits for the
+            // end of the window, so the incoming bass slams in on the impact.
+            bool afterSwap = config.HardLowSwapAtEnd
+                ? timeProgress >= 1.0 - 1e-9
+                : timeProgress >= 0.5;
+            outLow = afterSwap ? 0f : 1f;
+            inLow = afterSwap ? 1f : 0f;
         }
 
         float outMid = config.SwapMid ? (float)(1.0 - progress) : 1.0f;

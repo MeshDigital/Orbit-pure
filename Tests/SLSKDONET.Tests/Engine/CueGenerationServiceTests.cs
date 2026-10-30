@@ -474,6 +474,125 @@ public class CueGenerationServiceTests
         Assert.InRange(cues.First(c => c.Label == "[IN -16]").TimestampInSeconds, 44.05, 44.25);
     }
 
+    /// <summary>
+    /// Regression for A Little Sound - I Just Can't Get Enough: the phrase drop was at 65.8s,
+    /// the real structural drop at 56.0s, and a sub-bass return at 23.2s sat inside the 0-43.9s
+    /// intro. The old rescue moved Drop 1 to 23.3s; it must not use a return from inside the intro.
+    /// </summary>
+    [Fact]
+    public void GenerateCues_PhraseDrop_IgnoresASubBassReturnInsideTheIntro()
+    {
+        var service = CreateService();
+        var analysis = new AnalysisPipelineResult
+        {
+            Bpm = 175f,
+            DurationSeconds = 171.7714285,
+            PhraseSegments = new List<PhraseSegment>
+            {
+                new() { Label = "Intro", Start = 0f, Duration = 43.885715f },
+                new() { Label = "Build", Start = 43.885715f, Duration = 21.94286f },
+                new() { Label = "Drop", Start = 65.828575f, Duration = 21.942856f },
+                new() { Label = "Build", Start = 87.77143f, Duration = 43.88572f },
+                new() { Label = "Breakdown", Start = 131.65715f, Duration = 12.34285f },
+                new() { Label = "Drop", Start = 144f, Duration = 9.600006f },
+                new() { Label = "Build", Start = 153.6f, Duration = 21.942856f },
+            },
+            SubBassReturnTimestamps = new List<double> { 23.194239 },
+        };
+
+        var cues = service.GenerateCues("hash", analysis, 0.6939);
+
+        Assert.InRange(cues.First(c => c.Label == "[DROP 1]").TimestampInSeconds, 65.75, 65.95);
+        Assert.InRange(cues.First(c => c.Label == "[IN -16]").TimestampInSeconds, 43.80, 44.00);
+        Assert.InRange(cues.First(c => c.Label == "[IN -8]").TimestampInSeconds, 54.80, 55.00);
+    }
+
+    /// <summary>
+    /// The corrected phrase boundary (56.0s, the structural engine's real drop) must survive the
+    /// same early sub-bass return. This is the end-to-end expectation after both fixes.
+    /// </summary>
+    [Fact]
+    public void GenerateCues_StructuralDropInsideIntroWindow_KeepsTheStructuralDrop()
+    {
+        var service = CreateService();
+        var analysis = new AnalysisPipelineResult
+        {
+            Bpm = 175f,
+            DurationSeconds = 171.7714285,
+            PhraseSegments = new List<PhraseSegment>
+            {
+                new() { Label = "Intro", Start = 0f, Duration = 43.885715f },
+                new() { Label = "Build", Start = 43.885715f, Duration = 12.114285f },
+                new() { Label = "Drop", Start = 56f, Duration = 9.828575f },
+                new() { Label = "Build", Start = 65.828575f, Duration = 21.942856f },
+                new() { Label = "Build", Start = 87.77143f, Duration = 43.88572f },
+                new() { Label = "Breakdown", Start = 131.65715f, Duration = 12.34285f },
+                new() { Label = "Drop", Start = 144f, Duration = 9.600006f },
+                new() { Label = "Build", Start = 153.6f, Duration = 21.942856f },
+            },
+            SubBassReturnTimestamps = new List<double> { 23.194239 },
+        };
+
+        var cues = service.GenerateCues("hash", analysis, 0.6939);
+
+        Assert.InRange(cues.First(c => c.Label == "[DROP 1]").TimestampInSeconds, 55.80, 56.10);
+        Assert.InRange(cues.First(c => c.Label == "[IN -16]").TimestampInSeconds, 33.90, 34.20);
+        Assert.InRange(cues.First(c => c.Label == "[IN -8]").TimestampInSeconds, 44.85, 45.20);
+    }
+
+    [Fact]
+    public void GenerateCues_Profile_ForcesDspPath()
+    {
+        var service = CreateService();
+        var (_, path) = service.GenerateCuesWithPath(
+            "hash", DspAnalysis(), DownbeatAnchor, profile: CueGenerationProfiles.DspOnly);
+
+        Assert.Equal(CueGenerationPath.Dsp, path);
+    }
+
+    [Fact]
+    public void GenerateCues_Profile_ForcesHeuristicPath()
+    {
+        var service = CreateService();
+        var (_, path) = service.GenerateCuesWithPath(
+            "hash", HeuristicAnalysis(), DownbeatAnchor, profile: CueGenerationProfiles.HeuristicOnly);
+
+        Assert.Equal(CueGenerationPath.Heuristic, path);
+    }
+
+    [Fact]
+    public void GenerateCues_Profile_ForcesPhrasePath()
+    {
+        var service = CreateService();
+        var analysis = new AnalysisPipelineResult
+        {
+            Bpm = (float)Bpm,
+            DurationSeconds = DurationSeconds,
+            PhraseSegments = new List<PhraseSegment>
+            {
+                new() { Label = "Intro", Start = 0f, Duration = 30f },
+                new() { Label = "Drop", Start = 30f, Duration = 30f },
+                new() { Label = "Breakdown", Start = 60f, Duration = 30f },
+                new() { Label = "Drop", Start = 90f, Duration = 30f },
+                new() { Label = "Outro", Start = 120f, Duration = 60f },
+            },
+        };
+
+        var (_, path) = service.GenerateCuesWithPath(
+            "hash", analysis, DownbeatAnchor, profile: CueGenerationProfiles.PhraseFirst);
+
+        Assert.Equal(CueGenerationPath.PhraseSegments, path);
+    }
+
+    [Fact]
+    public void Profiles_HaveUniqueIdsAndBalancedIsDefault()
+    {
+        Assert.Equal(CueGenerationProfiles.All.Count,
+            CueGenerationProfiles.All.Select(p => p.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.Same(CueGenerationProfiles.Balanced, CueGenerationProfiles.Find(null));
+        Assert.Same(CueGenerationProfiles.DspOnly, CueGenerationProfiles.Find("dsp"));
+    }
+
     private static float[] RampAt(int seconds, double riseAt, float low, float high) =>
         Enumerable.Range(0, seconds).Select(i => i < riseAt ? low : high).ToArray();
 

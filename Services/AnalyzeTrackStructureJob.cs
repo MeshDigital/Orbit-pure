@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Data.Entities;
+using SLSKDONET.Engine.Analysis;
 using SLSKDONET.Models;
 using SLSKDONET.Services.Audio;
 using SLSKDONET.Services.AudioAnalysis;
@@ -123,7 +124,10 @@ public sealed class AnalyzeTrackStructureJob
                 features.Bpm > 0 ? features.Bpm : analysisResult.Bpm,
                 !string.IsNullOrWhiteSpace(features.DetectedSubGenre) ? features.DetectedSubGenre : features.ElectronicSubgenre,
                 trackUniqueHash,
-                cancellationToken);
+                cancellationToken,
+                trackDuration: features.TrackDuration > 0 ? features.TrackDuration : null,
+                genreConfidence: features.SubGenreConfidence > 0 ? features.SubGenreConfidence : null,
+                genreSource: GenreSource.ModelInferred);
 
             var sections = alignedPhrases.Count > 0
                 ? await EnrichAlignedPhrasesAsync(alignedPhrases, trackUniqueHash, features, analysisResult, cancellationToken)

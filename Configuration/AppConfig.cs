@@ -316,6 +316,10 @@ public class AppConfig
     public string? CueForgeLastTrackTitle { get; set; }
     public string? CueForgeLastTrackArtist { get; set; }
 
+    /// <summary>Selected Cue Lab generation profile id (see Engine.Cueing.CueGenerationProfiles).
+    /// Sticky across tracks and saved with the rest of the config.</summary>
+    public string CueGenerationProfile { get; set; } = "balanced";
+
     public override string ToString()
     {
         return $"AppConfig(User={Username}, Port={ListenPort}, Downloads={DownloadDirectory})";
