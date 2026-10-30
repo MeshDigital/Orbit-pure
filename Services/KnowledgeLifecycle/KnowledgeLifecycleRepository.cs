@@ -112,4 +112,17 @@ public static class KnowledgeLifecycleRepository
         });
         await db.SaveChangesAsync().ConfigureAwait(false);
     }
+
+    /// <summary>Gets the single DJ fingerprint row, creating it on first use.</summary>
+    public static async Task<DjFingerprintEntity> GetOrCreateFingerprintAsync(AppDbContext db)
+    {
+        var existing = await db.DjFingerprints.FirstOrDefaultAsync().ConfigureAwait(false);
+        if (existing is not null)
+            return existing;
+
+        var fingerprint = new DjFingerprintEntity();
+        db.DjFingerprints.Add(fingerprint);
+        await db.SaveChangesAsync().ConfigureAwait(false);
+        return fingerprint;
+    }
 }

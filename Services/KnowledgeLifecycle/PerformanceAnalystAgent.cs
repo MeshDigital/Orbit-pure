@@ -95,6 +95,19 @@ public sealed class PerformanceAnalystAgent : IKnowledgeAgent, IDisposable
                 await KnowledgeLifecycleRepository.RecomputeAsync(edge.Id, db).ConfigureAwait(false);
             }
 
+            var observedTypes = audibles
+                .Select(a => a.TransitionType.HasValue
+                    ? (KnowledgeTransitionType)a.TransitionType.Value
+                    : KnowledgeTransitionType.Blend)
+                .ToList();
+            if (observedTypes.Count > 0)
+            {
+                var fingerprint = await KnowledgeLifecycleRepository.GetOrCreateFingerprintAsync(db).ConfigureAwait(false);
+                DjFingerprintService.UpdateTransitionPreferences(fingerprint, observedTypes);
+                fingerprint.UpdatedAtUtc = DateTime.UtcNow;
+                await db.SaveChangesAsync().ConfigureAwait(false);
+            }
+
             _logger.LogInformation(
                 "[PerformanceAnalyst] reconciled {Count} audible(s) for session {Session}",
                 audibles.Count, evt.SessionId);
