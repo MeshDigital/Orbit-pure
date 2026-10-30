@@ -21,6 +21,9 @@ public class TransitionCandidateEntity
     public string SourceTrackId { get; set; } = string.Empty;   // TrackUniqueHash
     public string TargetTrackId { get; set; } = string.Empty;   // TrackUniqueHash
 
+    /// <summary>Dedupe key: {SourceTrackId}_{TargetTrackId}_{AnalysisVersion}; unique per scan version.</summary>
+    public string IdempotencyKey { get; set; } = string.Empty;
+
     // Theoretical signals produced by the scanner (all 0-100).
     public double CompatibilityScore { get; set; }
     public double HarmonicScore { get; set; }

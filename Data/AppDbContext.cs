@@ -354,6 +354,10 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Entities.TransitionCandidateEntity>()
             .HasIndex(e => new { e.SourceTrackId, e.TargetTrackId })
             .HasDatabaseName("IX_TransitionCandidates_Source_Target");
+        modelBuilder.Entity<Entities.TransitionCandidateEntity>()
+            .HasIndex(e => e.IdempotencyKey)
+            .IsUnique()
+            .HasDatabaseName("IX_TransitionCandidates_IdempotencyKey");
 
         // PerformanceSession -> PerformanceSessionTrack (cascade).
         modelBuilder.Entity<Entities.PerformanceSessionEntity>()
