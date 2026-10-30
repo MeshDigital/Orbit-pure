@@ -1,0 +1,29 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="SLSKDONET.Views.Avalonia.SetHealth.SetHealthDashboardView">
+    <StackPanel Spacing="6" Margin="12">
+        <TextBlock Classes="h3" Text="Set Health" />
+
+        <TextBlock Text="Overall" />
+        <ProgressBar Minimum="0" Maximum="100" Value="{Binding Report.OverallScore}" />
+
+        <TextBlock Text="Narrative" />
+        <ProgressBar Minimum="0" Maximum="100" Value="{Binding Report.NarrativeScore}" />
+
+        <TextBlock Text="Technical" />
+        <ProgressBar Minimum="0" Maximum="100" Value="{Binding Report.TechnicalScore}" />
+
+        <TextBlock Text="Risk" />
+        <ProgressBar Minimum="0" Maximum="100" Value="{Binding Report.PerformanceRiskScore}" />
+
+        <TextBlock Classes="caption" Text="Narrative breakdown" Margin="0,8,0,0" />
+        <TextBlock Text="Energy Flow" />
+        <ProgressBar Minimum="0" Maximum="100" Value="{Binding EnergyFlow}" />
+        <TextBlock Text="Peak Placement" />
+        <ProgressBar Minimum="0" Maximum="100" Value="{Binding PeakPlacement}" />
+        <TextBlock Text="Crowd Recovery" />
+        <ProgressBar Minimum="0" Maximum="100" Value="{Binding CrowdRecovery}" />
+        <TextBlock Text="Transition Quality" />
+        <ProgressBar Minimum="0" Maximum="100" Value="{Binding TransitionQuality}" />
+    </StackPanel>
+</UserControl>
