@@ -172,8 +172,9 @@ public static class Program
         var bpm = featureByHash.Values.FirstOrDefault(f => f.Bpm > 0)?.Bpm ?? 174.0;
 
         var spineData = new List<TrackClashData>();
-        foreach (var hash in spineHashes)
+        for (var idx = 0; idx < spineHashes.Count; idx++)
         {
+            var hash = spineHashes[idx];
             featureByHash.TryGetValue(hash, out var f);
             var trackCues = cues.Where(c => c.TrackUniqueHash == hash).ToList();
             var duration = f?.TrackDuration > 0 ? f.TrackDuration : 300.0;
@@ -185,13 +186,20 @@ public static class Program
             VocalSegment[] vocalSegments;
             if (mockVocals)
             {
-                // Synthetic temporal vocal blocks that deliberately bleed into the 44s mix-in and
-                // mix-out windows, forcing an intentional vocal overlap to verify the window math.
-                vocalSegments = new[]
-                {
-                    new VocalSegment(Math.Max(0.0, mixIn - 10.0), mixIn + 10.0),
-                    new VocalSegment(Math.Max(0.0, mixOut - 10.0), Math.Min(duration, mixOut + 10.0)),
-                };
+                // Negative control, alternating by track index. A transition i→i+1 flags only when
+                // track i has a mix-out vocal AND track i+1 has a mix-in vocal, so this produces
+                // [true, single-sided, clear, true, …] across the spine:
+                //   idx % 3 == 1 → both mix-out + mix-in vocal (true overlap on the outgoing side)
+                //   idx % 3 == 0 → mix-out only (incoming side instrumental → single-sided)
+                //   idx % 3 == 2 → neither (clear)
+                var hasMixOutVocal = idx % 3 != 2;
+                var hasMixInVocal = idx % 3 == 1;
+                var segments = new List<VocalSegment>(2);
+                if (hasMixOutVocal)
+                    segments.Add(new VocalSegment(Math.Max(0.0, mixOut - 10.0), Math.Min(duration, mixOut + 10.0)));
+                if (hasMixInVocal)
+                    segments.Add(new VocalSegment(Math.Max(0.0, mixIn - 10.0), mixIn + 10.0));
+                vocalSegments = segments.ToArray();
             }
             else
             {
