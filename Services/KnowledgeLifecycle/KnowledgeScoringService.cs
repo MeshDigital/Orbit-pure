@@ -82,6 +82,23 @@ public static class KnowledgeScoringService
     public static double ComputeConfidenceScore(double confidencePoints)
         => Math.Clamp(confidencePoints / ConfirmedThreshold, 0.0, 1.0);
 
+    /// <summary>Multiplier applied by <see cref="ComputeRecommendationScore"/> per confidence tier.</summary>
+    public static double ConfidenceWeight(KnowledgeConfidenceLevel level)
+        => level switch
+        {
+            KnowledgeConfidenceLevel.Confirmed => 1.00,
+            KnowledgeConfidenceLevel.Likely => 0.85,
+            KnowledgeConfidenceLevel.Experimental => 0.60,
+            _ => 0.35,
+        };
+
+    /// <summary>Final recommendation score (0-100) = compatibility × confidence × freshness × djFit.</summary>
+    public static double ComputeRecommendationScore(TransitionKnowledgeEntity knowledge, double djFit)
+        => knowledge.CompatibilityScore
+           * ConfidenceWeight(knowledge.ConfidenceLevel)
+           * (knowledge.Freshness / 100.0)
+           * djFit;
+
     /// <summary>Recomputes every derived field of a knowledge edge from its evidence rows.</summary>
     public static void Recompute(
         TransitionKnowledgeEntity knowledge,
