@@ -9,6 +9,7 @@ using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Services;
 using SLSKDONET.Services.StoryGraph;
+using SLSKDONET.ViewModels.SetHealth;
 
 namespace SLSKDONET.ViewModels.StoryGraph;
 
@@ -75,10 +76,14 @@ public sealed class StoryGraphViewModel : ReactiveObject
     /// <summary>All slot roles, for the inspector's role selector.</summary>
     public IReadOnlyList<SetSlotRole> RoleOptions { get; } = Enum.GetValues<SetSlotRole>();
 
+    /// <summary>Set Health dashboard child — computed from the same SetProject.</summary>
+    public SetHealthDashboardViewModel Health { get; }
+
     public StoryGraphViewModel(IDbContextFactory<AppDbContext> dbFactory, IUndoService undoService)
     {
         _dbFactory = dbFactory;
         _undoService = undoService;
+        Health = new SetHealthDashboardViewModel(dbFactory);
         UndoCommand = ReactiveCommand.Create(Undo);
         RedoCommand = ReactiveCommand.Create(Redo);
     }
@@ -95,15 +100,18 @@ public sealed class StoryGraphViewModel : ReactiveObject
         if (set is null)
         {
             Load(Array.Empty<SetTrackEntity>(), Array.Empty<SetStoryEdgeEntity>());
-            return;
+        }
+        else
+        {
+            var edges = await db.SetStoryEdges
+                .Where(e => e.SetProjectId == setProjectId)
+                .ToListAsync()
+                .ConfigureAwait(false);
+
+            Load(set.Tracks.ToList(), edges);
         }
 
-        var edges = await db.SetStoryEdges
-            .Where(e => e.SetProjectId == setProjectId)
-            .ToListAsync()
-            .ConfigureAwait(false);
-
-        Load(set.Tracks.ToList(), edges);
+        await Health.LoadAsync(setProjectId).ConfigureAwait(false);
     }
 
     /// <summary>Seeds the in-memory slots/edges and recomputes layout (also used by tests).</summary>

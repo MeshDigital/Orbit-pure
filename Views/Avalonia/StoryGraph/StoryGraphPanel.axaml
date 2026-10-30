@@ -1,8 +1,11 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="using:SLSKDONET.Views.Avalonia.StoryGraph"
+             xmlns:health="using:SLSKDONET.Views.Avalonia.SetHealth"
              x:Class="SLSKDONET.Views.Avalonia.StoryGraph.StoryGraphPanel">
     <DockPanel>
+        <health:SetHealthDashboardView DockPanel.Dock="Right" Width="240" DataContext="{Binding Health}" />
+
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" Margin="8">
             <Button Content="Undo" Command="{Binding UndoCommand}" />
             <Button Content="Redo" Command="{Binding RedoCommand}" />
