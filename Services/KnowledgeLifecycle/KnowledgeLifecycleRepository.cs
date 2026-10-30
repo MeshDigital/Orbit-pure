@@ -65,4 +65,51 @@ public static class KnowledgeLifecycleRepository
         db.TransitionCandidates.Add(candidate);
         await db.SaveChangesAsync().ConfigureAwait(false);
     }
+
+    /// <summary>Finds or creates the knowledge edge for a (source, target, transition-type) triple.</summary>
+    public static async Task<TransitionKnowledgeEntity> GetOrCreateKnowledgeEdgeAsync(
+        AppDbContext db,
+        string sourceTrackId,
+        string targetTrackId,
+        KnowledgeTransitionType type)
+    {
+        var existing = await db.TransitionKnowledge
+            .FirstOrDefaultAsync(e =>
+                e.SourceTrackId == sourceTrackId &&
+                e.TargetTrackId == targetTrackId &&
+                e.TransitionType == type)
+            .ConfigureAwait(false);
+        if (existing is not null)
+            return existing;
+
+        var edge = new TransitionKnowledgeEntity
+        {
+            SourceTrackId = sourceTrackId,
+            TargetTrackId = targetTrackId,
+            TransitionType = type,
+        };
+        db.TransitionKnowledge.Add(edge);
+        await db.SaveChangesAsync().ConfigureAwait(false);
+        return edge;
+    }
+
+    /// <summary>Appends an append-only evidence row and persists it.</summary>
+    public static async Task AddEvidenceAsync(
+        AppDbContext db,
+        Guid transitionKnowledgeId,
+        TransitionEvidenceSource source,
+        double score,
+        double confidence,
+        Guid? performanceSessionId)
+    {
+        db.TransitionEvidence.Add(new TransitionEvidenceEntity
+        {
+            TransitionKnowledgeId = transitionKnowledgeId,
+            Source = source,
+            Score = score,
+            Confidence = confidence,
+            PerformanceSessionId = performanceSessionId,
+        });
+        await db.SaveChangesAsync().ConfigureAwait(false);
+    }
 }
