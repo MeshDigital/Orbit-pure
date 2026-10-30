@@ -65,7 +65,8 @@ public class PlaylistTrackTransition
         if (LoopBars.HasValue) model.LoopBars = LoopBars.Value;
         if (LoopRepeats.HasValue) model.LoopRepeats = LoopRepeats.Value;
         // Not a stored column: the hard bass swap on the drop is what these presets are.
-        model.EqHardLowSwap = PresetName is "Rolling" or "Drop Sync";
+        model.EqHardLowSwap = PresetName is "Rolling" or "Drop Sync" or "1-Bar Drop Swap";
+        model.EqHardLowSwapAtEnd = PresetName is "1-Bar Drop Swap";
 
         return model;
     }

@@ -88,6 +88,24 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
         private set => this.RaiseAndSetIfChanged(ref _reliabilitySnapshot, value);
     }
 
+    private double? _reliabilityScore;
+    /// <summary>Peer's Bayesian reliability score (0-1), or null when there's no download history
+    /// yet — surfaced as a compact badge in the chat header (the peer's reliability matters most
+    /// exactly when you're about to browse/download from them).</summary>
+    public double? ReliabilityScore
+    {
+        get => _reliabilityScore;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _reliabilityScore, value);
+            this.RaisePropertyChanged(nameof(HasReliabilityScore));
+            this.RaisePropertyChanged(nameof(ReliabilityScoreDisplay));
+        }
+    }
+
+    public bool HasReliabilityScore => ReliabilityScore is not null;
+    public string ReliabilityScoreDisplay => ReliabilityScore is double s ? $"{s:P0}" : string.Empty;
+
     /// <summary>
     /// Speed/share-count/country data bundled with the server's watch acknowledgement — cheaper
     /// than a full browse and populated as soon as the profile opens, before any tab is clicked.
@@ -233,6 +251,7 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
         try
         {
             ReliabilitySnapshot = _peerReliabilityRef.GetSnapshot(username);
+            ReliabilityScore = _peerReliabilityRef.TryGetReliabilityScore(username);
 
             // Chat is the primary surface, and everything it needs (message history, download
             // history) is local DB data — load and render it first, without waiting on anything

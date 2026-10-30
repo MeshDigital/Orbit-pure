@@ -145,6 +145,26 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>Option labels for the BPM/key backend ComboBox. Member names of
+    /// <see cref="SLSKDONET.Models.AnalysisAudioEngine"/>.</summary>
+    public static string[] AvailableAnalysisAudioEngines { get; } = { "Essentia", "InProcess" };
+
+    /// <summary>Settings → Analysis: which backend produces BPM, key and the beat grid.
+    /// "Essentia" (external CLI) or "InProcess" (NWaves/NAudio, no external binary).</summary>
+    public string AnalysisAudioEngine
+    {
+        get => _config.AnalysisAudioEngine;
+        set
+        {
+            if (_config.AnalysisAudioEngine != value)
+            {
+                _config.AnalysisAudioEngine = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
     /// <summary>Settings → Downloads: where Edit Lab renders go. Empty = &lt;download folder&gt;/ORBIT Edits.</summary>
     public string EditLabOutputDirectory
     {

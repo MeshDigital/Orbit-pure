@@ -114,6 +114,42 @@ public sealed class PeerReliabilityService
         return Math.Clamp(score, 0.05, 0.99);
     }
 
+    /// <summary>
+    /// Reliability score for a peer that has recorded at least one download attempt, or null for
+    /// unknown / never-downloaded peers. Unlike <see cref="GetReliabilityScore"/> (which returns the
+    /// neutral 0.50 for unknowns), this lets room rosters leave such members unbadged instead of
+    /// showing a meaningless score for everyone.
+    /// </summary>
+    public double? TryGetReliabilityScore(string? username)
+    {
+        if (string.IsNullOrWhiteSpace(username) || !_peers.TryGetValue(username, out var peer))
+            return null;
+
+        // "Recorded history" == at least one download attempt (mirrors the user-facing "downloads"
+        // count). Peers surfaced only as search candidates are deliberately left unbadged.
+        if (Interlocked.Read(ref peer.DownloadStarts) <= 0)
+            return null;
+
+        return GetReliabilityScore(username);
+    }
+
+    /// <summary>
+    /// Batch reliability lookup over a room roster. Reads the in-memory <see cref="_peers"/> cache
+    /// (hydrated once at startup), so a 300-member room costs one dictionary pass with zero DB
+    /// round-trips — never a per-row SQLite query. Only peers with recorded history are returned.
+    /// </summary>
+    public IReadOnlyDictionary<string, double> GetReliabilityScores(IEnumerable<string> usernames)
+    {
+        var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        foreach (var username in usernames)
+        {
+            var score = TryGetReliabilityScore(username);
+            if (score is double value)
+                result[username] = value;
+        }
+        return result;
+    }
+
     public PeerGlobalSnapshot GetGlobalSnapshot()
     {
         var totalStarts = _peers.Values.Sum(p => Interlocked.Read(ref p.DownloadStarts));

@@ -760,6 +760,8 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     {
         double w = TransitionWindowSeconds;
         if (LiveModel.Type.ToAutomationType() != SLSKDONET.Services.Audio.TransitionType.EqSwap || w <= 0) return Array.Empty<OverlayMarker>();
+        if (LiveModel.EqSwapLow && LiveModel.EqHardLowSwap && LiveModel.EqHardLowSwapAtEnd)
+            return new[] { new OverlayMarker(w, "Bass swap") };
         if (LiveModel.EqSwapLow && LiveModel.EqHardLowSwap) return new[] { new OverlayMarker(w / 2, "Bass swap") };
         var bands = new List<string>();
         if (LiveModel.EqSwapLow) bands.Add("low");
@@ -1209,6 +1211,7 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
                 LowCrossover = LiveModel.EqLowCrossoverHz,
                 HighCrossover = LiveModel.EqHighCrossoverHz,
                 HardLowSwap = LiveModel.EqHardLowSwap,
+                HardLowSwapAtEnd = LiveModel.EqHardLowSwapAtEnd,
             },
         };
         engine.AddTransition(region);

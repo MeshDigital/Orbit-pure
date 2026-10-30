@@ -49,6 +49,9 @@ public enum PlannedTransitionKind
     Rolling,
     /// <summary>Incoming Drop 1 lands on outgoing Drop 2 — the DJ "double drop"; hard bass swap on the drop.</summary>
     DropSync,
+    /// <summary>One bar of overlap only: outgoing runs to Drop 2, incoming starts one bar before
+    /// Drop 1, and the bass swaps exactly on the shared impact.</summary>
+    OneBarDropSwap,
 }
 
 /// <summary>A complete, executable transition: where to leave, where to enter, how long, which effect.</summary>
@@ -66,6 +69,7 @@ public sealed record TransitionPlan(
     {
         PlannedTransitionKind.Rolling => "Rolling",
         PlannedTransitionKind.DropSync => "Drop Sync",
+        PlannedTransitionKind.OneBarDropSwap => "1-Bar Drop Swap",
         _ => "Relaxed",
     };
 }
@@ -181,6 +185,7 @@ public static class TransitionPlanner
         return kind switch
         {
             PlannedTransitionKind.DropSync => DropSync(outgoing, incoming, o, i),
+            PlannedTransitionKind.OneBarDropSwap => OneBarDropSwap(outgoing, incoming, o, i),
             PlannedTransitionKind.Rolling => Rolling(outgoing, incoming, o, i),
             _ => Relaxed(outgoing, incoming, o, i, shortOnly: !TempoLocked(outgoing, incoming)),
         };
@@ -194,6 +199,7 @@ public static class TransitionPlanner
     {
         "Rolling" => PlannedTransitionKind.Rolling,
         "Drop Sync" => PlannedTransitionKind.DropSync,
+        "1-Bar Drop Swap" => PlannedTransitionKind.OneBarDropSwap,
         "Relaxed" => PlannedTransitionKind.Relaxed,
         _ => null,
     };
@@ -267,6 +273,30 @@ public static class TransitionPlanner
         if (source < 0 || target < 0 || outDrop + half * bar > o.OutroEnd) return null;
         return Build(PlannedTransitionKind.DropSync, out_, in_, source, target, half * 2, bar,
             $"Drop Sync · both drops land together ({half}+{half} bars)");
+    }
+
+    /// <summary>
+    /// One bar of overlap only: the outgoing track runs to its Drop 2, the incoming track starts
+    /// one bar before its Drop 1, and both drops land together at the end of the one-bar window.
+    /// This is deliberately stricter than <see cref="DropSync"/> (which needs 8/16 bars): it is an
+    /// explicit preset for tempo-locked pairs with trustworthy drop cues, not an automatic default.
+    /// </summary>
+    private static TransitionPlan? OneBarDropSwap(TrackStructure out_, TrackStructure in_, TrackSections o, TrackSections i)
+    {
+        if (out_.Drop2 is not { } outDrop || in_.Drop1 is not { } inDrop) return null;
+        double bar = o.BarSeconds;
+        double source = outDrop - bar;
+        double target = inDrop - bar;
+        if (source < 0 || target < 0) return null;
+        if (outDrop > o.OutroEnd + 1e-6) return null;
+
+        var plan = Build(PlannedTransitionKind.OneBarDropSwap, out_, in_, source, target, 1, bar,
+            $"1-Bar Drop Swap · one bar out from both drops ({outDrop:0.00}s / {inDrop:0.00}s)");
+        // Build() snaps to the bar grid and honours shared mix markers; this preset's whole point
+        // is the exact one-bar pre-drop offset, so keep the computed triggers bit-for-bit — unless
+        // the DJ set an explicit Mix-Out/Mix-In marker, which wins (Build already applied it).
+        if (out_.MixOutMarker is not null || in_.MixInMarker is not null) return plan;
+        return plan with { SourceTriggerSeconds = source, TargetTriggerSeconds = target };
     }
 
     private static TransitionPlan Build(PlannedTransitionKind kind, TrackStructure out_, TrackStructure in_,

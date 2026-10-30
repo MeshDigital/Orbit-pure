@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Engine.Analysis;
@@ -51,6 +52,8 @@ public sealed class CueGenerationService
     private readonly IntentClassifier _classifier;
     private readonly BreakbeatAnalysisStrategy? _breakbeatStrategy;
     private readonly FourOnTheFloorAnalysisStrategy? _fourOnFloorStrategy;
+    private readonly BassMusicAnalysisStrategy? _bassMusicStrategy;
+    private readonly ILogger<CueGenerationService>? _logger;
 
     /// <summary>
     /// Phrase segments must cover at least this fraction of the track's duration to be trusted
@@ -74,12 +77,16 @@ public sealed class CueGenerationService
     public CueGenerationService(
         IDbContextFactory<AppDbContext> contextFactory,
         BreakbeatAnalysisStrategy? breakbeatStrategy = null,
-        FourOnTheFloorAnalysisStrategy? fourOnFloorStrategy = null)
+        FourOnTheFloorAnalysisStrategy? fourOnFloorStrategy = null,
+        BassMusicAnalysisStrategy? bassMusicStrategy = null,
+        ILogger<CueGenerationService>? logger = null)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _classifier = new IntentClassifier();
         _breakbeatStrategy = breakbeatStrategy;
         _fourOnFloorStrategy = fourOnFloorStrategy;
+        _bassMusicStrategy = bassMusicStrategy;
+        _logger = logger;
     }
 
     // ── Public API ──────────────────────────────────────────────────────────
@@ -138,8 +145,9 @@ public sealed class CueGenerationService
         double downbeatAnchor,
         double? vocalStart = null,
         double? vocalEnd = null,
-        double? vocalIntensity = null)
-        => GenerateCuesWithPath(trackHash, analysis, downbeatAnchor, vocalStart, vocalEnd, vocalIntensity).Cues;
+        double? vocalIntensity = null,
+        CueGenerationProfile? profile = null)
+        => GenerateCuesWithPath(trackHash, analysis, downbeatAnchor, vocalStart, vocalEnd, vocalIntensity, profile).Cues;
 
     /// <summary>
     /// Same as <see cref="GenerateCues"/>, but also reports which of the three priority paths
@@ -152,13 +160,41 @@ public sealed class CueGenerationService
         double downbeatAnchor,
         double? vocalStart = null,
         double? vocalEnd = null,
-        double? vocalIntensity = null)
+        double? vocalIntensity = null,
+        CueGenerationProfile? profile = null)
     {
+        profile ??= CueGenerationProfiles.Balanced;
         double duration = analysis.DurationSeconds;
         double bpm = analysis.Bpm;
         if (duration <= 0 || bpm <= 0) return (new List<CuePointEntity>(), CueGenerationPath.None);
 
         bool dspSignalsAvailable = analysis.SubBassReturnTimestamps.Count >= 1 || analysis.NoveltyDropSignatures.Count >= 1;
+
+        (List<CuePointEntity> Cues, CueGenerationPath Path) Done(List<CuePointEntity> cues, CueGenerationPath path)
+        {
+            ShadowScoreCues(trackHash, analysis, cues, path);
+            return (cues, path);
+        }
+
+        // Experimental profiles force one existing path; Balanced keeps the production cascade.
+        if (profile.Strategy == CueGenerationStrategy.Heuristic)
+        {
+            return Done(GenerateCuesHeuristic(
+                trackHash, analysis, downbeatAnchor, duration, bpm, vocalStart, vocalEnd, vocalIntensity),
+                CueGenerationPath.Heuristic);
+        }
+        if (profile.Strategy == CueGenerationStrategy.Dsp)
+        {
+            return Done(GenerateCuesDsp(trackHash, analysis, downbeatAnchor, duration, bpm), CueGenerationPath.Dsp);
+        }
+        if (profile.Strategy == CueGenerationStrategy.Phrase && analysis.PhraseSegments is { Count: >= 2 })
+        {
+            var forcedSegments = SanitizeSegments(analysis.PhraseSegments, bpm);
+            return Done(GenerateCuesFromPhraseSegments(
+                trackHash, forcedSegments, duration, bpm, downbeatAnchor,
+                analysis.SubBassReturnTimestamps, analysis.Genre, profile.UseDspRescue),
+                CueGenerationPath.PhraseSegments);
+        }
 
         // ── Path 1: phrase segments (Rekordbox PSSI / heuristic structure) ──
         if (analysis.PhraseSegments is { Count: >= 2 })
@@ -205,22 +241,22 @@ public sealed class CueGenerationService
 
             if ((realDropCount >= 2 && !phraseCoverageIncomplete) || !dspSignalsAvailable)
             {
-                return (GenerateCuesFromPhraseSegments(
+                return Done(GenerateCuesFromPhraseSegments(
                     trackHash, sanitized, duration, bpm, downbeatAnchor, analysis.SubBassReturnTimestamps, analysis.Genre),
                     CueGenerationPath.PhraseSegments);
             }
 
-            return (GenerateCuesDsp(trackHash, analysis, downbeatAnchor, duration, bpm), CueGenerationPath.DspPhraseRejected);
+            return Done(GenerateCuesDsp(trackHash, analysis, downbeatAnchor, duration, bpm), CueGenerationPath.DspPhraseRejected);
         }
 
         // ── Path 2: Sub-bass DSP (no AI needed — uses computed energy signals)
         if (dspSignalsAvailable)
         {
-            return (GenerateCuesDsp(trackHash, analysis, downbeatAnchor, duration, bpm), CueGenerationPath.Dsp);
+            return Done(GenerateCuesDsp(trackHash, analysis, downbeatAnchor, duration, bpm), CueGenerationPath.Dsp);
         }
 
         // ── Path 3: Heuristic fallback (transient clustering + IntentClassifier)
-        return (GenerateCuesHeuristic(
+        return Done(GenerateCuesHeuristic(
             trackHash, analysis, downbeatAnchor, duration, bpm, vocalStart, vocalEnd, vocalIntensity),
             CueGenerationPath.Heuristic);
     }
@@ -234,7 +270,8 @@ public sealed class CueGenerationService
         double bpm,
         double downbeatAnchor,
         IReadOnlyList<double>? dspReturns = null,
-        string? genre = null)
+        string? genre = null,
+        bool useDspRescue = true)
     {
         // Callers pass already-sanitized segments (GenerateCues runs SanitizeSegments once up
         // front to decide between this path and the DSP path) — re-sanitizing here would be
@@ -319,12 +356,32 @@ public sealed class CueGenerationService
         // (>30s), and only when a DSP candidate sits in a plausible first-drop window — it never
         // touches drop1Time when phrase data already found something reasonably early, and never
         // touches drop2Time at all.
-        if (drops.Count > 0 && dspReturns is { Count: > 0 })
+        if (useDspRescue && drops.Count > 0 && dspReturns is { Count: > 0 })
         {
             double earliestPlausible = Math.Max(10.0, duration * 0.08);
             double latestPlausible = duration * 0.55;
+
+            // A sub-bass return inside the intro — or inside the final build that leads into
+            // the phrase drop — is a build/intro event, not a drop. Keep the phrase drop unless
+            // the independent return is already outside both. Verified case: A Little Sound -
+            // I Just Can't Get Enough (175 BPM) has its real structural drop at 56.0s, a phrase
+            // drop at 65.8s, and a sub-bass return at 23.2s inside the 21.9-56.0s build. Without
+            // this guard the rescue moved Drop 1 to 23.3s.
+            double introEndSeconds = intros.Count > 0
+                ? intros[0].Start + intros[0].Duration
+                : 0.0;
+            var finalBuild = segments
+                .Where(s => Is(s, "Build") && s.Start < drop1Time && s.Start + s.Duration >= drop1Time - bar)
+                .OrderByDescending(s => s.Start)
+                .FirstOrDefault();
+            double finalBuildStart = finalBuild is not null ? finalBuild.Start : double.PositiveInfinity;
+
             var earlierDsp = dspReturns
-                .Where(t => t >= earliestPlausible && t <= latestPlausible && t < drop1Time - 30.0)
+                .Where(t => t >= earliestPlausible
+                    && t <= latestPlausible
+                    && t < drop1Time - 30.0
+                    && t >= introEndSeconds
+                    && t < finalBuildStart)
                 .OrderBy(t => t)
                 .FirstOrDefault();
             if (earlierDsp > 0)
@@ -478,11 +535,15 @@ public sealed class CueGenerationService
         // leans on sub-bass; four-on-the-floor (House/Techno/Trance/EDM) leans on spectral flux,
         // since brickwall limiting washes out raw RMS for those genres. Unrecognized genres keep
         // today's old implicit non-continuous-bassline default (unchanged behavior).
-        var classification = GenreFamilyClassifier.Classify(analysis.Genre, (float)bpm);
+        var classification = GenreFamilyClassifier.Classify(analysis.Genre, (float)bpm, analysis.GenreConfidence, analysis.GenreSource);
+        if (classification.WasTempoOverride)
+            _logger?.LogInformation("[GenreOverride] {Hash}: model genre '{Genre}' at {Bpm:F1} BPM overridden to Breakbeat",
+                trackHash, analysis.Genre, bpm);
         IGenreFamilyAnalysisStrategy? strategy = classification.Family switch
         {
             GenreFamily.Breakbeat => (IGenreFamilyAnalysisStrategy?)_breakbeatStrategy,
             GenreFamily.FourOnTheFloor => _fourOnFloorStrategy,
+            GenreFamily.Dubstep => _bassMusicStrategy,
             _ => null
         };
         // 0.85/0.45/1.0 — verified against git show 07834bc^ (the pre-genre-family default) so this
@@ -620,6 +681,149 @@ public sealed class CueGenerationService
     /// -2.9 s; no regression on Drop 1 or with phrase data present. Falls back to the old
     /// second-half pick when nothing qualifies.
     /// </summary>
+    /// <summary>
+    /// Phase B shadow: score the cues the live path just produced with the genre-aware consensus
+    /// model and log the comparison. No cue timestamp is read from this result.
+    /// </summary>
+    private void ShadowScoreCues(
+        string trackHash,
+        AnalysisPipelineResult analysis,
+        IReadOnlyList<CuePointEntity> cues,
+        CueGenerationPath path)
+    {
+        if (_logger is null) return;
+
+        var drops = cues
+            .Where(c => c.Type == CuePointType.Drop)
+            .OrderBy(c => c.TimestampInSeconds)
+            .ToList();
+        if (drops.Count < 2) return;
+
+        var classification = GenreFamilyClassifier.Classify(analysis.Genre, analysis.Bpm, analysis.GenreConfidence, analysis.GenreSource);
+        IGenreFamilyAnalysisStrategy? strategy = classification.Family switch
+        {
+            GenreFamily.Breakbeat => _breakbeatStrategy,
+            GenreFamily.FourOnTheFloor => _fourOnFloorStrategy,
+            GenreFamily.Dubstep => _bassMusicStrategy,
+            _ => null,
+        };
+        if (strategy is null) return;
+
+        double bar = 240.0 / analysis.Bpm;
+        var candidates = drops
+            .Select(c => (Time: c.TimestampInSeconds, Score: c.Confidence))
+            .ToList();
+        ShadowScoreDrop2(trackHash, analysis, candidates,
+            drops[0].TimestampInSeconds, drops[^1].TimestampInSeconds, bar, classification, strategy, path);
+    }
+
+    private void ShadowScoreDrop2(
+        string trackHash,
+        AnalysisPipelineResult analysis,
+        IReadOnlyList<(double Time, float Score)> candidates,
+        double existingDrop1Time,
+        double existingDrop2Time,
+        double bar,
+        GenreFamilyResult classification,
+        IGenreFamilyAnalysisStrategy strategy,
+        CueGenerationPath path)
+    {
+        var preset = strategy.ResolvePreset(classification.Subgenre);
+        var scored = candidates
+            .Select(c => BuildDropScoreCandidate(c, analysis, bar))
+            .ToList();
+        var result = DropConsensusScorer.RankAndSelectDrop2(
+            scored, existingDrop1Time, analysis.DurationSeconds, analysis.Bpm, preset, strategy.ScoringWeights);
+
+        if (result.Drop2 is null) return;
+        bool agrees = Math.Abs(result.Drop2.TimeSeconds - existingDrop2Time) <= bar * 0.5;
+        if (agrees)
+        {
+            _logger!.LogDebug(
+                "[DropShadow] {Hash} path={Path} family={Family} existing={Existing:F2}s consensus={Consensus:F2}s agree=True score={Score:F3} preset={Preset}",
+                trackHash, path, classification.Family, existingDrop2Time, result.Drop2.TimeSeconds,
+                result.Drop2.FinalScore, preset.Genre);
+            return;
+        }
+
+        _logger!.LogInformation(
+            "[DropShadow] {Hash} path={Path} family={Family} existing={Existing:F2}s consensus={Consensus:F2}s agree=False score={Score:F3} preset={Preset}",
+            trackHash, path, classification.Family, existingDrop2Time, result.Drop2.TimeSeconds,
+            result.Drop2.FinalScore, preset.Genre);
+
+        foreach (var c in result.Ranked.Take(4))
+            _logger.LogInformation(
+                "[DropShadow] {Hash} candidate {Time:F2}s score={Score:F3} bars={Bars:F1} sub={Sub:F2} flux={Flux:F2} energy={Energy:F2} phrase={Phrase:F2} role={Role}",
+                trackHash, c.TimeSeconds, c.FinalScore, c.SectionDurationBars,
+                c.SubBassReturnStrength, c.SpectralFluxNovelty, c.SustainedPostEnergy,
+                c.PhraseConfidence, c.InsideBuildOrBreakdown ? "build/break" : "drop");
+    }
+
+    private static DropScoreCandidate BuildDropScoreCandidate(
+        (double Time, float Score) candidate, AnalysisPipelineResult analysis, double bar)
+    {
+        var at = FindPhraseAt(analysis.PhraseSegments, candidate.Time);
+        var next = analysis.PhraseSegments
+            .Where(s => s.Start > candidate.Time + 0.01)
+            .OrderBy(s => s.Start)
+            .FirstOrDefault();
+        double end = next?.Start ?? analysis.DurationSeconds;
+        double sectionBars = Math.Max(0, end - candidate.Time) / bar;
+
+        var nearestDrop = analysis.PhraseSegments
+            .Where(s => s.Label.StartsWith("Drop", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(s => Math.Abs(s.Start - candidate.Time))
+            .FirstOrDefault();
+
+        bool insideBuild = at is not null &&
+            (at.Label.StartsWith("Build", StringComparison.OrdinalIgnoreCase) ||
+             at.Label.StartsWith("Break", StringComparison.OrdinalIgnoreCase));
+
+        double subBass = NormalizedAt(analysis.SubBassEnergyCurve, candidate.Time, analysis.DurationSeconds);
+        if (subBass <= 0) subBass = Math.Clamp(candidate.Score, 0, 1);
+
+        return new DropScoreCandidate
+        {
+            TimeSeconds = candidate.Time,
+            SectionDurationBars = sectionBars,
+            PhraseConfidence = nearestDrop?.Confidence ?? 0.35f,
+            SubBassReturnStrength = subBass,
+            SpectralFluxNovelty = NormalizedAt(analysis.SpectralFluxNovelty, candidate.Time, analysis.DurationSeconds),
+            SustainedPostEnergy = SustainedEnergyAfter(analysis.EnergyCurve, candidate.Time, 8 * bar, analysis.DurationSeconds),
+            InsideBuildOrBreakdown = insideBuild,
+            // CUE-DETR is optional; null means the scorer redistributes its weight.
+            CueDetrAgreement = null,
+        };
+    }
+
+    private static PhraseSegment? FindPhraseAt(IReadOnlyList<PhraseSegment> phrases, double time)
+        => phrases
+            .Where(s => s.Start <= time + 0.01 && s.Start + s.Duration >= time - 0.01)
+            .OrderByDescending(s => s.Start)
+            .FirstOrDefault();
+
+    private static double NormalizedAt(IReadOnlyList<float> curve, double time, double duration)
+    {
+        if (curve.Count == 0 || duration <= 0) return 0;
+        double max = curve.Max();
+        if (max <= 0) return 0;
+        int index = (int)Math.Clamp(time / duration * (curve.Count - 1), 0, curve.Count - 1);
+        return Math.Clamp(curve[index] / max, 0, 1);
+    }
+
+    private static double SustainedEnergyAfter(IReadOnlyList<float> curve, double time, double lengthSeconds, double duration)
+    {
+        if (curve.Count == 0 || duration <= 0) return 0;
+        double max = curve.Max();
+        if (max <= 0) return 0;
+        double secondsPerSample = duration / curve.Count;
+        int start = (int)Math.Clamp(time / secondsPerSample, 0, curve.Count - 1);
+        int end = (int)Math.Clamp((time + lengthSeconds) / secondsPerSample, start + 1, curve.Count);
+        double sum = 0;
+        for (int i = start; i < end; i++) sum += curve[i];
+        return Math.Clamp(sum / (end - start) / max, 0, 1);
+    }
+
     internal static (double Time, float Score) SelectSecondDrop(
         IReadOnlyList<(double Time, float Score)> candidates, double drop1Time,
         IReadOnlyList<double> dropouts, double bar, double duration)

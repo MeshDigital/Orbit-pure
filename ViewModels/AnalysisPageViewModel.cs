@@ -11,6 +11,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using ReactiveUI;
+using SLSKDONET.Configuration;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
@@ -740,6 +741,8 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     private readonly LibraryCorruptionScanService? _corruptionScanService;
     private readonly CorruptFileRemediationService? _remediationService;
     private readonly AnalyzeTrackStructureJob? _cueStructureJob;
+    private readonly AppConfig? _config;
+    private readonly ConfigManager? _configManager;
     private readonly CompositeDisposable _disposables = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly Stopwatch _analysisSessionStopwatch = new();
@@ -788,6 +791,26 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public ObservableCollection<PerformanceProbeRun> PerformanceProbeRuns { get; } = new();
     public ObservableCollection<AnalysisTrackItem> PlaylistTracks { get; } = new();
     public AutomixConstraints AutomixConstraints { get; } = new();
+
+    /// <summary>Option labels for the per-run BPM/key backend ComboBox. Member names of the
+    /// <see cref="SLSKDONET.Models.AnalysisAudioEngine"/> enum.</summary>
+    public static string[] AvailableAnalysisAudioEngines { get; } = { "Essentia", "InProcess" };
+
+    /// <summary>Which backend produces BPM, key and the beat grid for the next analysis run.
+    /// Mirrors the Settings value; editing it here persists it too.</summary>
+    public string AnalysisAudioEngine
+    {
+        get => _config?.AnalysisAudioEngine ?? "Essentia";
+        set
+        {
+            if (_config is not null && !string.Equals(_config.AnalysisAudioEngine, value, StringComparison.Ordinal))
+            {
+                _config.AnalysisAudioEngine = value;
+                this.RaisePropertyChanged();
+                _configManager?.Save(_config);
+            }
+        }
+    }
 
     // ── State ────────────────────────────────────────────────────────────────────
 
@@ -1134,6 +1157,8 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         LibraryCorruptionScanService? corruptionScanService = null,
         CorruptFileRemediationService? remediationService = null,
         AnalyzeTrackStructureJob? cueStructureJob = null,
+        AppConfig? config = null,
+        ConfigManager? configManager = null,
         LoudnessBackfillViewModel? loudnessBackfill = null,
         EnrichmentViewModel? enrichment = null,
         AnalysisCoverageService? coverageService = null)
@@ -1148,6 +1173,8 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         _corruptionScanService = corruptionScanService;
         _remediationService = remediationService;
         _cueStructureJob = cueStructureJob;
+        _config = config;
+        _configManager = configManager;
 
         if (_libraryService is null)
             LoadMockData();

@@ -15,7 +15,7 @@ namespace SLSKDONET.Engine.Analysis;
 /// </summary>
 public sealed class BreakbeatAnalysisStrategy : IGenreFamilyAnalysisStrategy
 {
-    private const float BracketMin = 170f;
+    private const float BracketMin = 160f;
     private const float BracketMax = 180f;
 
     // Lighter than BpmDetectionService's blind genre-agnostic half-time-correction penalty
@@ -54,6 +54,14 @@ public sealed class BreakbeatAnalysisStrategy : IGenreFamilyAnalysisStrategy
 
     public DropSignalWeights GetSignalWeights()
         => new(SubBassWeight: 0.85f, EnergyJumpWeight: 0.35f, SpectralFluxWeight: 0.55f);
+
+    public DropScoringWeights ScoringWeights => new(
+        SubBassReturn: 0.30,
+        SpectralFluxNovelty: 0.15,
+        SustainedEnergy: 0.15,
+        PhraseConfidence: 0.15,
+        SectionLength: 0.15,
+        CueDetrAgreement: 0.10);
 
     /// <summary>
     /// DnB has no independent drop-time signal beyond what sub-bass-return/novelty already

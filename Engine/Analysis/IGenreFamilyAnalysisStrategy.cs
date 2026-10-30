@@ -33,6 +33,13 @@ public interface IGenreFamilyAnalysisStrategy
     DropSignalWeights GetSignalWeights();
 
     /// <summary>
+    /// Weights for the Drop 2 consensus score. The six components sum to exactly 1.0; the
+    /// CUE-DETR component is optional at runtime (when no cached result exists the scorer
+    /// redistributes that share across the other five).
+    /// </summary>
+    DropScoringWeights ScoringWeights { get; }
+
+    /// <summary>
     /// Family-specific DROP candidates to merge into the existing scored-candidate list — the
     /// moment the track actually hits, e.g. FourOnTheFloor's structural-stripping return (kick
     /// re-enters at full force). Breakbeat has no equivalent independent drop signal beyond what
@@ -56,3 +63,39 @@ public interface IGenreFamilyAnalysisStrategy
 /// <summary>Per-signal weights for DSP drop-candidate scoring — replaces the old single
 /// <c>IsContinuousBasslineGenre</c> boolean + 2-weight scheme with a genre-family-driven 3-way tuple.</summary>
 public readonly record struct DropSignalWeights(float SubBassWeight, float EnergyJumpWeight, float SpectralFluxWeight);
+
+/// <summary>
+/// Six normalized weights for the Drop 2 consensus score. <see cref="SubBassReturn"/>,
+/// <see cref="SpectralFluxNovelty"/>, <see cref="SustainedEnergy"/>, <see cref="PhraseConfidence"/>,
+/// <see cref="SectionLength"/>, <see cref="CueDetrAgreement"/> sum to 1.0.
+/// </summary>
+public readonly record struct DropScoringWeights(
+    double SubBassReturn,
+    double SpectralFluxNovelty,
+    double SustainedEnergy,
+    double PhraseConfidence,
+    double SectionLength,
+    double CueDetrAgreement)
+{
+    public double Total => SubBassReturn + SpectralFluxNovelty + SustainedEnergy
+        + PhraseConfidence + SectionLength + CueDetrAgreement;
+
+    /// <summary>Remove the CUE-DETR component and redistribute its share proportionally across
+    /// the five always-available signals, keeping the total at 1.0.</summary>
+    public DropScoringWeights WithoutCueDetr()
+    {
+        double available = SubBassReturn + SpectralFluxNovelty + SustainedEnergy
+            + PhraseConfidence + SectionLength;
+        if (available <= 0) return this;
+        double scale = 1.0 / available;
+        return this with
+        {
+            SubBassReturn = SubBassReturn * scale,
+            SpectralFluxNovelty = SpectralFluxNovelty * scale,
+            SustainedEnergy = SustainedEnergy * scale,
+            PhraseConfidence = PhraseConfidence * scale,
+            SectionLength = SectionLength * scale,
+            CueDetrAgreement = 0,
+        };
+    }
+}

@@ -12,12 +12,12 @@ namespace SLSKDONET.Services.Timeline;
 /// </summary>
 public static class TransitionPresetLibrary
 {
-    public static readonly string[] PresetNames = { "Auto", "Rolling", "Relaxed", "Drop Sync", "Fade", "Rise", "Blend", "Wave", "Melt", "Custom" };
+    public static readonly string[] PresetNames = { "Auto", "Rolling", "Relaxed", "Drop Sync", "1-Bar Drop Swap", "Fade", "Rise", "Blend", "Wave", "Melt", "Custom" };
 
     /// <summary>Presets whose timing comes from the track structure (Engine.Transitions.TransitionPlanner),
     /// not just a duration: picking one re-plans the mix-out/mix-in points.</summary>
     public static bool IsStructurePlanned(string? presetName) =>
-        presetName is "Auto" or "Rolling" or "Relaxed" or "Drop Sync";
+        presetName is "Auto" or "Rolling" or "Relaxed" or "Drop Sync" or "1-Bar Drop Swap";
 
     public static TransitionModel Build(string presetName, TrackPairCompatibilityScorer.PairScore? pairScore = null, int? durationBarsOverride = null)
     {
@@ -44,6 +44,16 @@ public static class TransitionPresetLibrary
             // Sync centre the window on the incoming drop and swap the bassline exactly there.
             "Rolling" => new TransitionModel { Type = TransitionType.EqSwap, DurationBeats = 32 * 4, EqSwapLow = true, EqHardLowSwap = true },
             "Drop Sync" => new TransitionModel { Type = TransitionType.EqSwap, DurationBeats = 32 * 4, EqSwapLow = true, EqHardLowSwap = true },
+            // One bar out from each drop; the bass stays on the outgoing track for that bar and
+            // swaps to the incoming track exactly on the impact (not at the window midpoint).
+            "1-Bar Drop Swap" => new TransitionModel
+            {
+                Type = TransitionType.EqSwap,
+                DurationBeats = 1 * 4,
+                EqSwapLow = true,
+                EqHardLowSwap = true,
+                EqHardLowSwapAtEnd = true,
+            },
             "Relaxed" => new TransitionModel { Type = TransitionType.EqSwap, DurationBeats = 16 * 4, EqSwapLow = true, EqSwapMid = true },
             _ => BuildAuto(pairScore), // "Auto" and unrecognized/"Custom" (custom overrides are applied by the caller) fall back to Auto's heuristic.
         };

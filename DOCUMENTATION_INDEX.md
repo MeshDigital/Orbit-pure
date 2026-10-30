@@ -65,6 +65,7 @@ removed and why). Every link below was verified to point at a file that actually
 | [DOCS/workstation/flow-integration-blueprint.md](DOCS/workstation/flow-integration-blueprint.md) | Flow integration blueprint |
 | [DOCS/workstation/flow-intelligence-design-note.md](DOCS/workstation/flow-intelligence-design-note.md) | Flow intelligence design note |
 | [DOCS/workstation/flow-slice-4-transition-presets-blueprint.md](DOCS/workstation/flow-slice-4-transition-presets-blueprint.md) | Transition presets blueprint |
+| [DOCS/workstation/knowledge-system-vnext.md](DOCS/workstation/knowledge-system-vnext.md) | Knowledge system (vNext) master plan — transition graph, event profiles, story graphs, feedback loop, AI copilot |
 | [DOCS/workstation/runtime-qa-cockpit-gate.md](DOCS/workstation/runtime-qa-cockpit-gate.md) | Runtime QA cockpit gate |
 | [DOCS/workstation/timeline.md](DOCS/workstation/timeline.md) | Workstation timeline |
 | [DOCS/workstation/tools.md](DOCS/workstation/tools.md) | Workstation tools |

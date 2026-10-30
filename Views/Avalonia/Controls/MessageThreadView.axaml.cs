@@ -42,6 +42,9 @@ public partial class MessageThreadView : UserControl
     public static readonly StyledProperty<ICommand?> DeleteMessageCommandProperty =
         AvaloniaProperty.Register<MessageThreadView, ICommand?>(nameof(DeleteMessageCommand));
 
+    public static readonly StyledProperty<ICommand?> OpenUserCommandProperty =
+        AvaloniaProperty.Register<MessageThreadView, ICommand?>(nameof(OpenUserCommand));
+
     public IEnumerable? Messages
     {
         get => GetValue(MessagesProperty);
@@ -78,6 +81,15 @@ public partial class MessageThreadView : UserControl
     {
         get => GetValue(DeleteMessageCommandProperty);
         set => SetValue(DeleteMessageCommandProperty, value);
+    }
+
+    /// <summary>Bound by room chat (not 1:1): opens the clicked sender's profile. Null in 1:1 chat,
+    /// where the sender is already the profile on screen, so the sender name stays non-interactive
+    /// (the view hides hit-testing when this command is null).</summary>
+    public ICommand? OpenUserCommand
+    {
+        get => GetValue(OpenUserCommandProperty);
+        set => SetValue(OpenUserCommandProperty, value);
     }
 
     private const double NearBottomThreshold = 120;

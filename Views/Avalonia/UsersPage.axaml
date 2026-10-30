@@ -305,7 +305,7 @@
                                         </TabItem>
 
                                         <TabItem Header="Shares">
-                                            <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="0,12,0,0">
+                                            <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="0,12,0,0">
                                                 <TextBox Grid.Row="0" Classes="search small" Margin="0,0,0,8"
                                                          Text="{Binding SelectedProfile.Browser.FilterText, Mode=TwoWay}" Watermark="Filter shares"/>
                                                 <TextBlock Grid.Row="1" Classes="caption" Text="{Binding SelectedProfile.Browser.StatusText}"
@@ -325,6 +325,8 @@
                                                                               Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}" IsVisible="{Binding IsPlainFile}"/>
                                                                 </Panel>
                                                                 <TextBlock Classes="body-sm" Text="{Binding DisplayName}" VerticalAlignment="Center"/>
+                                                                <TextBlock Classes="caption muted" Text="{Binding ProvenanceLabel}" VerticalAlignment="Center"
+                                                                           IsVisible="{Binding HasProvenance}" ToolTip.Tip="Already in your library"/>
                                                             </StackPanel>
                                                         </TreeDataTemplate>
                                                     </TreeView.ItemTemplate>
@@ -337,9 +339,17 @@
                                                             <TextBlock Text="Queue selected"/>
                                                         </StackPanel>
                                                     </Button>
+                                                    <Button Classes="secondary small" Content="Download missing"
+                                                            Command="{Binding SelectedProfile.Browser.QueueMissingCommand}"
+                                                            ToolTip.Tip="Download only the files in this folder that aren't in your library yet"/>
+                                                </StackPanel>
+                                                <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="12" Margin="0,8,0,0">
                                                     <Button Classes="secondary small" Content="Queue all"
                                                             Command="{Binding SelectedProfile.Browser.QueueAllCommand}"
                                                             ToolTip.Tip="Download every music file in this user's shares"/>
+                                                    <CheckBox Content="Downloaded only"
+                                                              IsChecked="{Binding SelectedProfile.Browser.ShowOnlyAcquired, Mode=TwoWay}"
+                                                              ToolTip.Tip="Show the tracks already downloaded from this user, grouped by origin folder"/>
                                                 </StackPanel>
                                             </Grid>
                                         </TabItem>
@@ -397,6 +407,9 @@
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <Ellipse Classes="presence" Fill="{Binding SelectedProfile.Presence, Converter={StaticResource PresenceToDotBrushConverter}}"/>
                                         <TextBlock Classes="caption" Text="{Binding SelectedProfile.Presence}"/>
+                                        <TextBlock Classes="num" Text="{Binding SelectedProfile.ReliabilityScoreDisplay}"
+                                                   VerticalAlignment="Center" IsVisible="{Binding SelectedProfile.HasReliabilityScore}"
+                                                   ToolTip.Tip="Reliability score"/>
                                     </StackPanel>
                                 </StackPanel>
                                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
@@ -586,11 +599,20 @@
                                             <ItemsControl ItemsSource="{Binding Rooms.SelectedRoom.Members}">
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate x:DataType="svc:RoomMemberSnapshot">
-                                                        <StackPanel Orientation="Horizontal" Spacing="8" MinHeight="28">
-                                                            <Ellipse Classes="presence" Fill="{Binding Presence, Converter={StaticResource PresenceToDotBrushConverter}}"
-                                                                     ToolTip.Tip="{Binding Presence}"/>
-                                                            <TextBlock Classes="body-sm" Text="{Binding Username}" VerticalAlignment="Center"/>
-                                                        </StackPanel>
+                                                        <Button Classes="list-row" MinHeight="28"
+                                                                Command="{ReflectionBinding $parent[ItemsControl].DataContext.Rooms.SelectedRoom.OpenUserProfileCommand}"
+                                                                CommandParameter="{Binding Username}"
+                                                                ToolTip.Tip="Open this user's profile">
+                                                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                                                <Ellipse Grid.Column="0" Classes="presence" Fill="{Binding Presence, Converter={StaticResource PresenceToDotBrushConverter}}"
+                                                                         ToolTip.Tip="{Binding Presence}" Margin="0,0,8,0"/>
+                                                                <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding Username}" VerticalAlignment="Center"/>
+                                                                <TextBlock Grid.Column="2" Classes="num" Margin="8,0,0,0"
+                                                                           Text="{Binding ReliabilityScoreDisplay}" VerticalAlignment="Center"
+                                                                           IsVisible="{Binding HasReliabilityScore}"
+                                                                           ToolTip.Tip="Reliability score"/>
+                                                            </Grid>
+                                                        </Button>
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
                                             </ItemsControl>
@@ -618,7 +640,8 @@
                                                     LoadOlderMessagesCommand="{Binding Rooms.SelectedRoom.LoadOlderMessagesCommand}"
                                                     IsLoadingOlderMessages="{Binding Rooms.SelectedRoom.IsLoadingOlderMessages}"
                                                     HasMoreHistory="{Binding Rooms.SelectedRoom.HasMoreHistory}"
-                                                    DeleteMessageCommand="{Binding Rooms.SelectedRoom.DeleteMessageCommand}"/>
+                                                    DeleteMessageCommand="{Binding Rooms.SelectedRoom.DeleteMessageCommand}"
+                                                    OpenUserCommand="{Binding Rooms.SelectedRoom.OpenUserProfileCommand}"/>
 
                         <StackPanel Grid.Row="3" Spacing="4" Margin="0,8,0,0">
                             <TextBlock Classes="caption error" Text="{Binding Rooms.SelectedRoom.ImageSendError}" TextWrapping="Wrap"

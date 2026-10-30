@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Reactive.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
+using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Utils;
@@ -21,6 +23,13 @@ public class UserCollectionViewModel : ReactiveObject
     private readonly ILogger<UserCollectionViewModel> _logger;
     private readonly ISoulseekAdapter _soulseek;
     private readonly DownloadManager _downloadManager;
+    private readonly DatabaseService? _databaseService;
+
+    // Provenance: normalized full remote paths (and raw history rows) of tracks already downloaded
+    // from the currently-open peer, hydrated once per LoadUserAsync. Path-aware — matched against
+    // the share tree's full virtual path, never the bare filename (which would collide across albums).
+    private readonly HashSet<string> _acquiredPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<DownloadHistoryEntity> _acquiredHistory = new();
 
     public ObservableCollection<UserCollectionNodeViewModel> RootNodes { get; } = new();
 
@@ -71,6 +80,22 @@ public class UserCollectionViewModel : ReactiveObject
         }
     }
 
+    private bool _showOnlyAcquired;
+    /// <summary>Switches the browser from the peer's live share tree to a local-only "Downloaded
+    /// from [user]" view, grouped by origin remote folder — usable when the peer is offline or
+    /// before their (possibly huge) share tree has been requested.</summary>
+    public bool ShowOnlyAcquired
+    {
+        get => _showOnlyAcquired;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _showOnlyAcquired, value);
+            ApplyCurrentView();
+            this.RaisePropertyChanged(nameof(HasActiveFilter));
+            this.RaisePropertyChanged(nameof(FilterSummary));
+        }
+    }
+
     private string _selectedSortOption = "Name";
     public string SelectedSortOption
     {
@@ -106,12 +131,13 @@ public class UserCollectionViewModel : ReactiveObject
     public string SelectedNodeWarning => SelectedNode?.WarningText ?? string.Empty;
     public bool HasSelectedNodeWarning => SelectedNode?.HasWarning == true;
     public bool HasVisibleNodes => RootNodes.Count > 0;
-    public bool HasActiveFilter => ShowMusicOnly || !string.IsNullOrWhiteSpace(FilterText) || !string.Equals(SelectedSortOption, "Name", StringComparison.OrdinalIgnoreCase);
+    public bool HasActiveFilter => ShowOnlyAcquired || ShowMusicOnly || !string.IsNullOrWhiteSpace(FilterText) || !string.Equals(SelectedSortOption, "Name", StringComparison.OrdinalIgnoreCase);
     public string FilterSummary
     {
         get
         {
             var parts = new List<string>();
+            if (ShowOnlyAcquired) parts.Add("downloaded only");
             if (ShowMusicOnly) parts.Add("music only");
             if (!string.IsNullOrWhiteSpace(FilterText)) parts.Add($"filter: {FilterText.Trim()}");
             if (!string.Equals(SelectedSortOption, "Name", StringComparison.OrdinalIgnoreCase)) parts.Add($"sort: {SelectedSortOption.ToLowerInvariant()}");
@@ -126,15 +152,18 @@ public class UserCollectionViewModel : ReactiveObject
 
     public ReactiveCommand<System.Reactive.Unit, System.Reactive.Unit> QueueSelectedCommand { get; }
     public ReactiveCommand<System.Reactive.Unit, System.Reactive.Unit> QueueAllCommand { get; }
+    public ReactiveCommand<System.Reactive.Unit, System.Reactive.Unit> QueueMissingCommand { get; }
 
     public UserCollectionViewModel(
         ILogger<UserCollectionViewModel> logger,
         ISoulseekAdapter soulseek,
-        DownloadManager downloadManager)
+        DownloadManager downloadManager,
+        DatabaseService? databaseService = null)
     {
         _logger = logger;
         _soulseek = soulseek;
         _downloadManager = downloadManager;
+        _databaseService = databaseService;
 
         var canQueueSelected = this.WhenAnyValue(x => x.SelectedNode)
             .Select(node => node?.QueueableFileCount > 0);
@@ -142,8 +171,12 @@ public class UserCollectionViewModel : ReactiveObject
         var canQueueAny = this.WhenAnyValue(x => x.MusicFileCount)
             .Select(count => count > 0);
 
+        var canQueueMissing = this.WhenAnyValue(x => x.SelectedNode)
+            .Select(node => node?.EnumerateFiles().Any(f => f.IsMusicFile && !f.IsAcquired) == true);
+
         QueueSelectedCommand = ReactiveCommand.CreateFromTask(QueueSelectedAsync, canQueueSelected);
         QueueAllCommand = ReactiveCommand.CreateFromTask(QueueAllAsync, canQueueAny);
+        QueueMissingCommand = ReactiveCommand.CreateFromTask(QueueMissingAsync, canQueueMissing);
     }
 
     public async Task LoadUserAsync(string username)
@@ -151,6 +184,8 @@ public class UserCollectionViewModel : ReactiveObject
         CurrentUsername = username;
         SelectedNode = null;
         _allShares.Clear();
+        _acquiredPaths.Clear();
+        _acquiredHistory.Clear();
         RootNodes.Clear();
         NotifyTreeChanged();
 
@@ -165,6 +200,19 @@ public class UserCollectionViewModel : ReactiveObject
 
         try
         {
+            // Local-only provenance first (works even when the peer is offline): the tracks you've
+            // already downloaded from this username, keyed by their full remote path for path-aware
+            // "already acquired" matching against the share tree below.
+            if (_databaseService != null)
+            {
+                var history = await _databaseService.GetDownloadHistoryForUserAsync(username).ConfigureAwait(true);
+                foreach (var entry in history.Where(h => h.FinalState == "Completed" && !string.IsNullOrWhiteSpace(h.DownloadedFilename)))
+                {
+                    _acquiredHistory.Add(entry);
+                    _acquiredPaths.Add(NormalizeRemotePath(entry.DownloadedFilename));
+                }
+            }
+
             var shares = (await _soulseek.GetUserSharesAsync(username)).ToList();
             _allShares.AddRange(shares);
 
@@ -191,6 +239,17 @@ public class UserCollectionViewModel : ReactiveObject
     {
         RootNodes.Clear();
 
+        if (ShowOnlyAcquired)
+        {
+            BuildAcquiredTree();
+            SortNodes(RootNodes, SelectedSortOption);
+            NotifyTreeChanged();
+            StatusText = _acquiredHistory.Count == 0
+                ? $"Nothing downloaded from {CurrentUsername} yet."
+                : $"Showing {_acquiredHistory.Count} track(s) downloaded from {CurrentUsername}, grouped by origin folder.";
+            return;
+        }
+
         IEnumerable<Track> filteredShares = _allShares;
 
         if (ShowMusicOnly)
@@ -209,6 +268,7 @@ public class UserCollectionViewModel : ReactiveObject
         {
             BuildTree(materializedShares);
             SortNodes(RootNodes, SelectedSortOption);
+            ComputeFolderAcquisitionStates(RootNodes);
         }
 
         NotifyTreeChanged();
@@ -260,7 +320,7 @@ public class UserCollectionViewModel : ReactiveObject
                 nodes = currentFolder.ChildNodes;
             }
 
-            var fileNode = new UserCollectionFileNodeViewModel(share, segments[^1], IsMusicExtension(share));
+            var fileNode = new UserCollectionFileNodeViewModel(share, segments[^1], IsMusicExtension(share), _acquiredPaths.Contains(NormalizeRemotePath(share.Filename)));
             if (currentFolder == null)
             {
                 RootNodes.Add(fileNode);
@@ -348,6 +408,16 @@ public class UserCollectionViewModel : ReactiveObject
         await QueueFilesAsync(RootNodes.SelectMany(n => n.EnumerateFiles()).Where(f => f.IsMusicFile));
     }
 
+    /// <summary>Queues only the unacquired music files under the selected folder/track — "Download
+    /// Missing from Folder", the companion to <see cref="QueueSelectedCommand"/>'s full-folder download.</summary>
+    private async Task QueueMissingAsync()
+    {
+        if (SelectedNode == null)
+            return;
+
+        await QueueFilesAsync(SelectedNode.EnumerateFiles().Where(f => f.IsMusicFile && !f.IsAcquired));
+    }
+
     private Task QueueFilesAsync(IEnumerable<UserCollectionFileNodeViewModel> files)
     {
         var queued = 0;
@@ -369,6 +439,71 @@ public class UserCollectionViewModel : ReactiveObject
         return Task.CompletedTask;
     }
 
+    /// <summary>Normalizes a remote path for case-insensitive, separator-insensitive comparison —
+    /// the share tree reports full virtual paths with '\' separators while history may store '/' or
+    /// a bare basename, so both sides are lowercased and canonicalised to '\' before matching.</summary>
+    private static string NormalizeRemotePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return string.Empty;
+        return path.Replace('/', '\\').Trim().TrimStart('\\');
+    }
+
+    /// <summary>Builds a local-only tree from the peer's download history, grouped by origin remote
+    /// folder — the "Downloaded from [user]" view, independent of the live share tree.</summary>
+    private void BuildAcquiredTree()
+    {
+        foreach (var group in _acquiredHistory
+            .GroupBy(h => NormalizeRemotePath(Path.GetDirectoryName(h.DownloadedFilename)), StringComparer.OrdinalIgnoreCase)
+            .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            var folderName = string.IsNullOrWhiteSpace(group.Key) ? "(root)" : group.Key;
+            var folderNode = new UserCollectionFolderNodeViewModel(folderName);
+            foreach (var entry in group.OrderBy(e => e.DownloadedFilename, StringComparer.OrdinalIgnoreCase))
+            {
+                var fileName = Path.GetFileName(entry.DownloadedFilename);
+                var track = new Track
+                {
+                    Filename = entry.DownloadedFilename,
+                    Artist = entry.Artist,
+                    Title = entry.Title,
+                    Username = CurrentUsername,
+                    Format = entry.DownloadedFormat,
+                    Bitrate = entry.DownloadedBitrateKbps ?? 0,
+                };
+                folderNode.ChildNodes.Add(new UserCollectionFileNodeViewModel(
+                    track,
+                    string.IsNullOrWhiteSpace(fileName) ? entry.DownloadedFilename! : fileName,
+                    isMusicFile: true,
+                    isAcquired: true));
+            }
+            RootNodes.Add(folderNode);
+        }
+    }
+
+    /// <summary>Post-pass over the share tree: stamps each folder with Complete/Partial/None based
+    /// on how many of its music files are already in the library.</summary>
+    private void ComputeFolderAcquisitionStates(ObservableCollection<UserCollectionNodeViewModel> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            if (node is not UserCollectionFolderNodeViewModel folder)
+                continue;
+
+            ComputeFolderAcquisitionStates(folder.ChildNodes);
+
+            var musicFiles = folder.EnumerateFiles().Where(f => f.IsMusicFile).ToList();
+            if (musicFiles.Count == 0)
+                folder.AcquisitionState = FolderAcquisitionState.None;
+            else if (musicFiles.All(f => f.IsAcquired))
+                folder.AcquisitionState = FolderAcquisitionState.Complete;
+            else if (musicFiles.Any(f => f.IsAcquired))
+                folder.AcquisitionState = FolderAcquisitionState.Partial;
+            else
+                folder.AcquisitionState = FolderAcquisitionState.None;
+        }
+    }
+
     private static bool IsMusicExtension(Track track)
     {
         var extension = (track.Format ?? track.GetExtension())?.Trim().TrimStart('.');
@@ -384,6 +519,14 @@ public class UserCollectionViewModel : ReactiveObject
         this.RaisePropertyChanged(nameof(SuspiciousLosslessCount));
         this.RaisePropertyChanged(nameof(HasSuspiciousLossless));
     }
+}
+
+/// <summary>How much of a remote folder has already been downloaded into the local library.</summary>
+public enum FolderAcquisitionState
+{
+    None,
+    Partial,
+    Complete
 }
 
 public abstract class UserCollectionNodeViewModel : ReactiveObject
@@ -402,6 +545,9 @@ public abstract class UserCollectionNodeViewModel : ReactiveObject
     public virtual string SecondaryText => string.Empty;
     public virtual string WarningText => string.Empty;
     public virtual bool HasWarning => !string.IsNullOrWhiteSpace(WarningText);
+    /// <summary>Provenance badge text (e.g. "complete", "partial", "in library"); empty when none.</summary>
+    public virtual string ProvenanceLabel => string.Empty;
+    public virtual bool HasProvenance => !string.IsNullOrWhiteSpace(ProvenanceLabel);
     public virtual IEnumerable<UserCollectionNodeViewModel> Children => Enumerable.Empty<UserCollectionNodeViewModel>();
     public virtual IEnumerable<UserCollectionFileNodeViewModel> EnumerateAllFiles() => Enumerable.Empty<UserCollectionFileNodeViewModel>();
     public virtual IEnumerable<UserCollectionFileNodeViewModel> EnumerateFiles() => Enumerable.Empty<UserCollectionFileNodeViewModel>();
@@ -419,6 +565,21 @@ public sealed class UserCollectionFolderNodeViewModel : UserCollectionNodeViewMo
     public override bool IsFolder => true;
     public override string SecondaryText => QueueableFileCount > 0 ? $"{QueueableFileCount} track(s)" : "Folder";
 
+    private FolderAcquisitionState _acquisitionState;
+    /// <summary>Complete/Partial/None, computed once the share tree is built from the peer's download history.</summary>
+    public FolderAcquisitionState AcquisitionState
+    {
+        get => _acquisitionState;
+        set => this.RaiseAndSetIfChanged(ref _acquisitionState, value);
+    }
+    public override bool HasProvenance => AcquisitionState != FolderAcquisitionState.None;
+    public override string ProvenanceLabel => AcquisitionState switch
+    {
+        FolderAcquisitionState.Complete => "complete",
+        FolderAcquisitionState.Partial => "partial",
+        _ => string.Empty
+    };
+
     public override IEnumerable<UserCollectionFileNodeViewModel> EnumerateAllFiles()
         => ChildNodes.SelectMany(child => child.EnumerateAllFiles());
 
@@ -428,14 +589,19 @@ public sealed class UserCollectionFolderNodeViewModel : UserCollectionNodeViewMo
 
 public sealed class UserCollectionFileNodeViewModel : UserCollectionNodeViewModel
 {
-    public UserCollectionFileNodeViewModel(Track track, string displayName, bool isMusicFile) : base(displayName)
+    public UserCollectionFileNodeViewModel(Track track, string displayName, bool isMusicFile, bool isAcquired = false) : base(displayName)
     {
         Track = track;
         IsMusicFile = isMusicFile;
+        IsAcquired = isAcquired;
     }
 
     public Track Track { get; }
     public bool IsMusicFile { get; }
+    /// <summary>True when this exact remote path is already in the local library (path-aware match).</summary>
+    public bool IsAcquired { get; }
+    public override string ProvenanceLabel => IsAcquired ? "in library" : string.Empty;
+    public override bool HasProvenance => IsAcquired;
     public string Extension => (Track.Format ?? Track.GetExtension())?.Trim().TrimStart('.').ToUpperInvariant() ?? "—";
     public int Bitrate => Track.Bitrate;
     public bool IsSuspiciousLossless => false;

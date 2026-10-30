@@ -78,6 +78,35 @@ public class TransitionPlannerTests
         Assert.False(plan.VocalClash);
     }
 
+    [Fact]
+    public void OneBarDropSwap_StartsBothTracksExactlyOneBarBeforeTheirDrop()
+    {
+        // A Little Sound - I Just Can't Get Enough at 175 BPM: real structural drop at 56.0s,
+        // main second drop at 122.0s. Incoming Drop 1 at 45.0s.
+        const double trackBpm = 175.0;
+        double bar = 240.0 / trackBpm;
+        var outgoing = new TrackStructure
+        {
+            DurationSeconds = 171.771, Bpm = trackBpm, FirstDownbeat = 0.6939,
+            Drop1 = 56.0, Drop2 = 122.0, LastSound = 171.771, Energy = 0.8,
+        };
+        var incoming = new TrackStructure
+        {
+            DurationSeconds = 200, Bpm = trackBpm, FirstDownbeat = 0.2,
+            Drop1 = 45.0, LastSound = 200, Energy = 0.8,
+        };
+
+        var plan = TransitionPlanner.PlanKind(outgoing, incoming, PlannedTransitionKind.OneBarDropSwap)!;
+
+        Assert.Equal(PlannedTransitionKind.OneBarDropSwap, plan.Kind);
+        Assert.Equal("1-Bar Drop Swap", plan.PresetName);
+        Assert.Equal(1, plan.DurationBars);
+        Assert.Equal(bar, plan.DurationSeconds, 6);
+        Assert.Equal(122.0 - bar, plan.SourceTriggerSeconds, 6);
+        Assert.Equal(45.0 - bar, plan.TargetTriggerSeconds, 6);
+        Assert.False(plan.VocalClash);
+    }
+
     /// <summary>A tempo-matched energetic pair hands over on drop 2 regardless of the pair score;
     /// Rolling stays the fallback when Drop Sync can't fit or would clash (see the vocal test).</summary>
     [Fact]
@@ -164,6 +193,24 @@ public class TransitionPlannerTests
             StartSample = 0, EndSample = 1000, Type = SLSKDONET.Services.Audio.TransitionType.EqSwap,
             Curve = TransitionCurve.EaseIn, // curved progress at t = 0.6 is only 0.36
             EqConfig = new EqBandSwapConfig { SwapLow = true, HardLowSwap = true },
+        };
+        var a = engine.CalculateAutomation(region, (long)(time * 1000));
+        Assert.Equal(outLow, a.OutgoingLowGain);
+        Assert.Equal(inLow, a.IncomingLowGain);
+    }
+
+    [Theory]
+    [InlineData(0.4, 1f, 0f)]
+    [InlineData(0.99, 1f, 0f)]
+    [InlineData(1.0, 0f, 1f)]
+    public void HardLowSwapAtEnd_KeepsOutgoingBassUntilTheImpact(double time, float outLow, float inLow)
+    {
+        var engine = new SLSKDONET.Services.Audio.TransitionEngine();
+        var region = new TransitionRegion
+        {
+            StartSample = 0, EndSample = 1000, Type = SLSKDONET.Services.Audio.TransitionType.EqSwap,
+            Curve = TransitionCurve.SCurve,
+            EqConfig = new EqBandSwapConfig { SwapLow = true, HardLowSwap = true, HardLowSwapAtEnd = true },
         };
         var a = engine.CalculateAutomation(region, (long)(time * 1000));
         Assert.Equal(outLow, a.OutgoingLowGain);

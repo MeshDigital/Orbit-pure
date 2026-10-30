@@ -291,6 +291,8 @@ public sealed class EqSwapProvider : ISampleProvider
     private readonly bool _swapLow;
     private readonly bool _swapMid;
     private readonly bool _swapHigh;
+    private readonly bool _hardLowSwap;
+    private readonly bool _hardLowSwapAtEnd;
     private readonly float _lowCrossoverHz;
     private readonly float _highCrossoverHz;
     private long _positionSamples;
@@ -305,7 +307,8 @@ public sealed class EqSwapProvider : ISampleProvider
     public EqSwapProvider(
         ISampleProvider outgoing, ISampleProvider incoming, long durationSamples,
         bool swapLow = true, bool swapMid = false, bool swapHigh = false,
-        float lowCrossoverHz = 250f, float highCrossoverHz = 4000f)
+        float lowCrossoverHz = 250f, float highCrossoverHz = 4000f,
+        bool hardLowSwap = false, bool hardLowSwapAtEnd = false)
     {
         if (outgoing.WaveFormat.SampleRate != incoming.WaveFormat.SampleRate ||
             outgoing.WaveFormat.Channels != incoming.WaveFormat.Channels)
@@ -316,6 +319,8 @@ public sealed class EqSwapProvider : ISampleProvider
         _swapLow = swapLow;
         _swapMid = swapMid;
         _swapHigh = swapHigh;
+        _hardLowSwap = hardLowSwap;
+        _hardLowSwapAtEnd = hardLowSwapAtEnd;
         _lowCrossoverHz = lowCrossoverHz;
         _highCrossoverHz = highCrossoverHz;
         DurationSamples = Math.Max(1, durationSamples);
@@ -357,6 +362,15 @@ public sealed class EqSwapProvider : ISampleProvider
 
             float outLowGain = _swapLow ? swapOutGain : fadeOutGain;
             float inLowGain = _swapLow ? swapInGain : fadeInGain;
+            if (_swapLow && _hardLowSwap)
+            {
+                // Midpoint swap for Rolling/Drop Sync; end-of-window swap for 1-Bar Drop Swap.
+                // The end swap deliberately keeps the outgoing bass through the whole window and
+                // hands it over only when the incoming drop lands.
+                bool afterSwap = _hardLowSwapAtEnd ? t >= 1.0 - 1e-9 : t >= 0.5;
+                outLowGain = afterSwap ? 0f : 1f;
+                inLowGain = afterSwap ? 1f : 0f;
+            }
             float outMidGain = _swapMid ? swapOutGain : fadeOutGain;
             float inMidGain = _swapMid ? swapInGain : fadeInGain;
             float outHighGain = _swapHigh ? swapOutGain : fadeOutGain;
@@ -704,7 +718,8 @@ public static class TransitionDsp
             TransitionType.EqSwap => new EqSwapProvider(
                 outgoing, incoming, durationSamples,
                 model.EqSwapLow, model.EqSwapMid, model.EqSwapHigh,
-                model.EqLowCrossoverHz, model.EqHighCrossoverHz),
+                model.EqLowCrossoverHz, model.EqHighCrossoverHz,
+                model.EqHardLowSwap, model.EqHardLowSwapAtEnd),
             TransitionType.WaveDuck => new WaveDuckProvider(
                 outgoing, incoming, durationSamples,
                 beatPeriodSeconds: 60.0 / projectBpm,

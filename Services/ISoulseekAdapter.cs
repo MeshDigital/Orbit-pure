@@ -125,7 +125,16 @@ public sealed record RoomMemberSnapshot(
     int AverageSpeed,
     int FileCount,
     int DirectoryCount,
-    int? SlotsFree);
+    int? SlotsFree,
+    double? ReliabilityScore = null)
+{
+    /// <summary>True once <see cref="ReliabilityScore"/> is populated — only peers you've actually
+    /// downloaded from get a badge; unknown or never-interacted room members stay unbadged.</summary>
+    public bool HasReliabilityScore => ReliabilityScore is not null;
+
+    /// <summary>The reliability score as a whole percent (e.g. "94%"), for a compact mono badge.</summary>
+    public string ReliabilityScoreDisplay => ReliabilityScore is double s ? $"{s:P0}" : string.Empty;
+}
 
 public sealed record RoomSnapshot(string Name, bool IsPrivate, string? Owner, IReadOnlyList<RoomMemberSnapshot> Members);
 

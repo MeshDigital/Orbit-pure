@@ -256,6 +256,10 @@ public class AppConfig
     /// <summary>Queue every finished download for analysis (BPM, key, cues, loudness). [Analysis] AnalyzeNewDownloads.</summary>
     public bool AnalyzeNewDownloads { get; set; } = true;
 
+    /// <summary>Which backend produces BPM/key/beat-grid during analysis: "Essentia" (external CLI) or
+    /// "InProcess" (NWaves/NAudio, no external binary). [Analysis] AnalysisAudioEngine.</summary>
+    public string AnalysisAudioEngine { get; set; } = "Essentia";
+
     // Edit Lab: where rendered edits are written. Empty = <download folder>/ORBIT Edits. [EditLab] OutputDirectory.
     public string? EditLabOutputDirectory { get; set; }
 
@@ -315,6 +319,10 @@ public class AppConfig
     public string? CueForgeLastTrackHash { get; set; }
     public string? CueForgeLastTrackTitle { get; set; }
     public string? CueForgeLastTrackArtist { get; set; }
+
+    /// <summary>Selected Cue Lab generation profile id (see Engine.Cueing.CueGenerationProfiles).
+    /// Sticky across tracks and saved with the rest of the config.</summary>
+    public string CueGenerationProfile { get; set; } = "balanced";
 
     public override string ToString()
     {

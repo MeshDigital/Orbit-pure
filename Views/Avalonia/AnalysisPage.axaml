@@ -100,6 +100,11 @@
                     <Border Classes="divider vertical" Height="32"/>
                 </StackPanel>
 
+                <ComboBox Classes="small" Width="150" VerticalAlignment="Center"
+                          ItemsSource="{x:Static vm:AnalysisPageViewModel.AvailableAnalysisAudioEngines}"
+                          SelectedItem="{Binding AnalysisAudioEngine, Mode=TwoWay}"
+                          ToolTip.Tip="BPM/key engine: Essentia (external) or NWaves/NAudio (in-process)"/>
+
                 <Button Classes="primary" Command="{Binding StartAnalysisCommand}"
                         IsEnabled="{Binding CanStartAnalysis}"
                         ToolTip.Tip="Analyse every track in the queue">

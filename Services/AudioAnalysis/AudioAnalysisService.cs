@@ -29,6 +29,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
     private readonly BpmDetectionService _bpm;
     private readonly KeyDetectionService _key;
     private readonly BeatgridDetectionService _beatgrid;
+    private readonly InProcessTempoKeyEngine _inProcessEngine;
     private readonly CuePointDetectionService _cues;
     private readonly EssentiaRunner _essentia;
     private readonly EnergyScoringService _energyScoring;
@@ -42,6 +43,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
     private readonly TrackFingerprintStore _trackFingerprintStore;
     private readonly BreakbeatAnalysisStrategy _breakbeatStrategy;
     private readonly FourOnTheFloorAnalysisStrategy _fourOnFloorStrategy;
+    private readonly BassMusicAnalysisStrategy _bassMusicStrategy;
     private readonly DatabaseService _db;
     private readonly ILogger<AudioAnalysisService> _logger;
     private readonly Rekordbox.IRekordboxPssiService? _rekordbox;
@@ -61,6 +63,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         BpmDetectionService bpmDetection,
         KeyDetectionService keyDetection,
         BeatgridDetectionService beatgridDetection,
+        InProcessTempoKeyEngine inProcessEngine,
         CuePointDetectionService cuePointDetection,
         EssentiaRunner essentiaRunner,
         EnergyScoringService energyScoring,
@@ -71,6 +74,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         TrackFingerprintStore trackFingerprintStore,
         BreakbeatAnalysisStrategy breakbeatStrategy,
         FourOnTheFloorAnalysisStrategy fourOnFloorStrategy,
+        BassMusicAnalysisStrategy bassMusicStrategy,
         DatabaseService db,
         ILogger<AudioAnalysisService> logger,
         Rekordbox.IRekordboxPssiService? rekordbox = null)
@@ -81,6 +85,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         _bpm           = bpmDetection;
         _key           = keyDetection;
         _beatgrid      = beatgridDetection;
+        _inProcessEngine = inProcessEngine;
         _cues          = cuePointDetection;
         _essentia      = essentiaRunner;
         _energyScoring = energyScoring;
@@ -91,6 +96,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         _trackFingerprintStore = trackFingerprintStore;
         _breakbeatStrategy = breakbeatStrategy;
         _fourOnFloorStrategy = fourOnFloorStrategy;
+        _bassMusicStrategy = bassMusicStrategy;
         _db            = db;
         _logger        = logger;
 
@@ -104,6 +110,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         IProgress<(int Percent, string Step)>? progress = null,
         string? correlationId = null,
         AnalysisEngine engines = AnalysisEngine.Pipeline,
+        AnalysisAudioEngine audioEngine = AnalysisAudioEngine.Essentia,
         CancellationToken cancellationToken = default)
     {
         // Nothing requested means nothing to do: the caller decides which engines a run is for.
@@ -129,6 +136,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             trackUniqueHash, Path.GetFileName(filePath));
 
         string? tempWav = null;
+        Task<EssentiaOutput?>? essentiaTask = null;
         try
         {
             // ── Step 1: Decode to 44.1 kHz stereo WAV ────────────────────
@@ -146,6 +154,19 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 _logger.LogWarning("[AudioAnalysis] Decode failed for {File}: {Msg}",
                     Path.GetFileName(filePath), ex.Message);
                 return null;
+            }
+
+            // ── Start Essentia extraction now (BPM/key/beat-grid) ─────────
+            // Essentia only needs the decoded WAV produced above, so start it before the waveform
+            // and in-process DSP/ONNX passes and let it run concurrently with them; its result is
+            // awaited at the BPM/key step. RunAsync is fail-open (null on any error) and honours
+            // the cancellation token, so a failure in the interim steps is handled at the await.
+            // The in-process NWaves/NAudio profile skips this entirely — it analyses the PCM buffer
+            // the in-process passes below already have in memory.
+            var needsEssentia = (engines & (AnalysisEngine.Tempo | AnalysisEngine.Key | AnalysisEngine.Mood)) != 0;
+            if (audioEngine != AnalysisAudioEngine.InProcess && _essentia.IsAvailable && needsEssentia)
+            {
+                essentiaTask = _essentia.RunAsync(tempWav, cancellationToken);
             }
 
             // ── Step 2: Create or load the features entity ────────────────
@@ -339,115 +360,115 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 }
             }
 
-            // ── Step 5: Essentia BPM / Key / Beatgrid (optional) ─────────
+            // ── Step 5: BPM / Key / Beatgrid (backend per the selected analysis profile) ──
             EssentiaOutput? essentiaOutput = null;
-            var needsEssentia = (engines & (AnalysisEngine.Tempo | AnalysisEngine.Key | AnalysisEngine.Mood)) != 0;
-            if (_essentia.IsAvailable && needsEssentia)
+            if (essentiaTask is not null)
             {
-                progress?.Report((52, "Running BPM/key analysis..."));
-                essentiaOutput = await _essentia.RunAsync(tempWav, cancellationToken)
-                    .ConfigureAwait(false);
+                progress?.Report((45, "Running BPM/key analysis..."));
+                essentiaOutput = await essentiaTask.ConfigureAwait(false);
+            }
+            else if (audioEngine == AnalysisAudioEngine.InProcess && needsEssentia && mono.Length > 0)
+            {
+                progress?.Report((45, "Analysing BPM/key in-process..."));
+                essentiaOutput = _inProcessEngine.Analyze(mono, pcmSampleRate, durationSeconds);
+            }
 
-                if (essentiaOutput is not null)
+            if (essentiaOutput is not null)
+            {
+                // One BPM/key pass (external Essentia or in-process NWaves/NAudio) yields tempo, key
+                // and the high-level descriptors together, so asking for one runs the pass; only the
+                // requested outputs are kept.
+                if (engines.Has(AnalysisEngine.Tempo)) _bpm.Detect(essentiaOutput, features);
+                if (engines.Has(AnalysisEngine.Key)) _key.Detect(essentiaOutput, features);
+                if (engines.Has(AnalysisEngine.Tempo)) _beatgrid.Detect(essentiaOutput, features);
+
+                // Downbeat-phase validation: BeatgridDetectionService anchors on the *first*
+                // detected beat tick, which carries no bar-phase information from a generic
+                // beat tracker — it's not necessarily beat 1 of a bar. Every downstream
+                // SnapToBar call in CueGenerationService anchors off this value, so a wrong
+                // bar-phase produces a systematic, consistent-per-track offset in every cue —
+                // exactly the "close but way off" symptom. Pick whichever of the first few
+                // ticks actually carries the strongest kick/sub-bass energy instead.
+                if (engines.Has(AnalysisEngine.Tempo) && mono.Length > 0 && !string.IsNullOrWhiteSpace(features.BeatGridJson))
                 {
-                    // One Essentia pass yields tempo, key and the high-level descriptors together,
-                    // so asking for one of them runs the pass; only the requested outputs are kept.
-                    if (engines.Has(AnalysisEngine.Tempo)) _bpm.Detect(essentiaOutput, features);
-                    if (engines.Has(AnalysisEngine.Key)) _key.Detect(essentiaOutput, features);
-                    if (engines.Has(AnalysisEngine.Tempo)) _beatgrid.Detect(essentiaOutput, features);
-
-                    // Downbeat-phase validation: BeatgridDetectionService anchors on the *first*
-                    // detected beat tick, which carries no bar-phase information from a generic
-                    // beat tracker — it's not necessarily beat 1 of a bar. Every downstream
-                    // SnapToBar call in CueGenerationService anchors off this value, so a wrong
-                    // bar-phase produces a systematic, consistent-per-track offset in every cue —
-                    // exactly the "close but way off" symptom. Pick whichever of the first few
-                    // ticks actually carries the strongest kick/sub-bass energy instead.
-                    if (engines.Has(AnalysisEngine.Tempo) && mono.Length > 0 && !string.IsNullOrWhiteSpace(features.BeatGridJson))
+                    try
                     {
-                        try
+                        var beats = JsonSerializer.Deserialize<double[]>(features.BeatGridJson);
+                        if (beats is { Length: >= 2 })
                         {
-                            var beats = JsonSerializer.Deserialize<double[]>(features.BeatGridJson);
-                            if (beats is { Length: >= 2 })
-                            {
-                                int strongestIndex = SubBassDropoutEngine.FindStrongestBeatIndex(mono, pcmSampleRate, beats, candidateCount: 4);
-                                if (strongestIndex > 0)
-                                    features.DownbeatOffsetSeconds = beats[strongestIndex];
-                            }
-                        }
-                        catch (Exception ex) when (ex is not OperationCanceledException)
-                        {
-                            _logger.LogDebug(ex, "[AudioAnalysis] Downbeat-phase validation failed for {File}; keeping the beat tracker's first tick.", Path.GetFileName(filePath));
+                            int strongestIndex = SubBassDropoutEngine.FindStrongestBeatIndex(mono, pcmSampleRate, beats, candidateCount: 4);
+                            if (strongestIndex > 0)
+                                features.DownbeatOffsetSeconds = beats[strongestIndex];
                         }
                     }
-
-                    if (engines.Has(AnalysisEngine.Mood))
+                    catch (Exception ex) when (ex is not OperationCanceledException)
                     {
-                        // LoudnessLUFS is measured from the PCM above (IntegratedLoudnessMeter). Essentia's
-                        // lowlevel.average_loudness is a 0–1 dynamic-range descriptor, not LUFS; storing it
-                        // here showed "0.8 LUFS" and made loudness normalisation cut every track ~15 dB.
-                        if (essentiaOutput.Rhythm?.Danceability is > 0 and var dance)
-                            features.Danceability = dance;
+                        _logger.LogDebug(ex, "[AudioAnalysis] Downbeat-phase validation failed for {File}; keeping the beat tracker's first tick.", Path.GetFileName(filePath));
+                    }
+                }
 
-                        // ── Spectral & rhythm quick-reads ───────────────────────
-                        if (essentiaOutput.LowLevel?.SpectralCentroid?.Mean is > 0 and var sc)
-                            features.SpectralCentroid = sc;
-                        if (essentiaOutput.LowLevel?.SpectralComplexity?.Mean is > 0 and var scx)
-                            features.SpectralComplexity = scx;
-                        if (essentiaOutput.Rhythm?.OnsetRate is > 0 and var onsetRate)
-                            features.OnsetRate = onsetRate;
+                if (engines.Has(AnalysisEngine.Mood))
+                {
+                    // LoudnessLUFS is measured from the PCM above (IntegratedLoudnessMeter). Essentia's
+                    // lowlevel.average_loudness is a 0–1 dynamic-range descriptor, not LUFS; storing it
+                    // here showed "0.8 LUFS" and made loudness normalisation cut every track ~15 dB.
+                    if (essentiaOutput.Rhythm?.Danceability is > 0 and var dance)
+                        features.Danceability = dance;
 
-                        // ── Voice / Instrumental ────────────────────────────────
-                        var voicePred = essentiaOutput.HighLevel?.VoiceInstrumental;
-                        if (voicePred?.All?.Instrumental is > 0 and var instrProb)
-                            features.InstrumentalProbability = Math.Clamp(instrProb, 0f, 1f);
-                        else if ("instrumental".Equals(voicePred?.Value, StringComparison.OrdinalIgnoreCase))
-                            features.InstrumentalProbability = Math.Clamp(voicePred!.Probability, 0.5f, 1f);
+                    // ── Spectral & rhythm quick-reads ───────────────────────
+                    if (essentiaOutput.LowLevel?.SpectralCentroid?.Mean is > 0 and var sc)
+                        features.SpectralCentroid = sc;
+                    if (essentiaOutput.LowLevel?.SpectralComplexity?.Mean is > 0 and var scx)
+                        features.SpectralComplexity = scx;
+                    if (essentiaOutput.Rhythm?.OnsetRate is > 0 and var onsetRate)
+                        features.OnsetRate = onsetRate;
 
-                        // ── Emotion: emomusic regression → Arousal + Valence ────
-                        // emomusic outputs values on the Russell circumplex (1–9);
-                        // normalise to 0–1 so all consumers use a consistent scale.
-                        var emoClasses = essentiaOutput.HighLevel?.EmoMusic?.All;
-                        if (emoClasses is not null)
-                        {
-                            if (emoClasses.Arousal > 0f)
-                                features.Arousal = Math.Clamp((emoClasses.Arousal - 1f) / 8f, 0f, 1f);
-                            if (emoClasses.Valence > 0f)
-                                features.Valence = Math.Clamp((emoClasses.Valence - 1f) / 8f, 0f, 1f);
-                        }
+                    // ── Voice / Instrumental ────────────────────────────────
+                    var voicePred = essentiaOutput.HighLevel?.VoiceInstrumental;
+                    if (voicePred?.All?.Instrumental is > 0 and var instrProb)
+                        features.InstrumentalProbability = Math.Clamp(instrProb, 0f, 1f);
+                    else if ("instrumental".Equals(voicePred?.Value, StringComparison.OrdinalIgnoreCase))
+                        features.InstrumentalProbability = Math.Clamp(voicePred!.Probability, 0.5f, 1f);
 
-                        // ── Tonality / DJ-tool detection ─────────────────────────
-                        var tonalPred = essentiaOutput.HighLevel?.TonalAtonal;
-                        if (tonalPred?.All is { } tonalClasses)
-                        {
-                            features.TonalProbability = Math.Clamp(tonalClasses.Tonal, 0f, 1f);
-                            features.IsDjTool = tonalClasses.Tonal < 0.35f;
-                        }
-                        else if (!string.IsNullOrWhiteSpace(tonalPred?.Value))
-                        {
-                            bool isAtonal = "atonal".Equals(tonalPred.Value, StringComparison.OrdinalIgnoreCase);
-                            features.IsDjTool         = isAtonal;
-                            features.TonalProbability = isAtonal ? 1f - tonalPred.Probability : tonalPred.Probability;
-                        }
-
-                        // ── Mood: winner-takes-all across 6 classifiers ──────────
-                        ApplyMoodClassification(essentiaOutput.HighLevel, features);
-
-                        // ── Energy score (incorporates Arousal set above) ────────
-                        _energyScoring.Score(essentiaOutput, features);
+                    // ── Emotion: emomusic regression → Arousal + Valence ────
+                    // emomusic outputs values on the Russell circumplex (1–9);
+                    // normalise to 0–1 so all consumers use a consistent scale.
+                    var emoClasses = essentiaOutput.HighLevel?.EmoMusic?.All;
+                    if (emoClasses is not null)
+                    {
+                        if (emoClasses.Arousal > 0f)
+                            features.Arousal = Math.Clamp((emoClasses.Arousal - 1f) / 8f, 0f, 1f);
+                        if (emoClasses.Valence > 0f)
+                            features.Valence = Math.Clamp((emoClasses.Valence - 1f) / 8f, 0f, 1f);
                     }
 
-                    _logger.LogDebug("[AudioAnalysis] Essentia OK — BPM={Bpm} Key={Key} Mood={Mood} Arousal={Arousal:F1}",
-                        features.Bpm, features.Key, features.MoodTag, features.Arousal);
+                    // ── Tonality / DJ-tool detection ─────────────────────────
+                    var tonalPred = essentiaOutput.HighLevel?.TonalAtonal;
+                    if (tonalPred?.All is { } tonalClasses)
+                    {
+                        features.TonalProbability = Math.Clamp(tonalClasses.Tonal, 0f, 1f);
+                        features.IsDjTool = tonalClasses.Tonal < 0.35f;
+                    }
+                    else if (!string.IsNullOrWhiteSpace(tonalPred?.Value))
+                    {
+                        bool isAtonal = "atonal".Equals(tonalPred.Value, StringComparison.OrdinalIgnoreCase);
+                        features.IsDjTool         = isAtonal;
+                        features.TonalProbability = isAtonal ? 1f - tonalPred.Probability : tonalPred.Probability;
+                    }
+
+                    // ── Mood: winner-takes-all across 6 classifiers ──────────
+                    ApplyMoodClassification(essentiaOutput.HighLevel, features);
+
+                    // ── Energy score (incorporates Arousal set above) ────────
+                    _energyScoring.Score(essentiaOutput, features);
                 }
-                else
-                {
-                    _logger.LogDebug("[AudioAnalysis] Essentia returned no output for {File}", filePath);
-                }
+
+                _logger.LogDebug("[AudioAnalysis] BPM/key OK — BPM={Bpm} Key={Key} Mood={Mood} Arousal={Arousal:F1}",
+                    features.Bpm, features.Key, features.MoodTag, features.Arousal);
             }
             else
             {
-                _logger.LogWarning("[AudioAnalysis] Essentia extractor not installed — skipping BPM/key detection");
+                _logger.LogDebug("[AudioAnalysis] BPM/key analysis produced no output for {File}; skipping BPM/key detection", filePath);
             }
 
             // ── Step 5b: Genre inference + canonical normalisation ──────
@@ -540,6 +561,16 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         }
         finally
         {
+            // A pre-started Essentia extraction may still be running if an earlier step failed
+            // (it is only awaited at the BPM/key step). Observe its outcome so a late cancellation
+            // is never left unobserved; the temp-WAV delete below is best-effort and simply fails
+            // (and logs) if the extraction still holds the file open.
+            if (essentiaTask is { } essentia)
+            {
+                _ = essentia.ContinueWith(_ => { }, CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
+
             if (tempWav is not null)
             {
                 try { File.Delete(tempWav); }
@@ -770,11 +801,12 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         // are both settled, the correct seam for a genre-corroborated bracket correction (unlike
         // BpmDetectionService's genre-agnostic half-time correction, which runs before genre is
         // known and can't use it). See BreakbeatAnalysisStrategy/FourOnTheFloorAnalysisStrategy.
-        var classification = GenreFamilyClassifier.Classify(winner.Key, features.Bpm);
+        var classification = GenreFamilyClassifier.Classify(winner.Key, features.Bpm, finalConfidence, GenreSource.ModelInferred);
         IGenreFamilyAnalysisStrategy? strategy = classification.Family switch
         {
             GenreFamily.Breakbeat => _breakbeatStrategy,
             GenreFamily.FourOnTheFloor => _fourOnFloorStrategy,
+            GenreFamily.Dubstep => _bassMusicStrategy,
             _ => null
         };
         if (strategy != null)

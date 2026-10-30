@@ -40,6 +40,7 @@ public class AnalysisQueueService : IDisposable
     private readonly AnalyzeTrackStructureJob? _analyzeTrackStructureJob;
     private readonly AudioCorruptionScannerService? _corruptionScanner;
     private readonly EssentiaRunner? _essentia;
+    private readonly AppConfig? _config;
     private readonly IDisposable _requestSubscription;
     private readonly SemaphoreSlim _parallelismGate;
     private readonly SemaphoreSlim _dispatchSignal = new(0);
@@ -89,6 +90,7 @@ public class AnalysisQueueService : IDisposable
         _analyzeTrackStructureJob = analyzeTrackStructureJob;
         _corruptionScanner = corruptionScanner;
         _essentia = essentia;
+        _config = config;
 
         int requested = config?.MaxConcurrentAnalyses ?? 0;
         MaxWorkers = requested > 0
@@ -376,6 +378,7 @@ public class AnalysisQueueService : IDisposable
                     progress: new CallbackProgress((percent, step) =>
                         PublishProgress(evt.TrackGlobalId, step, MapAnalyzePercent(percent))),
                     engines: evt.Engines,
+                    audioEngine: AnalysisAudioEngineExtensions.ParseAudioEngine(_config?.AnalysisAudioEngine),
                     cancellationToken: CancellationToken.None)
                 .ConfigureAwait(false);
 

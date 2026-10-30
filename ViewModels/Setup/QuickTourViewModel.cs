@@ -90,6 +90,7 @@ public sealed class QuickTourViewModel : SetupObservable
                 OnPropertyChanged(nameof(Title));
                 OnPropertyChanged(nameof(Body));
                 OnPropertyChanged(nameof(PositionText));
+                OnPropertyChanged(nameof(Progress));
                 OnPropertyChanged(nameof(IsFirst));
                 OnPropertyChanged(nameof(IsLast));
                 OnPropertyChanged(nameof(NextLabel));
@@ -107,6 +108,9 @@ public sealed class QuickTourViewModel : SetupObservable
     public string Title => Current?.Title ?? string.Empty;
     public string Body => Current?.Body ?? string.Empty;
     public string PositionText => Count == 0 ? string.Empty : $"{Index + 1} / {Count}";
+
+    /// <summary>0..1 progress through the visible steps (for the coach-mark progress bar).</summary>
+    public double Progress => Count == 0 ? 0 : (Index + 1) / (double)Count;
     public bool IsFirst => Index == 0;
     public bool IsLast => Index >= Count - 1;
     public string NextLabel => IsLast ? "Finish" : "Next";
@@ -125,6 +129,7 @@ public sealed class QuickTourViewModel : SetupObservable
             .Select(x => (x.Step, x.Target!))
             .ToList();
         OnPropertyChanged(nameof(Count));
+        OnPropertyChanged(nameof(Progress));
 
         if (_active.Count == 0)
         {

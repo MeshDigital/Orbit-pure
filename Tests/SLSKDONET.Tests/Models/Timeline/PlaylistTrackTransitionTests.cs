@@ -66,6 +66,17 @@ public class PlaylistTrackTransitionTests
     }
 
     [Fact]
+    public void ToTransitionModel_MapsOneBarDropSwapToAnEndOfWindowBassSwap()
+    {
+        var transition = new PlaylistTrackTransition { PresetName = "1-Bar Drop Swap", Type = TransitionType.EqSwap };
+
+        var model = transition.ToTransitionModel();
+
+        Assert.True(model.EqHardLowSwap);
+        Assert.True(model.EqHardLowSwapAtEnd);
+    }
+
+    [Fact]
     public void ToTransitionModel_LeavesEqSwapDefaults_WhenNotSet()
     {
         var transition = new PlaylistTrackTransition { Type = TransitionType.EqSwap };

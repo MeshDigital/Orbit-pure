@@ -6,6 +6,7 @@
              xmlns:models="clr-namespace:SLSKDONET.Models"
              xmlns:conv="clr-namespace:SLSKDONET.Converters"
              xmlns:ctrl="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:cueing="clr-namespace:SLSKDONET.Engine.Cueing"
              mc:Ignorable="d" d:DesignWidth="1400" d:DesignHeight="900"
              x:Class="SLSKDONET.Views.Avalonia.CueForgePage"
              x:Name="Root"
@@ -361,6 +362,17 @@
                                         <TextBlock Classes="caption muted" TextWrapping="Wrap" Text="Runs every available analysis metric, not just the waveform. Use it after changing analysis models or when any result looks wrong."/>
                                         <Border Classes="divider" Margin="0,4"/>
                                         <TextBlock Classes="section" Text="CUE GENERATION"/>
+                                        <ComboBox ItemsSource="{Binding AvailableCueGenerationProfiles}" SelectedItem="{Binding SelectedCueGenerationProfile}"
+                                                  HorizontalAlignment="Stretch" ToolTip.Tip="Generation profile. Sticky until you change it.">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate x:DataType="cueing:CueGenerationProfile">
+                                                    <StackPanel Spacing="1">
+                                                        <TextBlock Text="{Binding Name}"/>
+                                                        <TextBlock Classes="caption muted" Text="{Binding Description}" TextWrapping="Wrap"/>
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
                                         <Button Classes="secondary small" Command="{Binding AutoGenerateCuesCommand}" HorizontalAlignment="Stretch"
                                                 ToolTip.Tip="Generate structural cues from the track's analysis. Your own cues are kept; Ctrl+Z undoes. Confidence is shown in the cue list.">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
@@ -370,6 +382,26 @@
                                             </StackPanel>
                                         </Button>
                                         <TextBlock Classes="caption muted" TextWrapping="Wrap" Text="Auto-generate keeps your cues. Generated cues include detection confidence and an explanation in the cue list."/>
+                                        <Border Classes="divider" Margin="0,4"/>
+                                        <TextBlock Classes="section" Text="PROFILE COMPARISON"/>
+                                        <TextBlock Classes="caption muted" TextWrapping="Wrap" Text="Run several profiles against this track without changing its cues."/>
+                                        <ItemsControl ItemsSource="{Binding ProfileComparisonOptions}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:CueGenerationProfileOption">
+                                                    <CheckBox Content="{Binding Profile.Name}" IsChecked="{Binding IsSelected}"
+                                                              ToolTip.Tip="{Binding Profile.Description}"/>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <Button Classes="ghost small" Command="{Binding CompareProfilesCommand}" Content="Compare selected profiles" HorizontalAlignment="Stretch"/>
+                                        <ItemsControl ItemsSource="{Binding ProfileComparisonRows}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Classes="mono caption" Text="{Binding}" TextWrapping="Wrap"/>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock Classes="caption muted" Text="{Binding ProfileComparisonStatus}" TextWrapping="Wrap"/>
                                         <Button Classes="ghost small" Command="{Binding ClearCuesCommand}" Content="Clear all cues &amp; reset view" HorizontalAlignment="Stretch"
                                                 ToolTip.Tip="One click: remove every cue and reset the waveform to the whole-track view. Ctrl+Z undoes."/>
                                         <TextBlock Classes="section" Text="DROP CUE TEMPLATE"/>
@@ -683,6 +715,28 @@
                 <!-- Inspector -->
                 <Border x:Name="InspectorPanel" Grid.Column="2" Classes="panel" BorderThickness="0,1,0,0">
                     <DockPanel>
+                        <Border DockPanel.Dock="Top" Padding="8,6" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
+                            <StackPanel Spacing="4">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <ComboBox ItemsSource="{Binding AvailableCueGenerationProfiles}" SelectedItem="{Binding SelectedCueGenerationProfile}"
+                                              HorizontalAlignment="Stretch" ToolTip.Tip="Generation profile. Sticky for every track until you change it.">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="cueing:CueGenerationProfile">
+                                                <TextBlock Text="{Binding Name}"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <Button Grid.Column="1" Classes="secondary small" Margin="4,0,0,0"
+                                            Command="{Binding AutoGenerateCuesCommand}" ToolTip.Tip="Generate cues with the selected profile.">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <PathIcon Data="{StaticResource sparkles_regular}" Width="12" Height="12"/>
+                                            <TextBlock Text="Generate"/>
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+                                <TextBlock Classes="caption muted" Text="Sticky for every track until changed."/>
+                            </StackPanel>
+                        </Border>
                         <Border DockPanel.Dock="Top" Classes="panel-header">
                             <TextBlock Classes="section" Text="SELECTED CUE" VerticalAlignment="Center"/>
                         </Border>
