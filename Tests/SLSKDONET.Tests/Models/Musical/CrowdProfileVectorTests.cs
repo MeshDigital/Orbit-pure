@@ -32,7 +32,7 @@ public class CrowdProfileVectorTests
 
     [Fact]
     public void Euclidean_ZeroToNonZero_IsItsNorm()
-        => Assert.Equal(6.0, CrowdProfileVector.EuclideanDistance(Zero, Vector(2, 2, 2, 2, 2, 2)), 9);
+        => Assert.Equal(Math.Sqrt(24.0), CrowdProfileVector.EuclideanDistance(Zero, Vector(2, 2, 2, 2, 2, 2)), 9);
 
     // ── Manhattan ──────────────────────────────────────────────────────
 
@@ -52,7 +52,7 @@ public class CrowdProfileVectorTests
 
     [Fact]
     public void Cosine_ScaledVectors_IsZero()
-        => AssertCosine(0.0, CrowdProfileVector.CosineDistance(Vector(10, 20, 30, 40, 50, 60), Vector(20, 40, 60, 80, 100, 120)));
+        => AssertCosine(0.0, CrowdProfileVector.CosineDistance(Vector(5, 10, 15, 20, 25, 30), Vector(10, 20, 30, 40, 50, 60)));
 
     [Fact]
     public void Cosine_ZeroVector_DoesNotDivideByZero()

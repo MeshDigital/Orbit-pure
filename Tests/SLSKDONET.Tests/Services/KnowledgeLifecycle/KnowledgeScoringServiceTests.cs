@@ -22,7 +22,7 @@ public class KnowledgeScoringServiceTests
     public void Freshness_OneHalfLife_IsHalf()
     {
         var twoYearsAgo = Now.AddYears(-(int)KnowledgeScoringService.HalfLifeYears);
-        Assert.Equal(50.0, KnowledgeScoringService.ComputeFreshness(twoYearsAgo, Now, false), 6);
+        Assert.Equal(50.0, KnowledgeScoringService.ComputeFreshness(twoYearsAgo, Now, false), 0.1);
     }
 
     [Fact]

@@ -53,7 +53,7 @@ public class TransitionCandidateFilterTests
         var seed = Track("seed", 174.0f, "8A");
         var library = new[]
         {
-            Track("self", 174.0f, "8A"),       // excluded: self
+            Track("seed", 174.0f, "8A"),       // excluded: self
             Track("same", 174.0f, "8A"),       // included
             Track("near", 176.0f, "9A"),       // included
             Track("far-bpm", 200.0f, "8A"),    // excluded: BPM out of band
@@ -64,7 +64,7 @@ public class TransitionCandidateFilterTests
         var result = TransitionCandidateFilter.SelectCandidates(seed, library, maxCandidates: 2);
 
         Assert.Equal(2, result.Count);
-        Assert.DoesNotContain(result, c => c.TrackUniqueHash == "self");
+        Assert.DoesNotContain(result, c => c.TrackUniqueHash == "seed");
         Assert.DoesNotContain(result, c => c.TrackUniqueHash == "far-bpm");
         Assert.DoesNotContain(result, c => c.TrackUniqueHash == "far-key");
         Assert.Contains(result, c => c.TrackUniqueHash == "same");
