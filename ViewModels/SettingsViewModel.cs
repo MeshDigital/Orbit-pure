@@ -2206,6 +2206,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 {
                     var commonPaths = new[]
                     {
+                        // ORBIT's own managed install (FfmpegInstallerService), checked first.
+                        SLSKDONET.Services.Platform.FfmpegInstallerService.ManagedFfmpegPath,
                         @"C:\ffmpeg\bin\ffmpeg.exe",
                         @"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
                         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ffmpeg", "bin", "ffmpeg.exe")
