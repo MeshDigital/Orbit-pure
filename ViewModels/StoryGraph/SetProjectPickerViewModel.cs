@@ -35,6 +35,7 @@ public sealed class SetProjectPickerViewModel : ReactiveObject, IDisposable
     }
 
     public ReactiveCommand<Unit, Unit> SelectCommand { get; }
+    public ReactiveCommand<Unit, Unit> CreateSetCommand { get; }
 
     /// <summary>Raised with the chosen set id (the window closes on this).</summary>
     public event EventHandler<Guid>? Selected;
@@ -44,6 +45,7 @@ public sealed class SetProjectPickerViewModel : ReactiveObject, IDisposable
         _dbFactory = dbFactory;
         _eventBus = eventBus;
         SelectCommand = ReactiveCommand.Create(Select);
+        CreateSetCommand = ReactiveCommand.CreateFromTask(CreateSetAsync);
     }
 
     public async Task LoadAsync()
@@ -76,9 +78,26 @@ public sealed class SetProjectPickerViewModel : ReactiveObject, IDisposable
         Selected?.Invoke(this, SelectedItem.Id);
     }
 
+    private async Task CreateSetAsync()
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        var set = new SetListEntity
+        {
+            Name = $"Set {DateTime.Now:MMM d HH:mm}",
+            Status = SetProjectStatus.Draft,
+        };
+        db.SetLists.Add(set);
+        await db.SaveChangesAsync().ConfigureAwait(false);
+
+        _eventBus.Publish(new OpenSetProjectsRequestedEvent(set.Id));
+        Selected?.Invoke(this, set.Id);
+    }
+
     public void Dispose()
     {
         Selected = null;
         SelectCommand.Dispose();
+        CreateSetCommand.Dispose();
     }
 }

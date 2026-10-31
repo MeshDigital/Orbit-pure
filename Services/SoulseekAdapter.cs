@@ -440,6 +440,8 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
     private static void ConfigureServerSocket(Socket socket)
     {
         socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+        // Reuse the listen address so a reconnect never blocks on a lingering TIME_WAIT socket.
+        socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
 
         if (OperatingSystem.IsWindows())
         {

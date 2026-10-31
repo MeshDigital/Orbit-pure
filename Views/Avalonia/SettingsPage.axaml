@@ -1329,7 +1329,7 @@
                                                       ItemsSource="{Binding Update.ChannelOptions}"
                                                       SelectedItem="{Binding Update.SelectedChannel, Mode=TwoWay}"/>
                                             <Button Classes="secondary small" Content="Check" Command="{Binding Update.CheckForUpdatesCommand}"/>
-                                            <Button Classes="primary small" Content="Download" Command="{Binding Update.OpenDownloadCommand}"
+                                            <Button Classes="primary small" Content="Download" Command="{Binding Update.DownloadUpdateCommand}"
                                                     IsVisible="{Binding Update.UpdateAvailable}"/>
                                         </StackPanel>
                                     </Grid>
