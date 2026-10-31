@@ -18,6 +18,8 @@ public sealed class WhatsNewStepViewModel : SetupStepViewModel
 
     public IReadOnlyList<WhatsNewItem> Items { get; } = new[]
     {
+        new WhatsNewItem("Updates: pick your channel", "Choose Stable, Beta or Any, then check GitHub for a newer version from Settings → Advanced → Updates."),
+        new WhatsNewItem("FFmpeg + .NET self-heal", "ORBIT installs FFmpeg and the .NET runtime automatically when they're missing."),
         new WhatsNewItem("Story Graph: plan your sets", "Branching set paths on a visual canvas — slot roles and energy targets with undo/redo."),
         new WhatsNewItem("Transition Lab: rate your mixes", "Audition the overlap, edit DSP parameters, and rate transitions so ORBIT learns what works."),
         new WhatsNewItem("Set Health: know your narrative", "Live narrative, technical and risk scores for every set, docked beside the Story Graph."),
