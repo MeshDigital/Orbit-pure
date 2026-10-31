@@ -29,8 +29,8 @@ public class GitHubUpdateServiceTests
     [Fact]
     public void MatchesChannel_FiltersByPrerelease()
     {
-        var stable = new GitHubRelease("v0.3.0", "0.3.0", IsPrerelease: false, default, "u");
-        var beta = new GitHubRelease("v0.3.1-beta", "0.3.1-beta", IsPrerelease: true, default, "u");
+        var stable = new GitHubRelease("v0.3.0", "0.3.0", IsPrerelease: false, default, "u", Array.Empty<GitHubAsset>());
+        var beta = new GitHubRelease("v0.3.1-beta", "0.3.1-beta", IsPrerelease: true, default, "u", Array.Empty<GitHubAsset>());
 
         Assert.True(GitHubUpdateService.MatchesChannel(stable, UpdateChannel.Stable));
         Assert.False(GitHubUpdateService.MatchesChannel(beta, UpdateChannel.Stable));

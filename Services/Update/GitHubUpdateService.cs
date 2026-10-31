@@ -19,13 +19,22 @@ public enum UpdateChannel
     Any = 2,
 }
 
+/// <summary>A single downloadable file attached to a GitHub release.</summary>
+public sealed record GitHubAsset(string Name, string BrowserDownloadUrl);
+
 /// <summary>A GitHub release, trimmed to what the updater needs.</summary>
 public sealed record GitHubRelease(
     string TagName,
     string Name,
     bool IsPrerelease,
     DateTimeOffset PublishedAt,
-    string HtmlUrl);
+    string HtmlUrl,
+    IReadOnlyList<GitHubAsset> Assets)
+{
+    /// <summary>The installer (.exe) asset URL, or null when none is attached.</summary>
+    public string? InstallerUrl =>
+        Assets.FirstOrDefault(a => a.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))?.BrowserDownloadUrl;
+}
 
 /// <summary>
 /// Checks the ORBIT GitHub releases for updates and filters them by channel + "newer than current".
