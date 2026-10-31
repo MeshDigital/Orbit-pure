@@ -717,6 +717,9 @@ public partial class App : Application
         services.AddSingleton<Services.Diagnostics.FeedbackReportService>(); // top-bar "Send feedback" zip
         services.AddSingleton<Services.Platform.FfmpegInstallerService>();
         services.AddSingleton<Services.Platform.DotNetRuntimeInstallerService>();
+        services.AddSingleton<SLSKDONET.Services.Update.GitHubUpdateService>(_ =>
+            new SLSKDONET.Services.Update.GitHubUpdateService(new System.Net.Http.HttpClient(), new Version(0, 3, 0)));
+        services.AddSingleton<SLSKDONET.ViewModels.UpdateViewModel>();
         services.AddSingleton<Services.Rekordbox.RekordboxLibraryService>(); // reads Rekordbox's master.db via RekordboxBridge // automatic FFmpeg install (startup + setup wizard)
         services.AddSingleton<Services.Telemetry.FlowBuilderSuggestionTelemetryService>();
         // FlowBuilderView resolves this from DI at construction — without this registration the
