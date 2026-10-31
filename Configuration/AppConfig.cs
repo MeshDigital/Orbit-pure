@@ -17,7 +17,7 @@ public class AppConfig
     public int ConnectTimeout { get; set; } = 60000; // ms
     public int SearchTimeout { get; set; } = 20000; // ms; longer idle window improves late peer discovery for lossless searches — not every peer is nearby, give distant/slower ones real time to answer
     public int SearchAccumulatorWindowSeconds { get; set; } = 15; // was 30 — cap desperate-lane accumulation; accumulatorShortCircuit handles early exits for normal lanes
-    public int MaxConcurrentSearches { get; set; } = 5; // Throttling to prevent bans
+    public int MaxConcurrentSearches { get; set; } = 3; // Throttling to prevent bans + socket exhaustion (was 5)
     public int MaxDiscoveryLanes { get; set; } = 5; // Concurrent discovery jobs for seeker pipeline
     public int MaxSearchVariations { get; set; } = 3; // Cap cascade fan-out to avoid flooding (3 = Strict/Standard/Desperate)
     public int StrictSearchSufficientResultCount { get; set; } = 5; // Strict-first: skip relaxed variations when enough strict hits were found
@@ -83,7 +83,7 @@ public class AppConfig
     public string? DownloadDirectory { get; set; }
     public string? SharedFolderPath { get; set; }
     public bool EnableLibrarySharing { get; set; } = true; // Reciprocal sharing improves reputation
-    public int MaxConcurrentDownloads { get; set; } = 5; // Optimized: was 2, increased for better throughput
+    public int MaxConcurrentDownloads { get; set; } = 3; // Lowered from 5 to reduce peer-socket churn (WSAENOBUFS)
     public string? NameFormat { get; set; } = "{artist|filename} - {title}";
     public bool CheckForDuplicates { get; set; } = true;
     public bool AutoSolveDownloadVerificationChallenges { get; set; } = true; // Auto-reply to peer "reply with this word to unlock downloads" gate-bots, only when there's a recent download attempt with that peer
