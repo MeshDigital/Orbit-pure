@@ -21,7 +21,9 @@ public sealed record BridgePath(
 public sealed record SetBuildRequest(
     double TargetMinutes,
     EventProfileEntity? EventProfile,
-    double MaxBpmVariance);
+    double MaxBpmVariance,
+    string? SeedTrackHash = null,
+    double? TargetBpm = null);
 
 /// <summary>Result of an auto-built set spine.</summary>
 public sealed record SetBuildResult(

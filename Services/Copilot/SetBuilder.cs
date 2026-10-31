@@ -30,6 +30,7 @@ public static class SetBuilder
         var targetSeconds = targetMinutes * 60.0;
         var spine = new List<string>();
         var used = new HashSet<string>();
+        var usedIdentities = new HashSet<string>(StringComparer.Ordinal);
 
         var current = seedHash is not null && candidates.Any(c => c.TrackUniqueHash == seedHash)
             ? candidates.First(c => c.TrackUniqueHash == seedHash)
@@ -38,6 +39,7 @@ public static class SetBuilder
 
         spine.Add(current.TrackUniqueHash);
         used.Add(current.TrackUniqueHash);
+        usedIdentities.Add(Identity(current));
 
         var elapsed = current.DurationSeconds;
         var fromEnergy = current.Energy;
@@ -48,13 +50,15 @@ public static class SetBuilder
 
             var best = candidates
                 .Where(c => !used.Contains(c.TrackUniqueHash))
+                .Where(c => !usedIdentities.Contains(Identity(c)))
                 .Select(c =>
                 {
                     var confidence = edgeConfidence.TryGetValue((current.TrackUniqueHash, c.TrackUniqueHash), out var conf)
                         ? conf
                         : 0.5;
                     return (Candidate: c, Cost: SetBuilderScoring.ComputeTransitionCost(
-                        fromEnergy, c.Energy, targetEnergy, c.Bpm, anchorBpm, maxBpmVariance, confidence));
+                        fromEnergy, c.Energy, targetEnergy, c.Bpm, anchorBpm, maxBpmVariance, confidence,
+                        current.CamelotNumber, c.CamelotNumber));
                 })
                 .Where(x => !double.IsInfinity(x.Cost))
                 .OrderBy(x => x.Cost)
@@ -65,12 +69,21 @@ public static class SetBuilder
 
             spine.Add(best.Candidate.TrackUniqueHash);
             used.Add(best.Candidate.TrackUniqueHash);
+            usedIdentities.Add(Identity(best.Candidate));
             elapsed += best.Candidate.DurationSeconds;
             fromEnergy = best.Candidate.Energy;
             current = best.Candidate;
         }
 
         return spine;
+    }
+
+    /// <summary>Normalized identity for dedupe: "artist|title" (case-folded); hash when metadata absent.</summary>
+    private static string Identity(SpineCandidate c)
+    {
+        var artist = c.Artist.Trim().ToLowerInvariant();
+        var title = c.Title.Trim().ToLowerInvariant();
+        return artist.Length == 0 && title.Length == 0 ? c.TrackUniqueHash : $"{artist}|{title}";
     }
 
     private static double TargetEnergyAt(double elapsedSeconds, double totalSeconds, IReadOnlyList<double>? curve, double fallback)

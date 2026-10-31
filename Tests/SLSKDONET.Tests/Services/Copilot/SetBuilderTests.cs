@@ -33,6 +33,27 @@ public class SetBuilderTests
     }
 
     [Fact]
+    public void ComputeTransitionCost_PrefersCloserBpmWithinBand()
+    {
+        // Same energy/confidence; only BPM distance differs (121 vs 128 against a 120 anchor).
+        var near = SetBuilderScoring.ComputeTransitionCost(50, 60, 60, 121, 120, 0.08, 0.9);
+        var far = SetBuilderScoring.ComputeTransitionCost(50, 60, 60, 128, 120, 0.08, 0.9);
+
+        Assert.True(near < far);
+    }
+
+    [Fact]
+    public void HarmonicPenalty_StepsByDistance()
+    {
+        Assert.Equal(0.0, SetBuilderScoring.HarmonicPenalty(8, 8), 6);    // same key
+        Assert.Equal(0.0, SetBuilderScoring.HarmonicPenalty(8, 9), 6);    // adjacent
+        Assert.Equal(0.4, SetBuilderScoring.HarmonicPenalty(8, 10), 6);   // distance 2
+        Assert.Equal(1.0, SetBuilderScoring.HarmonicPenalty(8, 3), 6);    // distance 5
+        Assert.Equal(0.0, SetBuilderScoring.HarmonicPenalty(-1, 8), 6);   // unknown key
+        Assert.Equal(0.0, SetBuilderScoring.HarmonicPenalty(-1, -1), 6);  // both unknown
+    }
+
+    [Fact]
     public void BuildSpine_PicksOnEnergyPathAndSkipsOutOfBand()
     {
         var candidates = new List<SpineCandidate>

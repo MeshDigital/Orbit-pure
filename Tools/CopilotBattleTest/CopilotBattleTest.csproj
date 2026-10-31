@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Copilot battle-test harness. Read-only: runs the ORBIT copilot (Set Builder, Bridge Finder,
+    Clash Detector, Alternative Routes) against a real, populated library database and dumps the
+    spines/bridges/clash flags to JSON + text for a DJ to audition. NOT part of the app build or the
+    unit test run. Usage: see README.md next to this file.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>SLSKDONET.Tools.CopilotBattleTest</RootNamespace>
+    <AssemblyName>CopilotBattleTest</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\SLSKDONET.csproj" />
+  </ItemGroup>
+
+</Project>

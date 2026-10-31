@@ -71,4 +71,18 @@ public class ClashDetectorTests
 
         Assert.Contains(reports, r => r.Reason == ClashDetector.HarmonicDissonanceReason);
     }
+
+    [Fact]
+    public void DetectClashes_IgnoresUnknownKeys()
+    {
+        var spine = new[]
+        {
+            new TrackClashData("A", MixOutSeconds: 100, MixInSeconds: 0, BarsBeforeMix: 8, CamelotNumber: -1, System.Array.Empty<VocalSegment>()),
+            new TrackClashData("B", MixOutSeconds: 0, MixInSeconds: 0, BarsBeforeMix: 8, CamelotNumber: -1, System.Array.Empty<VocalSegment>()),
+        };
+
+        var reports = ClashDetector.DetectClashes(spine, bpm: 174);
+
+        Assert.DoesNotContain(reports, r => r.Reason == ClashDetector.HarmonicDissonanceReason);
+    }
 }

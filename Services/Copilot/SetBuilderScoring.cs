@@ -7,20 +7,39 @@ public sealed record SpineCandidate(
     string TrackUniqueHash,
     double Bpm,
     double Energy,
-    double DurationSeconds);
+    double DurationSeconds,
+    string Title = "",
+    string Artist = "",
+    int CamelotNumber = -1);
 
 /// <summary>
 /// Slice K7b: the Set Builder cost function. Pure and unit-testable — a greedy-lookahead penalty
 /// that (1) hard-rejects BPM variance beyond <paramref name="maxBpmVariance"/>, (2) penalises
-/// deviation from the event's target energy curve, (3) penalises energy-flow jumps, and (4) rewards
-/// high-confidence (verified, real-world) edges.
+/// deviation from the event's target energy curve, (3) penalises energy-flow jumps, (4) penalises
+/// harmonic (Camelot) distance, and (5) rewards high-confidence (verified, real-world) edges.
 /// </summary>
 public static class SetBuilderScoring
 {
-    // Weights: energy-curve fidelity dominates, then flow continuity and confidence share the rest.
-    public const double EnergyCurveWeight = 0.5;
-    public const double FlowWeight = 0.25;
-    public const double ConfidenceWeight = 0.25;
+    // Energy extraction is currently under-varianced (clusters ~0.77 across genres), so the energy
+    // curve + flow terms are down-weighted until Phase 1 re-calibration; BPM variance, harmonic
+    // compatibility and confidence carry the balance.
+    public const double EnergyCurveWeight = 0.05;
+    public const double FlowWeight = 0.05;
+    public const double BpmVarianceWeight = 0.30;
+    public const double HarmonicWeight = 0.30;
+    public const double ConfidenceWeight = 0.30;
+
+    /// <summary>Stepped harmonic penalty: 0/1 adjacent = free, distance 2 = moderate, &gt;2 = severe.</summary>
+    public static double HarmonicPenalty(int fromCamelot, int candidateCamelot)
+    {
+        if (fromCamelot <= 0 || candidateCamelot <= 0)
+            return 0.0; // unknown key → cannot judge, no penalty
+
+        var distance = ClashDetector.CamelotDistance(fromCamelot, candidateCamelot);
+        if (distance <= 1) return 0.0;   // perfect or adjacent
+        if (distance == 2) return 0.4;   // energy boost/drop
+        return 1.0;                      // severe dissonance
+    }
 
     /// <summary>
     /// Transition cost from a current slot to a candidate. Returns <see cref="double.PositiveInfinity"/>
@@ -33,7 +52,9 @@ public static class SetBuilderScoring
         double candidateBpm,
         double anchorBpm,
         double maxBpmVariance,
-        double confidence)
+        double confidence,
+        int fromCamelot = -1,
+        int candidateCamelot = -1)
     {
         if (anchorBpm <= 0 || candidateBpm <= 0)
             return double.PositiveInfinity;
@@ -44,10 +65,14 @@ public static class SetBuilderScoring
 
         var energyError = Math.Abs(candidateEnergy - targetEnergy) / 100.0;
         var flowError = Math.Abs(candidateEnergy - fromEnergy) / 100.0;
+        var bpmError = maxBpmVariance > 0 ? Math.Min(variance / maxBpmVariance, 1.0) : 0.0;
+        var harmonicCost = HarmonicPenalty(fromCamelot, candidateCamelot);
         var confidenceCost = 1.0 - Math.Clamp(confidence, 0.0, 1.0);
 
         return EnergyCurveWeight * energyError
              + FlowWeight * flowError
+             + BpmVarianceWeight * bpmError
+             + HarmonicWeight * harmonicCost
              + ConfidenceWeight * confidenceCost;
     }
 }
