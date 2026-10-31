@@ -1732,6 +1732,9 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         set => SetProperty(ref _isFfmpegInstalled, value);
     }
 
+    /// <summary>Auto-update surface (channel, check, download); may be null before wiring.</summary>
+    public UpdateViewModel? Update { get; }
+
     private string _ffmpegStatus = "Checking...";
     public string FfmpegStatus
     {
@@ -1996,12 +1999,14 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         EngineDiagnosticsService? engineDiagnosticsService = null,
         ILibraryImportLauncher? importLauncher = null,
         EnrichmentViewModel? enrichment = null,
-        MetadataSourcesSettingsViewModel? metadataSources = null)
+        MetadataSourcesSettingsViewModel? metadataSources = null,
+        UpdateViewModel? updateViewModel = null)
     {
         _logger = logger;
         _config = config;
         _enrichment = enrichment;
         MetadataSources = metadataSources;
+        Update = updateViewModel;
         if (_enrichment != null)
             _enrichment.PropertyChanged += (_, e) =>
             {
