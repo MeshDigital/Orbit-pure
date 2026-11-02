@@ -330,6 +330,89 @@ public sealed class SetsViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Inspector_RoleChip_SetsRole_AndUndoes()
+    {
+        var (vm, setId) = await OpenSetWithTracksAsync("a", "b");
+        vm.SelectSlot(vm.Slots[1]);
+        Assert.True(vm.RoleOptions.Single(o => o.Role == SLSKDONET.Data.Entities.SetSlotRole.Builder).IsChecked);
+
+        vm.RoleOptions.Single(o => o.Role == SLSKDONET.Data.Entities.SetSlotRole.Peak).IsChecked = true;
+        await WaitForAsync(() => vm.Slots.ElementAtOrDefault(1)?.Slot.Role == SLSKDONET.Data.Entities.SetSlotRole.Peak);
+
+        Assert.Equal("b", vm.SelectedSlot?.Slot.TrackUniqueHash); // selection kept across the reload
+        Assert.Equal(SLSKDONET.Data.Entities.SetSlotRole.Peak, (await _service.GetSlotsAsync(setId))[1].Role);
+
+        await vm.UndoCommand.Execute();
+        Assert.Equal(SLSKDONET.Data.Entities.SetSlotRole.Builder, vm.Slots[1].Slot.Role);
+        Assert.True(vm.RoleOptions.Single(o => o.Role == SLSKDONET.Data.Entities.SetSlotRole.Builder).IsChecked);
+    }
+
+    [Fact]
+    public async Task Inspector_Energy_CommitsOnlyAfterTheSliderMoved_AndClears()
+    {
+        var (vm, setId) = await OpenSetWithTracksAsync("a");
+        vm.SelectSlot(vm.Slots[0]);
+        Assert.Equal("—", vm.EnergyDraftText);
+
+        await vm.CommitEnergyAsync(); // released without moving: nothing saved
+        Assert.Null((await _service.GetSlotsAsync(setId))[0].EnergyTarget);
+        Assert.False(vm.CanUndo);
+
+        vm.EnergyDraft = 72.4;
+        await vm.CommitEnergyAsync();
+        Assert.Equal(72.0, (await _service.GetSlotsAsync(setId))[0].EnergyTarget);
+        Assert.Equal("72", vm.EnergyDraftText);
+
+        await vm.ClearEnergyTargetAsync();
+        Assert.Null((await _service.GetSlotsAsync(setId))[0].EnergyTarget);
+        await vm.UndoCommand.Execute();
+        Assert.Equal(72.0, vm.Slots[0].Slot.EnergyTarget);
+    }
+
+    [Fact]
+    public async Task Inspector_Notes_SaveAndUndo()
+    {
+        var (vm, setId) = await OpenSetWithTracksAsync("a");
+        vm.SelectSlot(vm.Slots[0]);
+
+        vm.NotesDraft = "  mix in on the second drop ";
+        await WaitForAsync(() => vm.Slots.ElementAtOrDefault(0)?.Slot.Notes is not null);
+        Assert.Equal("mix in on the second drop", (await _service.GetSlotsAsync(setId))[0].Notes);
+
+        await vm.UndoCommand.Execute();
+        Assert.Null(vm.Slots[0].Slot.Notes);
+        Assert.Equal(string.Empty, vm.NotesDraft);
+    }
+
+    [Fact]
+    public async Task SlotAndTransitionSelection_AreExclusive_AndTransitionSurvivesReload()
+    {
+        var (vm, _) = await OpenSetWithTracksAsync("a", "b", "c");
+        var chip = vm.LaneItems.OfType<TransitionChipViewModel>().Last();
+
+        vm.SelectSlot(vm.Slots[0]);
+        vm.SelectTransition(chip);
+        Assert.False(vm.HasSelectedSlot);
+        Assert.True(vm.HasSelectedTransition);
+        Assert.True(chip.IsSelected);
+
+        await vm.LoadAsync(); // rebuilds the chips
+        await vm.PendingSlotLoad;
+        Assert.Equal(("b", "c"), (vm.SelectedTransition?.From.Slot.TrackUniqueHash, vm.SelectedTransition?.To.Slot.TrackUniqueHash));
+
+        vm.SelectSlot(vm.Slots[2]);
+        Assert.False(vm.HasSelectedTransition);
+    }
+
+    /// <summary>Inspector setters start edits fire-and-forget (like a UI binding); wait for them to land.</summary>
+    private static async Task WaitForAsync(Func<bool> condition)
+    {
+        for (var i = 0; i < 100 && !condition(); i++)
+            await Task.Delay(20);
+        Assert.True(condition(), "timed out waiting for the edit to land");
+    }
+
+    [Fact]
     public async Task FailedEdit_IsReportedAndStaysVisible()
     {
         var (vm, _) = await OpenSetWithTracksAsync("a", "b");

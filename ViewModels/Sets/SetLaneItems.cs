@@ -59,7 +59,7 @@ public enum TransitionEvidenceState
 }
 
 /// <summary>The transition chip between two adjacent slot cards (P2.4).</summary>
-public sealed class TransitionChipViewModel
+public sealed class TransitionChipViewModel : ReactiveObject
 {
     public SlotCardViewModel From { get; }
     public SlotCardViewModel To { get; }
@@ -75,6 +75,22 @@ public sealed class TransitionChipViewModel
 
     public string ToolTip { get; }
 
+    /// <summary>"Verified (3 ratings)", "Rated (1 rating)" or "Not rated yet: …".</summary>
+    public string EvidenceText { get; }
+
+    // Breakdown for the inspector (0-100 each), with the scorer's labels.
+    public double HarmonicScore { get; }
+    public string HarmonicLabel { get; }
+    public double BpmScore { get; }
+    public string BpmLabel { get; }
+    public double EnergyScore { get; }
+    public string EnergyLabel { get; }
+    public double StyleScore { get; }
+    public string StyleLabel { get; }
+
+    private bool _isSelected;
+    public bool IsSelected { get => _isSelected; set => this.RaiseAndSetIfChanged(ref _isSelected, value); }
+
     public TransitionChipViewModel(SlotCardViewModel from, SlotCardViewModel to, TransitionKnowledgeInfo? knowledge)
     {
         From = from;
@@ -86,6 +102,10 @@ public sealed class TransitionChipViewModel
             outgoingBpm: from.Slot.Bpm, incomingBpm: to.Slot.Bpm);
         Score = pair.CombinedScore;
         Warnings = TrackPairCompatibilityScorer.BuildWarnings(pair, from.Slot.Bpm, to.Slot.Bpm);
+        (HarmonicScore, HarmonicLabel) = (pair.HarmonicScore, pair.HarmonicLabel);
+        (BpmScore, BpmLabel) = (pair.BpmScore, pair.BpmLabel);
+        (EnergyScore, EnergyLabel) = (pair.EnergyScore, pair.EnergyLabel);
+        (StyleScore, StyleLabel) = (pair.GenreScore, pair.GenreLabel);
 
         Evidence = knowledge switch
         {
@@ -100,6 +120,7 @@ public sealed class TransitionChipViewModel
             TransitionEvidenceState.Rated => $"Rated ({CountFormat.Of(knowledge!.EvidenceCount, "rating")})",
             _ => "Not rated yet: score is from key, BPM and energy only",
         };
+        EvidenceText = evidenceLine;
         var lines = new List<string>
         {
             $"{from.Title} → {to.Title}",

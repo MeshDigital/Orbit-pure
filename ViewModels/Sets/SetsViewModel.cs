@@ -44,7 +44,7 @@ public sealed class SetListItemViewModel : ReactiveObject
 /// Every edit is persisted at once through <see cref="ISetProjectService"/> and recorded in a
 /// Sets-local undo history; failures are logged, toasted and shown inline, never swallowed.
 /// </summary>
-public sealed class SetsViewModel : ReactiveObject, IDisposable
+public sealed partial class SetsViewModel : ReactiveObject, IDisposable
 {
     private readonly ISetProjectService _sets;
     private readonly IDialogService _dialogs;
@@ -87,6 +87,7 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
             {
                 _history.Clear(); // edits are per set
                 _selectedSlotId = null;
+                _selectedTransitionKey = null;
                 RaiseUndoStateChanged();
             }
             PendingSlotLoad = LoadSlotsAsync();
@@ -256,6 +257,8 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
     public void SelectSlot(SlotCardViewModel? card)
     {
         _selectedSlotId = card?.SlotId;
+        if (card is not null)
+            _selectedTransitionKey = null; // slot and transition selection are exclusive
         foreach (var slot in Slots)
             slot.IsSelected = slot.SlotId == _selectedSlotId;
         RaiseSlotSelectionChanged();
@@ -323,6 +326,7 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(SelectedSlot));
         this.RaisePropertyChanged(nameof(HasSelectedSlot));
         Pool.SetReference(SelectedSlot?.Slot);
+        SyncInspector();
     }
 
     /// <summary>Moves a slot to a new index (drag-drop in the lane), with undo.</summary>
@@ -611,6 +615,7 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(IsSetEmpty));
         this.RaisePropertyChanged(nameof(HasSlots));
         this.RaisePropertyChanged(nameof(SelectedSummary));
+        this.RaisePropertyChanged(nameof(ShowInspectorHint));
     }
 
     public void Dispose()

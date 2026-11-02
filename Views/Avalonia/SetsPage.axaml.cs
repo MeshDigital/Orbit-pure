@@ -24,6 +24,34 @@ public partial class SetsPage : UserControl
         InitializeComponent();
         Lane.AddHandler(DragDrop.DragOverEvent, OnLaneDragOver);
         Lane.AddHandler(DragDrop.DropEvent, OnLaneDrop);
+
+        // The energy target is saved when the slider is let go (drag, click on the track or arrow
+        // keys), not on every tick. The slider handles these events itself, hence handledEventsToo.
+        EnergySlider.AddHandler(global::Avalonia.Controls.Primitives.Thumb.DragCompletedEvent, OnEnergyCommit, handledEventsToo: true);
+        EnergySlider.AddHandler(PointerReleasedEvent, OnEnergyCommit, handledEventsToo: true);
+        EnergySlider.AddHandler(KeyUpEvent, OnEnergyCommit, handledEventsToo: true);
+    }
+
+    private async void OnEnergyCommit(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (ViewModel is { } vm)
+            await vm.CommitEnergyAsync(); // reports its own failures
+    }
+
+    private async void OnClearEnergyClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (ViewModel is { } vm)
+            await vm.ClearEnergyTargetAsync();
+    }
+
+    private void OnChipPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is TransitionChipViewModel chip && ViewModel is { } vm)
+        {
+            vm.SelectTransition(chip);
+            Lane.Focus();
+            e.Handled = true;
+        }
     }
 
     public SetsPage(SetsViewModel viewModel) : this()
