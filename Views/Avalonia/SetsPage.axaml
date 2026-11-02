@@ -388,6 +388,10 @@
                             </StackPanel>
 
                             <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding SelectedTransition.EvidenceText, FallbackValue=''}" />
+                            <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding SelectedTransition.SavedTransitionText, FallbackValue=''}" />
+                            <Button Classes="primary" Content="Edit transition…" HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center" Click="OnEditTransitionClick"
+                                    ToolTip.Tip="Design the blend, pick mix points, preview and rate it (double-click a transition does the same)" />
                             <ItemsControl ItemsSource="{Binding SelectedTransition.Warnings, FallbackValue={x:Null}}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="x:String">
@@ -486,8 +490,12 @@
                                             <TextBlock Classes="mono" Text="{Binding ScoreText}" />
                                         </StackPanel>
                                         <ProgressBar Classes="meter" Maximum="100" Value="{Binding Score}" />
-                                        <PathIcon Data="{StaticResource icon_alert}" Width="12" Height="12"
-                                                  Foreground="{StaticResource BrushWarning}" IsVisible="{Binding HasWarnings}" />
+                                        <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                                            <PathIcon Data="{StaticResource icon_check}" Width="12" Height="12"
+                                                      Foreground="{StaticResource BrushAccent}" IsVisible="{Binding HasSavedTransition}" />
+                                            <PathIcon Data="{StaticResource icon_alert}" Width="12" Height="12"
+                                                      Foreground="{StaticResource BrushWarning}" IsVisible="{Binding HasWarnings}" />
+                                        </StackPanel>
                                     </StackPanel>
                                 </DataTemplate>
                             </ItemsControl.DataTemplates>

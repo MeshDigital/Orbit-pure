@@ -44,14 +44,39 @@ public partial class SetsPage : UserControl
             await vm.ClearEnergyTargetAsync();
     }
 
-    private void OnChipPointerPressed(object? sender, PointerPressedEventArgs e)
+    private async void OnChipPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if ((sender as Control)?.DataContext is TransitionChipViewModel chip && ViewModel is { } vm)
         {
             vm.SelectTransition(chip);
             Lane.Focus();
             e.Handled = true;
+            if (e.ClickCount == 2)
+                await OpenTransitionEditorAsync(chip);
         }
+    }
+
+    private async void OnEditTransitionClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (ViewModel?.SelectedTransition is { } chip)
+            await OpenTransitionEditorAsync(chip);
+    }
+
+    /// <summary>Opens the shared transition editor for a chip's two slots as a dialog.</summary>
+    private async System.Threading.Tasks.Task OpenTransitionEditorAsync(TransitionChipViewModel chip)
+    {
+        if (ViewModel is not { } vm)
+            return;
+        var editor = await vm.CreateTransitionEditorAsync(chip); // toasts why when it can't
+        if (editor is null)
+            return;
+
+        var window = new TransitionEditorWindow(editor, $"Transition: {chip.From.Title} → {chip.To.Title}");
+        window.Closed += async (_, _) => await vm.TransitionEditorClosedAsync();
+        if (TopLevel.GetTopLevel(this) is Window owner)
+            await window.ShowDialog(owner);
+        else
+            window.Show();
     }
 
     public SetsPage(SetsViewModel viewModel) : this()

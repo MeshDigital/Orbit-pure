@@ -431,6 +431,29 @@ public sealed class SetsViewModelTests : IDisposable
         Assert.Single(vm.Slots[0].Alternates);
     }
 
+    [Fact]
+    public async Task Chips_ShowWhichPairsHaveASavedSetTransition()
+    {
+        var set = await _service.CreateSetAsync("Friday");
+        var a = await _service.AppendTrackAsync(set.Id, "a");
+        var b = await _service.AppendTrackAsync(set.Id, "b");
+        await _service.AppendTrackAsync(set.Id, "c");
+        var repo = new SetTransitionRepository(_db.Factory);
+        await repo.UpsertTransitionAsync(new SLSKDONET.Models.Timeline.PlaylistTrackTransition
+        {
+            PlaylistId = set.Id, OutgoingPlaylistTrackId = a!.Id, IncomingPlaylistTrackId = b!.Id, PresetName = "Melt", DurationBars = 32,
+        });
+        var vm = new SetsViewModel(_service, _dialogs.Object, setTransitions: repo);
+
+        await vm.OpenSetAsync(set.Id);
+        await vm.PendingSlotLoad;
+
+        var chips = vm.LaneItems.OfType<TransitionChipViewModel>().ToList();
+        Assert.True(chips[0].HasSavedTransition);
+        Assert.Equal("Saved: Melt · 32 bars", chips[0].SavedTransitionText);
+        Assert.False(chips[1].HasSavedTransition);
+    }
+
     /// <summary>Inspector setters start edits fire-and-forget (like a UI binding); wait for them to land.</summary>
     private static async Task WaitForAsync(Func<bool> condition)
     {

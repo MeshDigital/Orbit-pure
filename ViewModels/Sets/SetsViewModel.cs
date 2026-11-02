@@ -51,6 +51,8 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
     private readonly INotificationService? _notifications;
     private readonly ILogger<SetsViewModel>? _logger;
     private readonly ILibraryService? _library;
+    private readonly SetTransitionRepository? _setTransitions;
+    private readonly IServiceProvider? _services;
     private readonly SetEditHistory _history = new();
 
     /// <summary>The track pool drawer (P2.5).</summary>
@@ -170,9 +172,13 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
         IDialogService dialogs,
         INotificationService? notifications = null,
         ILogger<SetsViewModel>? logger = null,
-        ILibraryService? library = null)
+        ILibraryService? library = null,
+        SetTransitionRepository? setTransitions = null,
+        IServiceProvider? services = null)
     {
         _sets = sets;
+        _setTransitions = setTransitions;
+        _services = services;
         _dialogs = dialogs;
         _notifications = notifications;
         _logger = logger;
@@ -393,10 +399,13 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
             var knowledge = pairs.Count == 0
                 ? Array.Empty<TransitionKnowledgeInfo>()
                 : await _sets.GetKnowledgeAsync(pairs);
+            var saved = _setTransitions is null || pairs.Count == 0
+                ? new List<SLSKDONET.Models.Timeline.PlaylistTrackTransition>()
+                : await _setTransitions.GetTransitionsForPlaylistAsync(set.Id);
             if (generation != _slotLoadGeneration)
                 return; // the user picked another set meanwhile
 
-            BuildLane(slots, knowledge);
+            BuildLane(slots, knowledge, saved);
         }
         catch (Exception ex)
         {
@@ -413,9 +422,11 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
         }
     }
 
-    private void BuildLane(IReadOnlyList<SetSlotInfo> slots, IReadOnlyList<TransitionKnowledgeInfo> knowledge)
+    private void BuildLane(IReadOnlyList<SetSlotInfo> slots, IReadOnlyList<TransitionKnowledgeInfo> knowledge,
+        IReadOnlyList<SLSKDONET.Models.Timeline.PlaylistTrackTransition> saved)
     {
         var byPair = knowledge.ToDictionary(k => (k.SourceTrackHash, k.TargetTrackHash));
+        var savedBySlots = saved.ToDictionary(t => (t.OutgoingPlaylistTrackId, t.IncomingPlaylistTrackId));
 
         Slots.Clear();
         LaneItems.Clear();
@@ -426,7 +437,8 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
             if (previous is not null)
             {
                 byPair.TryGetValue((previous.Slot.TrackUniqueHash, slot.TrackUniqueHash), out var known);
-                LaneItems.Add(new TransitionChipViewModel(previous, card, known));
+                savedBySlots.TryGetValue((previous.SlotId, card.SlotId), out var savedTransition);
+                LaneItems.Add(new TransitionChipViewModel(previous, card, known, savedTransition));
             }
             Slots.Add(card);
             LaneItems.Add(card);

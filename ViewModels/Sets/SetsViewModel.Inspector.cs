@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using ReactiveUI;
 using SLSKDONET.Data.Entities;
 
@@ -156,6 +157,42 @@ public sealed partial class SetsViewModel
                 redo: async () => await _sets.UpdateSlotAsync(slotId, role, energy));
         });
     }
+
+    /// <summary>
+    /// Creates a transition editor (the same one Flow Builder and the player use) loaded with the
+    /// chip's two slots, saving into this set (rebuild plan P3.1). The caller shows it and disposes
+    /// it when closed. Null when it can't be opened; the reason is toasted.
+    /// </summary>
+    public async Task<MixTransitionViewModel?> CreateTransitionEditorAsync(TransitionChipViewModel? chip = null)
+    {
+        chip ??= SelectedTransition;
+        if (chip is null || SelectedSet is not { } set)
+            return null;
+        if (_services?.GetService(typeof(MixTransitionViewModel)) is not MixTransitionViewModel editor)
+        {
+            _logger?.LogError("[Sets] MixTransitionViewModel isn't registered; can't open the transition editor");
+            _notifications?.Show("Sets", "The transition editor isn't available right now.", Views.NotificationType.Error);
+            return null;
+        }
+
+        try
+        {
+            if (await editor.LoadSetPairAsync(set.Id, chip.From.SlotId, chip.From.Slot.TrackUniqueHash,
+                    chip.To.SlotId, chip.To.Slot.TrackUniqueHash))
+                return editor;
+
+            _notifications?.Show("Sets", editor.StatusMessage ?? "Couldn't open that transition.", Views.NotificationType.Warning);
+        }
+        catch (Exception ex)
+        {
+            ReportFailure("Couldn't open the transition editor", ex);
+        }
+        editor.Dispose();
+        return null;
+    }
+
+    /// <summary>Called when the transition editor closes: picks up saved transitions and ratings.</summary>
+    public Task TransitionEditorClosedAsync() => LoadAsync();
 
     /// <summary>Adds a pool track as a Plan B for the selected slot.</summary>
     public async Task AddAlternateFromPoolAsync(PoolTrackViewModel track)

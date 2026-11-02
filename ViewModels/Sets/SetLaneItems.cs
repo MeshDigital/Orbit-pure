@@ -113,8 +113,19 @@ public sealed class TransitionChipViewModel : ReactiveObject
     private bool _isSelected;
     public bool IsSelected { get => _isSelected; set => this.RaiseAndSetIfChanged(ref _isSelected, value); }
 
-    public TransitionChipViewModel(SlotCardViewModel from, SlotCardViewModel to, TransitionKnowledgeInfo? knowledge)
+    /// <summary>The transition saved for this pair in this set (transition editor), if any.</summary>
+    public SLSKDONET.Models.Timeline.PlaylistTrackTransition? SavedTransition { get; }
+    public bool HasSavedTransition => SavedTransition is not null;
+
+    /// <summary>"Saved: Blend · 16 bars", or a prompt to design one.</summary>
+    public string SavedTransitionText => SavedTransition is { } saved
+        ? $"Saved: {saved.PresetName} · {saved.DurationBars.ToString(CultureInfo.InvariantCulture)} bars"
+        : "No saved transition yet: playback would use the Auto plan";
+
+    public TransitionChipViewModel(SlotCardViewModel from, SlotCardViewModel to, TransitionKnowledgeInfo? knowledge,
+        SLSKDONET.Models.Timeline.PlaylistTrackTransition? savedTransition = null)
     {
+        SavedTransition = savedTransition;
         From = from;
         To = to;
 
@@ -148,6 +159,7 @@ public sealed class TransitionChipViewModel : ReactiveObject
             $"{from.Title} → {to.Title}",
             $"Compatibility {ScoreText}/100 · harmonic {pair.HarmonicLabel}, BPM {pair.BpmLabel}, energy {pair.EnergyLabel}",
             evidenceLine,
+            SavedTransitionText,
         };
         lines.AddRange(Warnings);
         ToolTip = string.Join(Environment.NewLine, lines);
