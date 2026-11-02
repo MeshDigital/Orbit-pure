@@ -303,6 +303,38 @@ public sealed class SetProjectServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task SearchPoolAsync_FiltersByTextAnalysisBpmAndKey()
+    {
+        _db.SeedLibrary(("a", "Noisia", "Alpha"), ("b", "Calibre", "Bravo"), ("c", "Sub Focus", "Charlie"), ("d", "Phace", "Delta"));
+        _db.SeedFeatures(("a", 174f, "8A"), ("b", 172f, "9A"), ("c", 128f, "8A"));
+
+        Assert.Equal(4, (await Service.SearchPoolAsync(new SetPoolQuery())).Count);
+        Assert.Equal(new[] { "a", "b", "c" }, (await Service.SearchPoolAsync(new SetPoolQuery(AnalysedOnly: true))).Select(t => t.TrackUniqueHash));
+        Assert.Equal(new[] { "a", "b" }, (await Service.SearchPoolAsync(new SetPoolQuery(BpmMin: 167, BpmMax: 181))).Select(t => t.TrackUniqueHash));
+        Assert.Equal(new[] { "a", "c" }, (await Service.SearchPoolAsync(new SetPoolQuery(CamelotKeys: new[] { "8A" }))).Select(t => t.TrackUniqueHash));
+        var unanalysed = (await Service.SearchPoolAsync(new SetPoolQuery(Text: "phace"))).Single();
+        Assert.Equal(("d", (double?)null, (string?)null), (unanalysed.TrackUniqueHash, unanalysed.Bpm, unanalysed.CamelotKey));
+    }
+
+    [Fact]
+    public async Task AppendPlaylistAsync_AddsLibraryTracksInPlaylistOrder_CountsSkipped()
+    {
+        _db.SeedLibrary(("a", "X", "A"), ("b", "Y", "B"));
+        var playlistId = _db.SeedPlaylist(("b", 0), ("missing", 1), ("a", 2));
+        var set = await Service.CreateSetAsync("Friday");
+        await Service.AppendTrackAsync(set.Id, "first");
+
+        var result = await Service.AppendPlaylistAsync(set.Id, playlistId);
+
+        Assert.Equal(2, result!.Added.Count);
+        Assert.Equal(1, result.SkippedNotInLibrary);
+        var slots = await Service.GetSlotsAsync(set.Id);
+        Assert.Equal(new[] { "first", "b", "a" }, slots.Select(s => s.TrackUniqueHash));
+        Assert.Equal(new[] { 0, 1, 2 }, slots.Select(s => s.Position));
+        Assert.Null(await Service.AppendPlaylistAsync(Guid.NewGuid(), playlistId));
+    }
+
+    [Fact]
     public async Task GetTrackLabelsAsync_FormatsArtistAndTitle_SkipsUnknown()
     {
         _db.SeedLibrary(("h1", "Noisia", "Machine Gun"), ("h2", "", "Untitled"));
@@ -359,6 +391,23 @@ internal sealed class SetsTestDatabase : IDisposable
         foreach (var (hash, bpm, camelot) in tracks)
             db.AudioFeatures.Add(new AudioFeaturesEntity { TrackUniqueHash = hash, Bpm = bpm, CamelotKey = camelot });
         db.SaveChanges();
+    }
+
+    /// <summary>Creates a playlist whose tracks have the given hashes and sort orders; returns its id.</summary>
+    public Guid SeedPlaylist(params (string Hash, int SortOrder)[] tracks)
+    {
+        var playlistId = Guid.NewGuid();
+        using var db = Factory.CreateDbContext();
+        // A playlist routinely lists tracks that aren't downloaded yet. The production schema
+        // (raw-SQL tables) doesn't enforce the EF model's PlaylistTracks FKs, but EnsureCreated
+        // does, so seed with enforcement off on this connection to model that real state.
+        db.Database.OpenConnection();
+        db.Database.ExecuteSqlRaw("PRAGMA foreign_keys = OFF;");
+        db.Projects.Add(new PlaylistJobEntity { Id = playlistId, SourceTitle = "Playlist", CreatedAt = DateTime.UtcNow });
+        foreach (var (hash, sortOrder) in tracks)
+            db.PlaylistTracks.Add(new PlaylistTrackEntity { Id = Guid.NewGuid(), PlaylistId = playlistId, TrackUniqueHash = hash, SortOrder = sortOrder });
+        db.SaveChanges();
+        return playlistId;
     }
 
     public void SeedEdge(Guid setId, Guid fromSlot, Guid toSlot)

@@ -11,6 +11,21 @@ namespace SLSKDONET.Services.Sets;
 /// <summary>A library track as shown in set pickers.</summary>
 public sealed record SetTrackPickerItem(string TrackUniqueHash, string Title, string Artist);
 
+/// <summary>Track-pool filters for the Sets page. Null / empty means "don't filter on this".</summary>
+public sealed record SetPoolQuery(
+    string? Text = null,
+    bool AnalysedOnly = false,
+    double? BpmMin = null,
+    double? BpmMax = null,
+    IReadOnlyCollection<string>? CamelotKeys = null,
+    int Limit = 300);
+
+/// <summary>A library track in the Sets track pool, with whatever analysis exists.</summary>
+public sealed record SetPoolTrack(string TrackUniqueHash, string Title, string Artist, double? Bpm, string? CamelotKey);
+
+/// <summary>Result of seeding a set from a playlist.</summary>
+public sealed record PlaylistAppendResult(IReadOnlyList<SetTrackEntity> Added, int SkippedNotInLibrary);
+
 /// <summary>A set as listed in the Sets rail.</summary>
 public sealed record SetSummary(Guid Id, string Name, SetProjectStatus Status, int SlotCount, DateTime LastModifiedAt);
 
@@ -95,6 +110,15 @@ public interface ISetProjectService
 
     /// <summary>Knowledge-graph edges that exist for the given A→B track-hash pairs.</summary>
     Task<IReadOnlyList<TransitionKnowledgeInfo>> GetKnowledgeAsync(IEnumerable<(string From, string To)> pairs);
+
+    /// <summary>Library tracks for the Sets track pool, filtered and ordered by title.</summary>
+    Task<IReadOnlyList<SetPoolTrack>> SearchPoolAsync(SetPoolQuery query);
+
+    /// <summary>
+    /// Appends a playlist's tracks (in playlist order) to a set. Tracks that aren't in the library
+    /// are skipped and counted. Returns null when the set no longer exists.
+    /// </summary>
+    Task<PlaylistAppendResult?> AppendPlaylistAsync(Guid setId, Guid playlistId);
 
     /// <summary>Writes a slot's role and energy target. Returns false when the slot no longer exists.</summary>
     Task<bool> UpdateSlotAsync(Guid slotId, SetSlotRole role, double? energyTarget);
@@ -472,6 +496,102 @@ public sealed class SetProjectService : ISetProjectService
             .ConfigureAwait(false);
 
         return rows.Select(r => new SetTrackPickerItem(r.UniqueHash, r.Title, r.Artist)).ToList();
+    }
+
+    public async Task<IReadOnlyList<SetPoolTrack>> SearchPoolAsync(SetPoolQuery query)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        var rows =
+            from e in db.LibraryEntries.AsNoTracking()
+            join f in db.AudioFeatures.AsNoTracking() on e.UniqueHash equals f.TrackUniqueHash into features
+            from f in features.DefaultIfEmpty()
+            select new { e.UniqueHash, e.Title, e.Artist, Bpm = (float?)f.Bpm, CamelotKey = f.CamelotKey };
+
+        var text = query.Text?.Trim();
+        if (!string.IsNullOrEmpty(text))
+        {
+            var pattern = "%" + text.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
+            rows = rows.Where(r => EF.Functions.Like(r.Title, pattern, "\\") || EF.Functions.Like(r.Artist, pattern, "\\"));
+        }
+        if (query.AnalysedOnly)
+            rows = rows.Where(r => r.Bpm != null && r.Bpm > 0);
+        if (query.BpmMin is double min)
+            rows = rows.Where(r => r.Bpm >= (float)min);
+        if (query.BpmMax is double max)
+            rows = rows.Where(r => r.Bpm <= (float)max);
+        if (query.CamelotKeys is { Count: > 0 } keys)
+        {
+            var keyList = keys.ToList();
+            rows = rows.Where(r => r.CamelotKey != null && keyList.Contains(r.CamelotKey));
+        }
+
+        var found = await rows
+            .OrderBy(r => r.Title)
+            .Take(query.Limit * 2) // headroom: duplicate analysis rows are collapsed below
+            .ToListAsync()
+            .ConfigureAwait(false);
+
+        return found
+            .GroupBy(r => r.UniqueHash, StringComparer.Ordinal)
+            .Select(g => g.First())
+            .Take(query.Limit)
+            .Select(r => new SetPoolTrack(
+                r.UniqueHash,
+                r.Title,
+                r.Artist,
+                r.Bpm is > 0 ? r.Bpm : null,
+                string.IsNullOrWhiteSpace(r.CamelotKey) ? null : r.CamelotKey))
+            .ToList();
+    }
+
+    public async Task<PlaylistAppendResult?> AppendPlaylistAsync(Guid setId, Guid playlistId)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        var set = await db.SetLists
+            .Include(s => s.Tracks)
+            .FirstOrDefaultAsync(s => s.Id == setId)
+            .ConfigureAwait(false);
+        if (set is null)
+            return null;
+
+        var playlistHashes = (await db.PlaylistTracks
+                .AsNoTracking()
+                .Where(t => t.PlaylistId == playlistId)
+                .Select(t => new { t.TrackUniqueHash, t.SortOrder, t.TrackNumber })
+                .ToListAsync()
+                .ConfigureAwait(false))
+            .OrderBy(t => t.SortOrder).ThenBy(t => t.TrackNumber)
+            .Select(t => t.TrackUniqueHash)
+            .Where(h => !string.IsNullOrEmpty(h))
+            .ToList();
+
+        var inLibrary = (await db.LibraryEntries
+                .AsNoTracking()
+                .Where(e => playlistHashes.Contains(e.UniqueHash))
+                .Select(e => e.UniqueHash)
+                .ToListAsync()
+                .ConfigureAwait(false))
+            .ToHashSet(StringComparer.Ordinal);
+
+        var ordered = Ordered(set.Tracks).ToList();
+        var added = new List<SetTrackEntity>();
+        foreach (var hash in playlistHashes.Where(inLibrary.Contains))
+        {
+            var slot = new SetTrackEntity { SetListId = setId, TrackUniqueHash = hash };
+            ordered.Add(slot);
+            added.Add(slot);
+            db.SetTracks.Add(slot);
+        }
+        Renumber(ordered);
+
+        if (added.Count > 0)
+        {
+            set.LastModifiedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync().ConfigureAwait(false);
+        }
+        return new PlaylistAppendResult(added, playlistHashes.Count - added.Count);
     }
 
     private async Task<bool> UpdateSlotCoreAsync(Guid slotId, Action<SetTrackEntity> apply)

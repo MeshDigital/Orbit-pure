@@ -50,7 +50,11 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
     private readonly IDialogService _dialogs;
     private readonly INotificationService? _notifications;
     private readonly ILogger<SetsViewModel>? _logger;
+    private readonly ILibraryService? _library;
     private readonly SetEditHistory _history = new();
+
+    /// <summary>The track pool drawer (P2.5).</summary>
+    public SetPoolViewModel Pool { get; }
     private int _slotLoadGeneration;
     private Guid? _pendingOpen;
     private bool _rebuildingRail;
@@ -164,12 +168,15 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
         ISetProjectService sets,
         IDialogService dialogs,
         INotificationService? notifications = null,
-        ILogger<SetsViewModel>? logger = null)
+        ILogger<SetsViewModel>? logger = null,
+        ILibraryService? library = null)
     {
         _sets = sets;
         _dialogs = dialogs;
         _notifications = notifications;
         _logger = logger;
+        _library = library;
+        Pool = new SetPoolViewModel(sets);
 
         var hasSelection = this.WhenAnyValue(x => x.SelectedSet).Select(s => s is not null);
         var hasSlot = this.WhenAnyValue(x => x.HasSelectedSlot);
@@ -186,7 +193,12 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
         RemoveSlotCommand = ReactiveCommand.CreateFromTask(RemoveSelectedAsync, hasSlot);
         UndoCommand = ReactiveCommand.CreateFromTask(UndoAsync, this.WhenAnyValue(x => x.CanUndo));
         RedoCommand = ReactiveCommand.CreateFromTask(RedoAsync, this.WhenAnyValue(x => x.CanRedo));
+        StartFromPlaylistCommand = ReactiveCommand.CreateFromTask(StartFromPlaylistAsync, hasSelection);
+        ClearPoolFiltersCommand = ReactiveCommand.Create(() => Pool.ClearFilters());
     }
+
+    public ReactiveCommand<Unit, Unit> StartFromPlaylistCommand { get; }
+    public ReactiveCommand<Unit, Unit> ClearPoolFiltersCommand { get; }
 
     /// <summary>
     /// Asks the next <see cref="LoadAsync"/> to select <paramref name="setId"/>. Used when another
@@ -246,8 +258,71 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
         _selectedSlotId = card?.SlotId;
         foreach (var slot in Slots)
             slot.IsSelected = slot.SlotId == _selectedSlotId;
+        RaiseSlotSelectionChanged();
+    }
+
+    /// <summary>Adds a pool track right after the selected slot, or at the end.</summary>
+    public Task AddFromPoolAsync(PoolTrackViewModel track)
+        => InsertTrackAsync(track.TrackUniqueHash, SelectedSlot is { } selected ? selected.Index + 1 : Slots.Count);
+
+    private async Task StartFromPlaylistAsync()
+    {
+        if (SelectedSet is not { } set)
+            return;
+        if (_library is null)
+        {
+            _notifications?.Show("Sets", "Playlists aren't available right now.", NotificationType.Error);
+            return;
+        }
+
+        try
+        {
+            var playlists = await _library.LoadAllPlaylistJobsAsync();
+            var picked = await _dialogs.ShowProjectPickerAsync(playlists);
+            if (picked is null)
+                return; // cancelled
+
+            await RunEditAsync("Add playlist", async () =>
+            {
+                var result = await _sets.AppendPlaylistAsync(set.Id, picked.Id)
+                    ?? throw new InvalidOperationException($"\"{set.Name}\" no longer exists.");
+                if (result.Added.Count > 0)
+                {
+                    var ids = result.Added.Select(s => s.Id).ToList();
+                    var removed = new List<SetTrackEntity>();
+                    _history.Push($"Add \"{picked.SourceTitle}\"",
+                        undo: async () =>
+                        {
+                            removed.Clear();
+                            foreach (var id in Enumerable.Reverse(ids))
+                                if (await _sets.RemoveSlotAsync(id) is { } snapshot)
+                                    removed.Add(snapshot);
+                        },
+                        redo: async () =>
+                        {
+                            foreach (var snapshot in Enumerable.Reverse(removed))
+                                await _sets.RestoreSlotAsync(snapshot);
+                        });
+                }
+
+                var message = $"Added {CountFormat.Of(result.Added.Count, "track")} from \"{picked.SourceTitle}\".";
+                if (result.SkippedNotInLibrary > 0)
+                    message += $" {CountFormat.Of(result.SkippedNotInLibrary, "track")} skipped: not in your library yet.";
+                _notifications?.Show("Sets", message,
+                    result.Added.Count > 0 ? NotificationType.Success : NotificationType.Warning);
+            });
+        }
+        catch (Exception ex)
+        {
+            ReportFailure("Couldn't add the playlist", ex);
+        }
+    }
+
+    private void RaiseSlotSelectionChanged()
+    {
         this.RaisePropertyChanged(nameof(SelectedSlot));
         this.RaisePropertyChanged(nameof(HasSelectedSlot));
+        Pool.SetReference(SelectedSlot?.Slot);
     }
 
     /// <summary>Moves a slot to a new index (drag-drop in the lane), with undo.</summary>
@@ -356,8 +431,7 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
 
         if (_selectedSlotId is Guid id && Slots.All(s => s.SlotId != id))
             _selectedSlotId = null;
-        this.RaisePropertyChanged(nameof(SelectedSlot));
-        this.RaisePropertyChanged(nameof(HasSelectedSlot));
+        RaiseSlotSelectionChanged();
     }
 
     private void SelectRelative(int delta)
@@ -553,5 +627,8 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
         RemoveSlotCommand.Dispose();
         UndoCommand.Dispose();
         RedoCommand.Dispose();
+        StartFromPlaylistCommand.Dispose();
+        ClearPoolFiltersCommand.Dispose();
+        Pool.Dispose();
     }
 }

@@ -114,6 +114,78 @@
                 </Grid>
             </Border>
 
+            <!-- Track pool drawer (P2.5): find tracks, drag or double-click them into the lane -->
+            <Border DockPanel.Dock="Bottom" Classes="panel" BorderThickness="0,1,0,0" Height="300" Margin="0,16,0,0"
+                    IsVisible="{Binding HasSelection}">
+                <DockPanel>
+                    <Border DockPanel.Dock="Top" Classes="panel-header">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <TextBlock Classes="section" Text="TRACK POOL" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1" Classes="caption" Margin="12,0" VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" Text="{Binding Pool.ReferenceText}" />
+                            <Button Grid.Column="2" Classes="ghost small" Content="Add playlist…"
+                                    Command="{Binding StartFromPlaylistCommand}"
+                                    ToolTip.Tip="Append a playlist's tracks (in playlist order) to this set" />
+                        </Grid>
+                    </Border>
+
+                    <Grid DockPanel.Dock="Top" ColumnDefinitions="280,*" Margin="0,8">
+                        <TextBox Classes="search small" Watermark="Search title or artist"
+                                 Text="{Binding Pool.SearchText, Mode=TwoWay}" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0">
+                            <ToggleButton Classes="chip" Content="Analysed" IsChecked="{Binding Pool.AnalysedOnly, Mode=TwoWay}"
+                                          ToolTip.Tip="Only tracks with BPM and key" />
+                            <ToggleButton Classes="chip" Content="Fits key" IsChecked="{Binding Pool.FitsKey, Mode=TwoWay}"
+                                          IsEnabled="{Binding Pool.CanFilterByKey}"
+                                          ToolTip.Tip="Same key as the selected slot, or a Camelot neighbour" />
+                            <ToggleButton Classes="chip" Content="BPM ±4%" IsChecked="{Binding Pool.BpmClose, Mode=TwoWay}"
+                                          IsEnabled="{Binding Pool.CanFilterByBpm}"
+                                          ToolTip.Tip="Within 4% of the selected slot's BPM" />
+                            <Button Classes="ghost small" Content="Clear" Command="{Binding ClearPoolFiltersCommand}"
+                                    IsVisible="{Binding Pool.HasActiveFilters}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Panel>
+                        <ListBox ItemsSource="{Binding Pool.Items}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PoolTrackViewModel">
+                                    <Grid Height="32" ColumnDefinitions="*,Auto,Auto,Auto" Background="Transparent"
+                                          PointerPressed="OnPoolRowPointerPressed" PointerMoved="OnPoolRowPointerMoved"
+                                          DoubleTapped="OnPoolRowDoubleTapped">
+                                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <TextBlock Classes="body" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Classes="body-sm muted" Text="{Binding Artist}" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <Border Grid.Column="1" Classes="fact" Margin="8,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Bpm}" />
+                                        </Border>
+                                        <Border Grid.Column="2" Classes="fact" Margin="8,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Key}" />
+                                        </Border>
+                                        <Button Grid.Column="3" Classes="icon small" Margin="8,0,0,0" Click="OnPoolAddClick"
+                                                ToolTip.Tip="Add after the selected slot (or at the end)"
+                                                AutomationProperties.Name="Add to set">
+                                            <PathIcon Data="{StaticResource icon_add}" />
+                                        </Button>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <StackPanel Classes="empty-state" IsVisible="{Binding Pool.IsEmpty}">
+                            <TextBlock Classes="h3" Text="No matching tracks" />
+                            <TextBlock Classes="caption" Text="Loosen the filters or try another search." />
+                        </StackPanel>
+                        <TextBlock Classes="caption" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Text="Searching…" IsVisible="{Binding Pool.IsLoading}" />
+                        <TextBlock Classes="caption error" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   TextWrapping="Wrap" Text="{Binding Pool.ErrorMessage}"
+                                   IsVisible="{Binding Pool.ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </Panel>
+                </DockPanel>
+            </Border>
+
             <Panel>
                 <!-- The set lane: slot cards joined by transition chips (P2.4) -->
                 <Border x:Name="Lane" Focusable="True" IsVisible="{Binding HasSlots}" VerticalAlignment="Top"
@@ -210,7 +282,8 @@
 
                 <StackPanel Classes="empty-state" IsVisible="{Binding IsSetEmpty}">
                     <TextBlock Classes="h3" Text="This set has no tracks yet" />
-                    <TextBlock Classes="caption" Text="Right-click a track in the Library and choose Add to Set." />
+                    <TextBlock Classes="caption" Text="Drag or double-click tracks from the pool below, or start from a playlist." />
+                    <Button Classes="primary" Content="Add playlist…" Command="{Binding StartFromPlaylistCommand}" />
                 </StackPanel>
 
                 <TextBlock Classes="caption" HorizontalAlignment="Center" VerticalAlignment="Center"

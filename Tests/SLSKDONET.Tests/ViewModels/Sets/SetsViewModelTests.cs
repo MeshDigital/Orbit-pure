@@ -280,6 +280,56 @@ public sealed class SetsViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task AddFromPool_InsertsAfterSelectedSlot()
+    {
+        var (vm, _) = await OpenSetWithTracksAsync("a", "c");
+        vm.SelectSlot(vm.Slots[0]);
+
+        await vm.AddFromPoolAsync(new PoolTrackViewModel(new SetPoolTrack("b", "B", "Y", null, null)));
+
+        Assert.Equal(new[] { "a", "b", "c" }, Order(vm));
+    }
+
+    [Fact]
+    public async Task StartFromPlaylist_AppendsReportsSkipped_AndUndoesAsOneStep()
+    {
+        _db.SeedLibrary(("a", "X", "A"), ("b", "Y", "B"));
+        var playlistId = _db.SeedPlaylist(("a", 0), ("gone", 1), ("b", 2));
+        var playlist = new SLSKDONET.Models.PlaylistJob { Id = playlistId, SourceTitle = "Warmup" };
+        var library = new Mock<ILibraryService>();
+        library.Setup(l => l.LoadAllPlaylistJobsAsync()).ReturnsAsync(new List<SLSKDONET.Models.PlaylistJob> { playlist });
+        _dialogs.Setup(d => d.ShowProjectPickerAsync(It.IsAny<IEnumerable<SLSKDONET.Models.PlaylistJob>>())).ReturnsAsync(playlist);
+        var set = await _service.CreateSetAsync("Friday");
+        var notifications = new Mock<INotificationService>();
+        notifications
+            .Setup(n => n.Show(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<NotificationType>(), It.IsAny<TimeSpan?>(), It.IsAny<string?>()))
+            .Callback<string, string, NotificationType, TimeSpan?, string?>((_, message, type, _, _) => _toasts.Add((message, type)));
+        var vm = new SetsViewModel(_service, _dialogs.Object, notifications.Object, library: library.Object);
+        await vm.OpenSetAsync(set.Id);
+        await vm.PendingSlotLoad;
+
+        await vm.StartFromPlaylistCommand.Execute();
+
+        Assert.Equal(new[] { "a", "b" }, Order(vm));
+        Assert.Contains(_toasts, t => t.Message.Contains("2 tracks") && t.Message.Contains("1 track skipped"));
+
+        await vm.UndoCommand.Execute();
+        Assert.Empty(vm.Slots);
+        await vm.RedoCommand.Execute();
+        Assert.Equal(new[] { "a", "b" }, Order(vm));
+    }
+
+    [Theory]
+    [InlineData("8A", new[] { "8A", "9A", "7A", "8B" })]
+    [InlineData("12B", new[] { "12B", "1B", "11B", "12A" })]
+    [InlineData("1A", new[] { "1A", "2A", "12A", "1B" })]
+    [InlineData("garbage", new[] { "garbage" })]
+    public void CamelotNeighbours_WrapTheWheel(string key, string[] expected)
+    {
+        Assert.Equal(expected.OrderBy(k => k), SetPoolViewModel.CamelotNeighbours(key).OrderBy(k => k));
+    }
+
+    [Fact]
     public async Task FailedEdit_IsReportedAndStaysVisible()
     {
         var (vm, _) = await OpenSetWithTracksAsync("a", "b");

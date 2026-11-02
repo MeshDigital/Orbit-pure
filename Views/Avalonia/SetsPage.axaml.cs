@@ -37,7 +37,49 @@ public partial class SetsPage : UserControl
     {
         base.OnAttachedToVisualTree(e);
         if (ViewModel is { } vm)
-            await vm.LoadAsync(); // reports its own failures (log + toast + inline error)
+        {
+            // Both report their own failures (log + toast + inline error).
+            await vm.LoadAsync();
+            await vm.Pool.RefreshAsync();
+        }
+    }
+
+    // ── Track pool ───────────────────────────────────────────────────────────
+
+    private Point? _poolDragStart;
+
+    private async void OnPoolAddClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is PoolTrackViewModel track && ViewModel is { } vm)
+            await vm.AddFromPoolAsync(track); // reports its own failures
+    }
+
+    private async void OnPoolRowDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is PoolTrackViewModel track && ViewModel is { } vm)
+            await vm.AddFromPoolAsync(track);
+    }
+
+    private void OnPoolRowPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            _poolDragStart = e.GetPosition(this);
+    }
+
+    private async void OnPoolRowPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_poolDragStart is not { } start || (sender as Control)?.DataContext is not PoolTrackViewModel track
+            || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            return;
+
+        var delta = e.GetPosition(this) - start;
+        if (Math.Abs(delta.X) < DragThreshold && Math.Abs(delta.Y) < DragThreshold)
+            return;
+
+        _poolDragStart = null;
+        var data = new DataObject();
+        data.Set(DragContext.LibraryTrackFormat, track.TrackUniqueHash);
+        await DragDrop.DoDragDrop(e, data, DragDropEffects.Copy);
     }
 
     private void OnCardPointerPressed(object? sender, PointerPressedEventArgs e)
