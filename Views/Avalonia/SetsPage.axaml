@@ -160,7 +160,7 @@
                             </ListBox.Styles>
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:PoolTrackViewModel">
-                                    <Grid Height="32" ColumnDefinitions="*,Auto,Auto,Auto" Background="Transparent"
+                                    <Grid Height="32" ColumnDefinitions="*,Auto,Auto,Auto,Auto" Background="Transparent"
                                           PointerPressed="OnPoolRowPointerPressed" PointerMoved="OnPoolRowPointerMoved"
                                           DoubleTapped="OnPoolRowDoubleTapped">
                                         <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
@@ -173,7 +173,10 @@
                                         <Border Grid.Column="2" Classes="fact" Margin="8,0,0,0" VerticalAlignment="Center">
                                             <TextBlock Text="{Binding Key}" />
                                         </Border>
-                                        <Button Grid.Column="3" Classes="icon small" Margin="8,0,0,0" Click="OnPoolAddClick"
+                                        <Button Grid.Column="3" Classes="ghost small" Margin="8,0,0,0" Content="Plan B"
+                                                Click="OnPoolPlanBClick"
+                                                ToolTip.Tip="Add as a Plan B for the selected slot" />
+                                        <Button Grid.Column="4" Classes="icon small" Margin="4,0,0,0" Click="OnPoolAddClick"
                                                 ToolTip.Tip="Add after the selected slot (or at the end)"
                                                 AutomationProperties.Name="Add to set">
                                             <PathIcon Data="{StaticResource icon_add}" />
@@ -248,6 +251,36 @@
                                 <TextBox AcceptsReturn="True" TextWrapping="Wrap" MinHeight="72"
                                          Watermark="Cue to mix in on, a reminder for the night…"
                                          Text="{Binding NotesDraft, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
+                            </StackPanel>
+
+                            <StackPanel Spacing="4">
+                                <TextBlock Classes="caption" Text="Plan B" />
+                                <TextBlock Classes="caption muted" TextWrapping="Wrap"
+                                           Text="No alternates yet. Use a pool track's Plan B button to add one."
+                                           IsVisible="{Binding !SelectedSlot.HasAlternates, FallbackValue=False}" />
+                                <ItemsControl ItemsSource="{Binding SelectedSlot.Alternates, FallbackValue={x:Null}}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:AlternateViewModel">
+                                            <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,4">
+                                                <StackPanel Spacing="2">
+                                                    <TextBlock Classes="body-sm" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <Border Classes="fact"><TextBlock Text="{Binding Bpm}" /></Border>
+                                                        <Border Classes="fact"><TextBlock Text="{Binding Key}" /></Border>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                                <Button Grid.Column="1" Classes="ghost small" Content="Swap in" VerticalAlignment="Center"
+                                                        Click="OnSwapAlternateClick"
+                                                        ToolTip.Tip="Play this in the slot instead; the planned track becomes the Plan B" />
+                                                <Button Grid.Column="2" Classes="icon small" VerticalAlignment="Center"
+                                                        Click="OnRemoveAlternateClick" ToolTip.Tip="Remove this Plan B"
+                                                        AutomationProperties.Name="Remove Plan B">
+                                                    <PathIcon Data="{StaticResource icon_close}" />
+                                                </Button>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                             </StackPanel>
                         </StackPanel>
 
@@ -367,6 +400,16 @@
                                                     <ProgressBar Classes="meter neutral" Maximum="100" Value="{Binding TrackEnergy}"
                                                                  IsVisible="{Binding HasTrackEnergy}" ToolTip.Tip="Track energy (analysis)" />
                                                     <TextBlock Classes="caption mono" Text="{Binding EnergyText}" />
+                                                </StackPanel>
+                                                <StackPanel Spacing="2" Margin="0,4,0,0" IsVisible="{Binding HasAlternates}">
+                                                    <TextBlock Classes="section" Text="PLAN B" />
+                                                    <ItemsControl ItemsSource="{Binding Alternates}">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate x:DataType="vm:AlternateViewModel">
+                                                                <TextBlock Classes="caption" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
                                                 </StackPanel>
                                             </StackPanel>
                                         </Grid>

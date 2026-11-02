@@ -82,6 +82,24 @@ public partial class SetsPage : UserControl
             await vm.AddFromPoolAsync(track); // reports its own failures
     }
 
+    private async void OnPoolPlanBClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is PoolTrackViewModel track && ViewModel is { } vm)
+            await vm.AddAlternateFromPoolAsync(track); // reports its own failures
+    }
+
+    private async void OnSwapAlternateClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is AlternateViewModel alternate && ViewModel is { } vm)
+            await vm.SwapAlternateAsync(alternate);
+    }
+
+    private async void OnRemoveAlternateClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is AlternateViewModel alternate && ViewModel is { } vm)
+            await vm.RemoveAlternateAsync(alternate);
+    }
+
     private async void OnPoolRowDoubleTapped(object? sender, TappedEventArgs e)
     {
         if ((sender as Control)?.DataContext is PoolTrackViewModel track && ViewModel is { } vm)

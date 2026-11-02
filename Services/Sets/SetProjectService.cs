@@ -45,7 +45,25 @@ public sealed record SetSlotInfo(
     string? Notes,
     double? Bpm,
     string? CamelotKey,
-    double? Energy = null);
+    double? Energy = null,
+    IReadOnlyList<SetAlternateInfo>? Alternates = null)
+{
+    /// <summary>Plan B tracks for this slot, first choice first.</summary>
+    public IReadOnlyList<SetAlternateInfo> Alternates { get; init; } = Alternates ?? Array.Empty<SetAlternateInfo>();
+}
+
+/// <summary>A "Plan B" track for a slot, joined with library and analysis data.</summary>
+public sealed record SetAlternateInfo(
+    Guid Id,
+    string TrackUniqueHash,
+    string Title,
+    string Artist,
+    double? Bpm,
+    string? CamelotKey,
+    string? ConditionText);
+
+/// <summary>A removed slot and its alternates, detached, so undo can put both back.</summary>
+public sealed record SetSlotSnapshot(SetTrackEntity Slot, IReadOnlyList<SetSlotAlternateEntity> Alternates);
 
 /// <summary>What the knowledge graph knows about one A→B transition (by track hash).</summary>
 public sealed record TransitionKnowledgeInfo(
@@ -97,16 +115,33 @@ public interface ISetProjectService
     Task<bool> MoveSlotAsync(Guid slotId, int newIndex);
 
     /// <summary>
-    /// Removes a slot and any story edge touching it. Returns a detached copy of the removed slot
+    /// Removes a slot, its alternates and any story edge touching it. Returns a detached snapshot
     /// (for undo via <see cref="RestoreSlotAsync"/>), or null when it no longer exists.
     /// </summary>
-    Task<SetTrackEntity?> RemoveSlotAsync(Guid slotId);
+    Task<SetSlotSnapshot?> RemoveSlotAsync(Guid slotId);
 
     /// <summary>
-    /// Puts a previously removed slot back with its original id, role, energy and notes at its
-    /// old position (clamped). Returns false when its set no longer exists or the id is in use.
+    /// Puts a previously removed slot (and its alternates) back with its original id, role,
+    /// energy and notes at its old position (clamped). Returns false when its set no longer
+    /// exists or the id is in use.
     /// </summary>
-    Task<bool> RestoreSlotAsync(SetTrackEntity snapshot);
+    Task<bool> RestoreSlotAsync(SetSlotSnapshot snapshot);
+
+    /// <summary>Adds a Plan B track for a slot (last in its list). Null when the slot no longer exists.</summary>
+    Task<SetSlotAlternateEntity?> AddAlternateAsync(Guid slotId, string trackUniqueHash);
+
+    /// <summary>Removes an alternate; returns a detached copy for undo, or null when it no longer exists.</summary>
+    Task<SetSlotAlternateEntity?> RemoveAlternateAsync(Guid alternateId);
+
+    /// <summary>Puts a removed alternate back. False when its slot is gone or the id is in use.</summary>
+    Task<bool> RestoreAlternateAsync(SetSlotAlternateEntity snapshot);
+
+    /// <summary>
+    /// Swaps an alternate into its slot: the slot plays the alternate's track and the planned
+    /// track becomes the alternate. Role, energy target and notes stay with the slot. Swapping
+    /// again undoes it. False when the alternate no longer exists.
+    /// </summary>
+    Task<bool> SwapAlternateAsync(Guid alternateId);
 
     /// <summary>Knowledge-graph edges that exist for the given A→B track-hash pairs.</summary>
     Task<IReadOnlyList<TransitionKnowledgeInfo>> GetKnowledgeAsync(IEnumerable<(string From, string To)> pairs);
@@ -174,7 +209,17 @@ public sealed class SetProjectService : ISetProjectService
         if (slots.Count == 0)
             return Array.Empty<SetSlotInfo>();
 
-        var hashes = slots.Select(s => s.TrackUniqueHash).Distinct().ToList();
+        var slotIds = slots.Select(s => s.Id).ToList();
+        var alternates = await db.SetSlotAlternates
+            .AsNoTracking()
+            .Where(a => slotIds.Contains(a.SlotId))
+            .ToListAsync()
+            .ConfigureAwait(false);
+
+        var hashes = slots.Select(s => s.TrackUniqueHash)
+            .Concat(alternates.Select(a => a.TrackUniqueHash))
+            .Distinct()
+            .ToList();
 
         var library = await db.LibraryEntries
             .AsNoTracking()
@@ -194,11 +239,32 @@ public sealed class SetProjectService : ISetProjectService
             .GroupBy(f => f.TrackUniqueHash, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
 
+        var alternatesBySlot = alternates
+            .GroupBy(a => a.SlotId)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyList<SetAlternateInfo>)g.OrderBy(a => a.Position).ThenBy(a => a.CreatedAtUtc)
+                    .Select(a =>
+                    {
+                        libraryByHash.TryGetValue(a.TrackUniqueHash, out var altEntry);
+                        featuresByHash.TryGetValue(a.TrackUniqueHash, out var altFeature);
+                        return new SetAlternateInfo(
+                            a.Id,
+                            a.TrackUniqueHash,
+                            altEntry?.Title ?? "Unknown track",
+                            altEntry?.Artist ?? string.Empty,
+                            altFeature is { Bpm: > 0 } ? altFeature.Bpm : null,
+                            string.IsNullOrWhiteSpace(altFeature?.CamelotKey) ? null : altFeature!.CamelotKey,
+                            a.ConditionText);
+                    })
+                    .ToList());
+
         return Ordered(slots)
             .Select(slot =>
             {
                 libraryByHash.TryGetValue(slot.TrackUniqueHash, out var entry);
                 featuresByHash.TryGetValue(slot.TrackUniqueHash, out var feature);
+                alternatesBySlot.TryGetValue(slot.Id, out var slotAlternates);
                 return new SetSlotInfo(
                     slot.Id,
                     slot.Position,
@@ -212,7 +278,8 @@ public sealed class SetProjectService : ISetProjectService
                     feature is { Bpm: > 0 } ? (double?)feature.Bpm : null,
                     string.IsNullOrWhiteSpace(feature?.CamelotKey) ? null : feature!.CamelotKey,
                     // Energy is stored 0-1 with a 0.5 default, so only trust it when analysis ran.
-                    feature is null ? null : Math.Round(Math.Clamp(feature.Energy, 0f, 1f) * 100.0));
+                    feature is null ? null : Math.Round(Math.Clamp(feature.Energy, 0f, 1f) * 100.0),
+                    slotAlternates);
             })
             .ToList();
     }
@@ -278,6 +345,15 @@ public sealed class SetProjectService : ISetProjectService
             db.SetTracks.Add(cloned);
         }
 
+        var sourceSlotIds = slotIdMap.Keys.ToList();
+        var alternates = await db.SetSlotAlternates
+            .AsNoTracking()
+            .Where(a => sourceSlotIds.Contains(a.SlotId))
+            .ToListAsync()
+            .ConfigureAwait(false);
+        foreach (var alternate in alternates)
+            db.SetSlotAlternates.Add(CloneAlternate(alternate, Guid.NewGuid(), slotIdMap[alternate.SlotId]));
+
         var edges = await db.SetStoryEdges
             .AsNoTracking()
             .Where(e => e.SetProjectId == setId)
@@ -312,10 +388,13 @@ public sealed class SetProjectService : ISetProjectService
 
         // Explicit child deletes: these tables were created by raw SQL, so an ON DELETE CASCADE
         // in the EF model isn't guaranteed to exist in an older database.
+        var slots = await db.SetTracks.Where(t => t.SetListId == setId).ToListAsync().ConfigureAwait(false);
+        var slotIds = slots.Select(t => t.Id).ToList();
+        db.SetSlotAlternates.RemoveRange(
+            await db.SetSlotAlternates.Where(a => slotIds.Contains(a.SlotId)).ToListAsync().ConfigureAwait(false));
         db.SetStoryEdges.RemoveRange(
             await db.SetStoryEdges.Where(e => e.SetProjectId == setId).ToListAsync().ConfigureAwait(false));
-        db.SetTracks.RemoveRange(
-            await db.SetTracks.Where(t => t.SetListId == setId).ToListAsync().ConfigureAwait(false));
+        db.SetTracks.RemoveRange(slots);
         db.SetLists.Remove(set);
 
         await db.SaveChangesAsync().ConfigureAwait(false);
@@ -366,7 +445,7 @@ public sealed class SetProjectService : ISetProjectService
         return true;
     }
 
-    public async Task<SetTrackEntity?> RemoveSlotAsync(Guid slotId)
+    public async Task<SetSlotSnapshot?> RemoveSlotAsync(Guid slotId)
     {
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
 
@@ -375,11 +454,16 @@ public sealed class SetProjectService : ISetProjectService
             return null;
 
         var slot = set.Tracks.First(t => t.Id == slotId);
-        var snapshot = CloneSlot(slot, slot.Id, slot.SetListId);
+        var alternates = await db.SetSlotAlternates.Where(a => a.SlotId == slotId).ToListAsync().ConfigureAwait(false);
+        var snapshot = new SetSlotSnapshot(
+            CloneSlot(slot, slot.Id, slot.SetListId),
+            alternates.Select(CloneAlternate).ToList());
+
         db.SetStoryEdges.RemoveRange(await db.SetStoryEdges
             .Where(e => e.FromSlotId == slotId || e.ToSlotId == slotId)
             .ToListAsync()
             .ConfigureAwait(false));
+        db.SetSlotAlternates.RemoveRange(alternates);
         db.SetTracks.Remove(slot);
 
         Renumber(Ordered(set.Tracks.Where(t => t.Id != slotId)).ToList());
@@ -388,27 +472,97 @@ public sealed class SetProjectService : ISetProjectService
         return snapshot;
     }
 
-    public async Task<bool> RestoreSlotAsync(SetTrackEntity snapshot)
+    public async Task<bool> RestoreSlotAsync(SetSlotSnapshot snapshot)
     {
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
 
-        if (await db.SetTracks.AnyAsync(t => t.Id == snapshot.Id).ConfigureAwait(false))
+        var slotSnapshot = snapshot.Slot;
+        if (await db.SetTracks.AnyAsync(t => t.Id == slotSnapshot.Id).ConfigureAwait(false))
             return false;
 
         var set = await db.SetLists
             .Include(s => s.Tracks)
-            .FirstOrDefaultAsync(s => s.Id == snapshot.SetListId)
+            .FirstOrDefaultAsync(s => s.Id == slotSnapshot.SetListId)
             .ConfigureAwait(false);
         if (set is null)
             return false;
 
-        var restored = CloneSlot(snapshot, snapshot.Id, set.Id);
+        var restored = CloneSlot(slotSnapshot, slotSnapshot.Id, set.Id);
         var ordered = Ordered(set.Tracks).ToList();
-        ordered.Insert(Math.Clamp(snapshot.Position, 0, ordered.Count), restored);
+        ordered.Insert(Math.Clamp(slotSnapshot.Position, 0, ordered.Count), restored);
         Renumber(ordered);
 
         db.SetTracks.Add(restored);
+        db.SetSlotAlternates.AddRange(snapshot.Alternates.Select(CloneAlternate));
         set.LastModifiedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync().ConfigureAwait(false);
+        return true;
+    }
+
+    public async Task<SetSlotAlternateEntity?> AddAlternateAsync(Guid slotId, string trackUniqueHash)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        var slot = await db.SetTracks.FirstOrDefaultAsync(t => t.Id == slotId).ConfigureAwait(false);
+        if (slot is null)
+            return null;
+
+        var count = await db.SetSlotAlternates.CountAsync(a => a.SlotId == slotId).ConfigureAwait(false);
+        var alternate = new SetSlotAlternateEntity { SlotId = slotId, TrackUniqueHash = trackUniqueHash, Position = count };
+        db.SetSlotAlternates.Add(alternate);
+        await TouchSetAsync(db, slot.SetListId).ConfigureAwait(false);
+        await db.SaveChangesAsync().ConfigureAwait(false);
+        return CloneAlternate(alternate);
+    }
+
+    public async Task<SetSlotAlternateEntity?> RemoveAlternateAsync(Guid alternateId)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        var alternate = await db.SetSlotAlternates.FirstOrDefaultAsync(a => a.Id == alternateId).ConfigureAwait(false);
+        if (alternate is null)
+            return null;
+
+        var snapshot = CloneAlternate(alternate);
+        db.SetSlotAlternates.Remove(alternate);
+        var setId = await db.SetTracks.Where(t => t.Id == alternate.SlotId).Select(t => (Guid?)t.SetListId)
+            .FirstOrDefaultAsync().ConfigureAwait(false);
+        if (setId is Guid id)
+            await TouchSetAsync(db, id).ConfigureAwait(false);
+        await db.SaveChangesAsync().ConfigureAwait(false);
+        return snapshot;
+    }
+
+    public async Task<bool> RestoreAlternateAsync(SetSlotAlternateEntity snapshot)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        if (await db.SetSlotAlternates.AnyAsync(a => a.Id == snapshot.Id).ConfigureAwait(false))
+            return false;
+        var slot = await db.SetTracks.FirstOrDefaultAsync(t => t.Id == snapshot.SlotId).ConfigureAwait(false);
+        if (slot is null)
+            return false;
+
+        db.SetSlotAlternates.Add(CloneAlternate(snapshot));
+        await TouchSetAsync(db, slot.SetListId).ConfigureAwait(false);
+        await db.SaveChangesAsync().ConfigureAwait(false);
+        return true;
+    }
+
+    public async Task<bool> SwapAlternateAsync(Guid alternateId)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        var alternate = await db.SetSlotAlternates.FirstOrDefaultAsync(a => a.Id == alternateId).ConfigureAwait(false);
+        if (alternate is null)
+            return false;
+        var slot = await db.SetTracks.FirstOrDefaultAsync(t => t.Id == alternate.SlotId).ConfigureAwait(false);
+        if (slot is null)
+            return false;
+
+        (slot.TrackUniqueHash, alternate.TrackUniqueHash) = (alternate.TrackUniqueHash, slot.TrackUniqueHash);
+        slot.LibraryId = null; // pointed at the old track's library row; the hash is the identity
+        await TouchSetAsync(db, slot.SetListId).ConfigureAwait(false);
         await db.SaveChangesAsync().ConfigureAwait(false);
         return true;
     }
@@ -627,6 +781,25 @@ public sealed class SetProjectService : ISetProjectService
             .FirstOrDefaultAsync(s => s.Id == setId)
             .ConfigureAwait(false);
     }
+
+    private static async Task TouchSetAsync(AppDbContext db, Guid setId)
+    {
+        var set = await db.SetLists.FirstOrDefaultAsync(s => s.Id == setId).ConfigureAwait(false);
+        if (set is not null)
+            set.LastModifiedAt = DateTime.UtcNow;
+    }
+
+    private static SetSlotAlternateEntity CloneAlternate(SetSlotAlternateEntity a) => CloneAlternate(a, a.Id, a.SlotId);
+
+    private static SetSlotAlternateEntity CloneAlternate(SetSlotAlternateEntity a, Guid id, Guid slotId) => new()
+    {
+        Id = id,
+        SlotId = slotId,
+        TrackUniqueHash = a.TrackUniqueHash,
+        Position = a.Position,
+        ConditionText = a.ConditionText,
+        CreatedAtUtc = a.CreatedAtUtc,
+    };
 
     /// <summary>A detached copy of every slot field, under the given id and set.</summary>
     private static SetTrackEntity CloneSlot(SetTrackEntity slot, Guid id, Guid setId) => new()

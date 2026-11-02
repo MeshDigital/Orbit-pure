@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Threading.Tasks;
 using ReactiveUI;
 using SLSKDONET.Data.Entities;
@@ -44,7 +45,28 @@ public sealed class SlotCardViewModel : ReactiveObject
     private bool _isSelected;
     public bool IsSelected { get => _isSelected; set => this.RaiseAndSetIfChanged(ref _isSelected, value); }
 
-    public SlotCardViewModel(SetSlotInfo slot) => Slot = slot;
+    /// <summary>Plan B tracks for this slot.</summary>
+    public IReadOnlyList<AlternateViewModel> Alternates { get; }
+    public bool HasAlternates => Alternates.Count > 0;
+
+    public SlotCardViewModel(SetSlotInfo slot)
+    {
+        Slot = slot;
+        Alternates = slot.Alternates.Select(a => new AlternateViewModel(a)).ToList();
+    }
+}
+
+/// <summary>A Plan B track shown under a slot card and in the inspector.</summary>
+public sealed class AlternateViewModel
+{
+    public SetAlternateInfo Info { get; }
+    public Guid Id => Info.Id;
+    public string Title => Info.Title;
+    public string Artist => Info.Artist;
+    public string Bpm => NumFormat.Bpm(Info.Bpm);
+    public string Key => Info.CamelotKey ?? "—";
+
+    public AlternateViewModel(SetAlternateInfo info) => Info = info;
 }
 
 /// <summary>Where a transition's assessment comes from, strongest first.</summary>

@@ -404,6 +404,33 @@ public sealed class SetsViewModelTests : IDisposable
         Assert.False(vm.HasSelectedTransition);
     }
 
+    [Fact]
+    public async Task PlanB_AddSwapRemove_AllUndoable()
+    {
+        _db.SeedLibrary(("a", "X", "Alpha"), ("alt", "Z", "Backup"));
+        var (vm, _) = await OpenSetWithTracksAsync("a");
+        var pool = new PoolTrackViewModel(new SetPoolTrack("alt", "Backup", "Z", null, null));
+
+        await vm.AddAlternateFromPoolAsync(pool);       // nothing selected: refused with a hint
+        Assert.Empty(vm.Slots[0].Alternates);
+        Assert.Contains(_toasts, t => t.Message.Contains("Select a slot first"));
+
+        vm.SelectSlot(vm.Slots[0]);
+        await vm.AddAlternateFromPoolAsync(pool);
+        Assert.Equal("Backup", vm.Slots[0].Alternates.Single().Title);
+
+        await vm.SwapAlternateAsync(vm.Slots[0].Alternates.Single());
+        Assert.Equal("alt", vm.Slots[0].Slot.TrackUniqueHash);
+        Assert.Equal("Alpha", vm.Slots[0].Alternates.Single().Title);
+        await vm.UndoCommand.Execute();
+        Assert.Equal("a", vm.Slots[0].Slot.TrackUniqueHash);
+
+        await vm.RemoveAlternateAsync(vm.Slots[0].Alternates.Single());
+        Assert.Empty(vm.Slots[0].Alternates);
+        await vm.UndoCommand.Execute();
+        Assert.Single(vm.Slots[0].Alternates);
+    }
+
     /// <summary>Inspector setters start edits fire-and-forget (like a UI binding); wait for them to land.</summary>
     private static async Task WaitForAsync(Func<bool> condition)
     {

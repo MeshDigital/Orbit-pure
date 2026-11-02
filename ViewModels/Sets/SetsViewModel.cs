@@ -292,7 +292,7 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
                 if (result.Added.Count > 0)
                 {
                     var ids = result.Added.Select(s => s.Id).ToList();
-                    var removed = new List<SetTrackEntity>();
+                    var removed = new List<SetSlotSnapshot>();
                     _history.Push($"Add \"{picked.SourceTitle}\"",
                         undo: async () =>
                         {
@@ -360,7 +360,7 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
         {
             var slot = await _sets.InsertTrackAsync(set.Id, trackUniqueHash, index)
                 ?? throw new InvalidOperationException($"\"{set.Name}\" no longer exists.");
-            SetTrackEntity? removed = null;
+            SetSlotSnapshot? removed = null;
             _history.Push("Add track",
                 undo: async () => removed = await _sets.RemoveSlotAsync(slot.Id),
                 redo: async () =>
@@ -461,7 +461,7 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
                 ?? throw new InvalidOperationException("That track is no longer in the set.");
             _history.Push($"Remove \"{card.Title}\"",
                 undo: async () => await _sets.RestoreSlotAsync(snapshot),
-                redo: async () => await _sets.RemoveSlotAsync(snapshot.Id));
+                redo: async () => await _sets.RemoveSlotAsync(snapshot.Slot.Id));
             _selectedSlotId = neighbour?.SlotId;
         });
     }

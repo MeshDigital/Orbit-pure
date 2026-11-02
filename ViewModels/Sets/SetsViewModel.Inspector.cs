@@ -157,6 +157,62 @@ public sealed partial class SetsViewModel
         });
     }
 
+    /// <summary>Adds a pool track as a Plan B for the selected slot.</summary>
+    public async Task AddAlternateFromPoolAsync(PoolTrackViewModel track)
+    {
+        if (SelectedSlot is not { } card)
+        {
+            _notifications?.Show("Sets", "Select a slot first, then add its Plan B.", Views.NotificationType.Information);
+            return;
+        }
+        if (track.TrackUniqueHash == card.Slot.TrackUniqueHash || card.Alternates.Any(a => a.Info.TrackUniqueHash == track.TrackUniqueHash))
+        {
+            _notifications?.Show("Sets", $"\"{track.Title}\" is already in this slot.", Views.NotificationType.Information);
+            return;
+        }
+
+        var slotId = card.SlotId;
+        await RunEditAsync("Add Plan B", async () =>
+        {
+            var added = await _sets.AddAlternateAsync(slotId, track.TrackUniqueHash)
+                ?? throw new InvalidOperationException("That slot is no longer in the set.");
+            SetSlotAlternateEntity? removed = null;
+            _history.Push($"Add Plan B \"{track.Title}\"",
+                undo: async () => removed = await _sets.RemoveAlternateAsync(added.Id),
+                redo: async () =>
+                {
+                    if (removed is not null)
+                        await _sets.RestoreAlternateAsync(removed);
+                });
+        });
+    }
+
+    /// <summary>Removes a Plan B track from its slot.</summary>
+    public async Task RemoveAlternateAsync(AlternateViewModel alternate)
+    {
+        await RunEditAsync("Remove Plan B", async () =>
+        {
+            var snapshot = await _sets.RemoveAlternateAsync(alternate.Id)
+                ?? throw new InvalidOperationException("That Plan B is already gone.");
+            _history.Push($"Remove Plan B \"{alternate.Title}\"",
+                undo: async () => await _sets.RestoreAlternateAsync(snapshot),
+                redo: async () => await _sets.RemoveAlternateAsync(snapshot.Id));
+        });
+    }
+
+    /// <summary>Plays the Plan B in the slot instead; the planned track becomes the Plan B.</summary>
+    public async Task SwapAlternateAsync(AlternateViewModel alternate)
+    {
+        await RunEditAsync("Swap in Plan B", async () =>
+        {
+            if (!await _sets.SwapAlternateAsync(alternate.Id))
+                throw new InvalidOperationException("That Plan B is no longer in the set.");
+            _history.Push($"Swap in \"{alternate.Title}\"",
+                undo: async () => await _sets.SwapAlternateAsync(alternate.Id), // a swap undoes itself
+                redo: async () => await _sets.SwapAlternateAsync(alternate.Id));
+        });
+    }
+
     private async Task CommitNotesAsync()
     {
         if (SelectedSlot is not { } card)

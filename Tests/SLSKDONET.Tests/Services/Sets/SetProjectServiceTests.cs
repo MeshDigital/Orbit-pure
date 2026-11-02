@@ -335,6 +335,75 @@ public sealed class SetProjectServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Alternates_AreListedPerSlot_AndStayOutOfTheSpine()
+    {
+        _db.SeedLibrary(("a", "X", "Alpha"), ("b", "Y", "Bravo"), ("alt", "Z", "Plan"));
+        var set = await Service.CreateSetAsync("Friday");
+        var a = await Service.AppendTrackAsync(set.Id, "a");
+        await Service.AppendTrackAsync(set.Id, "b");
+
+        var alt = await Service.AddAlternateAsync(a!.Id, "alt");
+        Assert.Null(await Service.AddAlternateAsync(Guid.NewGuid(), "alt"));
+
+        var slots = await Service.GetSlotsAsync(set.Id);
+        Assert.Equal(new[] { "a", "b" }, slots.Select(s => s.TrackUniqueHash)); // not a third slot
+        var listed = Assert.Single(slots[0].Alternates);
+        Assert.Equal((alt!.Id, "Plan"), (listed.Id, listed.Title));
+        Assert.Equal(2, (await Service.GetSetsAsync()).Single().SlotCount);
+    }
+
+    [Fact]
+    public async Task SwapAlternate_KeepsSlotRoleEnergyNotes_AndUndoesBySwappingBack()
+    {
+        var set = await Service.CreateSetAsync("Friday");
+        var slot = await Service.AppendTrackAsync(set.Id, "planned");
+        await Service.UpdateSlotAsync(slot!.Id, SetSlotRole.Peak, 95);
+        await Service.UpdateSlotNotesAsync(slot.Id, "big moment");
+        var alt = await Service.AddAlternateAsync(slot.Id, "backup");
+
+        Assert.True(await Service.SwapAlternateAsync(alt!.Id));
+        var swapped = (await Service.GetSlotsAsync(set.Id)).Single();
+        Assert.Equal(("backup", SetSlotRole.Peak, 95.0, "big moment"), (swapped.TrackUniqueHash, swapped.Role, swapped.EnergyTarget, swapped.Notes));
+        Assert.Equal("planned", swapped.Alternates.Single().TrackUniqueHash);
+
+        Assert.True(await Service.SwapAlternateAsync(alt.Id));
+        Assert.Equal("planned", (await Service.GetSlotsAsync(set.Id)).Single().TrackUniqueHash);
+    }
+
+    [Fact]
+    public async Task RemovingSlot_TakesAlternatesAlong_AndRestoreBringsThemBack()
+    {
+        var set = await Service.CreateSetAsync("Friday");
+        var slot = await Service.AppendTrackAsync(set.Id, "a");
+        await Service.AddAlternateAsync(slot!.Id, "alt1");
+        await Service.AddAlternateAsync(slot.Id, "alt2");
+
+        var snapshot = await Service.RemoveSlotAsync(slot.Id);
+        using (var db = _db.Factory.CreateDbContext())
+            Assert.False(await db.SetSlotAlternates.AnyAsync());
+
+        Assert.True(await Service.RestoreSlotAsync(snapshot!));
+        Assert.Equal(new[] { "alt1", "alt2" }, (await Service.GetSlotsAsync(set.Id)).Single().Alternates.Select(x => x.TrackUniqueHash));
+    }
+
+    [Fact]
+    public async Task DuplicateAndDelete_HandleAlternates()
+    {
+        var set = await Service.CreateSetAsync("Friday");
+        var slot = await Service.AppendTrackAsync(set.Id, "a");
+        await Service.AddAlternateAsync(slot!.Id, "alt");
+
+        var copy = await Service.DuplicateSetAsync(set.Id);
+        var copiedSlot = (await Service.GetSlotsAsync(copy!.Id)).Single();
+        Assert.Equal("alt", copiedSlot.Alternates.Single().TrackUniqueHash);
+
+        await Service.DeleteSetAsync(set.Id);
+        using var db = _db.Factory.CreateDbContext();
+        Assert.Equal(1, await db.SetSlotAlternates.CountAsync()); // only the copy's alternate is left
+        Assert.Equal(copiedSlot.SlotId, (await db.SetSlotAlternates.SingleAsync()).SlotId);
+    }
+
+    [Fact]
     public async Task GetTrackLabelsAsync_FormatsArtistAndTitle_SkipsUnknown()
     {
         _db.SeedLibrary(("h1", "Noisia", "Machine Gun"), ("h2", "", "Untitled"));
