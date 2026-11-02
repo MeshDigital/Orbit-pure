@@ -60,6 +60,7 @@ public class AppDbContext : DbContext
     public DbSet<Entities.PerformanceSessionTrackEntity> PerformanceSessionTracks { get; set; } // Phase 2: tracks within a performance session
     public DbSet<Entities.TransitionTemplateEntity> TransitionTemplates { get; set; } // Phase 1: reusable "how to mix" recipes
     public DbSet<Entities.SetStoryEdgeEntity> SetStoryEdges { get; set; } // Phase 1: Story Graph branching edges
+    public DbSet<Entities.SetSlotAlternateEntity> SetSlotAlternates { get; set; } // Sets page: "Plan B" tracks per slot
     public DbSet<Entities.MixRecipeEntity> MixRecipes { get; set; } // Phase 1: reusable branching patterns
     public DbSet<Entities.EventProfileEntity> EventProfiles { get; set; } // Phase 1: event context for a set
     public DbSet<Entities.TrackCrowdProfileEntity> TrackCrowdProfiles { get; set; } // Phase 1: persisted CrowdProfileVector
@@ -387,6 +388,16 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Entities.SetStoryEdgeEntity>()
             .HasIndex(e => new { e.SetProjectId, e.FromSlotId, e.ToSlotId })
             .HasDatabaseName("IX_SetStoryEdges_Set_From_To");
+
+        // Sets page: Plan B alternates belong to a slot (raw-SQL patch in SchemaMigratorService).
+        modelBuilder.Entity<Entities.SetSlotAlternateEntity>()
+            .HasOne<Entities.SetTrackEntity>()
+            .WithMany()
+            .HasForeignKey(a => a.SlotId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<Entities.SetSlotAlternateEntity>()
+            .HasIndex(a => a.SlotId)
+            .HasDatabaseName("IX_SetSlotAlternates_SlotId");
 
         modelBuilder.Entity<Entities.EventProfileEntity>()
             .HasIndex(e => e.Name)

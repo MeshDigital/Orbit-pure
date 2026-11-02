@@ -34,9 +34,9 @@ public enum WorkstationMode
     Waveform,
     /// <summary>SET PLAN: playlist sequence, transition scoring, energy arc.</summary>
     Flow,
-    /// <summary>SET PROJECTS: the Story Graph canvas (branching set paths).</summary>
+    /// <summary>Retired: sets moved to the Sets page. Kept so saved sessions still parse; folds to Waveform.</summary>
     StoryGraph,
-    /// <summary>TRANSITION LAB: dual-track overlap audition, template editing, and knowledge rating.</summary>
+    /// <summary>Retired: replaced by the shared transition editor. Kept for session compat; folds to Waveform.</summary>
     TransitionLab,
 }
 
@@ -780,16 +780,16 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         get => _activeMode;
         set
         {
-            // Legacy Flow mode requests and restored sessions fold back to Prep (in-app MIX lives
-            // in Flow Builder). Transition Lab is retired pending the shared transition editor
-            // (SETS_AND_TRANSITIONS_REBUILD_PLAN P0.7/P3); StoryGraph (Set Projects) is allowed through.
-            if (value is WorkstationMode.Flow or WorkstationMode.TransitionLab)
+            // Workstation is track prep only. Legacy Flow requests fold back to Prep (in-app MIX
+            // lives in Flow Builder); StoryGraph and TransitionLab are kept as enum names for
+            // session compatibility but now live elsewhere: sets on the Sets page, transitions in
+            // the shared transition editor (SETS_AND_TRANSITIONS_REBUILD_PLAN P2.10 / P3).
+            if (value is WorkstationMode.Flow or WorkstationMode.StoryGraph or WorkstationMode.TransitionLab)
                 value = WorkstationMode.Waveform;
             if (_activeMode == value) return;
             this.RaiseAndSetIfChanged(ref _activeMode, value);
             this.RaisePropertyChanged(nameof(IsWaveformMode));
             this.RaisePropertyChanged(nameof(IsFlowMode));
-            this.RaisePropertyChanged(nameof(IsStoryGraphActive));
             SynchronizeToolSelection();
             RaiseHeaderProperties();
         }
@@ -797,26 +797,6 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
 
     public bool IsWaveformMode => ActiveMode == WorkstationMode.Waveform;
     public bool IsFlowMode     => ActiveMode == WorkstationMode.Flow;
-    public bool IsStoryGraphActive => ActiveMode == WorkstationMode.StoryGraph;
-
-    /// <summary>The Story Graph child view model for the Set Projects surface.</summary>
-    public SLSKDONET.ViewModels.StoryGraph.StoryGraphViewModel StoryGraph { get; }
-
-    /// <summary>Loads a SetProject's Story Graph and switches the cockpit to the Story Graph surface.</summary>
-    public async Task LoadStoryGraphAsync(Guid setProjectId)
-    {
-        // LoadSetAsync logs + toasts its own failures.
-        await StoryGraph.LoadSetAsync(setProjectId);
-        ActiveMode = WorkstationMode.StoryGraph;
-    }
-
-    private async Task HandleSetProjectsOpenAsync(OpenSetProjectsRequestedEvent evt)
-    {
-        if (evt.SetProjectId is Guid setId)
-            await LoadStoryGraphAsync(setId);
-        else
-            ActiveMode = WorkstationMode.StoryGraph;
-    }
 
     // ── Inline Export panel (shown in Export mode) ────────────────────────────
 
@@ -959,7 +939,6 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         AnalyzeTrackStructureJob analyzeJob, IEventBus eventBus,
         AppConfig appConfig, ConfigManager configManager,
         IDbContextFactory<AppDbContext> dbFactory,
-        SLSKDONET.ViewModels.StoryGraph.StoryGraphViewModel storyGraph,
         ILogger<WorkstationViewModel>? logger = null,
         SLSKDONET.Services.Library.PlaylistExportService? playlistExporter = null,
         IDialogService? dialogService = null,
@@ -980,8 +959,6 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         _sessionService    = sessionService;
         _orbBundleService  = orbBundleService;
         _undoService       = undoService;
-        // Story Graph keeps its own undo stack; the shared IUndoService stays Workstation-only.
-        StoryGraph = storyGraph;
         _analyzeJob        = analyzeJob;
         _eventBus          = eventBus;
         _appConfig         = appConfig;
@@ -1018,11 +995,6 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         _eventBus.GetEvent<AddToTimelineRequestEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(evt => _ = HandleFlowLaunchRequestAsync(evt))
-            .DisposeWith(_disposables);
-
-        _eventBus.GetEvent<OpenSetProjectsRequestedEvent>()
-            .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(evt => _ = HandleSetProjectsOpenAsync(evt))
             .DisposeWith(_disposables);
 
         _eventBus.GetEvent<AnalysisQueueStatusChangedEvent>()
@@ -3977,7 +3949,6 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         _analysisCts?.Cancel();
         _analysisCts?.Dispose();
         ExportPanel.Dispose();
-        StoryGraph.Dispose();
         _disposables.Dispose();
         foreach (var d in Decks) d.Dispose();
     }

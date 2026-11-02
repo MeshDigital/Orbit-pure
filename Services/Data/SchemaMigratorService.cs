@@ -3115,6 +3115,25 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // Sets page: "Plan B" alternates per slot (SetSlotAlternateEntity). Own table so
+            // alternates never enter the spine that SetTracks.Position defines.
+            if (!TableExists("SetSlotAlternates"))
+            {
+                _logger.LogInformation("Patching Schema: Creating SetSlotAlternates table...");
+                command.CommandText = @"
+                    CREATE TABLE ""SetSlotAlternates"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_SetSlotAlternates"" PRIMARY KEY,
+                        ""SlotId"" TEXT NOT NULL,
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""Position"" INTEGER NOT NULL,
+                        ""ConditionText"" TEXT NULL,
+                        ""CreatedAtUtc"" TEXT NOT NULL,
+                        CONSTRAINT ""FK_SetSlotAlternates_SetTracks_SlotId"" FOREIGN KEY (""SlotId"") REFERENCES ""SetTracks"" (""Id"") ON DELETE CASCADE
+                    );
+                    CREATE INDEX ""IX_SetSlotAlternates_SlotId"" ON ""SetSlotAlternates"" (""SlotId"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

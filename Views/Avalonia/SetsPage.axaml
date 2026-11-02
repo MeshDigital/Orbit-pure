@@ -1,0 +1,529 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Sets"
+             xmlns:conv="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
+             xmlns:ctrl="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="800"
+             x:Class="SLSKDONET.Views.Avalonia.SetsPage"
+             x:DataType="vm:SetsViewModel">
+
+    <UserControl.Styles>
+        <!-- Slot card: a card surface whose border turns accent when selected -->
+        <Style Selector="Border.slot-card">
+            <Setter Property="Background" Value="{StaticResource BrushBg2}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder1}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Border.slot-card:pointerover">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder2}" />
+        </Style>
+        <Style Selector="Border.slot-card.selected">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}" />
+        </Style>
+        <Style Selector="StackPanel.transition-chip.selected">
+            <Setter Property="Background" Value="{StaticResource BrushSelected}" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid ColumnDefinitions="240,*">
+
+        <!-- ── Rail: every set ─────────────────────────────────────────── -->
+        <Border Grid.Column="0" Classes="panel" BorderThickness="0,0,1,0">
+            <DockPanel>
+                <Border DockPanel.Dock="Top" Classes="panel-header">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Classes="section" Text="SETS" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Classes="icon small" Command="{Binding NewSetCommand}"
+                                ToolTip.Tip="New set" AutomationProperties.Name="New set">
+                            <PathIcon Data="{StaticResource icon_add}" />
+                        </Button>
+                    </Grid>
+                </Border>
+
+                <Panel>
+                    <ListBox x:Name="SetList"
+                             ItemsSource="{Binding Sets}"
+                             SelectedItem="{Binding SelectedSet, Mode=TwoWay}">
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Rename…" Command="{Binding RenameSetCommand}" />
+                                <MenuItem Header="Duplicate" Command="{Binding DuplicateSetCommand}" />
+                                <Separator />
+                                <MenuItem Header="Delete…" Command="{Binding DeleteSetCommand}" />
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SetListItemViewModel">
+                                <StackPanel Spacing="2" Margin="0,4">
+                                    <TextBlock Classes="body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Classes="caption" Text="{Binding Summary}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <StackPanel Classes="empty-state" IsVisible="{Binding HasNoSets}">
+                        <TextBlock Classes="h3" Text="No sets yet" />
+                        <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center"
+                                   Text="A set is a gig plan: tracks in slots with roles and energy targets." />
+                    </StackPanel>
+
+                    <TextBlock Classes="caption" HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Text="Loading sets…" IsVisible="{Binding IsLoadingSets}" />
+                </Panel>
+            </DockPanel>
+        </Border>
+
+        <!-- ── Selected set ────────────────────────────────────────────── -->
+        <DockPanel Grid.Column="1" Margin="{StaticResource PaddingPage}">
+
+            <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,16"
+                  IsVisible="{Binding HasSelection}">
+                <StackPanel Spacing="4">
+                    <TextBlock Classes="h1" Text="{Binding SelectedSet.Name, FallbackValue=''}"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Classes="subtitle" Text="{Binding SelectedSummary}" />
+                </StackPanel>
+                <Button Grid.Column="1" Classes="icon" VerticalAlignment="Top"
+                        ToolTip.Tip="Set actions" AutomationProperties.Name="Set actions">
+                    <PathIcon Data="{StaticResource icon_more}" />
+                    <Button.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                            <MenuItem Header="Rename…" Command="{Binding RenameSetCommand}" />
+                            <MenuItem Header="Duplicate" Command="{Binding DuplicateSetCommand}" />
+                            <Separator />
+                            <MenuItem Header="Delete…" Command="{Binding DeleteSetCommand}" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+            </Grid>
+
+            <!-- One toolbar row: history on the left, keyboard hint on the right -->
+            <Border DockPanel.Dock="Top" Classes="toolbar" Margin="0,0,0,16" IsVisible="{Binding HasSlots}">
+                <Grid ColumnDefinitions="Auto,Auto,*">
+                    <Button Classes="icon" Command="{Binding UndoCommand}" ToolTip.Tip="Undo (Ctrl+Z)"
+                            AutomationProperties.Name="Undo">
+                        <PathIcon Data="{StaticResource icon_undo}" />
+                    </Button>
+                    <Button Grid.Column="1" Classes="icon" Command="{Binding RedoCommand}" ToolTip.Tip="Redo (Ctrl+Y)"
+                            Margin="4,0,0,0" AutomationProperties.Name="Redo">
+                        <PathIcon Data="{StaticResource icon_redo}" />
+                    </Button>
+                    <TextBlock Grid.Column="2" Classes="caption" HorizontalAlignment="Right" VerticalAlignment="Center"
+                               Text="← → select · Ctrl+← → move · Del remove · drag to reorder · right-click for more" />
+                </Grid>
+            </Border>
+
+            <!-- Track pool drawer (P2.5): find tracks, drag or double-click them into the lane -->
+            <Border DockPanel.Dock="Bottom" Classes="panel" BorderThickness="0,1,0,0" Height="300" Margin="0,16,0,0"
+                    IsVisible="{Binding HasSelection}">
+                <DockPanel>
+                    <Border DockPanel.Dock="Top" Classes="panel-header">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <TextBlock Classes="section" Text="TRACK POOL" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1" Classes="caption" Margin="12,0" VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" Text="{Binding Pool.ReferenceText}" />
+                            <Button Grid.Column="2" Classes="ghost small" Content="Add playlist…"
+                                    Command="{Binding StartFromPlaylistCommand}"
+                                    ToolTip.Tip="Append a playlist's tracks (in playlist order) to this set" />
+                        </Grid>
+                    </Border>
+
+                    <Grid DockPanel.Dock="Top" ColumnDefinitions="280,*" Margin="0,8">
+                        <TextBox Classes="search small" Watermark="Search title or artist"
+                                 Text="{Binding Pool.SearchText, Mode=TwoWay}" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0">
+                            <ToggleButton Classes="chip" Content="Analysed" IsChecked="{Binding Pool.AnalysedOnly, Mode=TwoWay}"
+                                          ToolTip.Tip="Only tracks with BPM and key" />
+                            <ToggleButton Classes="chip" Content="Fits key" IsChecked="{Binding Pool.FitsKey, Mode=TwoWay}"
+                                          IsEnabled="{Binding Pool.CanFilterByKey}"
+                                          ToolTip.Tip="Same key as the selected slot, or a Camelot neighbour" />
+                            <ToggleButton Classes="chip" Content="BPM ±4%" IsChecked="{Binding Pool.BpmClose, Mode=TwoWay}"
+                                          IsEnabled="{Binding Pool.CanFilterByBpm}"
+                                          ToolTip.Tip="Within 4% of the selected slot's BPM" />
+                            <Button Classes="ghost small" Content="Clear" Command="{Binding ClearPoolFiltersCommand}"
+                                    IsVisible="{Binding Pool.HasActiveFilters}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Panel>
+                        <ListBox ItemsSource="{Binding Pool.Items}">
+                            <ListBox.Styles>
+                                <!-- Compact 32px rows (the theme's 10px item padding would make them 52px) -->
+                                <Style Selector="ListBoxItem">
+                                    <Setter Property="Padding" Value="8,0" />
+                                    <Setter Property="MinHeight" Value="32" />
+                                </Style>
+                            </ListBox.Styles>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PoolTrackViewModel">
+                                    <Grid Height="32" ColumnDefinitions="*,Auto,Auto,Auto,Auto" Background="Transparent"
+                                          PointerPressed="OnPoolRowPointerPressed" PointerMoved="OnPoolRowPointerMoved"
+                                          DoubleTapped="OnPoolRowDoubleTapped">
+                                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <TextBlock Classes="body" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Classes="body-sm muted" Text="{Binding Artist}" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <Border Grid.Column="1" Classes="fact" Margin="8,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Bpm}" />
+                                        </Border>
+                                        <Border Grid.Column="2" Classes="fact" Margin="8,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Key}" />
+                                        </Border>
+                                        <Button Grid.Column="3" Classes="ghost small" Margin="8,0,0,0" Content="Plan B"
+                                                Click="OnPoolPlanBClick"
+                                                ToolTip.Tip="Add as a Plan B for the selected slot" />
+                                        <Button Grid.Column="4" Classes="icon small" Margin="4,0,0,0" Click="OnPoolAddClick"
+                                                ToolTip.Tip="Add after the selected slot (or at the end)"
+                                                AutomationProperties.Name="Add to set">
+                                            <PathIcon Data="{StaticResource icon_add}" />
+                                        </Button>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <StackPanel Classes="empty-state" IsVisible="{Binding Pool.IsEmpty}">
+                            <TextBlock Classes="h3" Text="No matching tracks" />
+                            <TextBlock Classes="caption" Text="Loosen the filters or try another search." />
+                        </StackPanel>
+                        <TextBlock Classes="caption" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Text="Searching…" IsVisible="{Binding Pool.IsLoading}" />
+                        <TextBlock Classes="caption error" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   TextWrapping="Wrap" Text="{Binding Pool.ErrorMessage}"
+                                   IsVisible="{Binding Pool.ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </Panel>
+                </DockPanel>
+            </Border>
+
+            <!-- Set Health strip (P2.7) with the energy arc (P2.8) -->
+            <Border DockPanel.Dock="Bottom" Classes="card" Margin="0,16,0,0" IsVisible="{Binding HasSlots}">
+                <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                    <TextBlock Classes="section" Text="SET HEALTH" VerticalAlignment="Center" Margin="0,0,16,0" />
+
+                    <ItemsControl Grid.Column="1" ItemsSource="{Binding Health.Metrics}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="16" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:HealthMetric">
+                                <StackPanel Width="104" Spacing="4" VerticalAlignment="Center" ToolTip.Tip="{Binding Hint}"
+                                            Background="Transparent">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Classes="caption" Text="{Binding Label}" />
+                                        <TextBlock Grid.Column="1" Classes="mono" Text="{Binding ValueText}" />
+                                    </Grid>
+                                    <ProgressBar Classes="meter" Maximum="100" Value="{Binding MeterValue}" IsVisible="{Binding HasValue}" />
+                                    <TextBlock Classes="caption muted" Text="needs input" IsVisible="{Binding !HasValue}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <StackPanel Grid.Column="2" Spacing="2" Margin="24,0,0,0" VerticalAlignment="Center"
+                                ToolTip.Tip="Energy target per slot (solid) against the tracks' analysed energy (dashed)">
+                        <TextBlock Classes="caption" Text="Energy arc · target vs track" />
+                        <ctrl:EnergyArcControl MinWidth="120" Height="32"
+                                               Targets="{Binding Health.EnergyTargets}" Actuals="{Binding Health.TrackEnergies}" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="16,0,0,0">
+                        <Button Classes="ghost small" IsVisible="{Binding Health.HasIssues}"
+                                ToolTip.Tip="Things worth fixing; pick one to jump to its slot">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <PathIcon Data="{StaticResource icon_alert}" Width="14" Height="14" Foreground="{StaticResource BrushWarning}" />
+                                <TextBlock Text="{Binding Health.IssuesText}" />
+                            </StackPanel>
+                            <Button.Flyout>
+                                <Flyout Placement="TopEdgeAlignedRight">
+                                    <ItemsControl ItemsSource="{Binding Health.Issues}" MaxWidth="420">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:HealthIssue">
+                                                <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                                        Click="OnHealthIssueClick">
+                                                    <TextBlock Classes="body-sm" TextWrapping="Wrap" Text="{Binding Text}" />
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
+                        <TextBlock Classes="caption success" Text="No issues found" IsVisible="{Binding !Health.HasIssues}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Inspector (P2.6): the selected slot or transition -->
+            <Border DockPanel.Dock="Right" Classes="panel" Width="280" BorderThickness="1,0,0,0" Margin="16,0,0,0"
+                    IsVisible="{Binding HasSlots}">
+                <ScrollViewer>
+                    <Panel Margin="12">
+                        <StackPanel Classes="empty-state" IsVisible="{Binding ShowInspectorHint}">
+                            <TextBlock Classes="h3" Text="Nothing selected" />
+                            <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center"
+                                       Text="Click a slot to set its role, energy target and notes, or a transition to see its scores." />
+                        </StackPanel>
+
+                        <!-- Slot -->
+                        <StackPanel Spacing="16" IsVisible="{Binding HasSelectedSlot}">
+                            <StackPanel Spacing="2">
+                                <TextBlock Classes="section" Text="SLOT" />
+                                <TextBlock Classes="body" FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding SelectedSlot.Title, FallbackValue=''}" />
+                                <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding SelectedSlot.Artist, FallbackValue=''}" />
+                            </StackPanel>
+
+                            <StackPanel Spacing="8">
+                                <TextBlock Classes="caption" Text="Role in the set" />
+                                <ItemsControl ItemsSource="{Binding RoleOptions}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:RoleOptionViewModel">
+                                            <RadioButton Classes="chip" GroupName="slot-role" Margin="0,0,4,4"
+                                                         Content="{Binding Label}" IsChecked="{Binding IsChecked, Mode=TwoWay}" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+
+                            <StackPanel Spacing="4">
+                                <Grid ColumnDefinitions="*,Auto,Auto">
+                                    <TextBlock Classes="caption" Text="Energy target" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="1" Classes="mono" Text="{Binding EnergyDraftText}" VerticalAlignment="Center" />
+                                    <Button Grid.Column="2" Classes="ghost small" Content="Clear" Margin="8,0,0,0"
+                                            Click="OnClearEnergyClick" IsVisible="{Binding SelectedSlot.HasEnergyTarget, FallbackValue=False}"
+                                            ToolTip.Tip="Remove this slot's energy target" />
+                                </Grid>
+                                <Slider x:Name="EnergySlider" Minimum="0" Maximum="100" Value="{Binding EnergyDraft, Mode=TwoWay}"
+                                        ToolTip.Tip="Where the crowd's energy should be at this slot (saved when you let go)" />
+                                <TextBlock Classes="caption mono" Text="{Binding SelectedSlot.EnergyText, FallbackValue=''}" />
+                            </StackPanel>
+
+                            <StackPanel Spacing="4">
+                                <TextBlock Classes="caption" Text="Notes" />
+                                <TextBox AcceptsReturn="True" TextWrapping="Wrap" MinHeight="72"
+                                         Watermark="Cue to mix in on, a reminder for the night…"
+                                         Text="{Binding NotesDraft, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
+                            </StackPanel>
+
+                            <StackPanel Spacing="4">
+                                <TextBlock Classes="caption" Text="Plan B" />
+                                <TextBlock Classes="caption muted" TextWrapping="Wrap"
+                                           Text="No alternates yet. Use a pool track's Plan B button to add one."
+                                           IsVisible="{Binding !SelectedSlot.HasAlternates, FallbackValue=False}" />
+                                <ItemsControl ItemsSource="{Binding SelectedSlot.Alternates, FallbackValue={x:Null}}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:AlternateViewModel">
+                                            <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,4">
+                                                <StackPanel Spacing="2">
+                                                    <TextBlock Classes="body-sm" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <Border Classes="fact"><TextBlock Text="{Binding Bpm}" /></Border>
+                                                        <Border Classes="fact"><TextBlock Text="{Binding Key}" /></Border>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                                <Button Grid.Column="1" Classes="ghost small" Content="Swap in" VerticalAlignment="Center"
+                                                        Click="OnSwapAlternateClick"
+                                                        ToolTip.Tip="Play this in the slot instead; the planned track becomes the Plan B" />
+                                                <Button Grid.Column="2" Classes="icon small" VerticalAlignment="Center"
+                                                        Click="OnRemoveAlternateClick" ToolTip.Tip="Remove this Plan B"
+                                                        AutomationProperties.Name="Remove Plan B">
+                                                    <PathIcon Data="{StaticResource icon_close}" />
+                                                </Button>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Transition -->
+                        <StackPanel Spacing="12" IsVisible="{Binding HasSelectedTransition}">
+                            <StackPanel Spacing="2">
+                                <TextBlock Classes="section" Text="TRANSITION" />
+                                <TextBlock Classes="body" FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding SelectedTransition.From.Title, FallbackValue=''}" />
+                                <TextBlock Classes="caption" Text="into" />
+                                <TextBlock Classes="body" FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding SelectedTransition.To.Title, FallbackValue=''}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Classes="value mono" Text="{Binding SelectedTransition.ScoreText, FallbackValue=''}" />
+                                <TextBlock Classes="caption" Text="/ 100 compatibility" VerticalAlignment="Bottom" Margin="0,0,0,4" />
+                            </StackPanel>
+
+                            <StackPanel Spacing="8">
+                                <StackPanel Spacing="2">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Classes="caption" Text="Harmonic" />
+                                        <TextBlock Grid.Column="1" Classes="caption" Text="{Binding SelectedTransition.HarmonicLabel, FallbackValue=''}" />
+                                    </Grid>
+                                    <ProgressBar Classes="meter" Maximum="100" Value="{Binding SelectedTransition.HarmonicScore, FallbackValue=0}" />
+                                </StackPanel>
+                                <StackPanel Spacing="2">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Classes="caption" Text="BPM" />
+                                        <TextBlock Grid.Column="1" Classes="caption" Text="{Binding SelectedTransition.BpmLabel, FallbackValue=''}" />
+                                    </Grid>
+                                    <ProgressBar Classes="meter" Maximum="100" Value="{Binding SelectedTransition.BpmScore, FallbackValue=0}" />
+                                </StackPanel>
+                                <StackPanel Spacing="2">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Classes="caption" Text="Energy" />
+                                        <TextBlock Grid.Column="1" Classes="caption" Text="{Binding SelectedTransition.EnergyLabel, FallbackValue=''}" />
+                                    </Grid>
+                                    <ProgressBar Classes="meter" Maximum="100" Value="{Binding SelectedTransition.EnergyScore, FallbackValue=0}" />
+                                </StackPanel>
+                                <StackPanel Spacing="2">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Classes="caption" Text="Style" />
+                                        <TextBlock Grid.Column="1" Classes="caption" Text="{Binding SelectedTransition.StyleLabel, FallbackValue=''}" />
+                                    </Grid>
+                                    <ProgressBar Classes="meter neutral" Maximum="100" Value="{Binding SelectedTransition.StyleScore, FallbackValue=0}" />
+                                </StackPanel>
+                            </StackPanel>
+
+                            <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding SelectedTransition.EvidenceText, FallbackValue=''}" />
+                            <ItemsControl ItemsSource="{Binding SelectedTransition.Warnings, FallbackValue={x:Null}}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                        <TextBlock Classes="caption warning" TextWrapping="Wrap" Text="{Binding}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Panel>
+                </ScrollViewer>
+            </Border>
+
+            <Panel>
+                <!-- The set lane: slot cards joined by transition chips (P2.4) -->
+                <Border x:Name="Lane" Focusable="True" IsVisible="{Binding HasSlots}" VerticalAlignment="Top"
+                        DragDrop.AllowDrop="True" Background="Transparent">
+                    <Border.KeyBindings>
+                        <KeyBinding Gesture="Left" Command="{Binding SelectPreviousSlotCommand}" />
+                        <KeyBinding Gesture="Right" Command="{Binding SelectNextSlotCommand}" />
+                        <KeyBinding Gesture="Ctrl+Left" Command="{Binding MoveSlotLeftCommand}" />
+                        <KeyBinding Gesture="Ctrl+Right" Command="{Binding MoveSlotRightCommand}" />
+                        <KeyBinding Gesture="Delete" Command="{Binding RemoveSlotCommand}" />
+                        <KeyBinding Gesture="Ctrl+Z" Command="{Binding UndoCommand}" />
+                        <KeyBinding Gesture="Ctrl+Y" Command="{Binding RedoCommand}" />
+                        <KeyBinding Gesture="Ctrl+Shift+Z" Command="{Binding RedoCommand}" />
+                    </Border.KeyBindings>
+                    <Border.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Move earlier" InputGesture="Ctrl+Left" Command="{Binding MoveSlotLeftCommand}" />
+                            <MenuItem Header="Move later" InputGesture="Ctrl+Right" Command="{Binding MoveSlotRightCommand}" />
+                            <Separator />
+                            <MenuItem Header="Remove from set" InputGesture="Delete" Command="{Binding RemoveSlotCommand}" />
+                        </ContextMenu>
+                    </Border.ContextMenu>
+
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding LaneItems}" Padding="0,0,0,12">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.DataTemplates>
+                                <DataTemplate DataType="vm:SlotCardViewModel">
+                                    <Border Classes="slot-card" Classes.selected="{Binding IsSelected}" Width="176"
+                                            PointerPressed="OnCardPointerPressed" PointerMoved="OnCardPointerMoved"
+                                            ToolTip.Tip="{Binding Notes}">
+                                        <Grid ColumnDefinitions="3,*">
+                                            <Border Background="{Binding RoleValue, Converter={x:Static conv:SetSlotRoleBrushConverter.Instance}}"
+                                                    CornerRadius="6,0,0,6" />
+                                            <StackPanel Grid.Column="1" Margin="12,8" Spacing="4">
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <TextBlock Classes="section" Text="{Binding Role}"
+                                                               Foreground="{Binding RoleValue, Converter={x:Static conv:SetSlotRoleBrushConverter.Instance}}" />
+                                                    <TextBlock Grid.Column="1" Classes="caption mono" Text="{Binding Number}" />
+                                                </Grid>
+                                                <TextBlock Classes="body" FontWeight="SemiBold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Classes="caption" Text="{Binding Artist}" TextTrimming="CharacterEllipsis" />
+                                                <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,4,0,0">
+                                                    <Border Classes="fact"><TextBlock Text="{Binding Bpm}" /></Border>
+                                                    <Border Classes="fact"><TextBlock Text="{Binding Key}" /></Border>
+                                                    <Border Classes="fact warning" IsVisible="{Binding IsMissing}">
+                                                        <TextBlock Text="Missing" />
+                                                    </Border>
+                                                </StackPanel>
+                                                <StackPanel Spacing="2" Margin="0,4,0,0">
+                                                    <ProgressBar Classes="meter" Maximum="100" Value="{Binding EnergyTarget}"
+                                                                 IsVisible="{Binding HasEnergyTarget}" ToolTip.Tip="Energy target" />
+                                                    <ProgressBar Classes="meter neutral" Maximum="100" Value="{Binding TrackEnergy}"
+                                                                 IsVisible="{Binding HasTrackEnergy}" ToolTip.Tip="Track energy (analysis)" />
+                                                    <TextBlock Classes="caption mono" Text="{Binding EnergyText}" />
+                                                </StackPanel>
+                                                <StackPanel Spacing="2" Margin="0,4,0,0" IsVisible="{Binding HasAlternates}">
+                                                    <TextBlock Classes="section" Text="PLAN B" />
+                                                    <ItemsControl ItemsSource="{Binding Alternates}">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate x:DataType="vm:AlternateViewModel">
+                                                                <TextBlock Classes="caption" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+
+                                <DataTemplate DataType="vm:TransitionChipViewModel">
+                                    <StackPanel Width="56" VerticalAlignment="Center" Spacing="4" Margin="4,0"
+                                            Classes="transition-chip" Classes.selected="{Binding IsSelected}"
+                                            Background="Transparent" Cursor="Hand"
+                                            PointerPressed="OnChipPointerPressed" ToolTip.Tip="{Binding ToolTip}">
+                                        <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                                            <Ellipse Classes="status-dot" Classes.success="{Binding IsVerified}" Classes.info="{Binding IsRated}"
+                                                     VerticalAlignment="Center" />
+                                            <TextBlock Classes="mono" Text="{Binding ScoreText}" />
+                                        </StackPanel>
+                                        <ProgressBar Classes="meter" Maximum="100" Value="{Binding Score}" />
+                                        <PathIcon Data="{StaticResource icon_alert}" Width="12" Height="12"
+                                                  Foreground="{StaticResource BrushWarning}" IsVisible="{Binding HasWarnings}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.DataTemplates>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Border>
+
+                <StackPanel Classes="empty-state" IsVisible="{Binding HasNoSets}">
+                    <TextBlock Classes="h3" Text="Plan your first set" />
+                    <TextBlock Classes="caption" Text="Create a set, then add tracks from the Library with right-click → Add to Set." />
+                    <Button Classes="primary" Content="New set" Command="{Binding NewSetCommand}" />
+                </StackPanel>
+
+                <StackPanel Classes="empty-state" IsVisible="{Binding ShowNoSelection}">
+                    <TextBlock Classes="h3" Text="Pick a set" />
+                    <TextBlock Classes="caption" Text="Choose a set on the left to see its slots." />
+                </StackPanel>
+
+                <StackPanel Classes="empty-state" IsVisible="{Binding IsSetEmpty}">
+                    <TextBlock Classes="h3" Text="This set has no tracks yet" />
+                    <TextBlock Classes="caption" Text="Drag or double-click tracks from the pool below, or start from a playlist." />
+                    <Button Classes="primary" Content="Add playlist…" Command="{Binding StartFromPlaylistCommand}" />
+                </StackPanel>
+
+                <TextBlock Classes="caption" HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Text="Loading slots…" IsVisible="{Binding IsLoadingSlots}" />
+
+                <Border Classes="callout error" VerticalAlignment="Top" IsVisible="{Binding HasError}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Classes="body-sm" TextWrapping="Wrap" VerticalAlignment="Center"
+                                   Text="{Binding ErrorMessage}" />
+                        <Button Grid.Column="1" Classes="small" Content="Retry" Margin="12,0,0,0"
+                                Command="{Binding RetryCommand}" />
+                    </Grid>
+                </Border>
+            </Panel>
+        </DockPanel>
+    </Grid>
+</UserControl>

@@ -157,6 +157,16 @@
       <SolidColorBrush x:Key="BrushStemBass"      Color="{StaticResource ColorStemBass}"/>
       <SolidColorBrush x:Key="BrushStemOther"     Color="{StaticResource ColorStemOther}"/>
 
+      <!-- Set slot roles (Sets page). Aliases of existing colours: data identity, not UI chrome.
+           Resolved by name ("BrushRole" + SetSlotRole) in SetSlotRoleBrushConverter. -->
+      <SolidColorBrush x:Key="BrushRoleOpening"    Color="{StaticResource ColorSuccess}"/>
+      <SolidColorBrush x:Key="BrushRoleBuilder"    Color="{StaticResource ColorText2}"/>
+      <SolidColorBrush x:Key="BrushRoleAtmosphere" Color="{StaticResource ColorStemOther}"/>
+      <SolidColorBrush x:Key="BrushRolePeak"       Color="{StaticResource ColorWarning}"/>
+      <SolidColorBrush x:Key="BrushRoleReset"      Color="{StaticResource ColorInfo}"/>
+      <SolidColorBrush x:Key="BrushRoleCloser"     Color="{StaticResource ColorAccent}"/>
+      <SolidColorBrush x:Key="BrushRoleWildcard"   Color="{StaticResource ColorText3}"/>
+
       <!-- Hot-cue pads (Workstation inspector, CDJ slot colours) -->
       <SolidColorBrush x:Key="BrushHotCue1"       Color="{StaticResource ColorHotCue1}"/>
       <SolidColorBrush x:Key="BrushHotCue2"       Color="{StaticResource ColorHotCue2}"/>

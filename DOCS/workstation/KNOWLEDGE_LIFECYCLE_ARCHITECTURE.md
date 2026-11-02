@@ -1,7 +1,15 @@
 # ORBIT Phase 2 — Knowledge Lifecycle & Agent Swarm (vNext)
 
-Status: **forward-looking architecture blueprint (vNext)**
-Status date: 2026-10-30
+Status: **proposal, partially implemented**. Sequencing now follows
+[`SETS_AND_TRANSITIONS_REBUILD_PLAN.md`](SETS_AND_TRANSITIONS_REBUILD_PLAN.md) (ratified 2026-11-02).
+Status date: 2026-10-30 (status header 2026-11-02)
+
+| Piece | State (2026-11-02) |
+|---|---|
+| Entities, scoring, decay, fingerprint, reconciler | Built and unit-tested |
+| Swarm host + TransitionAgent | Built; **off by default** (Settings → Advanced → Knowledge agents, D7) |
+| PerformanceAnalystAgent, ExportAgent | Built but **not registered**: nothing publishes their trigger events yet (rebuild P5.1 / P6.1) |
+| Evidence sources | Manual rating (rebuild Phase 3) and Rekordbox history (P6.1) first; Pro DJ Link later (D8) |
 Builds on: [`DOCS/workstation/knowledge-system-vnext.md`](knowledge-system-vnext.md) (Phase 1 — static knowledge schema)
 Audience: engineers implementing the autonomous knowledge-acquisition pipeline.
 

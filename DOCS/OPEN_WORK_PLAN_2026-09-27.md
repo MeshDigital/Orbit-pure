@@ -17,6 +17,21 @@ Effort: **S** is under an hour, **M** is about half a day to a day, **L** is sev
 
 ---
 
+## S. Sets & Transitions rebuild (added 2026-11-02)
+
+Tracked in its own ratified plan, `DOCS/workstation/SETS_AND_TRANSITIONS_REBUILD_PLAN.md`
+(decisions D1–D9, work items P0–P6). Status lives there; this is the pointer.
+
+- [x] Phase 0: hardening of the 0.3.x Story Graph / Transition Lab / swarm (PR #196)
+- [x] Phase 1: ratify decisions, update the foundation spec and vNext doc status
+- [x] Phase 2: Sets page (lane, pool, inspector, Plan B, Set Health, Add to Set submenu)
+- [ ] Phase 3: one shared transition editor; `SetTrackTransitions` mirror table; ratings → knowledge
+- [ ] Phase 4: Copilot actions in Sets (benchmark Copilot vs Flow Builder A10 first)
+- [ ] Phase 5: export a set (Rekordbox XML / USB)
+- [ ] Phase 6: evidence from Rekordbox history
+
+---
+
 ## H. PRIORITY: drop detection and cue placement accuracy
 Added on 2026-09-27 after comparing an outside write-up (EDM phrasing, sub-bass dropout, spectral
 flux, onset density, an 8-pad cue template) with `Engine/Cueing/CueGenerationService.cs`.
