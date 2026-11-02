@@ -1,6 +1,6 @@
 # Sets & Transitions Rebuild Plan
 
-Status: **ratified 2026-11-02** (see §0). Phase 0 in progress on `fix/phase-0-hardening`.
+Status: **ratified 2026-11-02** (see §0). Phase 0 done on `fix/phase-0-hardening` (see §6, Phase 0 status).
 Date: 2026-11-02 · Branch: `plan/sets-rebuild-2026-11-02` · Baseline: `master` @ `90a003f` (0.3.2)
 Scope: the "knowledge system" work merged between `e82f06c` (0.2.3) and `90a003f`: Set Projects
 (Story Graph), Transition Lab, Set Health, the Copilot, and the Knowledge Swarm agents.
@@ -311,6 +311,28 @@ Each phase is a separate branch and PR. Each commit builds with 0 errors and kee
 | P0.9 | New architecture guard: ViewModels under `ViewModels/` may not call `ConfigureAwait(false)` (allow-list for existing violators, ratchet down) | F5 regression |
 
 *Not fixed in Phase 0, because Phase 2 replaces them:* F3, F7, F9, F10, F11.
+
+**Phase 0 status (2026-11-02, `fix/phase-0-hardening`): done, not yet visually verified in the running app.**
+- P0.1: new `Services/Sets/SetProjectService` is the single write path; every role/energy edit,
+  undo and redo is written at once (serialized, latest value wins); AddTrack waits for pending writes.
+- P0.2: Story Graph owns its undo stack; slider drags collapse into one undo step.
+- P0.3: no `ConfigureAwait(false)` left in the Story Graph / Set Health / set picker VMs. F5 was
+  **latent**: SQLite's async calls usually finish synchronously, so it rarely fired. A test with an
+  off-thread fake proves the fix (and fails if the bug is reintroduced).
+- P0.4: failures log + toast; Add Track no longer uses `Trace.WriteLine`.
+- P0.5: pickers open modally; Add Track searches the whole library (title/artist, wildcards escaped).
+  The Transition Lab pair picker was left as-is (unreachable after P0.7, deleted in P3.7).
+- P0.6: `EnableKnowledgeAgents` (default off) in Settings → Advanced → Knowledge agents. The two
+  trigger-less agents are no longer registered.
+- P0.7: Transition Lab nav entry, overlay and handler removed; the mode folds back to Prep. Its
+  files stay until P3.7. **Set Projects stays visible**, which needed two small extras so its
+  controls aren't dead: click-to-select nodes (F2) and track/role labels on nodes (part of F3).
+  The inspector is disabled until a slot is selected; empty states added.
+- P0.8: `CurrentSetupVersion` 6 → 7; What's New rewritten. The 0.3.2 copy advertised the Copilot,
+  Transition Lab and knowledge export, none of which users can reach.
+- P0.9: `ViewModelConfigureAwaitGuardTests`, a ratchet over 19 pre-existing files.
+- Also fixed: knowledge comment annotations were culture-formatted (`F:0,95` on nl/de/fr).
+- Tests: 2953 passed / 11 skipped / 0 failed (baseline 2930 / 11 / 2).
 
 ### Phase 1: Ratify (docs only)
 | ID | Work |
