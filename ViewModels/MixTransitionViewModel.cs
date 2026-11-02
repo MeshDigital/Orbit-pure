@@ -922,6 +922,12 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         MusicalKey = entry.MusicalKey,
         Energy = entry.Energy,
         CanonicalDuration = entry.CanonicalDuration,
+        // The decks draw from these bands (resolved from analysis by the library service).
+        WaveformData = entry.WaveformData,
+        RmsData = entry.RmsData,
+        LowData = entry.LowData,
+        MidData = entry.MidData,
+        HighData = entry.HighData,
     };
 
     // ── Rating (rebuild plan P3.3): what the DJ thinks of this pair, into the knowledge graph ──

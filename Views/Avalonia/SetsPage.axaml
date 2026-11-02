@@ -211,7 +211,7 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:HealthMetric">
-                                <StackPanel Width="104" Spacing="4" VerticalAlignment="Center" ToolTip.Tip="{Binding Hint}"
+                                <StackPanel Width="128" Spacing="4" VerticalAlignment="Center" ToolTip.Tip="{Binding Hint}"
                                             Background="Transparent">
                                     <Grid ColumnDefinitions="*,Auto">
                                         <TextBlock Classes="caption" Text="{Binding Label}" />
