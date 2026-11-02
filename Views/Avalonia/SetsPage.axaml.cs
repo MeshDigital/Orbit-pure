@@ -56,6 +56,18 @@ public partial class SetsPage : UserControl
         }
     }
 
+    private async void OnFindBridgeClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (ViewModel is { } vm)
+            await vm.FindBridgeAsync(); // reports its own failures
+    }
+
+    private async void OnInsertBridgeClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is BridgeSuggestionViewModel bridge && ViewModel is { } vm)
+            await vm.InsertBridgeAsync(bridge);
+    }
+
     private async void OnEditTransitionClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (ViewModel?.SelectedTransition is { } chip)

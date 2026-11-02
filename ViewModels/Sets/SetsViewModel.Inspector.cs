@@ -6,8 +6,31 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
 using SLSKDONET.Data.Entities;
+using SLSKDONET.Services.Sets;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.ViewModels.Sets;
+
+/// <summary>A suggested bridge track between two slots (0-1 section scores from the bridge engine).</summary>
+public sealed class BridgeSuggestionViewModel
+{
+    public SLSKDONET.Services.Sets.SetPoolTrack Track { get; }
+    public string TrackUniqueHash => Track.TrackUniqueHash;
+    public string Title => Track.Title;
+    public string Artist => Track.Artist;
+    public string Bpm => SLSKDONET.Utils.NumFormat.Bpm(Track.Bpm);
+    public string Key => Track.CamelotKey ?? "—";
+    public double Score { get; }
+    public string ScoreText => (Score * 100).ToString("0", CultureInfo.InvariantCulture);
+    public string Detail { get; }
+
+    public BridgeSuggestionViewModel(SLSKDONET.Services.Sets.SetPoolTrack track, double score, double aToX, double xToB)
+    {
+        Track = track;
+        Score = score;
+        Detail = $"into it {(aToX * 100).ToString("0", CultureInfo.InvariantCulture)} · out of it {(xToB * 100).ToString("0", CultureInfo.InvariantCulture)}";
+    }
+}
 
 /// <summary>One role chip in the slot inspector; checking it changes the selected slot's role.</summary>
 public sealed class RoleOptionViewModel : ReactiveObject
@@ -193,6 +216,95 @@ public sealed partial class SetsViewModel
 
     /// <summary>Called when the transition editor closes: picks up saved transitions and ratings.</summary>
     public Task TransitionEditorClosedAsync() => LoadAsync();
+
+    // ── Find a bridge (rebuild plan P4.3, DJ-initiated only) ─────────────────
+
+    /// <summary>Bridge suggestions for the selected transition, best first.</summary>
+    public System.Collections.ObjectModel.ObservableCollection<BridgeSuggestionViewModel> BridgeSuggestions { get; } = new();
+
+    private bool _isFindingBridge;
+    public bool IsFindingBridge { get => _isFindingBridge; private set => this.RaiseAndSetIfChanged(ref _isFindingBridge, value); }
+
+    private string? _bridgeStatus;
+    /// <summary>What the last search found (or why it found nothing).</summary>
+    public string? BridgeStatus { get => _bridgeStatus; private set => this.RaiseAndSetIfChanged(ref _bridgeStatus, value); }
+
+    private (Guid From, Guid To)? _bridgeFor;
+
+    /// <summary>BPM window (each side) around both tracks when looking for a bridge.</summary>
+    private const double BridgeBpmBand = 0.06;
+
+    /// <summary>
+    /// Looks for library tracks that connect the selected transition's outgoing outro to its
+    /// incoming intro (section-vector match, the engine Flow Builder uses; P4.1 found the
+    /// knowledge-graph finder has no verified edges to walk yet).
+    /// </summary>
+    public async Task FindBridgeAsync()
+    {
+        if (SelectedTransition is not { } chip || SelectedSet is null)
+            return;
+        BridgeSuggestions.Clear();
+        _bridgeFor = (chip.From.SlotId, chip.To.SlotId);
+        if (_sectionVectors is null)
+        {
+            BridgeStatus = "Bridge search isn't available right now.";
+            return;
+        }
+
+        IsFindingBridge = true;
+        BridgeStatus = null;
+        try
+        {
+            var from = chip.From.Slot;
+            var to = chip.To.Slot;
+            var bpms = new[] { from.Bpm, to.Bpm }.Where(b => b is > 0).Select(b => b!.Value).ToList();
+            var inSet = Slots.Select(s => s.Slot.TrackUniqueHash).ToHashSet(StringComparer.Ordinal);
+
+            var pool = await _sets.SearchPoolAsync(new SetPoolQuery(
+                AnalysedOnly: true,
+                BpmMin: bpms.Count > 0 ? bpms.Min() * (1 - BridgeBpmBand) : null,
+                BpmMax: bpms.Count > 0 ? bpms.Max() * (1 + BridgeBpmBand) : null,
+                // Generous cap: the pool query orders by title, so a small cap would only ever offer the A–C tracks.
+                Limit: 3000));
+            var candidates = pool.Where(t => !inSet.Contains(t.TrackUniqueHash)).ToList();
+            var byHash = candidates.ToDictionary(t => t.TrackUniqueHash, StringComparer.Ordinal);
+
+            var ranked = await _sectionVectors.FindBridgeCandidatesAsync(
+                from.TrackUniqueHash, to.TrackUniqueHash, byHash.Keys);
+            if (_bridgeFor != (chip.From.SlotId, chip.To.SlotId))
+                return; // the selection moved on
+
+            foreach (var (hash, bridgeScore, aToX, xToB) in ranked.Take(8))
+            {
+                if (byHash.TryGetValue(hash, out var track))
+                    BridgeSuggestions.Add(new BridgeSuggestionViewModel(track, bridgeScore, aToX, xToB));
+            }
+
+            BridgeStatus = BridgeSuggestions.Count > 0
+                ? $"Best of {CountFormat.Of(candidates.Count, "analysed track")} near this BPM, by how well the outro, bridge and intro sections fit."
+                : candidates.Count == 0
+                    ? "No analysed tracks near this BPM that aren't already in the set."
+                    : $"None of {CountFormat.Of(candidates.Count, "analysed track")} near this BPM has phrase data that connects these two.";
+        }
+        catch (Exception ex)
+        {
+            ReportFailure("Bridge search failed", ex);
+        }
+        finally
+        {
+            IsFindingBridge = false;
+        }
+    }
+
+    /// <summary>Inserts a bridge suggestion between the selected transition's two slots.</summary>
+    public async Task InsertBridgeAsync(BridgeSuggestionViewModel bridge)
+    {
+        if (SelectedTransition is not { } chip)
+            return;
+        BridgeSuggestions.Clear();
+        BridgeStatus = null;
+        await InsertTrackAsync(bridge.TrackUniqueHash, chip.To.Index);
+    }
 
     /// <summary>Adds a pool track as a Plan B for the selected slot.</summary>
     public async Task AddAlternateFromPoolAsync(PoolTrackViewModel track)

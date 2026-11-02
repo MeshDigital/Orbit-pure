@@ -433,6 +433,26 @@ isolated profile with a copy of the real library.
 - `CurrentSetupVersion` 8 → 9 with combined Phase 2 + 3 What's New copy.
 
 ### Phase 4: Copilot in Sets (DJ-initiated only)
+
+**P4.1 benchmark result (2026-11-02, on a copy of the owner's library):** the comparison is decided
+by data, not by maths.
+
+| | Copilot `BridgeFinder` | Flow Builder engine (`SectionVectorService.FindBridgeCandidatesAsync`) |
+|---|---|---|
+| Walks | `TransitionKnowledge` edges with `Verified = 1`, BpmScore ≥ 70, HarmonicScore ≥ 60 | phrase sections + embeddings of library tracks |
+| Available in the library | **1 edge, 0 verified, 0 candidates** | **4,481** tracks with phrase data (5,867 analysed) |
+| Bridges it can return now | none, for any pair | yes (live test: 8 suggestions; inserting the top one raised the set's transition score 60 → 72) |
+
+The Copilot finder is cold-start-bound: it needs a chain of verified edges, and ratings alone
+don't fill the BPM/harmonic score fields it filters on. **Decision taken:** Sets' "Find a bridge
+track" (P4.3) uses the section-vector engine. **Not deleted yet (owner's call):** the Copilot
+`BridgeFinder` is also used by `AlternativeRouteFinder`, and could become the better source once
+evidence accumulates (re-rank the section-vector results by knowledge evidence instead?).
+
+**P4.3 done:** inspector → transition → "Find a bridge track": analysed library tracks within ±6%
+BPM of both ends (not already in the set) ranked by outro→intro section fit, each with its two
+section scores; "Insert" puts it between the slots (undoable). Status text says what was searched
+or why nothing fits.
 | ID | Work |
 |---|---|
 | P4.1 | **Pick one engine.** Flow Builder has its own bridge finder and A10 flow suggestion; the Copilot has `BridgeFinder` / `SetBuilder`. Benchmark both on the same library with `Tools/CopilotBattleTest` + the existing Flow Builder tests, keep the better one, delete the other |

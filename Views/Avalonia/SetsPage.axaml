@@ -392,6 +392,34 @@
                             <Button Classes="primary" Content="Edit transition…" HorizontalAlignment="Stretch"
                                     HorizontalContentAlignment="Center" Click="OnEditTransitionClick"
                                     ToolTip.Tip="Design the blend, pick mix points, preview and rate it (double-click a transition does the same)" />
+
+                            <!-- Find a bridge (P4.3): only when the DJ asks -->
+                            <Button Classes="secondary" Content="Find a bridge track" HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center" Click="OnFindBridgeClick" IsEnabled="{Binding !IsFindingBridge}"
+                                    ToolTip.Tip="Look for a library track whose intro fits this outro and whose outro fits the next intro" />
+                            <TextBlock Classes="caption" Text="Searching…" IsVisible="{Binding IsFindingBridge}" />
+                            <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding BridgeStatus}"
+                                       IsVisible="{Binding BridgeStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            <ItemsControl ItemsSource="{Binding BridgeSuggestions}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:BridgeSuggestionViewModel">
+                                        <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                                            <StackPanel Spacing="2">
+                                                <TextBlock Classes="body-sm" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Classes="caption" Text="{Binding Artist}" TextTrimming="CharacterEllipsis" />
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <Border Classes="fact"><TextBlock Text="{Binding Bpm}" /></Border>
+                                                    <Border Classes="fact"><TextBlock Text="{Binding Key}" /></Border>
+                                                    <TextBlock Classes="caption mono" VerticalAlignment="Center" Text="{Binding ScoreText}"
+                                                               ToolTip.Tip="{Binding Detail}" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Classes="ghost small" Content="Insert" VerticalAlignment="Center"
+                                                    Click="OnInsertBridgeClick" ToolTip.Tip="Put this track between the two slots" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                             <ItemsControl ItemsSource="{Binding SelectedTransition.Warnings, FallbackValue={x:Null}}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="x:String">

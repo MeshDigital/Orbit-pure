@@ -53,6 +53,7 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
     private readonly ILibraryService? _library;
     private readonly SetTransitionRepository? _setTransitions;
     private readonly IServiceProvider? _services;
+    private readonly SLSKDONET.Services.Similarity.SectionVectorService? _sectionVectors;
     private readonly SetEditHistory _history = new();
 
     /// <summary>The track pool drawer (P2.5).</summary>
@@ -174,11 +175,13 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
         ILogger<SetsViewModel>? logger = null,
         ILibraryService? library = null,
         SetTransitionRepository? setTransitions = null,
-        IServiceProvider? services = null)
+        IServiceProvider? services = null,
+        SLSKDONET.Services.Similarity.SectionVectorService? sectionVectors = null)
     {
         _sets = sets;
         _setTransitions = setTransitions;
         _services = services;
+        _sectionVectors = sectionVectors;
         _dialogs = dialogs;
         _notifications = notifications;
         _logger = logger;

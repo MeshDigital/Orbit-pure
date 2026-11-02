@@ -454,6 +454,22 @@ public sealed class SetsViewModelTests : IDisposable
         Assert.False(chips[1].HasSavedTransition);
     }
 
+    [Fact]
+    public async Task FindBridge_WithoutTheEngine_SaysSo_AndInsertPutsTheBridgeBetween()
+    {
+        var (vm, _) = await OpenSetWithTracksAsync("a", "c");
+        vm.SelectTransition(vm.LaneItems.OfType<TransitionChipViewModel>().Single());
+
+        await vm.FindBridgeAsync(); // no SectionVectorService injected
+        Assert.Equal("Bridge search isn't available right now.", vm.BridgeStatus);
+        Assert.Empty(vm.BridgeSuggestions);
+
+        await vm.InsertBridgeAsync(new BridgeSuggestionViewModel(new SetPoolTrack("b", "B", "Y", 174, "8A"), 0.8, 0.9, 0.7));
+        Assert.Equal(new[] { "a", "b", "c" }, Order(vm));
+        await vm.UndoCommand.Execute();
+        Assert.Equal(new[] { "a", "c" }, Order(vm));
+    }
+
     /// <summary>Inspector setters start edits fire-and-forget (like a UI binding); wait for them to land.</summary>
     private static async Task WaitForAsync(Func<bool> condition)
     {
