@@ -29,7 +29,16 @@ public sealed record SetSlotInfo(
     double? EnergyTarget,
     string? Notes,
     double? Bpm,
-    string? CamelotKey);
+    string? CamelotKey,
+    double? Energy = null);
+
+/// <summary>What the knowledge graph knows about one A→B transition (by track hash).</summary>
+public sealed record TransitionKnowledgeInfo(
+    string SourceTrackHash,
+    string TargetTrackHash,
+    double CompatibilityScore,
+    int EvidenceCount,
+    bool Verified);
 
 /// <summary>
 /// The single write path for SetProjects (<see cref="SetListEntity"/>) and their slots
@@ -72,8 +81,20 @@ public interface ISetProjectService
     /// <summary>Moves a slot to <paramref name="newIndex"/> (clamped). Returns false when it no longer exists.</summary>
     Task<bool> MoveSlotAsync(Guid slotId, int newIndex);
 
-    /// <summary>Removes a slot and any story edge touching it. Returns false when it no longer exists.</summary>
-    Task<bool> RemoveSlotAsync(Guid slotId);
+    /// <summary>
+    /// Removes a slot and any story edge touching it. Returns a detached copy of the removed slot
+    /// (for undo via <see cref="RestoreSlotAsync"/>), or null when it no longer exists.
+    /// </summary>
+    Task<SetTrackEntity?> RemoveSlotAsync(Guid slotId);
+
+    /// <summary>
+    /// Puts a previously removed slot back with its original id, role, energy and notes at its
+    /// old position (clamped). Returns false when its set no longer exists or the id is in use.
+    /// </summary>
+    Task<bool> RestoreSlotAsync(SetTrackEntity snapshot);
+
+    /// <summary>Knowledge-graph edges that exist for the given A→B track-hash pairs.</summary>
+    Task<IReadOnlyList<TransitionKnowledgeInfo>> GetKnowledgeAsync(IEnumerable<(string From, string To)> pairs);
 
     /// <summary>Writes a slot's role and energy target. Returns false when the slot no longer exists.</summary>
     Task<bool> UpdateSlotAsync(Guid slotId, SetSlotRole role, double? energyTarget);
@@ -142,7 +163,7 @@ public sealed class SetProjectService : ISetProjectService
         var features = await db.AudioFeatures
             .AsNoTracking()
             .Where(f => hashes.Contains(f.TrackUniqueHash))
-            .Select(f => new { f.TrackUniqueHash, f.Bpm, f.CamelotKey })
+            .Select(f => new { f.TrackUniqueHash, f.Bpm, f.CamelotKey, f.Energy })
             .ToListAsync()
             .ConfigureAwait(false);
         var featuresByHash = features
@@ -165,7 +186,9 @@ public sealed class SetProjectService : ISetProjectService
                     slot.EnergyTarget,
                     slot.DjNotes,
                     feature is { Bpm: > 0 } ? (double?)feature.Bpm : null,
-                    string.IsNullOrWhiteSpace(feature?.CamelotKey) ? null : feature!.CamelotKey);
+                    string.IsNullOrWhiteSpace(feature?.CamelotKey) ? null : feature!.CamelotKey,
+                    // Energy is stored 0-1 with a 0.5 default, so only trust it when analysis ran.
+                    feature is null ? null : Math.Round(Math.Clamp(feature.Energy, 0f, 1f) * 100.0));
             })
             .ToList();
     }
@@ -226,21 +249,7 @@ public sealed class SetProjectService : ISetProjectService
         var slotIdMap = new Dictionary<Guid, Guid>();
         foreach (var slot in Ordered(source.Tracks))
         {
-            var cloned = new SetTrackEntity
-            {
-                SetListId = copy.Id,
-                TrackUniqueHash = slot.TrackUniqueHash,
-                LibraryId = slot.LibraryId,
-                Position = slot.Position,
-                SlotRole = slot.SlotRole,
-                EnergyTarget = slot.EnergyTarget,
-                TransitionType = slot.TransitionType,
-                ManualOffset = slot.ManualOffset,
-                TransitionReasoning = slot.TransitionReasoning,
-                DjNotes = slot.DjNotes,
-                IsRescueTrack = slot.IsRescueTrack,
-                RescueReason = slot.RescueReason,
-            };
+            var cloned = CloneSlot(slot, Guid.NewGuid(), copy.Id);
             slotIdMap[slot.Id] = cloned.Id;
             db.SetTracks.Add(cloned);
         }
@@ -333,15 +342,16 @@ public sealed class SetProjectService : ISetProjectService
         return true;
     }
 
-    public async Task<bool> RemoveSlotAsync(Guid slotId)
+    public async Task<SetTrackEntity?> RemoveSlotAsync(Guid slotId)
     {
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
 
         var set = await LoadSetOfSlotAsync(db, slotId).ConfigureAwait(false);
         if (set is null)
-            return false;
+            return null;
 
         var slot = set.Tracks.First(t => t.Id == slotId);
+        var snapshot = CloneSlot(slot, slot.Id, slot.SetListId);
         db.SetStoryEdges.RemoveRange(await db.SetStoryEdges
             .Where(e => e.FromSlotId == slotId || e.ToSlotId == slotId)
             .ToListAsync()
@@ -351,7 +361,62 @@ public sealed class SetProjectService : ISetProjectService
         Renumber(Ordered(set.Tracks.Where(t => t.Id != slotId)).ToList());
         set.LastModifiedAt = DateTime.UtcNow;
         await db.SaveChangesAsync().ConfigureAwait(false);
+        return snapshot;
+    }
+
+    public async Task<bool> RestoreSlotAsync(SetTrackEntity snapshot)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        if (await db.SetTracks.AnyAsync(t => t.Id == snapshot.Id).ConfigureAwait(false))
+            return false;
+
+        var set = await db.SetLists
+            .Include(s => s.Tracks)
+            .FirstOrDefaultAsync(s => s.Id == snapshot.SetListId)
+            .ConfigureAwait(false);
+        if (set is null)
+            return false;
+
+        var restored = CloneSlot(snapshot, snapshot.Id, set.Id);
+        var ordered = Ordered(set.Tracks).ToList();
+        ordered.Insert(Math.Clamp(snapshot.Position, 0, ordered.Count), restored);
+        Renumber(ordered);
+
+        db.SetTracks.Add(restored);
+        set.LastModifiedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync().ConfigureAwait(false);
         return true;
+    }
+
+    public async Task<IReadOnlyList<TransitionKnowledgeInfo>> GetKnowledgeAsync(IEnumerable<(string From, string To)> pairs)
+    {
+        var wanted = pairs.Where(p => !string.IsNullOrEmpty(p.From) && !string.IsNullOrEmpty(p.To)).ToHashSet();
+        if (wanted.Count == 0)
+            return Array.Empty<TransitionKnowledgeInfo>();
+
+        var sources = wanted.Select(p => p.From).Distinct().ToList();
+
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        var edges = await db.TransitionKnowledge
+            .AsNoTracking()
+            .Where(e => sources.Contains(e.SourceTrackId))
+            .Select(e => new { e.SourceTrackId, e.TargetTrackId, e.CompatibilityScore, e.EvidenceCount, e.Verified })
+            .ToListAsync()
+            .ConfigureAwait(false);
+
+        // One edge per pair may exist per transition type; surface the strongest.
+        return edges
+            .Where(e => wanted.Contains((e.SourceTrackId, e.TargetTrackId)))
+            .GroupBy(e => (e.SourceTrackId, e.TargetTrackId))
+            .Select(g => new TransitionKnowledgeInfo(
+                g.Key.SourceTrackId,
+                g.Key.TargetTrackId,
+                g.Max(e => e.CompatibilityScore),
+                g.Sum(e => e.EvidenceCount),
+                g.Any(e => e.Verified)))
+            .ToList();
     }
 
     public async Task<bool> UpdateSlotAsync(Guid slotId, SetSlotRole role, double? energyTarget)
@@ -442,6 +507,24 @@ public sealed class SetProjectService : ISetProjectService
             .FirstOrDefaultAsync(s => s.Id == setId)
             .ConfigureAwait(false);
     }
+
+    /// <summary>A detached copy of every slot field, under the given id and set.</summary>
+    private static SetTrackEntity CloneSlot(SetTrackEntity slot, Guid id, Guid setId) => new()
+    {
+        Id = id,
+        SetListId = setId,
+        TrackUniqueHash = slot.TrackUniqueHash,
+        LibraryId = slot.LibraryId,
+        Position = slot.Position,
+        SlotRole = slot.SlotRole,
+        EnergyTarget = slot.EnergyTarget,
+        TransitionType = slot.TransitionType,
+        ManualOffset = slot.ManualOffset,
+        TransitionReasoning = slot.TransitionReasoning,
+        DjNotes = slot.DjNotes,
+        IsRescueTrack = slot.IsRescueTrack,
+        RescueReason = slot.RescueReason,
+    };
 
     /// <summary>Spine order; ties (legacy duplicate positions) break deterministically by id.</summary>
     private static IEnumerable<SetTrackEntity> Ordered(IEnumerable<SetTrackEntity> slots)

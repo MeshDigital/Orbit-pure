@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reactive;
@@ -37,26 +38,11 @@ public sealed class SetListItemViewModel : ReactiveObject
     }
 }
 
-/// <summary>One slot row of the selected set (interim list until the set lane, P2.4).</summary>
-public sealed class SetSlotRowViewModel
-{
-    public SetSlotInfo Slot { get; }
-
-    public string Number => (Slot.Position + 1).ToString("00", System.Globalization.CultureInfo.InvariantCulture);
-    public string Role => Slot.Role.ToString().ToUpperInvariant();
-    public string Title => Slot.Title;
-    public string Artist => Slot.Artist;
-    public string Bpm => NumFormat.Bpm(Slot.Bpm);
-    public string Key => Slot.CamelotKey ?? "—";
-    public bool IsMissing => !Slot.IsInLibrary;
-
-    public SetSlotRowViewModel(SetSlotInfo slot) => Slot = slot;
-}
-
 /// <summary>
-/// The Sets page (rebuild plan P2.2/P2.3): a rail of every SetProject with create / rename /
-/// duplicate / delete, and the selected set's slots. All writes go through
-/// <see cref="ISetProjectService"/>; failures are logged and toasted, never swallowed.
+/// The Sets page (rebuild plan Phase 2): a rail of every SetProject with create / rename /
+/// duplicate / delete, and the selected set as a lane of slot cards joined by transition chips.
+/// Every edit is persisted at once through <see cref="ISetProjectService"/> and recorded in a
+/// Sets-local undo history; failures are logged, toasted and shown inline, never swallowed.
 /// </summary>
 public sealed class SetsViewModel : ReactiveObject, IDisposable
 {
@@ -64,10 +50,18 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
     private readonly IDialogService _dialogs;
     private readonly INotificationService? _notifications;
     private readonly ILogger<SetsViewModel>? _logger;
+    private readonly SetEditHistory _history = new();
     private int _slotLoadGeneration;
+    private Guid? _pendingOpen;
+    private bool _rebuildingRail;
 
     public ObservableCollection<SetListItemViewModel> Sets { get; } = new();
-    public ObservableCollection<SetSlotRowViewModel> Slots { get; } = new();
+
+    /// <summary>The selected set's slots in spine order.</summary>
+    public ObservableCollection<SlotCardViewModel> Slots { get; } = new();
+
+    /// <summary>Slot cards interleaved with the transition chips between them, for the lane.</summary>
+    public ObservableCollection<object> LaneItems { get; } = new();
 
     private SetListItemViewModel? _selectedSet;
     public SetListItemViewModel? SelectedSet
@@ -77,9 +71,20 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
         {
             if (ReferenceEquals(_selectedSet, value))
                 return;
+            // Rebuilding the rail clears the list, and the ListBox's TwoWay binding then pushes
+            // null; that isn't the user leaving the set (it would wipe undo history on every edit).
+            if (_rebuildingRail && value is null)
+                return;
+            var switchedSet = _selectedSet?.Id != value?.Id;
             this.RaiseAndSetIfChanged(ref _selectedSet, value);
             this.RaisePropertyChanged(nameof(HasSelection));
             this.RaisePropertyChanged(nameof(ShowNoSelection));
+            if (switchedSet)
+            {
+                _history.Clear(); // edits are per set
+                _selectedSlotId = null;
+                RaiseUndoStateChanged();
+            }
             PendingSlotLoad = LoadSlotsAsync();
         }
     }
@@ -88,6 +93,11 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
     internal Task PendingSlotLoad { get; private set; } = Task.CompletedTask;
 
     public bool HasSelection => SelectedSet is not null;
+
+    private Guid? _selectedSlotId;
+    /// <summary>The selected slot card, if any.</summary>
+    public SlotCardViewModel? SelectedSlot => Slots.FirstOrDefault(s => s.SlotId == _selectedSlotId);
+    public bool HasSelectedSlot => SelectedSlot is not null;
 
     private bool _isLoadingSets;
     public bool IsLoadingSets { get => _isLoadingSets; private set => this.RaiseAndSetIfChanged(ref _isLoadingSets, value); }
@@ -106,7 +116,7 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
     }
 
     private string? _errorMessage;
-    /// <summary>Set when loading failed; shown inline instead of an empty page.</summary>
+    /// <summary>Set when loading or an edit failed; shown inline instead of an empty page.</summary>
     public string? ErrorMessage
     {
         get => _errorMessage;
@@ -133,11 +143,22 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
     /// <summary>"12 tracks · Draft" for the selected set's header.</summary>
     public string SelectedSummary => SelectedSet is { } set ? $"{CountFormat.Of(Slots.Count, "track")} · {set.Status}" : string.Empty;
 
+    public bool CanUndo => _history.CanUndo;
+    public bool CanRedo => _history.CanRedo;
+
     public ReactiveCommand<Unit, Unit> NewSetCommand { get; }
     public ReactiveCommand<Unit, Unit> RenameSetCommand { get; }
     public ReactiveCommand<Unit, Unit> DuplicateSetCommand { get; }
     public ReactiveCommand<Unit, Unit> DeleteSetCommand { get; }
     public ReactiveCommand<Unit, Unit> RetryCommand { get; }
+
+    public ReactiveCommand<Unit, Unit> SelectPreviousSlotCommand { get; }
+    public ReactiveCommand<Unit, Unit> SelectNextSlotCommand { get; }
+    public ReactiveCommand<Unit, Unit> MoveSlotLeftCommand { get; }
+    public ReactiveCommand<Unit, Unit> MoveSlotRightCommand { get; }
+    public ReactiveCommand<Unit, Unit> RemoveSlotCommand { get; }
+    public ReactiveCommand<Unit, Unit> UndoCommand { get; }
+    public ReactiveCommand<Unit, Unit> RedoCommand { get; }
 
     public SetsViewModel(
         ISetProjectService sets,
@@ -151,11 +172,20 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
         _logger = logger;
 
         var hasSelection = this.WhenAnyValue(x => x.SelectedSet).Select(s => s is not null);
+        var hasSlot = this.WhenAnyValue(x => x.HasSelectedSlot);
         NewSetCommand = ReactiveCommand.CreateFromTask(NewSetAsync);
         RenameSetCommand = ReactiveCommand.CreateFromTask(RenameSetAsync, hasSelection);
         DuplicateSetCommand = ReactiveCommand.CreateFromTask(DuplicateSetAsync, hasSelection);
         DeleteSetCommand = ReactiveCommand.CreateFromTask(DeleteSetAsync, hasSelection);
         RetryCommand = ReactiveCommand.CreateFromTask(() => LoadAsync());
+
+        SelectPreviousSlotCommand = ReactiveCommand.Create(() => SelectRelative(-1));
+        SelectNextSlotCommand = ReactiveCommand.Create(() => SelectRelative(+1));
+        MoveSlotLeftCommand = ReactiveCommand.CreateFromTask(() => MoveSelectedAsync(-1), hasSlot);
+        MoveSlotRightCommand = ReactiveCommand.CreateFromTask(() => MoveSelectedAsync(+1), hasSlot);
+        RemoveSlotCommand = ReactiveCommand.CreateFromTask(RemoveSelectedAsync, hasSlot);
+        UndoCommand = ReactiveCommand.CreateFromTask(UndoAsync, this.WhenAnyValue(x => x.CanUndo));
+        RedoCommand = ReactiveCommand.CreateFromTask(RedoAsync, this.WhenAnyValue(x => x.CanRedo));
     }
 
     /// <summary>
@@ -163,8 +193,6 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
     /// surface routes here: the page's own load-on-attach then opens the right set.
     /// </summary>
     public void RequestOpen(Guid setId) => _pendingOpen = setId;
-
-    private Guid? _pendingOpen;
 
     /// <summary>Reloads the rail, keeping (or switching to) a selection when it still exists.</summary>
     public async Task LoadAsync(Guid? select = null)
@@ -177,9 +205,17 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
         {
             var sets = await _sets.GetSetsAsync();
 
-            Sets.Clear();
-            foreach (var summary in sets)
-                Sets.Add(new SetListItemViewModel(summary));
+            _rebuildingRail = true;
+            try
+            {
+                Sets.Clear();
+                foreach (var summary in sets)
+                    Sets.Add(new SetListItemViewModel(summary));
+            }
+            finally
+            {
+                _rebuildingRail = false;
+            }
 
             _setsLoaded = true;
             var target = Sets.FirstOrDefault(s => s.Id == keep);
@@ -201,17 +237,71 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
         }
     }
 
-    /// <summary>Opens the page on a specific set (used when another surface routes here).</summary>
+    /// <summary>Opens the page on a specific set.</summary>
     public Task OpenSetAsync(Guid setId) => LoadAsync(setId);
+
+    /// <summary>Selects a slot card (clicked or keyboard-navigated).</summary>
+    public void SelectSlot(SlotCardViewModel? card)
+    {
+        _selectedSlotId = card?.SlotId;
+        foreach (var slot in Slots)
+            slot.IsSelected = slot.SlotId == _selectedSlotId;
+        this.RaisePropertyChanged(nameof(SelectedSlot));
+        this.RaisePropertyChanged(nameof(HasSelectedSlot));
+    }
+
+    /// <summary>Moves a slot to a new index (drag-drop in the lane), with undo.</summary>
+    public async Task MoveSlotAsync(Guid slotId, int newIndex)
+    {
+        var from = Slots.FirstOrDefault(s => s.SlotId == slotId)?.Index;
+        if (from is not int oldIndex)
+            return;
+        newIndex = Math.Clamp(newIndex, 0, Math.Max(0, Slots.Count - 1));
+        if (newIndex == oldIndex)
+            return;
+
+        await RunEditAsync("Move track", async () =>
+        {
+            if (!await _sets.MoveSlotAsync(slotId, newIndex))
+                throw new InvalidOperationException("That track is no longer in the set.");
+            _history.Push("Move track",
+                undo: async () => await _sets.MoveSlotAsync(slotId, oldIndex),
+                redo: async () => await _sets.MoveSlotAsync(slotId, newIndex));
+            _selectedSlotId = slotId;
+        });
+    }
+
+    /// <summary>Inserts a library track at <paramref name="index"/> (dropped or added from the pool), with undo.</summary>
+    public async Task InsertTrackAsync(string trackUniqueHash, int index)
+    {
+        if (SelectedSet is not { } set)
+            return;
+
+        await RunEditAsync("Add track", async () =>
+        {
+            var slot = await _sets.InsertTrackAsync(set.Id, trackUniqueHash, index)
+                ?? throw new InvalidOperationException($"\"{set.Name}\" no longer exists.");
+            SetTrackEntity? removed = null;
+            _history.Push("Add track",
+                undo: async () => removed = await _sets.RemoveSlotAsync(slot.Id),
+                redo: async () =>
+                {
+                    if (removed is not null)
+                        await _sets.RestoreSlotAsync(removed);
+                });
+            _selectedSlotId = slot.Id;
+        });
+    }
 
     private async Task LoadSlotsAsync()
     {
         var generation = ++_slotLoadGeneration;
-        Slots.Clear();
         ErrorMessage = null;
 
         if (SelectedSet is not { } set)
         {
+            Slots.Clear();
+            LaneItems.Clear();
             RaiseStateChanged();
             return;
         }
@@ -220,11 +310,14 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
         try
         {
             var slots = await _sets.GetSlotsAsync(set.Id);
+            var pairs = slots.Zip(slots.Skip(1), (a, b) => (a.TrackUniqueHash, b.TrackUniqueHash)).ToList();
+            var knowledge = pairs.Count == 0
+                ? Array.Empty<TransitionKnowledgeInfo>()
+                : await _sets.GetKnowledgeAsync(pairs);
             if (generation != _slotLoadGeneration)
                 return; // the user picked another set meanwhile
 
-            foreach (var slot in slots)
-                Slots.Add(new SetSlotRowViewModel(slot));
+            BuildLane(slots, knowledge);
         }
         catch (Exception ex)
         {
@@ -239,6 +332,101 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
                 RaiseStateChanged();
             }
         }
+    }
+
+    private void BuildLane(IReadOnlyList<SetSlotInfo> slots, IReadOnlyList<TransitionKnowledgeInfo> knowledge)
+    {
+        var byPair = knowledge.ToDictionary(k => (k.SourceTrackHash, k.TargetTrackHash));
+
+        Slots.Clear();
+        LaneItems.Clear();
+        SlotCardViewModel? previous = null;
+        foreach (var slot in slots)
+        {
+            var card = new SlotCardViewModel(slot) { IsSelected = slot.SlotId == _selectedSlotId };
+            if (previous is not null)
+            {
+                byPair.TryGetValue((previous.Slot.TrackUniqueHash, slot.TrackUniqueHash), out var known);
+                LaneItems.Add(new TransitionChipViewModel(previous, card, known));
+            }
+            Slots.Add(card);
+            LaneItems.Add(card);
+            previous = card;
+        }
+
+        if (_selectedSlotId is Guid id && Slots.All(s => s.SlotId != id))
+            _selectedSlotId = null;
+        this.RaisePropertyChanged(nameof(SelectedSlot));
+        this.RaisePropertyChanged(nameof(HasSelectedSlot));
+    }
+
+    private void SelectRelative(int delta)
+    {
+        if (Slots.Count == 0)
+            return;
+        var index = SelectedSlot is { } current ? Slots.IndexOf(current) + delta : (delta > 0 ? 0 : Slots.Count - 1);
+        SelectSlot(Slots[Math.Clamp(index, 0, Slots.Count - 1)]);
+    }
+
+    private Task MoveSelectedAsync(int delta)
+        => SelectedSlot is { } card ? MoveSlotAsync(card.SlotId, card.Index + delta) : Task.CompletedTask;
+
+    private async Task RemoveSelectedAsync()
+    {
+        if (SelectedSlot is not { } card)
+            return;
+        var neighbour = Slots.ElementAtOrDefault(card.Index + 1) ?? Slots.ElementAtOrDefault(card.Index - 1);
+
+        await RunEditAsync("Remove track", async () =>
+        {
+            var snapshot = await _sets.RemoveSlotAsync(card.SlotId)
+                ?? throw new InvalidOperationException("That track is no longer in the set.");
+            _history.Push($"Remove \"{card.Title}\"",
+                undo: async () => await _sets.RestoreSlotAsync(snapshot),
+                redo: async () => await _sets.RemoveSlotAsync(snapshot.Id));
+            _selectedSlotId = neighbour?.SlotId;
+        });
+    }
+
+    private async Task UndoAsync()
+    {
+        await RunEditAsync("Undo", async () =>
+        {
+            var what = await _history.UndoAsync();
+            if (what is not null)
+                _notifications?.Show("Sets", $"Undid: {what}", NotificationType.Information, TimeSpan.FromSeconds(2));
+        });
+    }
+
+    private async Task RedoAsync()
+    {
+        await RunEditAsync("Redo", async () =>
+        {
+            var what = await _history.RedoAsync();
+            if (what is not null)
+                _notifications?.Show("Sets", $"Redid: {what}", NotificationType.Information, TimeSpan.FromSeconds(2));
+        });
+    }
+
+    /// <summary>Runs a persisted edit, then reloads the lane and rail counts; failures are reported.</summary>
+    private async Task RunEditAsync(string what, Func<Task> edit)
+    {
+        string? failure = null;
+        try
+        {
+            await edit();
+        }
+        catch (Exception ex)
+        {
+            ReportFailure($"{what} failed", ex);
+            failure = ErrorMessage;
+        }
+
+        RaiseUndoStateChanged();
+        await LoadAsync(); // refresh slots (positions, chips) and the rail's slot counts
+        await PendingSlotLoad;
+        if (failure is not null && ErrorMessage is null)
+            ErrorMessage = failure; // the reload clears it; keep the failure visible
     }
 
     private async Task NewSetAsync()
@@ -336,6 +524,12 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
         _notifications?.Show("Sets", ErrorMessage, NotificationType.Error);
     }
 
+    private void RaiseUndoStateChanged()
+    {
+        this.RaisePropertyChanged(nameof(CanUndo));
+        this.RaisePropertyChanged(nameof(CanRedo));
+    }
+
     private void RaiseStateChanged()
     {
         this.RaisePropertyChanged(nameof(HasNoSets));
@@ -352,5 +546,12 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
         DuplicateSetCommand.Dispose();
         DeleteSetCommand.Dispose();
         RetryCommand.Dispose();
+        SelectPreviousSlotCommand.Dispose();
+        SelectNextSlotCommand.Dispose();
+        MoveSlotLeftCommand.Dispose();
+        MoveSlotRightCommand.Dispose();
+        RemoveSlotCommand.Dispose();
+        UndoCommand.Dispose();
+        RedoCommand.Dispose();
     }
 }

@@ -160,6 +160,139 @@ public sealed class SetsViewModelTests : IDisposable
         Assert.True(vm.HasNoSets);
     }
 
+    private async Task<(SetsViewModel Vm, Guid SetId)> OpenSetWithTracksAsync(params string[] hashes)
+    {
+        var set = await _service.CreateSetAsync("Friday");
+        foreach (var hash in hashes)
+            await _service.AppendTrackAsync(set.Id, hash);
+        var vm = Create();
+        await vm.OpenSetAsync(set.Id);
+        await vm.PendingSlotLoad;
+        return (vm, set.Id);
+    }
+
+    private static string[] Order(SetsViewModel vm) => vm.Slots.Select(s => s.Slot.TrackUniqueHash).ToArray();
+
+    [Fact]
+    public async Task Lane_InterleavesCardsAndChips_WithKnowledgeEvidence()
+    {
+        _db.SeedLibrary(("a", "X", "A"), ("b", "Y", "B"), ("c", "Z", "C"));
+        _db.SeedFeatures(("a", 174f, "8A"), ("b", 174f, "9A"), ("c", 140f, "3B"));
+        using (var db = _db.Factory.CreateDbContext())
+        {
+            db.TransitionKnowledge.Add(new SLSKDONET.Data.Entities.TransitionKnowledgeEntity { SourceTrackId = "a", TargetTrackId = "b", EvidenceCount = 2, Verified = true });
+            await db.SaveChangesAsync();
+        }
+
+        var (vm, _) = await OpenSetWithTracksAsync("a", "b", "c");
+
+        Assert.Equal(5, vm.LaneItems.Count); // card, chip, card, chip, card
+        var chips = vm.LaneItems.OfType<TransitionChipViewModel>().ToList();
+        Assert.Equal(2, chips.Count);
+        Assert.True(chips[0].IsVerified);
+        Assert.Equal(TransitionEvidenceState.Algorithmic, chips[1].Evidence);
+        Assert.True(chips[0].Score > chips[1].Score); // 174→174 adjacent keys beats 174→140 clash
+        Assert.True(chips[1].HasWarnings);
+    }
+
+    [Fact]
+    public async Task MoveSlot_UndoRedo_RoundTripsOrder_AndKeepsSelection()
+    {
+        var (vm, _) = await OpenSetWithTracksAsync("a", "b", "c");
+        vm.SelectSlot(vm.Slots[0]);
+
+        await vm.MoveSlotRightCommand.Execute();
+        Assert.Equal(new[] { "b", "a", "c" }, Order(vm));
+        Assert.Equal("a", vm.SelectedSlot?.Slot.TrackUniqueHash);
+        Assert.True(vm.CanUndo);
+
+        await vm.UndoCommand.Execute();
+        Assert.Equal(new[] { "a", "b", "c" }, Order(vm));
+
+        await vm.RedoCommand.Execute();
+        Assert.Equal(new[] { "b", "a", "c" }, Order(vm));
+    }
+
+    [Fact]
+    public async Task RemoveSlot_Undo_RestoresTheSameSlotWithItsSettings()
+    {
+        var (vm, setId) = await OpenSetWithTracksAsync("a", "b", "c");
+        var b = vm.Slots[1];
+        await _service.UpdateSlotAsync(b.SlotId, SLSKDONET.Data.Entities.SetSlotRole.Peak, 90);
+        await vm.OpenSetAsync(setId);
+        await vm.PendingSlotLoad;
+        vm.SelectSlot(vm.Slots[1]);
+
+        await vm.RemoveSlotCommand.Execute();
+        Assert.Equal(new[] { "a", "c" }, Order(vm));
+        Assert.Equal("c", vm.SelectedSlot?.Slot.TrackUniqueHash); // selection moves to the neighbour
+
+        await vm.UndoCommand.Execute();
+        Assert.Equal(new[] { "a", "b", "c" }, Order(vm));
+        var restored = vm.Slots[1].Slot;
+        Assert.Equal((b.SlotId, SLSKDONET.Data.Entities.SetSlotRole.Peak, 90.0), (restored.SlotId, restored.Role, restored.EnergyTarget));
+    }
+
+    [Fact]
+    public async Task InsertTrack_AtIndex_ThenUndoRedo()
+    {
+        var (vm, _) = await OpenSetWithTracksAsync("a", "c");
+
+        await vm.InsertTrackAsync("b", 1);
+        Assert.Equal(new[] { "a", "b", "c" }, Order(vm));
+        Assert.Equal("b", vm.SelectedSlot?.Slot.TrackUniqueHash);
+
+        await vm.UndoCommand.Execute();
+        Assert.Equal(new[] { "a", "c" }, Order(vm));
+
+        await vm.RedoCommand.Execute();
+        Assert.Equal(new[] { "a", "b", "c" }, Order(vm));
+    }
+
+    [Fact]
+    public async Task SwitchingSets_ClearsUndoHistory()
+    {
+        var (vm, _) = await OpenSetWithTracksAsync("a", "b");
+        await _service.CreateSetAsync("Other");
+        vm.SelectSlot(vm.Slots[0]);
+        await vm.MoveSlotRightCommand.Execute();
+        Assert.True(vm.CanUndo);
+
+        await vm.LoadAsync();
+        vm.SelectedSet = vm.Sets.Single(s => s.Name == "Other");
+        await vm.PendingSlotLoad;
+
+        Assert.False(vm.CanUndo);
+    }
+
+    [Fact]
+    public async Task KeyboardSelection_WrapsWithinBounds()
+    {
+        var (vm, _) = await OpenSetWithTracksAsync("a", "b");
+
+        await vm.SelectNextSlotCommand.Execute();     // nothing selected → first
+        Assert.Equal("a", vm.SelectedSlot?.Slot.TrackUniqueHash);
+        await vm.SelectNextSlotCommand.Execute();
+        await vm.SelectNextSlotCommand.Execute();     // clamped at the end
+        Assert.Equal("b", vm.SelectedSlot?.Slot.TrackUniqueHash);
+        Assert.True(vm.Slots[1].IsSelected);
+        Assert.False(vm.Slots[0].IsSelected);
+    }
+
+    [Fact]
+    public async Task FailedEdit_IsReportedAndStaysVisible()
+    {
+        var (vm, _) = await OpenSetWithTracksAsync("a", "b");
+        vm.SelectSlot(vm.Slots[0]);
+        await _service.RemoveSlotAsync(vm.Slots[0].SlotId); // gone behind the page's back
+
+        await vm.MoveSlotRightCommand.Execute();
+
+        Assert.True(vm.HasError);
+        Assert.Contains(_toasts, t => t.Type == NotificationType.Error);
+        Assert.False(vm.CanUndo); // nothing was recorded for the failed move
+    }
+
     /// <summary>
     /// The rail and slot list must be filled on the caller's (UI) context even when the service
     /// completes on the thread pool — the cross-thread update Phase 0 fixed (F5).

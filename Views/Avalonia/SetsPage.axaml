@@ -3,9 +3,27 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Sets"
+             xmlns:conv="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
              mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="800"
              x:Class="SLSKDONET.Views.Avalonia.SetsPage"
              x:DataType="vm:SetsViewModel">
+
+    <UserControl.Styles>
+        <!-- Slot card: a card surface whose border turns accent when selected -->
+        <Style Selector="Border.slot-card">
+            <Setter Property="Background" Value="{StaticResource BrushBg2}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder1}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Border.slot-card:pointerover">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder2}" />
+        </Style>
+        <Style Selector="Border.slot-card.selected">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}" />
+        </Style>
+    </UserControl.Styles>
 
     <Grid ColumnDefinitions="240,*">
 
@@ -80,35 +98,104 @@
                 </Button>
             </Grid>
 
+            <!-- One toolbar row: history on the left, keyboard hint on the right -->
+            <Border DockPanel.Dock="Top" Classes="toolbar" Margin="0,0,0,16" IsVisible="{Binding HasSlots}">
+                <Grid ColumnDefinitions="Auto,Auto,*">
+                    <Button Classes="icon" Command="{Binding UndoCommand}" ToolTip.Tip="Undo (Ctrl+Z)"
+                            AutomationProperties.Name="Undo">
+                        <PathIcon Data="{StaticResource icon_undo}" />
+                    </Button>
+                    <Button Grid.Column="1" Classes="icon" Command="{Binding RedoCommand}" ToolTip.Tip="Redo (Ctrl+Y)"
+                            Margin="4,0,0,0" AutomationProperties.Name="Redo">
+                        <PathIcon Data="{StaticResource icon_redo}" />
+                    </Button>
+                    <TextBlock Grid.Column="2" Classes="caption" HorizontalAlignment="Right" VerticalAlignment="Center"
+                               Text="← → select · Ctrl+← → move · Del remove · drag to reorder · right-click for more" />
+                </Grid>
+            </Border>
+
             <Panel>
-                <!-- Slots (interim list; the set lane replaces it in P2.4) -->
-                <ScrollViewer IsVisible="{Binding HasSlots}">
-                    <ItemsControl ItemsSource="{Binding Slots}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="vm:SetSlotRowViewModel">
-                                <Border Height="40" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
-                                    <Grid ColumnDefinitions="40,96,*,Auto,Auto" VerticalAlignment="Center">
-                                        <TextBlock Classes="mono muted" Text="{Binding Number}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="1" Classes="section" Text="{Binding Role}" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                            <TextBlock Classes="body" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Classes="body-sm muted" Text="{Binding Artist}" TextTrimming="CharacterEllipsis" />
-                                            <Border Classes="fact warning" IsVisible="{Binding IsMissing}">
-                                                <TextBlock Text="Not in library" />
-                                            </Border>
+                <!-- The set lane: slot cards joined by transition chips (P2.4) -->
+                <Border x:Name="Lane" Focusable="True" IsVisible="{Binding HasSlots}" VerticalAlignment="Top"
+                        DragDrop.AllowDrop="True" Background="Transparent">
+                    <Border.KeyBindings>
+                        <KeyBinding Gesture="Left" Command="{Binding SelectPreviousSlotCommand}" />
+                        <KeyBinding Gesture="Right" Command="{Binding SelectNextSlotCommand}" />
+                        <KeyBinding Gesture="Ctrl+Left" Command="{Binding MoveSlotLeftCommand}" />
+                        <KeyBinding Gesture="Ctrl+Right" Command="{Binding MoveSlotRightCommand}" />
+                        <KeyBinding Gesture="Delete" Command="{Binding RemoveSlotCommand}" />
+                        <KeyBinding Gesture="Ctrl+Z" Command="{Binding UndoCommand}" />
+                        <KeyBinding Gesture="Ctrl+Y" Command="{Binding RedoCommand}" />
+                        <KeyBinding Gesture="Ctrl+Shift+Z" Command="{Binding RedoCommand}" />
+                    </Border.KeyBindings>
+                    <Border.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Move earlier" InputGesture="Ctrl+Left" Command="{Binding MoveSlotLeftCommand}" />
+                            <MenuItem Header="Move later" InputGesture="Ctrl+Right" Command="{Binding MoveSlotRightCommand}" />
+                            <Separator />
+                            <MenuItem Header="Remove from set" InputGesture="Delete" Command="{Binding RemoveSlotCommand}" />
+                        </ContextMenu>
+                    </Border.ContextMenu>
+
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding LaneItems}" Padding="0,0,0,12">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.DataTemplates>
+                                <DataTemplate DataType="vm:SlotCardViewModel">
+                                    <Border Classes="slot-card" Classes.selected="{Binding IsSelected}" Width="176"
+                                            PointerPressed="OnCardPointerPressed" PointerMoved="OnCardPointerMoved"
+                                            ToolTip.Tip="{Binding Notes}">
+                                        <Grid ColumnDefinitions="3,*">
+                                            <Border Background="{Binding RoleValue, Converter={x:Static conv:SetSlotRoleBrushConverter.Instance}}"
+                                                    CornerRadius="6,0,0,6" />
+                                            <StackPanel Grid.Column="1" Margin="12,8" Spacing="4">
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <TextBlock Classes="section" Text="{Binding Role}"
+                                                               Foreground="{Binding RoleValue, Converter={x:Static conv:SetSlotRoleBrushConverter.Instance}}" />
+                                                    <TextBlock Grid.Column="1" Classes="caption mono" Text="{Binding Number}" />
+                                                </Grid>
+                                                <TextBlock Classes="body" FontWeight="SemiBold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Classes="caption" Text="{Binding Artist}" TextTrimming="CharacterEllipsis" />
+                                                <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,4,0,0">
+                                                    <Border Classes="fact"><TextBlock Text="{Binding Bpm}" /></Border>
+                                                    <Border Classes="fact"><TextBlock Text="{Binding Key}" /></Border>
+                                                    <Border Classes="fact warning" IsVisible="{Binding IsMissing}">
+                                                        <TextBlock Text="Missing" />
+                                                    </Border>
+                                                </StackPanel>
+                                                <StackPanel Spacing="2" Margin="0,4,0,0">
+                                                    <ProgressBar Classes="meter" Maximum="100" Value="{Binding EnergyTarget}"
+                                                                 IsVisible="{Binding HasEnergyTarget}" ToolTip.Tip="Energy target" />
+                                                    <ProgressBar Classes="meter neutral" Maximum="100" Value="{Binding TrackEnergy}"
+                                                                 IsVisible="{Binding HasTrackEnergy}" ToolTip.Tip="Track energy (analysis)" />
+                                                    <TextBlock Classes="caption mono" Text="{Binding EnergyText}" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+
+                                <DataTemplate DataType="vm:TransitionChipViewModel">
+                                    <StackPanel Width="56" VerticalAlignment="Center" Spacing="4" Margin="4,0"
+                                            ToolTip.Tip="{Binding ToolTip}">
+                                        <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                                            <Ellipse Classes="status-dot" Classes.success="{Binding IsVerified}" Classes.info="{Binding IsRated}"
+                                                     VerticalAlignment="Center" />
+                                            <TextBlock Classes="mono" Text="{Binding ScoreText}" />
                                         </StackPanel>
-                                        <Border Grid.Column="3" Classes="fact" Margin="8,0,0,0" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding Bpm}" />
-                                        </Border>
-                                        <Border Grid.Column="4" Classes="fact" Margin="8,0,0,0" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding Key}" />
-                                        </Border>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
+                                        <ProgressBar Classes="meter" Maximum="100" Value="{Binding Score}" />
+                                        <PathIcon Data="{StaticResource icon_alert}" Width="12" Height="12"
+                                                  Foreground="{StaticResource BrushWarning}" IsVisible="{Binding HasWarnings}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.DataTemplates>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Border>
 
                 <StackPanel Classes="empty-state" IsVisible="{Binding HasNoSets}">
                     <TextBlock Classes="h3" Text="Plan your first set" />

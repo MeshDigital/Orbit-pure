@@ -130,9 +130,11 @@ public sealed class SetProjectServiceTests : IDisposable
         Assert.Equal(2, slots.Count);
         Assert.Equal(("Machine Gun", "Noisia", true, 172.5, "8A"),
             (slots[0].Title, slots[0].Artist, slots[0].IsInLibrary, slots[0].Bpm, slots[0].CamelotKey));
+        Assert.NotNull(slots[0].Energy);
         Assert.False(slots[1].IsInLibrary);
         Assert.Null(slots[1].Bpm); // not analysed: no made-up 120 BPM
         Assert.Null(slots[1].CamelotKey);
+        Assert.Null(slots[1].Energy); // no analysis row: not the 0.5 column default
     }
 
     [Fact]
@@ -188,7 +190,8 @@ public sealed class SetProjectServiceTests : IDisposable
         _db.SeedEdge(set.Id, a!.Id, b!.Id);
         _db.SeedEdge(set.Id, a.Id, c!.Id);
 
-        Assert.True(await Service.RemoveSlotAsync(b.Id));
+        Assert.NotNull(await Service.RemoveSlotAsync(b.Id));
+        Assert.Null(await Service.RemoveSlotAsync(b.Id));
 
         var slots = await Service.GetSlotsAsync(set.Id);
         Assert.Equal(new[] { "a", "c" }, slots.Select(s => s.TrackUniqueHash));
@@ -196,6 +199,43 @@ public sealed class SetProjectServiceTests : IDisposable
         using var db = _db.Factory.CreateDbContext();
         var edge = await db.SetStoryEdges.SingleAsync();
         Assert.Equal((a.Id, c.Id), (edge.FromSlotId, edge.ToSlotId));
+    }
+
+    [Fact]
+    public async Task RestoreSlotAsync_PutsSlotBackWithItsIdFieldsAndPosition()
+    {
+        var set = await Service.CreateSetAsync("Friday");
+        await Service.AppendTrackAsync(set.Id, "a");
+        var b = await Service.AppendTrackAsync(set.Id, "b");
+        await Service.AppendTrackAsync(set.Id, "c");
+        await Service.UpdateSlotAsync(b!.Id, SetSlotRole.Peak, 88);
+        await Service.UpdateSlotNotesAsync(b.Id, "long blend");
+
+        var snapshot = await Service.RemoveSlotAsync(b.Id);
+        Assert.True(await Service.RestoreSlotAsync(snapshot!));
+        Assert.False(await Service.RestoreSlotAsync(snapshot!)); // id already back in use
+
+        var slots = await Service.GetSlotsAsync(set.Id);
+        Assert.Equal(new[] { "a", "b", "c" }, slots.Select(s => s.TrackUniqueHash));
+        Assert.Equal((b.Id, SetSlotRole.Peak, 88.0, "long blend"),
+            (slots[1].SlotId, slots[1].Role, slots[1].EnergyTarget, slots[1].Notes));
+    }
+
+    [Fact]
+    public async Task GetKnowledgeAsync_ReturnsOnlyRequestedPairs_StrongestEdge()
+    {
+        using (var db = _db.Factory.CreateDbContext())
+        {
+            db.TransitionKnowledge.Add(new TransitionKnowledgeEntity { SourceTrackId = "a", TargetTrackId = "b", CompatibilityScore = 70, EvidenceCount = 1 });
+            db.TransitionKnowledge.Add(new TransitionKnowledgeEntity { SourceTrackId = "a", TargetTrackId = "b", TransitionType = KnowledgeTransitionType.Cut, CompatibilityScore = 85, EvidenceCount = 2, Verified = true });
+            db.TransitionKnowledge.Add(new TransitionKnowledgeEntity { SourceTrackId = "a", TargetTrackId = "z", CompatibilityScore = 99 });
+            await db.SaveChangesAsync();
+        }
+
+        var known = await Service.GetKnowledgeAsync(new[] { ("a", "b"), ("b", "c") });
+
+        var edge = Assert.Single(known);
+        Assert.Equal(("a", "b", 85.0, 3, true), (edge.SourceTrackHash, edge.TargetTrackHash, edge.CompatibilityScore, edge.EvidenceCount, edge.Verified));
     }
 
     [Fact]
