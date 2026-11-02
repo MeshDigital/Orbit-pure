@@ -22,9 +22,6 @@ public class ViewModelConfigureAwaitGuardTests
 {
     private static readonly Dictionary<string, int> Baseline = new(StringComparer.OrdinalIgnoreCase)
     {
-        // Transition Lab is unhooked from the UI pending P3 (shared transition editor); deleted then.
-        ["ViewModels/TransitionLab/TransitionLabViewModel.cs"] = 11,
-        ["ViewModels/TransitionLab/TrackPairPickerViewModel.cs"] = 2,
         ["ViewModels/FlowBuilderViewModel.cs"] = 10,
         ["ViewModels/PlayerViewModel.cs"] = 9,
         ["ViewModels/Library/ProjectListViewModel.cs"] = 7,
