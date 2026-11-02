@@ -351,8 +351,11 @@ public partial class App : Application
                         // regardless of whether FFmpeg/Essentia were genuinely available.
                         // Also installs FFmpeg into LocalAppData when it's missing (Windows x64).
                         _ = Services.GetRequiredService<Services.Platform.FfmpegInstallerService>().EnsureInstalledAsync();
-                        // Same belt-and-suspenders for the .NET runtime (framework-dependent/updater path).
-                        _ = Services.GetRequiredService<Services.Platform.DotNetRuntimeInstallerService>().EnsureInstalledAsync();
+                        // No .NET runtime auto-install here: this build is published self-contained
+                        // (Tools/release-alpha.ps1 uses --self-contained true), so ORBIT bundles its
+                        // own runtime. Auto-installing a machine-wide runtime used to trigger a UAC
+                        // "install .NET" prompt on every launch for testers with no standalone
+                        // runtime installed, so it was removed.
 
                         // SpotifyAuthService.IsAuthenticated defaults to false and only ever gets
                         // set true inside VerifyConnectionAsync()/RefreshAccessTokenAsync() — which
@@ -716,7 +719,6 @@ public partial class App : Application
         services.AddSingleton<IDialogService, DialogService>();
         services.AddSingleton<Services.Diagnostics.FeedbackReportService>(); // top-bar "Send feedback" zip
         services.AddSingleton<Services.Platform.FfmpegInstallerService>();
-        services.AddSingleton<Services.Platform.DotNetRuntimeInstallerService>();
         services.AddSingleton<SLSKDONET.Services.Update.GitHubUpdateService>(_ =>
             new SLSKDONET.Services.Update.GitHubUpdateService(new System.Net.Http.HttpClient(), new Version(0, 3, 0)));
         services.AddSingleton<SLSKDONET.ViewModels.UpdateViewModel>();

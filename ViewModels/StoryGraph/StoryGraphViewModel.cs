@@ -25,6 +25,7 @@ public sealed class StoryGraphViewModel : ReactiveObject
 
     private List<SetTrackEntity> _slots = new();
     private List<SetStoryEdgeEntity> _edges = new();
+    private Guid? _setListId;
 
     private StoryGraphLayoutResult? _layout;
     public StoryGraphLayoutResult? Layout
@@ -90,6 +91,8 @@ public sealed class StoryGraphViewModel : ReactiveObject
 
     public async Task LoadSetAsync(Guid setProjectId)
     {
+        _setListId = setProjectId;
+
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
 
         var set = await db.SetLists
@@ -122,6 +125,35 @@ public sealed class StoryGraphViewModel : ReactiveObject
         _undoService.Clear();
         Recompute();
         RaiseUndoStateChanged();
+    }
+
+    /// <summary>Appends a library track as a new slot and reloads the graph.</summary>
+    public async Task AddTrackAsync(string trackUniqueHash)
+    {
+        if (_setListId is not Guid setId)
+            return;
+
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        var set = await db.SetLists
+            .Include(s => s.Tracks)
+            .FirstOrDefaultAsync(s => s.Id == setId)
+            .ConfigureAwait(false);
+
+        if (set is null)
+            return;
+
+        var position = set.Tracks.Count == 0 ? 0 : set.Tracks.Max(t => t.Position) + 1;
+        db.SetTracks.Add(new SetTrackEntity
+        {
+            SetListId = setId,
+            TrackUniqueHash = trackUniqueHash,
+            Position = position,
+        });
+        set.LastModifiedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync().ConfigureAwait(false);
+
+        await LoadSetAsync(setId).ConfigureAwait(false);
     }
 
     public void SetSlotRole(Guid slotId, SetSlotRole role)
@@ -170,6 +202,9 @@ public sealed class StoryGraphViewModel : ReactiveObject
         Recompute();
         RaiseUndoStateChanged();
     }
+
+    /// <summary>Builds the picker used by the "Add Track" flow (shares this VM's DB factory).</summary>
+    public TrackPickerViewModel CreateTrackPicker() => new(_dbFactory);
 
     public void Redo()
     {
