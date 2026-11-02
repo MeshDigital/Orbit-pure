@@ -1080,22 +1080,38 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
             _logger.LogWarning(ex, "Couldn't read the saved transition for {Outgoing}->{Incoming}", outgoing.Id, incoming.Id);
         }
         if (generation != _loadGeneration) return;
+        // Nothing saved here yet: start from the latest transition saved for these two tracks
+        // anywhere else (rebuild plan P3.4). It isn't stored here until the DJ presses Save.
+        SLSKDONET.Services.Sets.TransitionFromHistory? fromHistory = null;
+        if (saved == null && _serviceProvider.GetService(typeof(SLSKDONET.Services.Sets.ITransitionHistoryService)) is SLSKDONET.Services.Sets.ITransitionHistoryService history)
+        {
+            try
+            {
+                fromHistory = await history.FindLatestAsync(outgoing.TrackUniqueHash, incoming.TrackUniqueHash, outgoing.Id, incoming.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Couldn't look up earlier transitions for {Outgoing}->{Incoming}", outgoing.TrackUniqueHash, incoming.TrackUniqueHash);
+            }
+            if (generation != _loadGeneration) return;
+        }
+        var applied = saved ?? fromHistory?.Transition;
         HasSavedTransition = saved != null;
-        _customEchoDecayFactor = saved?.EchoDecayFactor;
-        _customFilterStartFrequency = saved?.FilterStartFrequency;
-        _customFilterEndFrequency = saved?.FilterEndFrequency;
-        _customWaveDuckDepth = saved?.WaveDuckDepth;
-        _customFilterSweepRising = saved?.FilterSweepRising;
-        _customEqSwapLow = saved?.EqSwapLow;
-        _customEqSwapMid = saved?.EqSwapMid;
-        _customEqSwapHigh = saved?.EqSwapHigh;
-        _customEqLowCrossoverHz = saved?.EqLowCrossoverHz;
-        _customEqHighCrossoverHz = saved?.EqHighCrossoverHz;
+        _customEchoDecayFactor = applied?.EchoDecayFactor;
+        _customFilterStartFrequency = applied?.FilterStartFrequency;
+        _customFilterEndFrequency = applied?.FilterEndFrequency;
+        _customWaveDuckDepth = applied?.WaveDuckDepth;
+        _customFilterSweepRising = applied?.FilterSweepRising;
+        _customEqSwapLow = applied?.EqSwapLow;
+        _customEqSwapMid = applied?.EqSwapMid;
+        _customEqSwapHigh = applied?.EqSwapHigh;
+        _customEqLowCrossoverHz = applied?.EqLowCrossoverHz;
+        _customEqHighCrossoverHz = applied?.EqHighCrossoverHz;
         // LoopEnabled isn't its own saved field — Type=="DoubleDrop" IS the saved "loop was on"
         // signal, same as every other preset here.
-        _customLoopEnabled = saved?.Type == SLSKDONET.Models.Timeline.TransitionType.DoubleDrop;
-        _customLoopBars = saved?.LoopBars;
-        _customLoopRepeats = saved?.LoopRepeats;
+        _customLoopEnabled = applied?.Type == SLSKDONET.Models.Timeline.TransitionType.DoubleDrop;
+        _customLoopBars = applied?.LoopBars;
+        _customLoopRepeats = applied?.LoopRepeats;
         this.RaisePropertyChanged(nameof(CustomWaveDuckDepth));
         this.RaisePropertyChanged(nameof(CustomFilterSweepRising));
         this.RaisePropertyChanged(nameof(CustomEqSwapLow));
@@ -1106,9 +1122,9 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(CustomLoopEnabled));
         this.RaisePropertyChanged(nameof(CustomLoopBars));
         this.RaisePropertyChanged(nameof(CustomLoopRepeats));
-        _durationBars = saved?.DurationBars ?? 16;
+        _durationBars = applied?.DurationBars ?? 16;
         this.RaisePropertyChanged(nameof(DurationBars));
-        _selectedPreset = saved?.PresetName ?? "Auto";
+        _selectedPreset = applied?.PresetName ?? "Auto";
         this.RaisePropertyChanged(nameof(SelectedPreset));
         this.RaisePropertyChanged(nameof(IsCustomMode));
         _nudgeSeconds = 0;
@@ -1128,11 +1144,11 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
             }
         }
 
-        if (saved?.SourceTriggerSeconds is double savedSource && saved.TargetTriggerSeconds is double savedTarget)
+        if (applied?.SourceTriggerSeconds is double savedSource && applied.TargetTriggerSeconds is double savedTarget)
         {
             SourceTriggerSeconds = savedSource;
             TargetTriggerSeconds = savedTarget;
-            TransitionPointReasoning = "Using your saved mix-out/mix-in points.";
+            TransitionPointReasoning = fromHistory is null ? "Using your saved mix-out/mix-in points." : $"Starting from the transition you saved in \"{fromHistory.SourceName}\". Save to keep it here too.";
         }
         else if (!ApplyStructurePlan("Auto"))
         {

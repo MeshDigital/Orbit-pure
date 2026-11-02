@@ -97,7 +97,7 @@ public class TransitionRepository : ITransitionRepository
         }
     }
 
-    private static PlaylistTrackTransition ToDomain(PlaylistTrackTransitionEntity e) => new()
+    internal static PlaylistTrackTransition ToDomain(PlaylistTrackTransitionEntity e) => new()
     {
         Id = e.Id,
         PlaylistId = e.PlaylistId,
