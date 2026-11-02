@@ -5,6 +5,8 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
+using SLSKDONET.Data;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Views;
@@ -39,6 +41,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     private readonly Services.Repositories.ITrackRepository _trackRepository;
     private readonly Services.Integrations.Serato.SeratoCueExportService? _seratoExport;
     private readonly Services.AudioAnalysis.CueDetrCueService? _cueDetrCues;
+    private readonly IDbContextFactory<AppDbContext>? _dbFactory;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -60,6 +63,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand OpenAuditLogCommand { get; }
     /// <summary>Loads the track into the focused Workstation deck without starting playback.</summary>
     public System.Windows.Input.ICommand OpenInWorkstationCommand { get; }
+    public System.Windows.Input.ICommand AddToSetCommand { get; }
     public System.Windows.Input.ICommand OpenInCueForgeCommand { get; }
     /// <summary>New Edit Lab project with the track as its base, then shows the Edit Lab.</summary>
     public System.Windows.Input.ICommand OpenInEditLabCommand { get; }
@@ -94,9 +98,11 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         AnalyzeTrackStructureJob? cueStructureJob = null,
         Services.Integrations.Serato.SeratoCueExportService? seratoExport = null,
         Services.AudioAnalysis.CueDetrCueService? cueDetrCues = null,
-        EditLab.EditLabViewModel? editLabViewModel = null)
+        EditLab.EditLabViewModel? editLabViewModel = null,
+        IDbContextFactory<AppDbContext>? dbFactory = null)
     {
         _editLabViewModel = editLabViewModel;
+        _dbFactory = dbFactory;
         _logger = logger;
         _downloadManager = downloadManager;
         _playerViewModel = playerViewModel;
@@ -145,6 +151,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         RefreshBpmFromTagsCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteRefreshBpmFromTags);
         OpenAuditLogCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteOpenAuditLog);
         OpenInWorkstationCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteOpenInWorkstation);
+        AddToSetCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteAddToSet);
         OpenInCueForgeCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteOpenInCueForge);
         OpenInEditLabCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteOpenInEditLab);
         SetColorTagCommand = new RelayCommand<string>(ExecuteSetColorTag);
@@ -937,6 +944,33 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
 
         // Use the row's established handoff so context-menu and inspector actions behave identically.
         track.OpenWorkstationCommand.Execute(null);
+    }
+
+    /// <summary>Opens the "Add to Set" picker (recent sets + New Set…) and appends the track to the chosen set.</summary>
+    private void ExecuteAddToSet(PlaylistTrackViewModel? track)
+    {
+        track ??= LibraryViewModel?.Tracks.LeadSelectedTrack;
+        if (track == null || _dbFactory == null)
+        {
+            _notificationService.Show("Add to Set", "Select a track first.", NotificationType.Warning);
+            return;
+        }
+
+        var hash = track.Model?.TrackUniqueHash;
+        if (string.IsNullOrEmpty(hash))
+        {
+            _notificationService.Show("Add to Set", "This track has no stable library identity yet.", NotificationType.Warning);
+            return;
+        }
+
+        var vm = new SLSKDONET.ViewModels.StoryGraph.AddToSetViewModel(_dbFactory, hash);
+        var window = new SLSKDONET.Views.Avalonia.StoryGraph.AddToSetWindow(vm);
+        vm.Completed += (_, setName) =>
+        {
+            window.Close();
+            _notificationService.Show("Add to Set", $"Added '{track.Title}' to \"{setName}\".", NotificationType.Success);
+        };
+        window.Show();
     }
 
     private async Task ExecuteOpenInCueForge(PlaylistTrackViewModel? track)

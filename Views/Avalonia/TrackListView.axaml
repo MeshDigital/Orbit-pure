@@ -382,6 +382,8 @@
                     </MenuItem>
                     <MenuItem Header="Prepare in Workstation" Command="{Binding Operations.OpenInWorkstationCommand}"
                               ToolTip.Tip="Open this track in the focused Workstation deck without starting playback; missing files can be relinked there"/>
+                    <MenuItem Header="Add to Set" Command="{Binding Operations.AddToSetCommand}"
+                              ToolTip.Tip="Append this track to a recent set, or create a new one"/>
                     <MenuItem Header="Edit cues in Cue Forge" Command="{Binding Operations.OpenInCueForgeCommand}"/>
                     <MenuItem Header="Open in Edit Lab" Command="{Binding Operations.OpenInEditLabCommand}"
                               ToolTip.Tip="Start a new edit with this track as the base: cut it up, combine it with other tracks' stems, render it"/>
