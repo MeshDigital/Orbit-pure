@@ -861,16 +861,16 @@
         </Grid>
 
         <!-- Story Graph / Transition Lab are direct children of CockpitGrid Row 1, not of
-             PrepWorkspaceGrid (which collapses when IsWaveformMode is false). -->
-        <story:StoryGraphPanel Grid.Row="1" IsVisible="{Binding IsStoryGraphActive}"
-                               DataContext="{Binding StoryGraph}"
-                               Margin="184,16,24,16"
-                               ZIndex="30" />
+             PrepWorkspaceGrid (which collapses when IsWaveformMode is false). The visibility flag
+             lives on a wrapper so it binds to this page's DataContext; the panel itself overrides
+             DataContext with its own VM. -->
+        <Panel Grid.Row="1" IsVisible="{Binding IsStoryGraphActive}" ZIndex="30">
+            <story:StoryGraphPanel DataContext="{Binding StoryGraph}" Margin="184,16,24,16" />
+        </Panel>
 
-        <lab:TransitionLabPanel Grid.Row="1" IsVisible="{Binding IsTransitionLabActive}"
-                                DataContext="{Binding TransitionLab}"
-                                Margin="184,16,24,16"
-                                ZIndex="31" />
+        <Panel Grid.Row="1" IsVisible="{Binding IsTransitionLabActive}" ZIndex="31">
+            <lab:TransitionLabPanel DataContext="{Binding TransitionLab}" Margin="184,16,24,16" />
+        </Panel>
 
         <GridSplitter Grid.Row="2"
                       Classes="shell-splitter"
