@@ -18,14 +18,13 @@ public sealed class WhatsNewStepViewModel : SetupStepViewModel
 
     public IReadOnlyList<WhatsNewItem> Items { get; } = new[]
     {
+        new WhatsNewItem("Set edits now stick", "Role and energy changes on the Story Graph are saved straight away, and adding a track no longer undoes them. Click a slot to select it."),
+        new WhatsNewItem("Find any track for a set", "The Add Track picker now searches your whole library by title or artist."),
+        new WhatsNewItem("Transition Lab is moving", "It's hidden for now while it merges into Flow Builder's transition editor, so there's one place to edit and rate transitions."),
+        new WhatsNewItem("Background scan is opt-in", "The transition-candidate scan after each analysis is off by default. Turn it on in Settings → Advanced → Knowledge agents."),
         new WhatsNewItem("One-click updates", "The Updates page now downloads and runs the installer for you."),
-        new WhatsNewItem("New Set from the picker", "Create a fresh set right from Set Projects, not just open existing ones."),
         new WhatsNewItem("Updates: pick your channel", "Choose Stable, Beta or Any, then check GitHub for a newer version from Settings → Advanced → Updates."),
         new WhatsNewItem("FFmpeg + .NET self-heal", "ORBIT installs FFmpeg and the .NET runtime automatically when they're missing."),
-        new WhatsNewItem("Story Graph: plan your sets", "Branching set paths on a visual canvas — slot roles and energy targets with undo/redo."),
-        new WhatsNewItem("Transition Lab: rate your mixes", "Audition the overlap, edit DSP parameters, and rate transitions so ORBIT learns what works."),
-        new WhatsNewItem("Set Health: know your narrative", "Live narrative, technical and risk scores for every set, docked beside the Story Graph."),
-        new WhatsNewItem("Copilot: let ORBIT curate", "Auto-build a set spine, find bridges between two tracks, and flag vocal/harmonic clashes."),
-        new WhatsNewItem("Rekordbox export with knowledge", "Sets export with confidence and freshness baked into each track's comment."),
+        new WhatsNewItem("Set Health: know your narrative", "Narrative, technical and risk scores for the open set, docked beside the Story Graph."),
     };
 }
