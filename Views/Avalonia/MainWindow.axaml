@@ -467,6 +467,15 @@
                                     </StackPanel>
                                 </Button>
 
+                                <Button x:Name="NavSets" Classes="nav" Command="{Binding NavigateSetsCommand}"
+                                        ToolTip.Tip="Sets — Plan gigs as slots with roles and energy targets"
+                                        Classes.selected="{Binding IsSetsOverlayActive}">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_queue}"/>
+                                        <TextBlock Text="Sets" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
                                 <Button x:Name="NavSetProjects" Classes="nav" Command="{Binding NavigateSetProjectsCommand}"
                                         ToolTip.Tip="Set Projects — Plan branching set paths on the Story Graph"
                                         Classes.selected="{Binding IsSetProjectsNavActive}">

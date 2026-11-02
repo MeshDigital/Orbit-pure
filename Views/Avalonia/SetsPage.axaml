@@ -1,0 +1,143 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Sets"
+             mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="800"
+             x:Class="SLSKDONET.Views.Avalonia.SetsPage"
+             x:DataType="vm:SetsViewModel">
+
+    <Grid ColumnDefinitions="240,*">
+
+        <!-- ── Rail: every set ─────────────────────────────────────────── -->
+        <Border Grid.Column="0" Classes="panel" BorderThickness="0,0,1,0">
+            <DockPanel>
+                <Border DockPanel.Dock="Top" Classes="panel-header">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Classes="section" Text="SETS" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Classes="icon small" Command="{Binding NewSetCommand}"
+                                ToolTip.Tip="New set" AutomationProperties.Name="New set">
+                            <PathIcon Data="{StaticResource icon_add}" />
+                        </Button>
+                    </Grid>
+                </Border>
+
+                <Panel>
+                    <ListBox x:Name="SetList"
+                             ItemsSource="{Binding Sets}"
+                             SelectedItem="{Binding SelectedSet, Mode=TwoWay}">
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Rename…" Command="{Binding RenameSetCommand}" />
+                                <MenuItem Header="Duplicate" Command="{Binding DuplicateSetCommand}" />
+                                <Separator />
+                                <MenuItem Header="Delete…" Command="{Binding DeleteSetCommand}" />
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SetListItemViewModel">
+                                <StackPanel Spacing="2" Margin="0,4">
+                                    <TextBlock Classes="body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Classes="caption" Text="{Binding Summary}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <StackPanel Classes="empty-state" IsVisible="{Binding HasNoSets}">
+                        <TextBlock Classes="h3" Text="No sets yet" />
+                        <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center"
+                                   Text="A set is a gig plan: tracks in slots with roles and energy targets." />
+                    </StackPanel>
+
+                    <TextBlock Classes="caption" HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Text="Loading sets…" IsVisible="{Binding IsLoadingSets}" />
+                </Panel>
+            </DockPanel>
+        </Border>
+
+        <!-- ── Selected set ────────────────────────────────────────────── -->
+        <DockPanel Grid.Column="1" Margin="{StaticResource PaddingPage}">
+
+            <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,16"
+                  IsVisible="{Binding HasSelection}">
+                <StackPanel Spacing="4">
+                    <TextBlock Classes="h1" Text="{Binding SelectedSet.Name, FallbackValue=''}"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Classes="subtitle" Text="{Binding SelectedSummary}" />
+                </StackPanel>
+                <Button Grid.Column="1" Classes="icon" VerticalAlignment="Top"
+                        ToolTip.Tip="Set actions" AutomationProperties.Name="Set actions">
+                    <PathIcon Data="{StaticResource icon_more}" />
+                    <Button.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                            <MenuItem Header="Rename…" Command="{Binding RenameSetCommand}" />
+                            <MenuItem Header="Duplicate" Command="{Binding DuplicateSetCommand}" />
+                            <Separator />
+                            <MenuItem Header="Delete…" Command="{Binding DeleteSetCommand}" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+            </Grid>
+
+            <Panel>
+                <!-- Slots (interim list; the set lane replaces it in P2.4) -->
+                <ScrollViewer IsVisible="{Binding HasSlots}">
+                    <ItemsControl ItemsSource="{Binding Slots}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SetSlotRowViewModel">
+                                <Border Height="40" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
+                                    <Grid ColumnDefinitions="40,96,*,Auto,Auto" VerticalAlignment="Center">
+                                        <TextBlock Classes="mono muted" Text="{Binding Number}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Classes="section" Text="{Binding Role}" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <TextBlock Classes="body" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Classes="body-sm muted" Text="{Binding Artist}" TextTrimming="CharacterEllipsis" />
+                                            <Border Classes="fact warning" IsVisible="{Binding IsMissing}">
+                                                <TextBlock Text="Not in library" />
+                                            </Border>
+                                        </StackPanel>
+                                        <Border Grid.Column="3" Classes="fact" Margin="8,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Bpm}" />
+                                        </Border>
+                                        <Border Grid.Column="4" Classes="fact" Margin="8,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Key}" />
+                                        </Border>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <StackPanel Classes="empty-state" IsVisible="{Binding HasNoSets}">
+                    <TextBlock Classes="h3" Text="Plan your first set" />
+                    <TextBlock Classes="caption" Text="Create a set, then add tracks from the Library with right-click → Add to Set." />
+                    <Button Classes="primary" Content="New set" Command="{Binding NewSetCommand}" />
+                </StackPanel>
+
+                <StackPanel Classes="empty-state" IsVisible="{Binding ShowNoSelection}">
+                    <TextBlock Classes="h3" Text="Pick a set" />
+                    <TextBlock Classes="caption" Text="Choose a set on the left to see its slots." />
+                </StackPanel>
+
+                <StackPanel Classes="empty-state" IsVisible="{Binding IsSetEmpty}">
+                    <TextBlock Classes="h3" Text="This set has no tracks yet" />
+                    <TextBlock Classes="caption" Text="Right-click a track in the Library and choose Add to Set." />
+                </StackPanel>
+
+                <TextBlock Classes="caption" HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Text="Loading slots…" IsVisible="{Binding IsLoadingSlots}" />
+
+                <Border Classes="callout error" VerticalAlignment="Top" IsVisible="{Binding HasError}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Classes="body-sm" TextWrapping="Wrap" VerticalAlignment="Center"
+                                   Text="{Binding ErrorMessage}" />
+                        <Button Grid.Column="1" Classes="small" Content="Retry" Margin="12,0,0,0"
+                                Command="{Binding RetryCommand}" />
+                    </Grid>
+                </Border>
+            </Panel>
+        </DockPanel>
+    </Grid>
+</UserControl>

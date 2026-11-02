@@ -287,6 +287,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateCueForgeCommand = new RelayCommand(NavigateToCueForge);
         NavigateUsersCommand = new RelayCommand(NavigateToUsers);
         NavigateFlowBuilderCommand = new RelayCommand(NavigateToFlowBuilder);
+        NavigateSetsCommand = new RelayCommand(() => _navigationService.NavigateTo("Sets"));
         PlayPauseCommand = new RelayCommand(() => PlayerViewModel.TogglePlayPauseCommand.Execute(null));
         FocusSearchCommand = new RelayCommand(FocusSearch);
         // Expanded -> Mini -> Collapsed(hidden) -> Expanded. Each state's width transition is
@@ -508,6 +509,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.RegisterPage("CueForge", typeof(Avalonia.CueForgePage));
         _navigationService.RegisterPage("Users", typeof(Avalonia.UsersPage));
         _navigationService.RegisterPage("FlowBuilder", typeof(Avalonia.FlowBuilderPage));
+        _navigationService.RegisterPage("Sets", typeof(Avalonia.SetsPage));
 
         // Subscribe to navigation events
         _navigationService.Navigated += OnNavigated;
@@ -1005,6 +1007,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsEditLabOverlayActive => CurrentPageType == PageType.EditLab;
     public bool IsUsersOverlayActive => CurrentPageType == PageType.Users;
     public bool IsFlowBuilderOverlayActive => CurrentPageType == PageType.FlowBuilder;
+    public bool IsSetsOverlayActive => CurrentPageType == PageType.Sets;
 
     private static readonly string[] NavigationOverlayPropertyNames =
     [
@@ -1025,7 +1028,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         nameof(IsCueForgeOverlayActive),
         nameof(IsEditLabOverlayActive),
         nameof(IsUsersOverlayActive),
-        nameof(IsFlowBuilderOverlayActive)
+        nameof(IsFlowBuilderOverlayActive),
+        nameof(IsSetsOverlayActive)
     ];
 
     public static PageType ResolvePageType(Type? pageType, PageType fallback)
@@ -1047,6 +1051,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         if (typeof(Avalonia.EditLabPage).IsAssignableFrom(pageType)) return PageType.EditLab;
         if (typeof(Avalonia.UsersPage).IsAssignableFrom(pageType)) return PageType.Users;
         if (typeof(Avalonia.FlowBuilderPage).IsAssignableFrom(pageType)) return PageType.FlowBuilder;
+        if (typeof(Avalonia.SetsPage).IsAssignableFrom(pageType)) return PageType.Sets;
         // Was missing: opening Cue Forge kept the previous page highlighted (Dashboard at startup).
         if (typeof(Avalonia.CueForgePage).IsAssignableFrom(pageType)) return PageType.CueForge;
 
@@ -1267,6 +1272,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateCueForgeCommand { get; }
     public ICommand NavigateUsersCommand { get; }
     public ICommand NavigateFlowBuilderCommand { get; }
+    public ICommand NavigateSetsCommand { get; }
     public ICommand PlayPauseCommand { get; }
     public ICommand FocusSearchCommand { get; }
     public ICommand ToggleNavigationCommand { get; }

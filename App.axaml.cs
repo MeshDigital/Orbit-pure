@@ -896,6 +896,8 @@ public partial class App : Application
         services.AddTransient<Views.Avalonia.UsersPage>();
         services.AddTransient<Views.Avalonia.CueForgePage>();
         services.AddTransient<Views.Avalonia.FlowBuilderPage>();
+        services.AddSingleton<ViewModels.Sets.SetsViewModel>();
+        services.AddTransient<Views.Avalonia.SetsPage>();
         services.AddSingleton<Services.ICuePointService, Services.CuePointService>();
         services.AddSingleton<Services.Audio.StemPreferenceService>();
         services.AddSingleton<Services.Audio.MixdownService>();
