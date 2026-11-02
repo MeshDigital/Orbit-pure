@@ -2,22 +2,45 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="using:SLSKDONET.Views.Avalonia.StoryGraph"
              xmlns:health="using:SLSKDONET.Views.Avalonia.SetHealth"
-             x:Class="SLSKDONET.Views.Avalonia.StoryGraph.StoryGraphPanel">
+             xmlns:vm="using:SLSKDONET.ViewModels.StoryGraph"
+             x:Class="SLSKDONET.Views.Avalonia.StoryGraph.StoryGraphPanel"
+             x:DataType="vm:StoryGraphViewModel">
     <DockPanel>
         <health:SetHealthDashboardView DockPanel.Dock="Right" Width="240" DataContext="{Binding Health}" />
 
-        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" Margin="8">
-            <Button Content="Add Track" Click="OnAddTrackClick" />
-            <Button Content="Undo" Command="{Binding UndoCommand}" />
-            <Button Content="Redo" Command="{Binding RedoCommand}" />
-            <TextBlock VerticalAlignment="Center" Text="Role" />
-            <ComboBox MinWidth="120"
+        <Grid DockPanel.Dock="Bottom" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto,Auto" Margin="8">
+            <Button Grid.Column="0" Content="Add Track" Click="OnAddTrackClick" Margin="0,0,8,0" />
+            <Button Grid.Column="1" Classes="ghost" Content="Undo" Command="{Binding UndoCommand}"
+                    IsEnabled="{Binding CanUndo}" Margin="0,0,8,0" />
+            <Button Grid.Column="2" Classes="ghost" Content="Redo" Command="{Binding RedoCommand}"
+                    IsEnabled="{Binding CanRedo}" Margin="0,0,16,0" />
+
+            <TextBlock Grid.Column="3" Classes="caption" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" Margin="0,0,16,0"
+                       Text="{Binding SelectedSlotLabel}" />
+
+            <TextBlock Grid.Column="4" VerticalAlignment="Center" Text="Role" Margin="0,0,8,0"
+                       IsEnabled="{Binding HasSelection}" />
+            <ComboBox Grid.Column="5" MinWidth="120" Margin="0,0,16,0"
+                      IsEnabled="{Binding HasSelection}"
                       ItemsSource="{Binding RoleOptions}"
                       SelectedItem="{Binding SelectedSlotRole, Mode=TwoWay}" />
-            <TextBlock VerticalAlignment="Center" Text="Energy" />
-            <Slider Width="160" Minimum="0" Maximum="100"
+            <TextBlock Grid.Column="6" VerticalAlignment="Center" Text="Energy" Margin="0,0,8,0"
+                       IsEnabled="{Binding HasSelection}" />
+            <Slider Grid.Column="7" Width="160" Minimum="0" Maximum="100"
+                    IsEnabled="{Binding HasSelection}"
                     Value="{Binding SelectedSlotEnergyTarget, Mode=TwoWay}" />
-        </StackPanel>
-        <local:StoryGraphView ViewModel="{Binding}" />
+        </Grid>
+
+        <Panel>
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <local:StoryGraphView ViewModel="{Binding}" HorizontalAlignment="Left" />
+            </ScrollViewer>
+
+            <StackPanel Classes="empty-state" IsVisible="{Binding IsEmpty}">
+                <TextBlock Classes="h3" Text="This set has no tracks yet" />
+                <TextBlock Classes="caption" Text="Use Add Track, or right-click a track in the Library and choose Add to Set." />
+            </StackPanel>
+        </Panel>
     </DockPanel>
 </UserControl>

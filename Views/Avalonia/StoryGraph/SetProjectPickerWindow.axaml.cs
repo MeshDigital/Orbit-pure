@@ -16,5 +16,6 @@ public partial class SetProjectPickerWindow : Window
         DataContext = viewModel;
         viewModel.Selected += (_, _) => Close();
         Opened += async (_, _) => await viewModel.LoadAsync();
+        Closed += (_, _) => viewModel.Dispose();
     }
 }

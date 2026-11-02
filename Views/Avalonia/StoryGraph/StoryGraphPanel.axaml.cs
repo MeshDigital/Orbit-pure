@@ -1,4 +1,3 @@
-using System;
 using Avalonia.Controls;
 using SLSKDONET.ViewModels.StoryGraph;
 
@@ -21,19 +20,9 @@ public partial class StoryGraphPanel : UserControl
         if (DataContext is not StoryGraphViewModel vm)
             return;
 
+        // AddTrackAsync reports its own failures (log + toast).
         var pickerVm = vm.CreateTrackPicker();
-        pickerVm.Selected += async (_, hash) =>
-        {
-            try
-            {
-                await vm.AddTrackAsync(hash);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Trace.WriteLine($"Add track failed: {ex.Message}");
-            }
-        };
-        var window = new TrackPickerWindow(pickerVm);
-        window.Show();
+        pickerVm.Selected += async (_, hash) => await vm.AddTrackAsync(hash);
+        SetPickerDialog.ShowModal(new TrackPickerWindow(pickerVm));
     }
 }

@@ -14,16 +14,23 @@
                     Command="{Binding SelectCommand}" />
         </Grid>
 
-        <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem, Mode=TwoWay}">
-            <ListBox.ItemTemplate>
-                <DataTemplate>
-                    <StackPanel Spacing="2" Margin="0,4">
-                        <TextBlock Text="{Binding Name}" />
-                        <TextBlock Classes="caption" Text="{Binding Status}" />
-                        <TextBlock Classes="caption" Text="{Binding EventProfileName}" />
-                    </StackPanel>
-                </DataTemplate>
-            </ListBox.ItemTemplate>
-        </ListBox>
+        <Panel>
+            <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem, Mode=TwoWay}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Spacing="2" Margin="0,4">
+                            <TextBlock Text="{Binding Name}" />
+                            <TextBlock Classes="caption" Text="{Binding Status}" />
+                            <TextBlock Classes="caption" Text="{Binding EventProfileName}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <StackPanel Classes="empty-state" IsVisible="{Binding IsEmpty}">
+                <TextBlock Classes="h3" Text="No sets yet" />
+                <TextBlock Classes="caption" Text="Create one with New Set, or right-click a Library track and choose Add to Set." />
+            </StackPanel>
+        </Panel>
     </DockPanel>
 </Window>
