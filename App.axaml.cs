@@ -1162,6 +1162,7 @@ public partial class App : Application
 
         // ── Sets (rebuild plan Phase 2): single write path for SetProjects ─
         services.AddSingleton<Services.Sets.ISetProjectService, Services.Sets.SetProjectService>();
+        services.AddSingleton<Services.Sets.SetTransitionRepository>();
     }
 
     /// <summary>

@@ -63,7 +63,14 @@ public sealed record SetAlternateInfo(
     string? ConditionText);
 
 /// <summary>A removed slot and its alternates, detached, so undo can put both back.</summary>
-public sealed record SetSlotSnapshot(SetTrackEntity Slot, IReadOnlyList<SetSlotAlternateEntity> Alternates);
+public sealed record SetSlotSnapshot(
+    SetTrackEntity Slot,
+    IReadOnlyList<SetSlotAlternateEntity> Alternates,
+    IReadOnlyList<SetTrackTransitionEntity>? Transitions = null)
+{
+    /// <summary>Saved transitions into and out of the slot.</summary>
+    public IReadOnlyList<SetTrackTransitionEntity> Transitions { get; init; } = Transitions ?? Array.Empty<SetTrackTransitionEntity>();
+}
 
 /// <summary>What the knowledge graph knows about one A→B transition (by track hash).</summary>
 public sealed record TransitionKnowledgeInfo(
@@ -359,6 +366,17 @@ public sealed class SetProjectService : ISetProjectService
         foreach (var alternate in alternates)
             db.SetSlotAlternates.Add(CloneAlternate(alternate, Guid.NewGuid(), slotIdMap[alternate.SlotId]));
 
+        var transitions = await db.SetTrackTransitions
+            .AsNoTracking()
+            .Where(t => t.SetId == setId)
+            .ToListAsync()
+            .ConfigureAwait(false);
+        foreach (var transition in transitions)
+        {
+            if (slotIdMap.TryGetValue(transition.OutgoingSlotId, out var from) && slotIdMap.TryGetValue(transition.IncomingSlotId, out var to))
+                db.SetTrackTransitions.Add(CloneTransition(transition, Guid.NewGuid(), copy.Id, from, to));
+        }
+
         var edges = await db.SetStoryEdges
             .AsNoTracking()
             .Where(e => e.SetProjectId == setId)
@@ -397,6 +415,8 @@ public sealed class SetProjectService : ISetProjectService
         var slotIds = slots.Select(t => t.Id).ToList();
         db.SetSlotAlternates.RemoveRange(
             await db.SetSlotAlternates.Where(a => slotIds.Contains(a.SlotId)).ToListAsync().ConfigureAwait(false));
+        db.SetTrackTransitions.RemoveRange(
+            await db.SetTrackTransitions.Where(t => t.SetId == setId).ToListAsync().ConfigureAwait(false));
         db.SetStoryEdges.RemoveRange(
             await db.SetStoryEdges.Where(e => e.SetProjectId == setId).ToListAsync().ConfigureAwait(false));
         db.SetTracks.RemoveRange(slots);
@@ -460,15 +480,21 @@ public sealed class SetProjectService : ISetProjectService
 
         var slot = set.Tracks.First(t => t.Id == slotId);
         var alternates = await db.SetSlotAlternates.Where(a => a.SlotId == slotId).ToListAsync().ConfigureAwait(false);
+        var transitions = await db.SetTrackTransitions
+            .Where(t => t.OutgoingSlotId == slotId || t.IncomingSlotId == slotId)
+            .ToListAsync()
+            .ConfigureAwait(false);
         var snapshot = new SetSlotSnapshot(
             CloneSlot(slot, slot.Id, slot.SetListId),
-            alternates.Select(CloneAlternate).ToList());
+            alternates.Select(CloneAlternate).ToList(),
+            transitions.Select(t => CloneTransition(t, t.Id, t.SetId, t.OutgoingSlotId, t.IncomingSlotId)).ToList());
 
         db.SetStoryEdges.RemoveRange(await db.SetStoryEdges
             .Where(e => e.FromSlotId == slotId || e.ToSlotId == slotId)
             .ToListAsync()
             .ConfigureAwait(false));
         db.SetSlotAlternates.RemoveRange(alternates);
+        db.SetTrackTransitions.RemoveRange(transitions);
         db.SetTracks.Remove(slot);
 
         Renumber(Ordered(set.Tracks.Where(t => t.Id != slotId)).ToList());
@@ -499,6 +525,23 @@ public sealed class SetProjectService : ISetProjectService
 
         db.SetTracks.Add(restored);
         db.SetSlotAlternates.AddRange(snapshot.Alternates.Select(CloneAlternate));
+
+        // Put back saved transitions whose other slot still exists (it may have gone meanwhile).
+        var liveSlotIds = set.Tracks.Select(t => t.Id).Append(restored.Id).ToHashSet();
+        var takenPairs = (await db.SetTrackTransitions
+                .Where(t => t.SetId == set.Id)
+                .Select(t => new { t.OutgoingSlotId, t.IncomingSlotId })
+                .ToListAsync()
+                .ConfigureAwait(false))
+            .Select(p => (p.OutgoingSlotId, p.IncomingSlotId))
+            .ToHashSet();
+        foreach (var transition in snapshot.Transitions)
+        {
+            if (liveSlotIds.Contains(transition.OutgoingSlotId) && liveSlotIds.Contains(transition.IncomingSlotId)
+                && takenPairs.Add((transition.OutgoingSlotId, transition.IncomingSlotId)))
+                db.SetTrackTransitions.Add(CloneTransition(transition, transition.Id, set.Id, transition.OutgoingSlotId, transition.IncomingSlotId));
+        }
+
         set.LastModifiedAt = DateTime.UtcNow;
         await db.SaveChangesAsync().ConfigureAwait(false);
         return true;
@@ -793,6 +836,32 @@ public sealed class SetProjectService : ISetProjectService
         if (set is not null)
             set.LastModifiedAt = DateTime.UtcNow;
     }
+
+    private static SetTrackTransitionEntity CloneTransition(SetTrackTransitionEntity t, Guid id, Guid setId, Guid from, Guid to) => new()
+    {
+        Id = id,
+        SetId = setId,
+        OutgoingSlotId = from,
+        IncomingSlotId = to,
+        PresetName = t.PresetName,
+        TransitionType = t.TransitionType,
+        DurationBars = t.DurationBars,
+        EchoDecayFactor = t.EchoDecayFactor,
+        FilterStartFrequency = t.FilterStartFrequency,
+        FilterEndFrequency = t.FilterEndFrequency,
+        WaveDuckDepth = t.WaveDuckDepth,
+        FilterSweepRising = t.FilterSweepRising,
+        EqSwapLow = t.EqSwapLow,
+        EqSwapMid = t.EqSwapMid,
+        EqSwapHigh = t.EqSwapHigh,
+        EqLowCrossoverHz = t.EqLowCrossoverHz,
+        EqHighCrossoverHz = t.EqHighCrossoverHz,
+        LoopBars = t.LoopBars,
+        LoopRepeats = t.LoopRepeats,
+        SourceTriggerSeconds = t.SourceTriggerSeconds,
+        TargetTriggerSeconds = t.TargetTriggerSeconds,
+        UpdatedAtUtc = t.UpdatedAtUtc,
+    };
 
     private static SetSlotAlternateEntity CloneAlternate(SetSlotAlternateEntity a) => CloneAlternate(a, a.Id, a.SlotId);
 

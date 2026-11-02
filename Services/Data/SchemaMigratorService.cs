@@ -3134,6 +3134,45 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // Sets page: saved transitions between adjacent set slots (rebuild plan P3.2), the
+            // mirror of PlaylistTrackTransitions keyed by slot instead of playlist track.
+            if (!TableExists("SetTrackTransitions"))
+            {
+                _logger.LogInformation("Patching Schema: Creating SetTrackTransitions table...");
+                command.CommandText = @"
+                    CREATE TABLE ""SetTrackTransitions"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_SetTrackTransitions"" PRIMARY KEY,
+                        ""SetId"" TEXT NOT NULL,
+                        ""OutgoingSlotId"" TEXT NOT NULL,
+                        ""IncomingSlotId"" TEXT NOT NULL,
+                        ""PresetName"" TEXT NOT NULL DEFAULT 'Auto',
+                        ""TransitionType"" TEXT NOT NULL DEFAULT 'Crossfade',
+                        ""DurationBars"" INTEGER NOT NULL DEFAULT 16,
+                        ""EchoDecayFactor"" REAL NULL,
+                        ""FilterStartFrequency"" REAL NULL,
+                        ""FilterEndFrequency"" REAL NULL,
+                        ""WaveDuckDepth"" REAL NULL,
+                        ""FilterSweepRising"" INTEGER NULL,
+                        ""EqSwapLow"" INTEGER NULL,
+                        ""EqSwapMid"" INTEGER NULL,
+                        ""EqSwapHigh"" INTEGER NULL,
+                        ""EqLowCrossoverHz"" REAL NULL,
+                        ""EqHighCrossoverHz"" REAL NULL,
+                        ""LoopBars"" INTEGER NULL,
+                        ""LoopRepeats"" INTEGER NULL,
+                        ""SourceTriggerSeconds"" REAL NULL,
+                        ""TargetTriggerSeconds"" REAL NULL,
+                        ""UpdatedAtUtc"" TEXT NOT NULL,
+                        CONSTRAINT ""FK_SetTrackTransitions_SetLists_SetId"" FOREIGN KEY (""SetId"") REFERENCES ""SetLists"" (""Id"") ON DELETE CASCADE,
+                        CONSTRAINT ""FK_SetTrackTransitions_SetTracks_OutgoingSlotId"" FOREIGN KEY (""OutgoingSlotId"") REFERENCES ""SetTracks"" (""Id"") ON DELETE CASCADE,
+                        CONSTRAINT ""FK_SetTrackTransitions_SetTracks_IncomingSlotId"" FOREIGN KEY (""IncomingSlotId"") REFERENCES ""SetTracks"" (""Id"") ON DELETE CASCADE
+                    );
+                    CREATE UNIQUE INDEX ""IX_SetTrackTransitions_Pair"" ON ""SetTrackTransitions"" (""OutgoingSlotId"", ""IncomingSlotId"");
+                    CREATE INDEX ""IX_SetTrackTransitions_SetId"" ON ""SetTrackTransitions"" (""SetId"");
+                    CREATE INDEX ""IX_SetTrackTransitions_IncomingSlotId"" ON ""SetTrackTransitions"" (""IncomingSlotId"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

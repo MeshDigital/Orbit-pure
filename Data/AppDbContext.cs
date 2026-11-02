@@ -61,6 +61,7 @@ public class AppDbContext : DbContext
     public DbSet<Entities.TransitionTemplateEntity> TransitionTemplates { get; set; } // Phase 1: reusable "how to mix" recipes
     public DbSet<Entities.SetStoryEdgeEntity> SetStoryEdges { get; set; } // Phase 1: Story Graph branching edges
     public DbSet<Entities.SetSlotAlternateEntity> SetSlotAlternates { get; set; } // Sets page: "Plan B" tracks per slot
+    public DbSet<Entities.SetTrackTransitionEntity> SetTrackTransitions { get; set; } // Sets page: saved slot→slot transitions
     public DbSet<Entities.MixRecipeEntity> MixRecipes { get; set; } // Phase 1: reusable branching patterns
     public DbSet<Entities.EventProfileEntity> EventProfiles { get; set; } // Phase 1: event context for a set
     public DbSet<Entities.TrackCrowdProfileEntity> TrackCrowdProfiles { get; set; } // Phase 1: persisted CrowdProfileVector
@@ -398,6 +399,17 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Entities.SetSlotAlternateEntity>()
             .HasIndex(a => a.SlotId)
             .HasDatabaseName("IX_SetSlotAlternates_SlotId");
+
+        // Sets page: saved transitions between slots (raw-SQL patch in SchemaMigratorService).
+        modelBuilder.Entity<Entities.SetTrackTransitionEntity>(e =>
+        {
+            e.HasOne<Entities.SetListEntity>().WithMany().HasForeignKey(t => t.SetId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Entities.SetTrackEntity>().WithMany().HasForeignKey(t => t.OutgoingSlotId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Entities.SetTrackEntity>().WithMany().HasForeignKey(t => t.IncomingSlotId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(t => new { t.OutgoingSlotId, t.IncomingSlotId }).IsUnique().HasDatabaseName("IX_SetTrackTransitions_Pair");
+            e.HasIndex(t => t.SetId).HasDatabaseName("IX_SetTrackTransitions_SetId");
+            e.HasIndex(t => t.IncomingSlotId).HasDatabaseName("IX_SetTrackTransitions_IncomingSlotId");
+        });
 
         modelBuilder.Entity<Entities.EventProfileEntity>()
             .HasIndex(e => e.Name)
