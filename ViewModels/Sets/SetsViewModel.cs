@@ -435,7 +435,19 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
 
         if (_selectedSlotId is Guid id && Slots.All(s => s.SlotId != id))
             _selectedSlotId = null;
+        Health = new SetHealthSummary(Slots.ToList(), LaneItems.OfType<TransitionChipViewModel>().ToList());
         RaiseSlotSelectionChanged();
+    }
+
+    private SetHealthSummary _health = SetHealthSummary.Empty;
+    /// <summary>Set Health for the strip under the lane (P2.7/P2.8).</summary>
+    public SetHealthSummary Health { get => _health; private set => this.RaiseAndSetIfChanged(ref _health, value); }
+
+    /// <summary>Selects the slot a Set Health issue points at.</summary>
+    public void JumpToIssue(HealthIssue issue)
+    {
+        if (issue.SlotId is Guid id && Slots.FirstOrDefault(s => s.SlotId == id) is { } card)
+            SelectSlot(card);
     }
 
     private void SelectRelative(int delta)

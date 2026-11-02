@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Sets"
              xmlns:conv="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
+             xmlns:ctrl="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="800"
              x:Class="SLSKDONET.Views.Avalonia.SetsPage"
              x:DataType="vm:SetsViewModel">
@@ -197,6 +198,64 @@
                                    IsVisible="{Binding Pool.ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                     </Panel>
                 </DockPanel>
+            </Border>
+
+            <!-- Set Health strip (P2.7) with the energy arc (P2.8) -->
+            <Border DockPanel.Dock="Bottom" Classes="card" Margin="0,16,0,0" IsVisible="{Binding HasSlots}">
+                <Grid ColumnDefinitions="Auto,Auto,Auto,*">
+                    <TextBlock Classes="section" Text="SET HEALTH" VerticalAlignment="Center" Margin="0,0,16,0" />
+
+                    <ItemsControl Grid.Column="1" ItemsSource="{Binding Health.Metrics}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="16" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:HealthMetric">
+                                <StackPanel Width="112" Spacing="4" VerticalAlignment="Center" ToolTip.Tip="{Binding Hint}"
+                                            Background="Transparent">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Classes="caption" Text="{Binding Label}" />
+                                        <TextBlock Grid.Column="1" Classes="mono" Text="{Binding ValueText}" />
+                                    </Grid>
+                                    <ProgressBar Classes="meter" Maximum="100" Value="{Binding MeterValue}" IsVisible="{Binding HasValue}" />
+                                    <TextBlock Classes="caption muted" Text="needs input" IsVisible="{Binding !HasValue}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <StackPanel Grid.Column="2" Spacing="2" Margin="24,0,0,0" VerticalAlignment="Center"
+                                ToolTip.Tip="Energy target per slot (solid) against the tracks' analysed energy (dashed)">
+                        <TextBlock Classes="caption" Text="Energy arc · target vs track" />
+                        <ctrl:EnergyArcControl Width="200" Height="32"
+                                               Targets="{Binding Health.EnergyTargets}" Actuals="{Binding Health.TrackEnergies}" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Classes="ghost small" IsVisible="{Binding Health.HasIssues}"
+                                ToolTip.Tip="Things worth fixing; pick one to jump to its slot">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <PathIcon Data="{StaticResource icon_alert}" Width="14" Height="14" Foreground="{StaticResource BrushWarning}" />
+                                <TextBlock Text="{Binding Health.IssuesText}" />
+                            </StackPanel>
+                            <Button.Flyout>
+                                <Flyout Placement="TopEdgeAlignedRight">
+                                    <ItemsControl ItemsSource="{Binding Health.Issues}" MaxWidth="420">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:HealthIssue">
+                                                <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                                        Click="OnHealthIssueClick">
+                                                    <TextBlock Classes="body-sm" TextWrapping="Wrap" Text="{Binding Text}" />
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
+                        <TextBlock Classes="caption success" Text="No issues found" IsVisible="{Binding !Health.HasIssues}" />
+                    </StackPanel>
+                </Grid>
             </Border>
 
             <!-- Inspector (P2.6): the selected slot or transition -->

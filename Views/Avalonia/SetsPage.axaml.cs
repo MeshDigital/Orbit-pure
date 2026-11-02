@@ -82,6 +82,15 @@ public partial class SetsPage : UserControl
             await vm.AddFromPoolAsync(track); // reports its own failures
     }
 
+    private void OnHealthIssueClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is HealthIssue issue && ViewModel is { } vm)
+        {
+            vm.JumpToIssue(issue);
+            Lane.Focus();
+        }
+    }
+
     private async void OnPoolPlanBClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is PoolTrackViewModel track && ViewModel is { } vm)
