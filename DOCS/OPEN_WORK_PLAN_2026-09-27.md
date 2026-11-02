@@ -25,7 +25,7 @@ Tracked in its own ratified plan, `DOCS/workstation/SETS_AND_TRANSITIONS_REBUILD
 - [x] Phase 0: hardening of the 0.3.x Story Graph / Transition Lab / swarm (PR #196)
 - [x] Phase 1: ratify decisions, update the foundation spec and vNext doc status
 - [x] Phase 2: Sets page (lane, pool, inspector, Plan B, Set Health, Add to Set submenu)
-- [ ] Phase 3: one shared transition editor; `SetTrackTransitions` mirror table; ratings → knowledge
+- [x] Phase 3: one shared transition editor; `SetTrackTransitions` mirror table; ratings → knowledge (P3.5 user presets / intent tags deferred)
 - [ ] Phase 4: Copilot actions in Sets (benchmark Copilot vs Flow Builder A10 first)
 - [ ] Phase 5: export a set (Rekordbox XML / USB)
 - [ ] Phase 6: evidence from Rekordbox history

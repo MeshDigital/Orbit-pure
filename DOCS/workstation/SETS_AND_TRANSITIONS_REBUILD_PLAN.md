@@ -408,6 +408,30 @@ isolated profile with a copy of the real library.
 | P3.6 | Library context "Edit transition…" for two selected tracks (AdHoc context) |
 | P3.7 | Delete `TransitionLabPanel`, `TransitionWaveformCanvas`, `TrackPairPicker*`, `TransitionLabViewModel` + nav entry |
 
+**Phase 3 status (2026-11-02, `feat/phase-3-transition-editor`, stacked on Phase 2):**
+- **P3.1 done.** `MixTransitionViewModel` saves through a switchable `ITransitionRepository`;
+  `LoadSetPairAsync` builds track models from library entries (slot ids as keys, waveform bands
+  included). The Sets page opens it as a dialog (inspector "Edit transition…" or double-click a
+  chip); chips show a check when the set has a saved transition. "Open in Flow Builder" is hidden
+  for set pairs. Playlist behaviour is unchanged.
+- **P3.2 done.** `SetTrackTransitions` mirror table (raw SQL, FK cascade from set and both slots,
+  unique slot pair) + `SetTransitionRepository`. Slot removal snapshots transitions for undo;
+  duplicate copies them; delete clears them.
+- **P3.3 done.** "Rate this transition" in every editor host: 0–100 + "played it live" →
+  append-only `ManualRating` / `LivePerformance` evidence (`TransitionRatingService`), edge recomputed.
+- **P3.4 done.** A pair without a saved transition here starts from the newest one saved for the
+  same tracks in any playlist or set, with a note saying where from; stored only on Save.
+- **P3.5 deferred.** With Transition Lab gone nothing writes `TransitionTemplates`, and Flow
+  Builder's presets are a fixed list. User presets and intent tags each need a UI decision first
+  (where a preset is named/managed; whether the intent tag is picked or inferred).
+- **P3.6 already covered.** The Library's Mix mode (toggle above a playlist, click two tracks)
+  opens this same editor, now with rating.
+- **P3.7 done.** Transition Lab view models, panel, canvas, picker, template VM and its event are
+  deleted; `TransitionWaveformLayout` stays (the Copilot's clash detector uses it).
+- Verified in the compiled app: the editor opens from a set with waveforms and an Auto plan from
+  the cues, saves into the set, saves a rating, and the chip/inspector reflect both on close.
+- `CurrentSetupVersion` 8 → 9 with combined Phase 2 + 3 What's New copy.
+
 ### Phase 4: Copilot in Sets (DJ-initiated only)
 | ID | Work |
 |---|---|
