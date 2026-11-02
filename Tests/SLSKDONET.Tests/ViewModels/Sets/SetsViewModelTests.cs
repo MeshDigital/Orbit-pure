@@ -160,6 +160,40 @@ public sealed class SetsViewModelTests : IDisposable
         Assert.True(vm.HasNoSets);
     }
 
+    /// <summary>
+    /// The rail and slot list must be filled on the caller's (UI) context even when the service
+    /// completes on the thread pool — the cross-thread update Phase 0 fixed (F5).
+    /// </summary>
+    [Fact]
+    public async Task Load_FillsCollectionsOnCallersContext()
+    {
+        var setId = Guid.NewGuid();
+        var pooled = new Mock<ISetProjectService>();
+        pooled.Setup(s => s.GetSetsAsync(It.IsAny<bool>())).Returns(async () =>
+        {
+            await Task.Run(() => System.Threading.Thread.Sleep(5)).ConfigureAwait(false);
+            return (IReadOnlyList<SetSummary>)new[] { new SetSummary(setId, "Friday", SLSKDONET.Data.Entities.SetProjectStatus.Draft, 1, DateTime.UtcNow) };
+        });
+        pooled.Setup(s => s.GetSlotsAsync(setId)).Returns(async () =>
+        {
+            await Task.Run(() => System.Threading.Thread.Sleep(5)).ConfigureAwait(false);
+            return (IReadOnlyList<SetSlotInfo>)new[] { new SetSlotInfo(Guid.NewGuid(), 0, "h", "T", "A", true, SLSKDONET.Data.Entities.SetSlotRole.Builder, null, null, null, null) };
+        });
+        var threads = new System.Collections.Concurrent.ConcurrentBag<int>();
+
+        var contextThread = await SingleThreadContext.RunAsync(async () =>
+        {
+            var vm = Create(pooled.Object);
+            vm.Sets.CollectionChanged += (_, _) => threads.Add(Environment.CurrentManagedThreadId);
+            vm.Slots.CollectionChanged += (_, _) => threads.Add(Environment.CurrentManagedThreadId);
+            await vm.OpenSetAsync(setId);
+            await vm.PendingSlotLoad;
+        });
+
+        Assert.NotEmpty(threads);
+        Assert.All(threads, id => Assert.Equal(contextThread, id));
+    }
+
     [Fact]
     public async Task LoadFailure_IsShownAndToasted_NotSwallowed()
     {

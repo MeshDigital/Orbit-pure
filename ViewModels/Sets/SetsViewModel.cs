@@ -158,10 +158,19 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
         RetryCommand = ReactiveCommand.CreateFromTask(() => LoadAsync());
     }
 
+    /// <summary>
+    /// Asks the next <see cref="LoadAsync"/> to select <paramref name="setId"/>. Used when another
+    /// surface routes here: the page's own load-on-attach then opens the right set.
+    /// </summary>
+    public void RequestOpen(Guid setId) => _pendingOpen = setId;
+
+    private Guid? _pendingOpen;
+
     /// <summary>Reloads the rail, keeping (or switching to) a selection when it still exists.</summary>
     public async Task LoadAsync(Guid? select = null)
     {
-        var keep = select ?? SelectedSet?.Id;
+        var keep = select ?? _pendingOpen ?? SelectedSet?.Id;
+        _pendingOpen = null;
         IsLoadingSets = true;
         ErrorMessage = null;
         try
