@@ -261,11 +261,28 @@ internal sealed class RecordingSetProjectService : ISetProjectService
     public bool LabelsCompleteOnPool { get; init; }
     public bool SearchCompletesOnPool { get; init; }
 
+    public Task<IReadOnlyList<SetSummary>> GetSetsAsync(bool includeArchived = true)
+        => Task.FromResult<IReadOnlyList<SetSummary>>(Array.Empty<SetSummary>());
+
+    public Task<IReadOnlyList<SetSlotInfo>> GetSlotsAsync(Guid setId)
+        => Task.FromResult<IReadOnlyList<SetSlotInfo>>(Array.Empty<SetSlotInfo>());
+
     public Task<SetListEntity> CreateSetAsync(string? name = null)
         => Task.FromResult(new SetListEntity { Name = name ?? "Set" });
 
+    public Task<bool> RenameSetAsync(Guid setId, string name) => Task.FromResult(true);
+    public Task<SetListEntity?> DuplicateSetAsync(Guid setId) => Task.FromResult<SetListEntity?>(null);
+    public Task<bool> DeleteSetAsync(Guid setId) => Task.FromResult(true);
+
     public Task<SetTrackEntity?> AppendTrackAsync(Guid setId, string trackUniqueHash)
         => Task.FromResult<SetTrackEntity?>(new SetTrackEntity { SetListId = setId, TrackUniqueHash = trackUniqueHash });
+
+    public Task<SetTrackEntity?> InsertTrackAsync(Guid setId, string trackUniqueHash, int index)
+        => AppendTrackAsync(setId, trackUniqueHash);
+
+    public Task<bool> MoveSlotAsync(Guid slotId, int newIndex) => Task.FromResult(true);
+    public Task<bool> RemoveSlotAsync(Guid slotId) => Task.FromResult(true);
+    public Task<bool> UpdateSlotNotesAsync(Guid slotId, string? notes) => Task.FromResult(true);
 
     public Task<bool> UpdateSlotAsync(Guid slotId, SetSlotRole role, double? energyTarget)
     {

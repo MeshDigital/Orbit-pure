@@ -11,21 +11,75 @@ namespace SLSKDONET.Services.Sets;
 /// <summary>A library track as shown in set pickers.</summary>
 public sealed record SetTrackPickerItem(string TrackUniqueHash, string Title, string Artist);
 
+/// <summary>A set as listed in the Sets rail.</summary>
+public sealed record SetSummary(Guid Id, string Name, SetProjectStatus Status, int SlotCount, DateTime LastModifiedAt);
+
+/// <summary>
+/// One slot of a set, joined with the library and analysis data the Sets page shows.
+/// <see cref="Bpm"/>/<see cref="CamelotKey"/> are null when the track hasn't been analysed.
+/// </summary>
+public sealed record SetSlotInfo(
+    Guid SlotId,
+    int Position,
+    string TrackUniqueHash,
+    string Title,
+    string Artist,
+    bool IsInLibrary,
+    SetSlotRole Role,
+    double? EnergyTarget,
+    string? Notes,
+    double? Bpm,
+    string? CamelotKey);
+
 /// <summary>
 /// The single write path for SetProjects (<see cref="SetListEntity"/>) and their slots
 /// (<see cref="SetTrackEntity"/>). Every call persists immediately, so UI edits can't be lost by a
-/// later reload. See DOCS/workstation/SETS_AND_TRANSITIONS_REBUILD_PLAN.md (P0.1 / P2.1).
+/// later reload. Slot positions are kept contiguous (0..n-1) after every insert, move and remove.
+/// See DOCS/workstation/SETS_AND_TRANSITIONS_REBUILD_PLAN.md (P0.1 / P2.1).
 /// </summary>
 public interface ISetProjectService
 {
+    /// <summary>All sets, most recently modified first.</summary>
+    Task<IReadOnlyList<SetSummary>> GetSetsAsync(bool includeArchived = true);
+
+    /// <summary>A set's slots in spine order, with labels and analysis data. Empty for an unknown set.</summary>
+    Task<IReadOnlyList<SetSlotInfo>> GetSlotsAsync(Guid setId);
+
     /// <summary>Creates a Draft set. A blank name gets a timestamped default.</summary>
     Task<SetListEntity> CreateSetAsync(string? name = null);
+
+    /// <summary>Renames a set. Returns false when it no longer exists; blank names are rejected.</summary>
+    Task<bool> RenameSetAsync(Guid setId, string name);
+
+    /// <summary>
+    /// Copies a set (name, event profile, flow weights, every slot and story edge) as a new Draft
+    /// named "&lt;name&gt; (copy)". Returns null when the source no longer exists.
+    /// </summary>
+    Task<SetListEntity?> DuplicateSetAsync(Guid setId);
+
+    /// <summary>Deletes a set with its slots and story edges. Returns false when it no longer exists.</summary>
+    Task<bool> DeleteSetAsync(Guid setId);
 
     /// <summary>Appends a track as the last slot of a set. Returns null when the set no longer exists.</summary>
     Task<SetTrackEntity?> AppendTrackAsync(Guid setId, string trackUniqueHash);
 
+    /// <summary>
+    /// Inserts a track at <paramref name="index"/> (clamped to 0..count), shifting later slots.
+    /// Returns null when the set no longer exists.
+    /// </summary>
+    Task<SetTrackEntity?> InsertTrackAsync(Guid setId, string trackUniqueHash, int index);
+
+    /// <summary>Moves a slot to <paramref name="newIndex"/> (clamped). Returns false when it no longer exists.</summary>
+    Task<bool> MoveSlotAsync(Guid slotId, int newIndex);
+
+    /// <summary>Removes a slot and any story edge touching it. Returns false when it no longer exists.</summary>
+    Task<bool> RemoveSlotAsync(Guid slotId);
+
     /// <summary>Writes a slot's role and energy target. Returns false when the slot no longer exists.</summary>
     Task<bool> UpdateSlotAsync(Guid slotId, SetSlotRole role, double? energyTarget);
+
+    /// <summary>Writes a slot's DJ notes (blank clears them). Returns false when the slot no longer exists.</summary>
+    Task<bool> UpdateSlotNotesAsync(Guid slotId, string? notes);
 
     /// <summary>Display labels ("Artist – Title") for the given track hashes; unknown hashes are omitted.</summary>
     Task<IReadOnlyDictionary<string, string>> GetTrackLabelsAsync(IEnumerable<string> trackUniqueHashes);
@@ -46,6 +100,76 @@ public sealed class SetProjectService : ISetProjectService
         _dbFactory = dbFactory;
     }
 
+    public async Task<IReadOnlyList<SetSummary>> GetSetsAsync(bool includeArchived = true)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        var sets = db.SetLists.AsNoTracking();
+        if (!includeArchived)
+            sets = sets.Where(s => s.Status != SetProjectStatus.Archived);
+
+        var rows = await sets
+            .OrderByDescending(s => s.LastModifiedAt)
+            .Select(s => new { s.Id, s.Name, s.Status, s.LastModifiedAt, SlotCount = s.Tracks.Count })
+            .ToListAsync()
+            .ConfigureAwait(false);
+
+        return rows.Select(r => new SetSummary(r.Id, r.Name, r.Status, r.SlotCount, r.LastModifiedAt)).ToList();
+    }
+
+    public async Task<IReadOnlyList<SetSlotInfo>> GetSlotsAsync(Guid setId)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        var slots = await db.SetTracks
+            .AsNoTracking()
+            .Where(t => t.SetListId == setId)
+            .ToListAsync()
+            .ConfigureAwait(false);
+        if (slots.Count == 0)
+            return Array.Empty<SetSlotInfo>();
+
+        var hashes = slots.Select(s => s.TrackUniqueHash).Distinct().ToList();
+
+        var library = await db.LibraryEntries
+            .AsNoTracking()
+            .Where(e => hashes.Contains(e.UniqueHash))
+            .Select(e => new { e.UniqueHash, e.Title, e.Artist })
+            .ToListAsync()
+            .ConfigureAwait(false);
+        var libraryByHash = library.ToDictionary(e => e.UniqueHash, StringComparer.Ordinal);
+
+        var features = await db.AudioFeatures
+            .AsNoTracking()
+            .Where(f => hashes.Contains(f.TrackUniqueHash))
+            .Select(f => new { f.TrackUniqueHash, f.Bpm, f.CamelotKey })
+            .ToListAsync()
+            .ConfigureAwait(false);
+        var featuresByHash = features
+            .GroupBy(f => f.TrackUniqueHash, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+        return Ordered(slots)
+            .Select(slot =>
+            {
+                libraryByHash.TryGetValue(slot.TrackUniqueHash, out var entry);
+                featuresByHash.TryGetValue(slot.TrackUniqueHash, out var feature);
+                return new SetSlotInfo(
+                    slot.Id,
+                    slot.Position,
+                    slot.TrackUniqueHash,
+                    entry?.Title ?? "Unknown track",
+                    entry?.Artist ?? string.Empty,
+                    entry is not null,
+                    slot.SlotRole,
+                    slot.EnergyTarget,
+                    slot.DjNotes,
+                    feature is { Bpm: > 0 } ? (double?)feature.Bpm : null,
+                    string.IsNullOrWhiteSpace(feature?.CamelotKey) ? null : feature!.CamelotKey);
+            })
+            .ToList();
+    }
+
     public async Task<SetListEntity> CreateSetAsync(string? name = null)
     {
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
@@ -60,7 +184,115 @@ public sealed class SetProjectService : ISetProjectService
         return set;
     }
 
+    public async Task<bool> RenameSetAsync(Guid setId, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        var set = await db.SetLists.FirstOrDefaultAsync(s => s.Id == setId).ConfigureAwait(false);
+        if (set is null)
+            return false;
+
+        set.Name = name.Trim();
+        set.LastModifiedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync().ConfigureAwait(false);
+        return true;
+    }
+
+    public async Task<SetListEntity?> DuplicateSetAsync(Guid setId)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        var source = await db.SetLists
+            .AsNoTracking()
+            .Include(s => s.Tracks)
+            .FirstOrDefaultAsync(s => s.Id == setId)
+            .ConfigureAwait(false);
+        if (source is null)
+            return null;
+
+        var copy = new SetListEntity
+        {
+            Name = $"{source.Name} (copy)",
+            Status = SetProjectStatus.Draft,
+            EventProfileId = source.EventProfileId,
+            FlowHealth = source.FlowHealth,
+            FlowWeightsJson = source.FlowWeightsJson,
+        };
+        db.SetLists.Add(copy);
+
+        var slotIdMap = new Dictionary<Guid, Guid>();
+        foreach (var slot in Ordered(source.Tracks))
+        {
+            var cloned = new SetTrackEntity
+            {
+                SetListId = copy.Id,
+                TrackUniqueHash = slot.TrackUniqueHash,
+                LibraryId = slot.LibraryId,
+                Position = slot.Position,
+                SlotRole = slot.SlotRole,
+                EnergyTarget = slot.EnergyTarget,
+                TransitionType = slot.TransitionType,
+                ManualOffset = slot.ManualOffset,
+                TransitionReasoning = slot.TransitionReasoning,
+                DjNotes = slot.DjNotes,
+                IsRescueTrack = slot.IsRescueTrack,
+                RescueReason = slot.RescueReason,
+            };
+            slotIdMap[slot.Id] = cloned.Id;
+            db.SetTracks.Add(cloned);
+        }
+
+        var edges = await db.SetStoryEdges
+            .AsNoTracking()
+            .Where(e => e.SetProjectId == setId)
+            .ToListAsync()
+            .ConfigureAwait(false);
+        foreach (var edge in edges)
+        {
+            if (!slotIdMap.TryGetValue(edge.FromSlotId, out var from) || !slotIdMap.TryGetValue(edge.ToSlotId, out var to))
+                continue; // dangling edge in the source; don't copy the corruption
+            db.SetStoryEdges.Add(new SetStoryEdgeEntity
+            {
+                SetProjectId = copy.Id,
+                FromSlotId = from,
+                ToSlotId = to,
+                TransitionKnowledgeId = edge.TransitionKnowledgeId,
+                Probability = edge.Probability,
+                ConditionText = edge.ConditionText,
+            });
+        }
+
+        await db.SaveChangesAsync().ConfigureAwait(false);
+        return copy;
+    }
+
+    public async Task<bool> DeleteSetAsync(Guid setId)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        var set = await db.SetLists.FirstOrDefaultAsync(s => s.Id == setId).ConfigureAwait(false);
+        if (set is null)
+            return false;
+
+        // Explicit child deletes: these tables were created by raw SQL, so an ON DELETE CASCADE
+        // in the EF model isn't guaranteed to exist in an older database.
+        db.SetStoryEdges.RemoveRange(
+            await db.SetStoryEdges.Where(e => e.SetProjectId == setId).ToListAsync().ConfigureAwait(false));
+        db.SetTracks.RemoveRange(
+            await db.SetTracks.Where(t => t.SetListId == setId).ToListAsync().ConfigureAwait(false));
+        db.SetLists.Remove(set);
+
+        await db.SaveChangesAsync().ConfigureAwait(false);
+        return true;
+    }
+
     public async Task<SetTrackEntity?> AppendTrackAsync(Guid setId, string trackUniqueHash)
+        => await InsertTrackAsync(setId, trackUniqueHash, int.MaxValue).ConfigureAwait(false);
+
+    public async Task<SetTrackEntity?> InsertTrackAsync(Guid setId, string trackUniqueHash, int index)
     {
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
 
@@ -71,36 +303,67 @@ public sealed class SetProjectService : ISetProjectService
         if (set is null)
             return null;
 
-        var slot = new SetTrackEntity
-        {
-            SetListId = setId,
-            TrackUniqueHash = trackUniqueHash,
-            Position = set.Tracks.Count == 0 ? 0 : set.Tracks.Max(t => t.Position) + 1,
-        };
+        var ordered = Ordered(set.Tracks).ToList();
+        var slot = new SetTrackEntity { SetListId = setId, TrackUniqueHash = trackUniqueHash };
+        ordered.Insert(Math.Clamp(index, 0, ordered.Count), slot);
+        Renumber(ordered);
+
         db.SetTracks.Add(slot);
         set.LastModifiedAt = DateTime.UtcNow;
         await db.SaveChangesAsync().ConfigureAwait(false);
         return slot;
     }
 
-    public async Task<bool> UpdateSlotAsync(Guid slotId, SetSlotRole role, double? energyTarget)
+    public async Task<bool> MoveSlotAsync(Guid slotId, int newIndex)
     {
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
 
-        var slot = await db.SetTracks.FirstOrDefaultAsync(t => t.Id == slotId).ConfigureAwait(false);
-        if (slot is null)
+        var set = await LoadSetOfSlotAsync(db, slotId).ConfigureAwait(false);
+        if (set is null)
             return false;
 
-        slot.SlotRole = role;
-        slot.EnergyTarget = energyTarget;
+        var ordered = Ordered(set.Tracks).ToList();
+        var slot = ordered.First(t => t.Id == slotId);
+        ordered.Remove(slot);
+        ordered.Insert(Math.Clamp(newIndex, 0, ordered.Count), slot);
+        Renumber(ordered);
 
-        var set = await db.SetLists.FirstOrDefaultAsync(s => s.Id == slot.SetListId).ConfigureAwait(false);
-        if (set is not null)
-            set.LastModifiedAt = DateTime.UtcNow;
-
+        set.LastModifiedAt = DateTime.UtcNow;
         await db.SaveChangesAsync().ConfigureAwait(false);
         return true;
     }
+
+    public async Task<bool> RemoveSlotAsync(Guid slotId)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        var set = await LoadSetOfSlotAsync(db, slotId).ConfigureAwait(false);
+        if (set is null)
+            return false;
+
+        var slot = set.Tracks.First(t => t.Id == slotId);
+        db.SetStoryEdges.RemoveRange(await db.SetStoryEdges
+            .Where(e => e.FromSlotId == slotId || e.ToSlotId == slotId)
+            .ToListAsync()
+            .ConfigureAwait(false));
+        db.SetTracks.Remove(slot);
+
+        Renumber(Ordered(set.Tracks.Where(t => t.Id != slotId)).ToList());
+        set.LastModifiedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync().ConfigureAwait(false);
+        return true;
+    }
+
+    public async Task<bool> UpdateSlotAsync(Guid slotId, SetSlotRole role, double? energyTarget)
+        => await UpdateSlotCoreAsync(slotId, slot =>
+        {
+            slot.SlotRole = role;
+            slot.EnergyTarget = energyTarget;
+        }).ConfigureAwait(false);
+
+    public async Task<bool> UpdateSlotNotesAsync(Guid slotId, string? notes)
+        => await UpdateSlotCoreAsync(slotId, slot =>
+            slot.DjNotes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim()).ConfigureAwait(false);
 
     public async Task<IReadOnlyDictionary<string, string>> GetTrackLabelsAsync(IEnumerable<string> trackUniqueHashes)
     {
@@ -144,5 +407,49 @@ public sealed class SetProjectService : ISetProjectService
             .ConfigureAwait(false);
 
         return rows.Select(r => new SetTrackPickerItem(r.UniqueHash, r.Title, r.Artist)).ToList();
+    }
+
+    private async Task<bool> UpdateSlotCoreAsync(Guid slotId, Action<SetTrackEntity> apply)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+        var slot = await db.SetTracks.FirstOrDefaultAsync(t => t.Id == slotId).ConfigureAwait(false);
+        if (slot is null)
+            return false;
+
+        apply(slot);
+
+        var set = await db.SetLists.FirstOrDefaultAsync(s => s.Id == slot.SetListId).ConfigureAwait(false);
+        if (set is not null)
+            set.LastModifiedAt = DateTime.UtcNow;
+
+        await db.SaveChangesAsync().ConfigureAwait(false);
+        return true;
+    }
+
+    private static async Task<SetListEntity?> LoadSetOfSlotAsync(AppDbContext db, Guid slotId)
+    {
+        var setId = await db.SetTracks
+            .Where(t => t.Id == slotId)
+            .Select(t => (Guid?)t.SetListId)
+            .FirstOrDefaultAsync()
+            .ConfigureAwait(false);
+        if (setId is null)
+            return null;
+
+        return await db.SetLists
+            .Include(s => s.Tracks)
+            .FirstOrDefaultAsync(s => s.Id == setId)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Spine order; ties (legacy duplicate positions) break deterministically by id.</summary>
+    private static IEnumerable<SetTrackEntity> Ordered(IEnumerable<SetTrackEntity> slots)
+        => slots.OrderBy(t => t.Position).ThenBy(t => t.Id);
+
+    private static void Renumber(IList<SetTrackEntity> ordered)
+    {
+        for (var i = 0; i < ordered.Count; i++)
+            ordered[i].Position = i;
     }
 }
