@@ -1390,6 +1390,22 @@
                         </StackPanel>
 
                         <StackPanel Classes="settings-section"
+                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Knowledge agents transition candidates background scan sets'}">
+                            <TextBlock Classes="section" Text="KNOWLEDGE AGENTS"/>
+                            <Border Classes="card">
+                                <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                    <StackPanel Classes="label">
+                                        <TextBlock Classes="body" Text="Scan for transition candidates"/>
+                                        <TextBlock Classes="caption" TextWrapping="Wrap"
+                                                   Text="After each analysis, look for compatible next tracks in the background. Nothing shows these results yet, so it is off by default. Takes effect after a restart."/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnableKnowledgeAgents, Mode=TwoWay}"
+                                                  AutomationProperties.Name="Enable knowledge agents"/>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel Classes="settings-section"
                                     IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Network Activity Monitor soulseek http socket calls'}">
                             <TextBlock Classes="section" Text="NETWORK ACTIVITY"/>
                             <Border Classes="card">
