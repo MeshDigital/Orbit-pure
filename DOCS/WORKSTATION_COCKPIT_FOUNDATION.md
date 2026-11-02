@@ -6,6 +6,22 @@ Purpose: define what Orbit Workstation is, how the cockpit must behave, and what
 
 This document must be read before making material Workstation UI or workflow changes.
 
+> **Update 2026-11-02 (ratified, rebuild plan D1/D2/D4/D9).** The app has moved from one
+> cockpit to a few focused pages, and this spec's tool list is out of date. Current shape:
+>
+> - **Workstation = track prep cockpit.** Waveform, beat grid, cues, loops and stems for one
+>   track at a time. The Flow/Stems/Export tool toggles described below no longer live here;
+>   `WorkstationMode.Flow/StoryGraph/TransitionLab` are kept only so old sessions load, and fold
+>   back to prep.
+> - **Sets = set planning page** (left nav "Sets"): a lane of slots with roles, energy targets,
+>   notes and Plan B alternates, transition scores between them, Set Health and a track pool.
+>   See `DOCS/workstation/SETS_AND_TRANSITIONS_REBUILD_PLAN.md`.
+> - **Flow Builder = playlist MIX playback**, converging into Sets over time (D2).
+> - **One shared transition editor** (Flow Builder's) replaces the retired Transition Lab (D4, Phase 3).
+>
+> The rules in §2 and §6 still hold: no deck UI, no mixer faders or jog wheels, decks are engine
+> primitives. Where this spec and the rebuild plan disagree, the plan wins.
+
 ## 1. What Orbit Is
 
 Orbit is not Serato, Rekordbox, Traktor, VirtualDJ, or a live-DJ application.

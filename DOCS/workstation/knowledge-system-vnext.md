@@ -1,7 +1,16 @@
 # ORBIT Workstation — Knowledge System (vNext) Master Plan
 
-Status: **forward-looking architecture / product master plan (vNext)**
-Status date: 2026-10-30
+Status: **proposal, partially implemented**. Superseded for UI and sequencing by
+[`SETS_AND_TRANSITIONS_REBUILD_PLAN.md`](SETS_AND_TRANSITIONS_REBUILD_PLAN.md) (ratified 2026-11-02).
+Status date: 2026-10-30 (status header 2026-11-02)
+
+| Slice | State (2026-11-02) |
+|---|---|
+| K1 schema + entities | Done (tables exist; `MixRecipes`, `TrackCrowdProfiles` unused by design, D8) |
+| K2 knowledge service, K3 bridge finder, K4 set health | Done as services; Set Health now drives the Sets page strip on real inputs only |
+| K5 Story Graph UI | **Replaced** by the Sets page (lane + Plan B alternates, D1/D3) |
+| K6 Transition Lab UI | **Retired**; becomes the shared transition editor (D4, rebuild Phase 3) |
+| K7 copilot wiring + export | Not wired yet (rebuild Phases 4–5, DJ-initiated only, D6) |
 Supersedes: nothing. **Layers on top of** [`WORKSTATION_COCKPIT_FOUNDATION.md`](../WORKSTATION_COCKPIT_FOUNDATION.md) (the canonical functional/UI spec) without deleting it.
 Audience: engineers extending the Workstation and the set-prep / transition intelligence surfaces.
 
