@@ -469,7 +469,7 @@
 
                                 <Button x:Name="NavSetProjects" Classes="nav" Command="{Binding NavigateSetProjectsCommand}"
                                         ToolTip.Tip="Set Projects — Plan branching set paths on the Story Graph"
-                                        Classes.selected="{Binding IsWorkstationOverlayActive}">
+                                        Classes.selected="{Binding IsSetProjectsNavActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
                                         <PathIcon Data="{StaticResource icon_waves}"/>
                                         <TextBlock Text="Set Projects" VerticalAlignment="Center"/>
@@ -478,7 +478,7 @@
 
                                 <Button x:Name="NavTransitionLab" Classes="nav" Command="{Binding NavigateTransitionLabCommand}"
                                         ToolTip.Tip="Transition Lab — Audition, edit and rate transitions between two tracks"
-                                        Classes.selected="{Binding IsWorkstationOverlayActive}">
+                                        Classes.selected="{Binding IsTransitionLabNavActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
                                         <PathIcon Data="{StaticResource icon_mix}"/>
                                         <TextBlock Text="Transition Lab" VerticalAlignment="Center"/>
@@ -487,7 +487,7 @@
 
                                 <Button x:Name="NavWorkstation" Classes="nav" Command="{Binding NavigateWorkstationCommand}"
                                         ToolTip.Tip="Workstation — Verify files, beat grids, cues and loops for professional DJ preparation (Ctrl+Shift+P)"
-                                        Classes.selected="{Binding IsWorkstationOverlayActive}">
+                                        Classes.selected="{Binding IsWorkstationNavActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
                                         <PathIcon Data="{StaticResource icon_tune}"/>
                                         <TextBlock Text="Workstation" VerticalAlignment="Center"/>

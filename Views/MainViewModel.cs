@@ -48,6 +48,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private readonly ILibraryService _libraryService;
     private readonly GlobalHotkeyService _globalHotkeyService;
     private readonly FlowBuilderViewModel _flowBuilderViewModel;
+    private readonly SLSKDONET.ViewModels.Workstation.WorkstationViewModel? _workstation;
 
     // Child ViewModels
     public PlayerViewModel PlayerViewModel { get; }
@@ -133,7 +134,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         FlowBuilderViewModel flowBuilderViewModel,
         SLSKDONET.ViewModels.Setup.SetupShellViewModel? setup = null,
         SLSKDONET.ViewModels.LibraryImportViewModel? import = null,
-        SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? activity = null)
+        SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? activity = null,
+        SLSKDONET.ViewModels.Workstation.WorkstationViewModel? workstation = null)
 
     {
         _logger = logger;
@@ -160,6 +162,24 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         Setup = setup;
         Import = import;
         Activity = activity;
+        _workstation = workstation;
+
+        // Keep the nav highlight in sync with the Workstation's active tool (Story Graph vs
+        // Transition Lab vs plain decks). Without this, Set Projects / Transition Lab / Workstation
+        // all light up together because they share IsWorkstationOverlayActive.
+        if (_workstation != null)
+        {
+            _workstation.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName is nameof(SLSKDONET.ViewModels.Workstation.WorkstationViewModel.IsStoryGraphActive)
+                    or nameof(SLSKDONET.ViewModels.Workstation.WorkstationViewModel.IsTransitionLabActive))
+                {
+                    OnPropertyChanged(nameof(IsSetProjectsNavActive));
+                    OnPropertyChanged(nameof(IsTransitionLabNavActive));
+                    OnPropertyChanged(nameof(IsWorkstationNavActive));
+                }
+            };
+        }
         _rightPanelService = rightPanelService;
         PerfTracker = perfTracker;
 
@@ -973,6 +993,14 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsPlayerOverlayActive => CurrentPageType == PageType.NowPlaying;
     public bool IsSettingsOverlayActive => CurrentPageType == PageType.Settings;
     public bool IsWorkstationOverlayActive => IsCreativeOverlayPage(CurrentPageType);
+    /// <summary>Nav highlight for the "Set Projects" entry (Workstation page + Story Graph tool).</summary>
+    public bool IsSetProjectsNavActive => IsWorkstationOverlayActive && _workstation?.IsStoryGraphActive == true;
+    /// <summary>Nav highlight for the "Transition Lab" entry.</summary>
+    public bool IsTransitionLabNavActive => IsWorkstationOverlayActive && _workstation?.IsTransitionLabActive == true;
+    /// <summary>Nav highlight for the plain "Workstation" entry (not on a tool surface).</summary>
+    public bool IsWorkstationNavActive => IsWorkstationOverlayActive
+        && _workstation?.IsStoryGraphActive != true
+        && _workstation?.IsTransitionLabActive != true;
     public bool IsCueForgeOverlayActive => CurrentPageType == PageType.CueForge;
     public bool IsEditLabOverlayActive => CurrentPageType == PageType.EditLab;
     public bool IsUsersOverlayActive => CurrentPageType == PageType.Users;
@@ -992,6 +1020,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         nameof(IsPlayerOverlayActive),
         nameof(IsSettingsOverlayActive),
         nameof(IsWorkstationOverlayActive),
+        nameof(IsSetProjectsNavActive),
+        nameof(IsTransitionLabNavActive),
+        nameof(IsWorkstationNavActive),
         nameof(IsCueForgeOverlayActive),
         nameof(IsEditLabOverlayActive),
         nameof(IsUsersOverlayActive),
