@@ -4,10 +4,36 @@ param(
     [string]$Version = "",
     [switch]$Lite,
     [switch]$SkipInstaller,
-    [switch]$SkipSmokeTest
+    [switch]$SkipSmokeTest,
+    [switch]$Sign,
+    [string]$CertPath = "",
+    [string]$CertPassword = ""
 )
 
 $ErrorActionPreference = "Stop"
+
+# Authenticode signing (Smart App Control / SmartScreen). Enabled only when -Sign + -CertPath are set.
+$signEnabled = $Sign -and -not [string]::IsNullOrWhiteSpace($CertPath)
+if ($signEnabled -and -not (Test-Path $CertPath)) {
+    throw "Code-signing requested but certificate file not found: $CertPath"
+}
+
+# Signs one binary with signtool (timestamped SHA256). The cert is a .pfx; password comes from -CertPassword.
+function Sign-Binary {
+    param([Parameter(Mandatory)][string]$Path)
+    $args = @("sign", "/f", $CertPath, "/fd", "SHA256", "/tr", "http://timestamp.digicert.com", "/td", "SHA256")
+    if (-not [string]::IsNullOrWhiteSpace($CertPassword)) { $args += @("/p", $CertPassword) }
+    $args += $Path
+    & signtool @args
+    if ($LASTEXITCODE -ne 0) { throw "signtool failed for $Path (exit $LASTEXITCODE)" }
+    Write-Host "Signed: $Path" -ForegroundColor Cyan
+}
+
+# Signs every exe/dll in the publish output (native libs included) so SAC stops flagging "part of the app".
+function Sign-PublishOutput {
+    if (-not $signEnabled) { return }
+    Get-ChildItem -Path $publishRoot -Recurse -Include *.exe,*.dll -File | ForEach-Object { Sign-Binary $_.FullName }
+}
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $projectFile = Join-Path $repoRoot "SLSKDONET.csproj"
@@ -80,6 +106,10 @@ try {
         }
     }
 
+    # Sign every exe/dll (native libs included) before smoke-testing/zipping, so SAC/SmartScreen
+    # accept the whole app rather than "part of the app".
+    Sign-PublishOutput
+
     if (-not $SkipSmokeTest) {
         # Launch the published build in a throwaway profile and fail the release if it dies on
         # startup. 0.10.0-alpha was packaged with a crash in App.Initialize that no unit test hit.
@@ -145,6 +175,7 @@ try {
                 throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
             }
             $setupPath = Join-Path $artifactsRoot ("ORBIT-Setup-{0}-win-x64.exe" -f $Version)
+            if ($signEnabled) { Sign-Binary $setupPath }
             Write-Host "  Installer:      $setupPath" -ForegroundColor Green
         }
     }

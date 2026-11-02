@@ -18,6 +18,8 @@ public sealed class WhatsNewStepViewModel : SetupStepViewModel
 
     public IReadOnlyList<WhatsNewItem> Items { get; } = new[]
     {
+        new WhatsNewItem("One-click updates", "The Updates page now downloads and runs the installer for you."),
+        new WhatsNewItem("New Set from the picker", "Create a fresh set right from Set Projects, not just open existing ones."),
         new WhatsNewItem("Updates: pick your channel", "Choose Stable, Beta or Any, then check GitHub for a newer version from Settings → Advanced → Updates."),
         new WhatsNewItem("FFmpeg + .NET self-heal", "ORBIT installs FFmpeg and the .NET runtime automatically when they're missing."),
         new WhatsNewItem("Story Graph: plan your sets", "Branching set paths on a visual canvas — slot roles and energy targets with undo/redo."),
