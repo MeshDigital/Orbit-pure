@@ -44,6 +44,13 @@ public partial class TrackListView : UserControl
         DetachedFromVisualTree += (_, _) => BindViewModel(null);
     }
 
+    /// <summary>Refreshes the "Add to Set" submenu so new or renamed sets show up.</summary>
+    private async void OnTrackContextMenuOpened(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (DataContext is TrackListViewModel { Operations: { } operations })
+            await operations.RefreshSetMenuAsync(); // logs its own failures
+    }
+
     private void AttachScroller()
     {
         if (_grid?.FindControl<ScrollViewer>("PartScrollViewer") is not { } scroller) return;
