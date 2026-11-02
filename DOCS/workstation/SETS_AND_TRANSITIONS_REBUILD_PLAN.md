@@ -357,6 +357,22 @@ Each phase is a separate branch and PR. Each commit builds with 0 errors and kee
 | P2.11 | Delete `StoryGraphPanel`, `StoryGraphView`, `TrackPickerWindow`, `SetProjectPickerWindow`, `AddToSetWindow` + their VMs (keep `StoryGraphLayout` only if D3 = B) |
 | P2.12 | Design tokens for role colours; screenshots of every empty / loading / error state checked before merge |
 
+**Phase 2 status (2026-11-02, `feat/phase-2-sets-page`):**
+- **P2.1 done**, except alternates. `ISetProjectService` covers listing, slot details (library +
+  analysis joined; missing BPM/key stay null), rename, duplicate (slots + story edges remapped,
+  new Draft), delete (children removed explicitly), insert/move/remove with contiguous positions,
+  and notes. **Alternates moved to P2.6:** `SetStoryEdges` can't express "Plan B for this slot"
+  without the alternate polluting the spine order, so they need a small schema addition
+  (`SetTracks.AlternateForSlotId`, raw SQL). That's decided together with the inspector UI.
+- **P2.2 done** (shell): `SetsPage` + `SetsViewModel`, nav entry **Sets**. The old **Set Projects**
+  entry, its overlay and the `OpenSetProjectsRequestedEvent` routing deliberately stay until the
+  P2.10 checkpoint.
+- **P2.3 done:** set rail with New (prompt), Rename (prompt), Duplicate, Delete (confirm), via the
+  rail's context menu and the header "…" menu; empty / loading / error states. The selected set
+  shows an interim slot list (role, title, artist, BPM, key, "Not in library") until the lane (P2.4).
+- Verified in the compiled app on an isolated `--profile`: rail, selection, slot list, duplicate,
+  delete-with-confirm and rename all work.
+
 ### Phase 3: One transition editor
 | ID | Work |
 |---|---|
