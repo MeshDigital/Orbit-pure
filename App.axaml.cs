@@ -896,6 +896,8 @@ public partial class App : Application
         services.AddTransient<Views.Avalonia.UsersPage>();
         services.AddTransient<Views.Avalonia.CueForgePage>();
         services.AddTransient<Views.Avalonia.FlowBuilderPage>();
+        services.AddSingleton<ViewModels.Sets.SetsViewModel>();
+        services.AddTransient<Views.Avalonia.SetsPage>();
         services.AddSingleton<Services.ICuePointService, Services.CuePointService>();
         services.AddSingleton<Services.Audio.StemPreferenceService>();
         services.AddSingleton<Services.Audio.MixdownService>();
@@ -1158,9 +1160,11 @@ public partial class App : Application
         services.AddSingleton<Services.KnowledgeLifecycle.IKnowledgeAgent, Services.KnowledgeLifecycle.TransitionAgent>();
         services.AddHostedService<Services.KnowledgeLifecycle.KnowledgeSwarmHost>();
 
-        // ── Slice K5: Story Graph canvas ────────────────────────────────
+        // ── Sets (rebuild plan Phase 2): single write path for SetProjects ─
         services.AddSingleton<Services.Sets.ISetProjectService, Services.Sets.SetProjectService>();
-        services.AddTransient<SLSKDONET.ViewModels.StoryGraph.StoryGraphViewModel>();
+        services.AddSingleton<Services.Sets.SetTransitionRepository>();
+        services.AddSingleton<Services.Sets.ITransitionHistoryService, Services.Sets.TransitionHistoryService>();
+        services.AddSingleton<Services.KnowledgeLifecycle.ITransitionRatingService, Services.KnowledgeLifecycle.TransitionRatingService>();
     }
 
     /// <summary>

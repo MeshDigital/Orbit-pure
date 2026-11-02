@@ -18,5 +18,6 @@ public enum PageType
     Workstation,
     CueForge,
     Users,
-    FlowBuilder
+    FlowBuilder,
+    Sets
 }

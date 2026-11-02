@@ -64,7 +64,6 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand OpenAuditLogCommand { get; }
     /// <summary>Loads the track into the focused Workstation deck without starting playback.</summary>
     public System.Windows.Input.ICommand OpenInWorkstationCommand { get; }
-    public System.Windows.Input.ICommand AddToSetCommand { get; }
     public System.Windows.Input.ICommand OpenInCueForgeCommand { get; }
     /// <summary>New Edit Lab project with the track as its base, then shows the Edit Lab.</summary>
     public System.Windows.Input.ICommand OpenInEditLabCommand { get; }
@@ -154,7 +153,6 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         RefreshBpmFromTagsCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteRefreshBpmFromTags);
         OpenAuditLogCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteOpenAuditLog);
         OpenInWorkstationCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteOpenInWorkstation);
-        AddToSetCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteAddToSet);
         OpenInCueForgeCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteOpenInCueForge);
         OpenInEditLabCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteOpenInEditLab);
         SetColorTagCommand = new RelayCommand<string>(ExecuteSetColorTag);
@@ -949,35 +947,87 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         track.OpenWorkstationCommand.Execute(null);
     }
 
-    /// <summary>Opens the "Add to Set" picker (recent sets + New Set…) and appends the track to the chosen set.</summary>
-    private void ExecuteAddToSet(PlaylistTrackViewModel? track)
+    /// <summary>
+    /// "Add to Set" submenu entries: the most recent active sets, then "New set…". Refreshed each
+    /// time the track context menu opens (<see cref="RefreshSetMenuAsync"/>).
+    /// </summary>
+    public System.Collections.ObjectModel.ObservableCollection<SetMenuEntry> SetMenuEntries { get; } = new();
+
+    private SLSKDONET.Services.Sets.ISetProjectService? Sets =>
+        _setProjects ?? (_dbFactory is null ? null : new SLSKDONET.Services.Sets.SetProjectService(_dbFactory));
+
+    /// <summary>Reloads the "Add to Set" submenu. Failures are logged and leave just "New set…".</summary>
+    public async Task RefreshSetMenuAsync()
     {
-        track ??= LibraryViewModel?.Tracks.LeadSelectedTrack;
-        if (track == null)
+        IReadOnlyList<SLSKDONET.Services.Sets.SetSummary> recent = Array.Empty<SLSKDONET.Services.Sets.SetSummary>();
+        try
         {
-            _notificationService.Show("Add to Set", "Select a track first.", NotificationType.Warning);
+            if (Sets is { } sets)
+                recent = (await sets.GetSetsAsync(includeArchived: false)).Take(8).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Couldn't load sets for the Add to Set menu");
+        }
+
+        SetMenuEntries.Clear();
+        foreach (var set in recent)
+        {
+            var id = set.Id;
+            var name = set.Name;
+            SetMenuEntries.Add(new SetMenuEntry(name, new AsyncRelayCommand(() => AddSelectionToSetAsync(id, name))));
+        }
+        SetMenuEntries.Add(new SetMenuEntry("New set…", new AsyncRelayCommand(() => AddSelectionToSetAsync(null, null))));
+    }
+
+    /// <summary>Appends the selected tracks (or the clicked one) to a set; a null id creates a new set first.</summary>
+    private async Task AddSelectionToSetAsync(Guid? setId, string? setName)
+    {
+        var selected = LibraryViewModel?.Tracks.SelectedTracks?.ToList() ?? [];
+        if (selected.Count == 0 && LibraryViewModel?.Tracks.LeadSelectedTrack is { } lead)
+            selected.Add(lead);
+        var hashes = selected
+            .Select(t => t.Model?.TrackUniqueHash)
+            .Where(h => !string.IsNullOrEmpty(h))
+            .Cast<string>()
+            .ToList();
+        if (hashes.Count == 0)
+        {
+            _notificationService.Show("Add to Set", "Select a track that's in your library first.", NotificationType.Warning);
             return;
         }
-        if (_dbFactory == null)
+        if (Sets is not { } sets)
         {
             _logger.LogError("Add to Set unavailable: no database factory was injected");
             _notificationService.Show("Add to Set", "Sets are unavailable right now.", NotificationType.Error);
             return;
         }
 
-        var hash = track.Model?.TrackUniqueHash;
-        if (string.IsNullOrEmpty(hash))
+        try
         {
-            _notificationService.Show("Add to Set", "This track has no stable library identity yet.", NotificationType.Warning);
-            return;
-        }
+            if (setId is null)
+            {
+                var created = await sets.CreateSetAsync();
+                (setId, setName) = (created.Id, created.Name);
+            }
 
-        var sets = _setProjects ?? new SLSKDONET.Services.Sets.SetProjectService(_dbFactory);
-        var vm = new SLSKDONET.ViewModels.StoryGraph.AddToSetViewModel(_dbFactory, sets, hash, _notificationService);
-        var window = new SLSKDONET.Views.Avalonia.StoryGraph.AddToSetWindow(vm);
-        vm.Completed += (_, setName) =>
-            _notificationService.Show("Add to Set", $"Added '{track.Title}' to \"{setName}\".", NotificationType.Success);
-        SLSKDONET.Views.Avalonia.StoryGraph.SetPickerDialog.ShowModal(window);
+            var added = 0;
+            foreach (var hash in hashes)
+                if (await sets.AppendTrackAsync(setId.Value, hash) is not null)
+                    added++;
+
+            if (added == 0)
+                _notificationService.Show("Add to Set", $"\"{setName}\" no longer exists.", NotificationType.Warning);
+            else
+                _notificationService.Show("Add to Set",
+                    $"Added {Utils.CountFormat.Of(added, "track")} to \"{setName}\". Open Sets to arrange it.",
+                    NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Add to Set failed for set {SetId}", setId);
+            _notificationService.Show("Add to Set", $"Couldn't add to the set: {ex.Message}", NotificationType.Error);
+        }
     }
 
     private async Task ExecuteOpenInCueForge(PlaylistTrackViewModel? track)

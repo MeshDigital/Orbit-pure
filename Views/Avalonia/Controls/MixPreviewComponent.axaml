@@ -115,7 +115,7 @@
                                   ToolTip.Tip="Edit cues right here: drag cues on the waveform, click one to rename it, change its role, pad, colour or loop, or delete it. Edits save automatically when you move on.">
                         <TextBlock Text="Edit cues" Foreground="{StaticResource BrushAccent}"/>
                     </ToggleButton>
-                    <Button Command="{Binding OpenInFlowBuilderCommand}" Background="Transparent" BorderThickness="0" Padding="6,2"
+                    <Button Command="{Binding OpenInFlowBuilderCommand}" IsVisible="{Binding !IsSetContext}" Background="Transparent" BorderThickness="0" Padding="6,2"
                             ToolTip.Tip="Open this playlist in Flow Builder for full-option editing">
                         <TextBlock Text="Open in Flow Builder" FontSize="10" Foreground="{StaticResource BrushAccent}"/>
                     </Button>

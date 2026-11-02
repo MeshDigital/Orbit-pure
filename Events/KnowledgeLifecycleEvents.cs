@@ -17,8 +17,5 @@ public record PerformanceSessionRecordedEvent(Guid SessionId);
 /// </summary>
 public record SetExportRequestedEvent(Guid SetProjectId, string DestinationRoot, bool FilesAndXml = true);
 
-/// <summary>Requests the Set Projects (Story Graph) surface, optionally for a specific set.</summary>
+/// <summary>Opens the Sets page, optionally on a specific set (handled by MainViewModel).</summary>
 public record OpenSetProjectsRequestedEvent(Guid? SetProjectId = null);
-
-/// <summary>Requests the Transition Lab surface, optionally for a specific track pair.</summary>
-public record OpenTransitionLabRequestedEvent(string? SourceTrackHash = null, string? TargetTrackHash = null);

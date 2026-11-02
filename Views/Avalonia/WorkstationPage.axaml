@@ -6,7 +6,6 @@
              xmlns:wsViews="clr-namespace:SLSKDONET.Views.Avalonia.Workstation"
              xmlns:models="clr-namespace:SLSKDONET.Models"
              xmlns:ctrl="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
-             xmlns:story="clr-namespace:SLSKDONET.Views.Avalonia.StoryGraph"
              mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="900"
              x:Class="SLSKDONET.Views.Avalonia.WorkstationPage"
              x:DataType="vm:WorkstationViewModel"
@@ -859,13 +858,6 @@
             </Border>
         </Grid>
 
-        <!-- Story Graph is a direct child of CockpitGrid Row 1, not of PrepWorkspaceGrid (which
-             collapses when IsWaveformMode is false). The visibility flag lives on a wrapper so it
-             binds to this page's DataContext; the panel itself overrides DataContext with its own VM.
-             Interim overlay until the Sets page replaces it (SETS_AND_TRANSITIONS_REBUILD_PLAN P2.10). -->
-        <Panel Grid.Row="1" IsVisible="{Binding IsStoryGraphActive}" ZIndex="30">
-            <story:StoryGraphPanel DataContext="{Binding StoryGraph}" Margin="184,16,24,16" />
-        </Panel>
 
         <GridSplitter Grid.Row="2"
                       Classes="shell-splitter"

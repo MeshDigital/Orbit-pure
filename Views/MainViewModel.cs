@@ -39,8 +39,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private readonly INavigationService _navigationService;
     private readonly IEventBus _eventBus;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
-    private readonly SLSKDONET.Services.Sets.ISetProjectService? _setProjects;
-    private readonly SLSKDONET.Views.INotificationService? _notifications;
+    private readonly SLSKDONET.ViewModels.Sets.SetsViewModel? _setsViewModel;
     private readonly DownloadManager _downloadManager;
     private readonly ISpotifyMetadataService _spotifyMetadata;
     private readonly SpotifyAuthService _spotifyAuth;
@@ -138,12 +137,10 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         SLSKDONET.ViewModels.LibraryImportViewModel? import = null,
         SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? activity = null,
         SLSKDONET.ViewModels.Workstation.WorkstationViewModel? workstation = null,
-        SLSKDONET.Services.Sets.ISetProjectService? setProjects = null,
-        SLSKDONET.Views.INotificationService? notifications = null)
+        SLSKDONET.ViewModels.Sets.SetsViewModel? sets = null)
 
     {
-        _setProjects = setProjects;
-        _notifications = notifications;
+        _setsViewModel = sets;
         _logger = logger;
         _config = config;
         _configManager = configManager;
@@ -169,21 +166,6 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         Import = import;
         Activity = activity;
         _workstation = workstation;
-
-        // Keep the nav highlight in sync with the Workstation's active tool (Story Graph vs plain
-        // decks). Without this, Set Projects and Workstation both light up together because they
-        // share IsWorkstationOverlayActive.
-        if (_workstation != null)
-        {
-            _workstation.PropertyChanged += (_, e) =>
-            {
-                if (e.PropertyName is nameof(SLSKDONET.ViewModels.Workstation.WorkstationViewModel.IsStoryGraphActive))
-                {
-                    OnPropertyChanged(nameof(IsSetProjectsNavActive));
-                    OnPropertyChanged(nameof(IsWorkstationNavActive));
-                }
-            };
-        }
         _rightPanelService = rightPanelService;
         PerfTracker = perfTracker;
 
@@ -264,6 +246,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _disposables.Add(_eventBus.GetEvent<OpenFlowBuilderForPlaylistEvent>()
             .Subscribe(evt => Dispatcher.UIThread.Post(() => HandleOpenFlowBuilderForPlaylist(evt))));
 
+        _disposables.Add(_eventBus.GetEvent<OpenSetProjectsRequestedEvent>()
+            .Subscribe(evt => Dispatcher.UIThread.Post(() => HandleOpenSetRequested(evt))));
+
         _disposables.Add(_eventBus.GetEvent<OpenLibraryForPlaylistEvent>()
             .Subscribe(evt => Dispatcher.UIThread.Post(() => HandleOpenLibraryForPlaylist(evt))));
 
@@ -280,13 +265,13 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateImportCommand = new RelayCommand(NavigateToImport); // Phase 6D
         NavigateAnalysisCommand = new RelayCommand(NavigateToAnalysis);
         NavigateWorkstationCommand = new RelayCommand(NavigateToWorkstation);
-        NavigateSetProjectsCommand = new RelayCommand(NavigateToSetProjects);
         NavigateDecksCommand = new RelayCommand(NavigateToDecks);
         NavigateTimelineCommand = new RelayCommand(NavigateToTimeline);
         NavigateEditLabCommand = new RelayCommand(NavigateToEditLab);
         NavigateCueForgeCommand = new RelayCommand(NavigateToCueForge);
         NavigateUsersCommand = new RelayCommand(NavigateToUsers);
         NavigateFlowBuilderCommand = new RelayCommand(NavigateToFlowBuilder);
+        NavigateSetsCommand = new RelayCommand(() => _navigationService.NavigateTo("Sets"));
         PlayPauseCommand = new RelayCommand(() => PlayerViewModel.TogglePlayPauseCommand.Execute(null));
         FocusSearchCommand = new RelayCommand(FocusSearch);
         // Expanded -> Mini -> Collapsed(hidden) -> Expanded. Each state's width transition is
@@ -508,6 +493,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.RegisterPage("CueForge", typeof(Avalonia.CueForgePage));
         _navigationService.RegisterPage("Users", typeof(Avalonia.UsersPage));
         _navigationService.RegisterPage("FlowBuilder", typeof(Avalonia.FlowBuilderPage));
+        _navigationService.RegisterPage("Sets", typeof(Avalonia.SetsPage));
 
         // Subscribe to navigation events
         _navigationService.Navigated += OnNavigated;
@@ -997,14 +983,13 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsSettingsOverlayActive => CurrentPageType == PageType.Settings;
     public bool IsWorkstationOverlayActive => IsCreativeOverlayPage(CurrentPageType);
     /// <summary>Nav highlight for the "Set Projects" entry (Workstation page + Story Graph tool).</summary>
-    public bool IsSetProjectsNavActive => IsWorkstationOverlayActive && _workstation?.IsStoryGraphActive == true;
-    /// <summary>Nav highlight for the plain "Workstation" entry (not on a tool surface).</summary>
-    public bool IsWorkstationNavActive => IsWorkstationOverlayActive
-        && _workstation?.IsStoryGraphActive != true;
+    /// <summary>Nav highlight for the "Workstation" entry.</summary>
+    public bool IsWorkstationNavActive => IsWorkstationOverlayActive;
     public bool IsCueForgeOverlayActive => CurrentPageType == PageType.CueForge;
     public bool IsEditLabOverlayActive => CurrentPageType == PageType.EditLab;
     public bool IsUsersOverlayActive => CurrentPageType == PageType.Users;
     public bool IsFlowBuilderOverlayActive => CurrentPageType == PageType.FlowBuilder;
+    public bool IsSetsOverlayActive => CurrentPageType == PageType.Sets;
 
     private static readonly string[] NavigationOverlayPropertyNames =
     [
@@ -1020,12 +1005,12 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         nameof(IsPlayerOverlayActive),
         nameof(IsSettingsOverlayActive),
         nameof(IsWorkstationOverlayActive),
-        nameof(IsSetProjectsNavActive),
         nameof(IsWorkstationNavActive),
         nameof(IsCueForgeOverlayActive),
         nameof(IsEditLabOverlayActive),
         nameof(IsUsersOverlayActive),
-        nameof(IsFlowBuilderOverlayActive)
+        nameof(IsFlowBuilderOverlayActive),
+        nameof(IsSetsOverlayActive)
     ];
 
     public static PageType ResolvePageType(Type? pageType, PageType fallback)
@@ -1047,6 +1032,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         if (typeof(Avalonia.EditLabPage).IsAssignableFrom(pageType)) return PageType.EditLab;
         if (typeof(Avalonia.UsersPage).IsAssignableFrom(pageType)) return PageType.Users;
         if (typeof(Avalonia.FlowBuilderPage).IsAssignableFrom(pageType)) return PageType.FlowBuilder;
+        if (typeof(Avalonia.SetsPage).IsAssignableFrom(pageType)) return PageType.Sets;
         // Was missing: opening Cue Forge kept the previous page highlighted (Dashboard at startup).
         if (typeof(Avalonia.CueForgePage).IsAssignableFrom(pageType)) return PageType.CueForge;
 
@@ -1260,13 +1246,13 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateImportCommand { get; } // Phase 6D
     public ICommand NavigateAnalysisCommand { get; }
     public ICommand NavigateWorkstationCommand { get; }
-    public ICommand NavigateSetProjectsCommand { get; }
     public ICommand NavigateDecksCommand { get; }
     public ICommand NavigateTimelineCommand { get; }
     public ICommand NavigateEditLabCommand { get; }
     public ICommand NavigateCueForgeCommand { get; }
     public ICommand NavigateUsersCommand { get; }
     public ICommand NavigateFlowBuilderCommand { get; }
+    public ICommand NavigateSetsCommand { get; }
     public ICommand PlayPauseCommand { get; }
     public ICommand FocusSearchCommand { get; }
     public ICommand ToggleNavigationCommand { get; }
@@ -1417,13 +1403,15 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.NavigateTo("Workstation");
     }
 
-    private void NavigateToSetProjects()
+    /// <summary>Shows the Sets page, opened on the requested set when one is given.</summary>
+    private void HandleOpenSetRequested(OpenSetProjectsRequestedEvent evt)
     {
-        _navigationService.NavigateTo("Workstation");
-        var sets = _setProjects ?? new SLSKDONET.Services.Sets.SetProjectService(_dbFactory);
-        var pickerVm = new SLSKDONET.ViewModels.StoryGraph.SetProjectPickerViewModel(_dbFactory, sets, _eventBus, _notifications);
-        SLSKDONET.Views.Avalonia.StoryGraph.SetPickerDialog.ShowModal(
-            new SLSKDONET.Views.Avalonia.StoryGraph.SetProjectPickerWindow(pickerVm));
+        var alreadyShown = CurrentPageType == PageType.Sets;
+        if (evt.SetProjectId is Guid setId)
+            _setsViewModel?.RequestOpen(setId); // consumed by the page's load on attach
+        _navigationService.NavigateTo("Sets");
+        if (alreadyShown && _setsViewModel is not null)
+            _ = _setsViewModel.LoadAsync(); // no re-attach when already on the page
     }
 
     private void NavigateToDecks() => NavigateToWorkstation();
