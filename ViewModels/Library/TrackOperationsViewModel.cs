@@ -42,6 +42,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     private readonly Services.Integrations.Serato.SeratoCueExportService? _seratoExport;
     private readonly Services.AudioAnalysis.CueDetrCueService? _cueDetrCues;
     private readonly IDbContextFactory<AppDbContext>? _dbFactory;
+    private readonly Services.Sets.ISetProjectService? _setProjects;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -99,10 +100,12 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         Services.Integrations.Serato.SeratoCueExportService? seratoExport = null,
         Services.AudioAnalysis.CueDetrCueService? cueDetrCues = null,
         EditLab.EditLabViewModel? editLabViewModel = null,
-        IDbContextFactory<AppDbContext>? dbFactory = null)
+        IDbContextFactory<AppDbContext>? dbFactory = null,
+        Services.Sets.ISetProjectService? setProjects = null)
     {
         _editLabViewModel = editLabViewModel;
         _dbFactory = dbFactory;
+        _setProjects = setProjects;
         _logger = logger;
         _downloadManager = downloadManager;
         _playerViewModel = playerViewModel;
@@ -950,9 +953,15 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     private void ExecuteAddToSet(PlaylistTrackViewModel? track)
     {
         track ??= LibraryViewModel?.Tracks.LeadSelectedTrack;
-        if (track == null || _dbFactory == null)
+        if (track == null)
         {
             _notificationService.Show("Add to Set", "Select a track first.", NotificationType.Warning);
+            return;
+        }
+        if (_dbFactory == null)
+        {
+            _logger.LogError("Add to Set unavailable: no database factory was injected");
+            _notificationService.Show("Add to Set", "Sets are unavailable right now.", NotificationType.Error);
             return;
         }
 
@@ -963,14 +972,12 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        var vm = new SLSKDONET.ViewModels.StoryGraph.AddToSetViewModel(_dbFactory, hash);
+        var sets = _setProjects ?? new SLSKDONET.Services.Sets.SetProjectService(_dbFactory);
+        var vm = new SLSKDONET.ViewModels.StoryGraph.AddToSetViewModel(_dbFactory, sets, hash, _notificationService);
         var window = new SLSKDONET.Views.Avalonia.StoryGraph.AddToSetWindow(vm);
         vm.Completed += (_, setName) =>
-        {
-            window.Close();
             _notificationService.Show("Add to Set", $"Added '{track.Title}' to \"{setName}\".", NotificationType.Success);
-        };
-        window.Show();
+        SLSKDONET.Views.Avalonia.StoryGraph.SetPickerDialog.ShowModal(window);
     }
 
     private async Task ExecuteOpenInCueForge(PlaylistTrackViewModel? track)

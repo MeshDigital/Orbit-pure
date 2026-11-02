@@ -1152,12 +1152,14 @@ public partial class App : Application
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.AutoDownload.GhostAcquisitionOrchestrator>>()));
 
         // ── Phase 2: Knowledge Lifecycle agent swarm ─────────────────────
+        // Gated by AppConfig.EnableKnowledgeAgents (default off). PerformanceAnalystAgent and
+        // ExportAgent are not registered: nothing publishes PerformanceSessionRecordedEvent or
+        // SetExportRequestedEvent yet (rebuild plan D7; they return with P5.1 / P6.1).
         services.AddSingleton<Services.KnowledgeLifecycle.IKnowledgeAgent, Services.KnowledgeLifecycle.TransitionAgent>();
-        services.AddSingleton<Services.KnowledgeLifecycle.IKnowledgeAgent, Services.KnowledgeLifecycle.PerformanceAnalystAgent>();
-        services.AddSingleton<Services.KnowledgeLifecycle.IKnowledgeAgent, Services.KnowledgeLifecycle.ExportAgent>();
         services.AddHostedService<Services.KnowledgeLifecycle.KnowledgeSwarmHost>();
 
         // ── Slice K5: Story Graph canvas ────────────────────────────────
+        services.AddSingleton<Services.Sets.ISetProjectService, Services.Sets.SetProjectService>();
         services.AddTransient<SLSKDONET.ViewModels.StoryGraph.StoryGraphViewModel>();
     }
 

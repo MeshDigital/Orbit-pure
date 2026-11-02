@@ -39,6 +39,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private readonly INavigationService _navigationService;
     private readonly IEventBus _eventBus;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly SLSKDONET.Services.Sets.ISetProjectService? _setProjects;
+    private readonly SLSKDONET.Views.INotificationService? _notifications;
     private readonly DownloadManager _downloadManager;
     private readonly ISpotifyMetadataService _spotifyMetadata;
     private readonly SpotifyAuthService _spotifyAuth;
@@ -135,9 +137,13 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         SLSKDONET.ViewModels.Setup.SetupShellViewModel? setup = null,
         SLSKDONET.ViewModels.LibraryImportViewModel? import = null,
         SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? activity = null,
-        SLSKDONET.ViewModels.Workstation.WorkstationViewModel? workstation = null)
+        SLSKDONET.ViewModels.Workstation.WorkstationViewModel? workstation = null,
+        SLSKDONET.Services.Sets.ISetProjectService? setProjects = null,
+        SLSKDONET.Views.INotificationService? notifications = null)
 
     {
+        _setProjects = setProjects;
+        _notifications = notifications;
         _logger = logger;
         _config = config;
         _configManager = configManager;
@@ -164,18 +170,16 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         Activity = activity;
         _workstation = workstation;
 
-        // Keep the nav highlight in sync with the Workstation's active tool (Story Graph vs
-        // Transition Lab vs plain decks). Without this, Set Projects / Transition Lab / Workstation
-        // all light up together because they share IsWorkstationOverlayActive.
+        // Keep the nav highlight in sync with the Workstation's active tool (Story Graph vs plain
+        // decks). Without this, Set Projects and Workstation both light up together because they
+        // share IsWorkstationOverlayActive.
         if (_workstation != null)
         {
             _workstation.PropertyChanged += (_, e) =>
             {
-                if (e.PropertyName is nameof(SLSKDONET.ViewModels.Workstation.WorkstationViewModel.IsStoryGraphActive)
-                    or nameof(SLSKDONET.ViewModels.Workstation.WorkstationViewModel.IsTransitionLabActive))
+                if (e.PropertyName is nameof(SLSKDONET.ViewModels.Workstation.WorkstationViewModel.IsStoryGraphActive))
                 {
                     OnPropertyChanged(nameof(IsSetProjectsNavActive));
-                    OnPropertyChanged(nameof(IsTransitionLabNavActive));
                     OnPropertyChanged(nameof(IsWorkstationNavActive));
                 }
             };
@@ -277,7 +281,6 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateAnalysisCommand = new RelayCommand(NavigateToAnalysis);
         NavigateWorkstationCommand = new RelayCommand(NavigateToWorkstation);
         NavigateSetProjectsCommand = new RelayCommand(NavigateToSetProjects);
-        NavigateTransitionLabCommand = new RelayCommand(NavigateToTransitionLab);
         NavigateDecksCommand = new RelayCommand(NavigateToDecks);
         NavigateTimelineCommand = new RelayCommand(NavigateToTimeline);
         NavigateEditLabCommand = new RelayCommand(NavigateToEditLab);
@@ -995,12 +998,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsWorkstationOverlayActive => IsCreativeOverlayPage(CurrentPageType);
     /// <summary>Nav highlight for the "Set Projects" entry (Workstation page + Story Graph tool).</summary>
     public bool IsSetProjectsNavActive => IsWorkstationOverlayActive && _workstation?.IsStoryGraphActive == true;
-    /// <summary>Nav highlight for the "Transition Lab" entry.</summary>
-    public bool IsTransitionLabNavActive => IsWorkstationOverlayActive && _workstation?.IsTransitionLabActive == true;
     /// <summary>Nav highlight for the plain "Workstation" entry (not on a tool surface).</summary>
     public bool IsWorkstationNavActive => IsWorkstationOverlayActive
-        && _workstation?.IsStoryGraphActive != true
-        && _workstation?.IsTransitionLabActive != true;
+        && _workstation?.IsStoryGraphActive != true;
     public bool IsCueForgeOverlayActive => CurrentPageType == PageType.CueForge;
     public bool IsEditLabOverlayActive => CurrentPageType == PageType.EditLab;
     public bool IsUsersOverlayActive => CurrentPageType == PageType.Users;
@@ -1021,7 +1021,6 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         nameof(IsSettingsOverlayActive),
         nameof(IsWorkstationOverlayActive),
         nameof(IsSetProjectsNavActive),
-        nameof(IsTransitionLabNavActive),
         nameof(IsWorkstationNavActive),
         nameof(IsCueForgeOverlayActive),
         nameof(IsEditLabOverlayActive),
@@ -1262,7 +1261,6 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateAnalysisCommand { get; }
     public ICommand NavigateWorkstationCommand { get; }
     public ICommand NavigateSetProjectsCommand { get; }
-    public ICommand NavigateTransitionLabCommand { get; }
     public ICommand NavigateDecksCommand { get; }
     public ICommand NavigateTimelineCommand { get; }
     public ICommand NavigateEditLabCommand { get; }
@@ -1422,17 +1420,10 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void NavigateToSetProjects()
     {
         _navigationService.NavigateTo("Workstation");
-        var pickerVm = new SLSKDONET.ViewModels.StoryGraph.SetProjectPickerViewModel(_dbFactory, _eventBus);
-        var window = new SLSKDONET.Views.Avalonia.StoryGraph.SetProjectPickerWindow(pickerVm);
-        window.Show();
-    }
-
-    private void NavigateToTransitionLab()
-    {
-        _navigationService.NavigateTo("Workstation");
-        var pickerVm = new SLSKDONET.ViewModels.TransitionLab.TrackPairPickerViewModel(_dbFactory, _eventBus);
-        var window = new SLSKDONET.Views.Avalonia.TransitionLab.TrackPairPickerWindow(pickerVm);
-        window.Show();
+        var sets = _setProjects ?? new SLSKDONET.Services.Sets.SetProjectService(_dbFactory);
+        var pickerVm = new SLSKDONET.ViewModels.StoryGraph.SetProjectPickerViewModel(_dbFactory, sets, _eventBus, _notifications);
+        SLSKDONET.Views.Avalonia.StoryGraph.SetPickerDialog.ShowModal(
+            new SLSKDONET.Views.Avalonia.StoryGraph.SetProjectPickerWindow(pickerVm));
     }
 
     private void NavigateToDecks() => NavigateToWorkstation();

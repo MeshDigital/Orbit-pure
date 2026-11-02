@@ -41,12 +41,11 @@ public sealed class SetHealthDashboardViewModel : ReactiveObject
 
     public async Task LoadAsync(Guid setProjectId)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+        await using var db = await _dbFactory.CreateDbContextAsync();
 
         var set = await db.SetLists
             .Include(s => s.Tracks)
-            .FirstOrDefaultAsync(s => s.Id == setProjectId)
-            .ConfigureAwait(false);
+            .FirstOrDefaultAsync(s => s.Id == setProjectId);
         if (set is null)
         {
             Report = null;
@@ -55,7 +54,7 @@ public sealed class SetHealthDashboardViewModel : ReactiveObject
 
         var ordered = set.Tracks.OrderBy(t => t.Position).ToList();
         var eventProfile = set.EventProfileId is Guid epId
-            ? await db.EventProfiles.FirstOrDefaultAsync(e => e.Id == epId).ConfigureAwait(false)
+            ? await db.EventProfiles.FirstOrDefaultAsync(e => e.Id == epId)
             : null;
 
         var edgeScores = new List<double>();
@@ -74,8 +73,7 @@ public sealed class SetHealthDashboardViewModel : ReactiveObject
                 var edge = await db.TransitionKnowledge
                     .FirstOrDefaultAsync(e =>
                         e.SourceTrackId == from.TrackUniqueHash &&
-                        e.TargetTrackId == slot.TrackUniqueHash)
-                    .ConfigureAwait(false);
+                        e.TargetTrackId == slot.TrackUniqueHash);
 
                 edgeScores.Add(edge is null ? 50.0 : edge.CompatibilityScore);
             }

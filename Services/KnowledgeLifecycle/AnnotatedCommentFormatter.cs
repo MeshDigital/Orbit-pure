@@ -1,3 +1,4 @@
+using System.Globalization;
 using SLSKDONET.Data.Entities;
 
 namespace SLSKDONET.Services.KnowledgeLifecycle;
@@ -28,10 +29,14 @@ public static class AnnotatedCommentFormatter
         KnowledgeConfidenceLevel confidence,
         double freshness)
     {
+        // Invariant culture: the comment lands in Rekordbox/CDJ files, so a nl/de/fr machine must not
+        // write "F:0,95".
+        var inv = CultureInfo.InvariantCulture;
         var healthPart = health is null
             ? string.Empty
-            : $"[N:{health.NarrativeScore:F0} T:{health.TechnicalScore:F0} R:{health.PerformanceRiskScore:F0}] ";
+            : string.Format(inv, "[N:{0:F0} T:{1:F0} R:{2:F0}] ",
+                health.NarrativeScore, health.TechnicalScore, health.PerformanceRiskScore);
 
-        return $"{healthPart}C:{ConfidenceTier(confidence)} F:{freshness / 100.0:F2}";
+        return string.Format(inv, "{0}C:{1} F:{2:F2}", healthPart, ConfidenceTier(confidence), freshness / 100.0);
     }
 }

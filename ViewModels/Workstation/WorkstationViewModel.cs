@@ -353,7 +353,6 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     private readonly AppConfig                _appConfig;
     private readonly ConfigManager            _configManager;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
-    private readonly SLSKDONET.Services.Audio.ITransitionPreviewPlayer _transitionPreviewPlayer;
     private readonly ILogger<WorkstationViewModel>? _logger;
     private readonly SLSKDONET.Services.Library.PlaylistExportService? _playlistExporter;
     private readonly IDialogService? _dialogService;
@@ -782,15 +781,15 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         set
         {
             // Legacy Flow mode requests and restored sessions fold back to Prep (in-app MIX lives
-            // in Flow Builder); StoryGraph (Set Projects) is a distinct surface that is allowed through.
-            if (value == WorkstationMode.Flow)
+            // in Flow Builder). Transition Lab is retired pending the shared transition editor
+            // (SETS_AND_TRANSITIONS_REBUILD_PLAN P0.7/P3); StoryGraph (Set Projects) is allowed through.
+            if (value is WorkstationMode.Flow or WorkstationMode.TransitionLab)
                 value = WorkstationMode.Waveform;
             if (_activeMode == value) return;
             this.RaiseAndSetIfChanged(ref _activeMode, value);
             this.RaisePropertyChanged(nameof(IsWaveformMode));
             this.RaisePropertyChanged(nameof(IsFlowMode));
             this.RaisePropertyChanged(nameof(IsStoryGraphActive));
-            this.RaisePropertyChanged(nameof(IsTransitionLabActive));
             SynchronizeToolSelection();
             RaiseHeaderProperties();
         }
@@ -799,17 +798,14 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public bool IsWaveformMode => ActiveMode == WorkstationMode.Waveform;
     public bool IsFlowMode     => ActiveMode == WorkstationMode.Flow;
     public bool IsStoryGraphActive => ActiveMode == WorkstationMode.StoryGraph;
-    public bool IsTransitionLabActive => ActiveMode == WorkstationMode.TransitionLab;
 
     /// <summary>The Story Graph child view model for the Set Projects surface.</summary>
     public SLSKDONET.ViewModels.StoryGraph.StoryGraphViewModel StoryGraph { get; }
 
-    /// <summary>The Transition Lab child view model for the Transition Lab surface.</summary>
-    public SLSKDONET.ViewModels.TransitionLab.TransitionLabViewModel TransitionLab { get; }
-
     /// <summary>Loads a SetProject's Story Graph and switches the cockpit to the Story Graph surface.</summary>
     public async Task LoadStoryGraphAsync(Guid setProjectId)
     {
+        // LoadSetAsync logs + toasts its own failures.
         await StoryGraph.LoadSetAsync(setProjectId);
         ActiveMode = WorkstationMode.StoryGraph;
     }
@@ -820,13 +816,6 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             await LoadStoryGraphAsync(setId);
         else
             ActiveMode = WorkstationMode.StoryGraph;
-    }
-
-    private async Task HandleTransitionLabOpenAsync(OpenTransitionLabRequestedEvent evt)
-    {
-        if (!string.IsNullOrEmpty(evt.SourceTrackHash) && !string.IsNullOrEmpty(evt.TargetTrackHash))
-            await TransitionLab.LoadAsync(evt.SourceTrackHash, evt.TargetTrackHash);
-        ActiveMode = WorkstationMode.TransitionLab;
     }
 
     // ── Inline Export panel (shown in Export mode) ────────────────────────────
@@ -970,7 +959,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         AnalyzeTrackStructureJob analyzeJob, IEventBus eventBus,
         AppConfig appConfig, ConfigManager configManager,
         IDbContextFactory<AppDbContext> dbFactory,
-        SLSKDONET.Services.Audio.ITransitionPreviewPlayer transitionPreviewPlayer,
+        SLSKDONET.ViewModels.StoryGraph.StoryGraphViewModel storyGraph,
         ILogger<WorkstationViewModel>? logger = null,
         SLSKDONET.Services.Library.PlaylistExportService? playlistExporter = null,
         IDialogService? dialogService = null,
@@ -991,9 +980,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         _sessionService    = sessionService;
         _orbBundleService  = orbBundleService;
         _undoService       = undoService;
-        _transitionPreviewPlayer = transitionPreviewPlayer;
-        StoryGraph = new SLSKDONET.ViewModels.StoryGraph.StoryGraphViewModel(dbFactory, undoService);
-        TransitionLab = new SLSKDONET.ViewModels.TransitionLab.TransitionLabViewModel(dbFactory, transitionPreviewPlayer, null);
+        // Story Graph keeps its own undo stack; the shared IUndoService stays Workstation-only.
+        StoryGraph = storyGraph;
         _analyzeJob        = analyzeJob;
         _eventBus          = eventBus;
         _appConfig         = appConfig;
@@ -1035,11 +1023,6 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         _eventBus.GetEvent<OpenSetProjectsRequestedEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(evt => _ = HandleSetProjectsOpenAsync(evt))
-            .DisposeWith(_disposables);
-
-        _eventBus.GetEvent<OpenTransitionLabRequestedEvent>()
-            .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(evt => _ = HandleTransitionLabOpenAsync(evt))
             .DisposeWith(_disposables);
 
         _eventBus.GetEvent<AnalysisQueueStatusChangedEvent>()
@@ -3994,6 +3977,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         _analysisCts?.Cancel();
         _analysisCts?.Dispose();
         ExportPanel.Dispose();
+        StoryGraph.Dispose();
         _disposables.Dispose();
         foreach (var d in Decks) d.Dispose();
     }

@@ -7,6 +7,8 @@ using Microsoft.EntityFrameworkCore;
 using ReactiveUI;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
+using SLSKDONET.Services.Sets;
+using SLSKDONET.Views;
 
 namespace SLSKDONET.ViewModels.StoryGraph;
 
@@ -16,11 +18,13 @@ public sealed record AddToSetItem(Guid Id, string Name, SetProjectStatus Status)
 /// <summary>
 /// Lightweight picker for the Library "Add to Set" flow. Lists the most recent non-archived sets
 /// plus a "New Set…" action; choosing one appends the track to that set and raises
-/// <see cref="Completed"/> with the set name.
+/// <see cref="Completed"/> with the set name. Failures are toasted, never swallowed.
 /// </summary>
 public sealed class AddToSetViewModel : ReactiveObject, IDisposable
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly ISetProjectService _sets;
+    private readonly INotificationService? _notifications;
     private readonly string _trackUniqueHash;
 
     public ObservableCollection<AddToSetItem> Items { get; } = new();
@@ -38,76 +42,78 @@ public sealed class AddToSetViewModel : ReactiveObject, IDisposable
     /// <summary>Raised with the set name the track was added to (the window closes on this).</summary>
     public event EventHandler<string>? Completed;
 
-    public AddToSetViewModel(IDbContextFactory<AppDbContext> dbFactory, string trackUniqueHash)
+    public AddToSetViewModel(
+        IDbContextFactory<AppDbContext> dbFactory,
+        ISetProjectService sets,
+        string trackUniqueHash,
+        INotificationService? notifications = null)
     {
         _dbFactory = dbFactory;
+        _sets = sets;
         _trackUniqueHash = trackUniqueHash;
+        _notifications = notifications;
         AddCommand = ReactiveCommand.CreateFromTask(AddAsync);
         NewSetCommand = ReactiveCommand.CreateFromTask(NewSetAsync);
     }
 
     public async Task LoadAsync()
     {
-        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync();
 
-        var sets = await db.SetLists
-            .Where(s => s.Status != SetProjectStatus.Archived)
-            .OrderByDescending(s => s.LastModifiedAt)
-            .Take(8)
-            .ToListAsync()
-            .ConfigureAwait(false);
+            var sets = await db.SetLists
+                .AsNoTracking()
+                .Where(s => s.Status != SetProjectStatus.Archived)
+                .OrderByDescending(s => s.LastModifiedAt)
+                .Take(8)
+                .ToListAsync();
 
-        Items.Clear();
-        foreach (var set in sets)
-            Items.Add(new AddToSetItem(set.Id, set.Name, set.Status));
+            Items.Clear();
+            foreach (var set in sets)
+                Items.Add(new AddToSetItem(set.Id, set.Name, set.Status));
+        }
+        catch (Exception ex)
+        {
+            Fail("Couldn't load your sets", ex);
+        }
     }
 
     private async Task AddAsync()
     {
-        if (SelectedItem is null)
+        if (SelectedItem is not { } target)
             return;
-        await AppendTrackAsync(SelectedItem.Id).ConfigureAwait(false);
-        Completed?.Invoke(this, SelectedItem.Name);
+        try
+        {
+            if (await _sets.AppendTrackAsync(target.Id, _trackUniqueHash) is null)
+            {
+                _notifications?.Show("Add to Set", $"\"{target.Name}\" no longer exists.", NotificationType.Warning);
+                return;
+            }
+            Completed?.Invoke(this, target.Name);
+        }
+        catch (Exception ex)
+        {
+            Fail("Couldn't add the track", ex);
+        }
     }
 
     private async Task NewSetAsync()
     {
-        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
-
-        var set = new SetListEntity
+        try
         {
-            Name = $"Set {DateTime.Now:MMM d HH:mm}",
-            Status = SetProjectStatus.Draft,
-        };
-        db.SetLists.Add(set);
-        await db.SaveChangesAsync().ConfigureAwait(false);
-
-        await AppendTrackAsync(set.Id).ConfigureAwait(false);
-        Completed?.Invoke(this, set.Name);
+            var set = await _sets.CreateSetAsync();
+            await _sets.AppendTrackAsync(set.Id, _trackUniqueHash);
+            Completed?.Invoke(this, set.Name);
+        }
+        catch (Exception ex)
+        {
+            Fail("Couldn't create the set", ex);
+        }
     }
 
-    private async Task AppendTrackAsync(Guid setId)
-    {
-        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
-
-        var set = await db.SetLists
-            .Include(s => s.Tracks)
-            .FirstOrDefaultAsync(s => s.Id == setId)
-            .ConfigureAwait(false);
-
-        if (set is null)
-            return;
-
-        var position = set.Tracks.Count == 0 ? 0 : set.Tracks.Max(t => t.Position) + 1;
-        db.SetTracks.Add(new SetTrackEntity
-        {
-            SetListId = setId,
-            TrackUniqueHash = _trackUniqueHash,
-            Position = position,
-        });
-        set.LastModifiedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync().ConfigureAwait(false);
-    }
+    private void Fail(string message, Exception ex)
+        => _notifications?.Show("Add to Set", $"{message}: {ex.Message}", NotificationType.Error);
 
     public void Dispose()
     {

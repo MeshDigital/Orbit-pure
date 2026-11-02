@@ -16,5 +16,6 @@ public partial class AddToSetWindow : Window
         DataContext = viewModel;
         viewModel.Completed += (_, _) => Close();
         Opened += async (_, _) => await viewModel.LoadAsync();
+        Closed += (_, _) => viewModel.Dispose();
     }
 }

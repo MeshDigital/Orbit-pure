@@ -275,6 +275,21 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>Opt-in background knowledge agents (transition-candidate scan). Applies after restart.</summary>
+    public bool EnableKnowledgeAgents
+    {
+        get => _config.EnableKnowledgeAgents;
+        set
+        {
+            if (_config.EnableKnowledgeAgents != value)
+            {
+                _config.EnableKnowledgeAgents = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
     /// <summary>Toggle for the live network-activity feed (Soulseek + HTTP + socket/DNS). Local-only.</summary>
     public bool EnableNetworkActivityMonitor
     {
