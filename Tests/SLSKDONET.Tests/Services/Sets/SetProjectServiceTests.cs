@@ -116,6 +116,30 @@ public sealed class SetProjectServiceTests : IDisposable
         Assert.DoesNotContain(active, s => s.Id == archived.Id);
     }
 
+    /// <summary>
+    /// Older rows can hold "2026-11-02T10:00:00" (T separator) while EF writes "2026-11-02 16:00:00".
+    /// Ordered as SQLite text, every T-row sorts above every space-row whatever the time — the live
+    /// rail showed a stale set first. Ordering must happen on parsed DateTimes.
+    /// </summary>
+    [Fact]
+    public async Task GetSetsAsync_OrdersByRealTime_AcrossStoredDateFormats()
+    {
+        // Same day as "now", but earlier: only the separator decides a text comparison.
+        var earlierToday = DateTime.UtcNow.Date.ToString("yyyy-MM-dd'T'00:00:01", System.Globalization.CultureInfo.InvariantCulture);
+        using (var db = _db.Factory.CreateDbContext())
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "INSERT INTO SetLists (Id, Name, CreatedAt, LastModifiedAt, Status, FlowHealth) " +
+                "VALUES ('6a2b7a9e-0000-0000-0000-000000000001', 'Old format', {0}, {0}, 0, 0)", earlierToday);
+        }
+        var fresh = await Service.CreateSetAsync("Fresh");
+
+        var sets = await Service.GetSetsAsync();
+
+        Assert.Equal(new[] { fresh.Id.ToString(), "6a2b7a9e-0000-0000-0000-000000000001" },
+            sets.Select(s => s.Id.ToString()));
+    }
+
     [Fact]
     public async Task GetSlotsAsync_JoinsLibraryAndAnalysis_InSpineOrder()
     {

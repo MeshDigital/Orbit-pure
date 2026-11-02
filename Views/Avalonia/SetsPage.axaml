@@ -202,7 +202,7 @@
 
             <!-- Set Health strip (P2.7) with the energy arc (P2.8) -->
             <Border DockPanel.Dock="Bottom" Classes="card" Margin="0,16,0,0" IsVisible="{Binding HasSlots}">
-                <Grid ColumnDefinitions="Auto,Auto,Auto,*">
+                <Grid ColumnDefinitions="Auto,Auto,*,Auto">
                     <TextBlock Classes="section" Text="SET HEALTH" VerticalAlignment="Center" Margin="0,0,16,0" />
 
                     <ItemsControl Grid.Column="1" ItemsSource="{Binding Health.Metrics}">
@@ -211,7 +211,7 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:HealthMetric">
-                                <StackPanel Width="112" Spacing="4" VerticalAlignment="Center" ToolTip.Tip="{Binding Hint}"
+                                <StackPanel Width="104" Spacing="4" VerticalAlignment="Center" ToolTip.Tip="{Binding Hint}"
                                             Background="Transparent">
                                     <Grid ColumnDefinitions="*,Auto">
                                         <TextBlock Classes="caption" Text="{Binding Label}" />
@@ -227,11 +227,11 @@
                     <StackPanel Grid.Column="2" Spacing="2" Margin="24,0,0,0" VerticalAlignment="Center"
                                 ToolTip.Tip="Energy target per slot (solid) against the tracks' analysed energy (dashed)">
                         <TextBlock Classes="caption" Text="Energy arc · target vs track" />
-                        <ctrl:EnergyArcControl Width="200" Height="32"
+                        <ctrl:EnergyArcControl MinWidth="120" Height="32"
                                                Targets="{Binding Health.EnergyTargets}" Actuals="{Binding Health.TrackEnergies}" />
                     </StackPanel>
 
-                    <StackPanel Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <StackPanel Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="16,0,0,0">
                         <Button Classes="ghost small" IsVisible="{Binding Health.HasIssues}"
                                 ToolTip.Tip="Things worth fixing; pick one to jump to its slot">
                             <StackPanel Orientation="Horizontal" Spacing="4">

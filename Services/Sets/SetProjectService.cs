@@ -189,12 +189,17 @@ public sealed class SetProjectService : ISetProjectService
             sets = sets.Where(s => s.Status != SetProjectStatus.Archived);
 
         var rows = await sets
-            .OrderByDescending(s => s.LastModifiedAt)
             .Select(s => new { s.Id, s.Name, s.Status, s.LastModifiedAt, SlotCount = s.Tracks.Count })
             .ToListAsync()
             .ConfigureAwait(false);
 
-        return rows.Select(r => new SetSummary(r.Id, r.Name, r.Status, r.SlotCount, r.LastModifiedAt)).ToList();
+        // Order client-side: rows written by different code paths store the timestamp as
+        // "yyyy-MM-ddTHH:mm:ss" or "yyyy-MM-dd HH:mm:ss", and SQLite compares them as text, so a
+        // T-separated row outranks every space-separated one regardless of time. Set counts are small.
+        return rows
+            .OrderByDescending(r => r.LastModifiedAt)
+            .Select(r => new SetSummary(r.Id, r.Name, r.Status, r.SlotCount, r.LastModifiedAt))
+            .ToList();
     }
 
     public async Task<IReadOnlyList<SetSlotInfo>> GetSlotsAsync(Guid setId)
