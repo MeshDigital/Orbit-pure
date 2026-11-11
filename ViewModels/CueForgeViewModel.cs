@@ -729,6 +729,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> SetDownbeatAtPlayheadCommand { get; }
     /// <summary>Slips the whole grid by 10 ms ("-" earlier, "+" later).</summary>
     public ReactiveCommand<string, Unit> SlipGridCommand { get; }
+    /// <summary>Slips the whole grid by 1 ms ("-" earlier, "+" later) — fine control.</summary>
+    public ReactiveCommand<string, Unit> SlipGridFineCommand { get; }
     /// <summary>Puts the downbeat back where the analysis had it when the track was opened.</summary>
     public ReactiveCommand<Unit, Unit> ResetGridCommand { get; }
     /// <summary>Corrects a wrong detected tempo: double / halve the grid BPM.</summary>
@@ -736,11 +738,53 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> HalveBpmCommand { get; }
     /// <summary>Applies the manually-typed BPM in <see cref="ManualBpmInput"/>.</summary>
     public ReactiveCommand<Unit, Unit> ApplyManualBpmCommand { get; }
+    /// <summary>Registers a tap for tap tempo.</summary>
+    public ReactiveCommand<Unit, Unit> TapTempoCommand { get; }
+    /// <summary>Applies the tapped BPM through the grid edit service.</summary>
+    public ReactiveCommand<Unit, Unit> ApplyTappedBpmCommand { get; }
+    /// <summary>Marks the current playhead as the first or second downbeat for two-point BPM.</summary>
+    public ReactiveCommand<Unit, Unit> TwoPointBpmMarkCommand { get; }
+    /// <summary>Applies the BPM computed from the two marked downbeats.</summary>
+    public ReactiveCommand<Unit, Unit> ApplyTwoPointBpmCommand { get; }
 
     private double _analysedDownbeat;
     private double _analysedBpm;
     private bool _isGridEdited;
     public bool IsGridEdited { get => _isGridEdited; private set => this.RaiseAndSetIfChanged(ref _isGridEdited, value); }
+
+    private readonly Services.AudioAnalysis.TapTempoTracker _tapTempo = new();
+    private double? _tappedBpm;
+    private double? _twoPointBarOneSeconds;
+    private double? _twoPointSecondBarOneSeconds;
+
+    /// <summary>The current tapped BPM, or "—" before the first two taps.</summary>
+    public string TappedBpmDisplay => _tappedBpm is { } b
+        ? b.ToString("0.#", CultureInfo.InvariantCulture)
+        : "—";
+    public bool HasTappedBpm => _tappedBpm.HasValue;
+
+    /// <summary>Cumulative grid offset versus the analysed grid, in milliseconds (e.g. "+23 ms").</summary>
+    public string GridOffsetDisplay => Math.Abs(GridOffset - _analysedDownbeat) < 1e-4
+        ? "0 ms"
+        : $"{(GridOffset - _analysedDownbeat) * 1000:+0;-0;0} ms";
+
+    /// <summary>Two-point BPM workflow status.</summary>
+    public string TwoPointBpmStatus =>
+        _twoPointBarOneSeconds is null ? "Mark Bar 1 at the playhead"
+        : _twoPointSecondBarOneSeconds is null ? "Jump N bars, then mark that bar's 1"
+        : $"BPM from two downbeats: {TwoPointBpmValue:0.##}";
+
+    public double TwoPointBpmValue =>
+        _twoPointBarOneSeconds is { } t1 && _twoPointSecondBarOneSeconds is { } t2
+            ? Services.AudioAnalysis.TwoPointBpm.Calculate(t1, t2, BarsBetweenMarkedDownbeats(t1, t2))
+            : 0;
+
+    private int BarsBetweenMarkedDownbeats(double t1, double t2)
+    {
+        if (GridBpm <= 0) return 0;
+        double bar = 240.0 / GridBpm;
+        return Math.Max(1, (int)Math.Round((t2 - t1) / bar));
+    }
 
     public ReactiveCommand<Unit, Unit> ZoomInCommand { get; }
     public ReactiveCommand<Unit, Unit> ZoomOutCommand { get; }
@@ -911,11 +955,16 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
         BeatJumpCommand = ReactiveCommand.Create<int>(dir => BeatJump(dir), hasTrack);
         SetDownbeatAtPlayheadCommand = ReactiveCommand.CreateFromTask(SetDownbeatAtPlayheadAsync, canAct);
-        SlipGridCommand = ReactiveCommand.CreateFromTask<string>(SlipGridAsync, canAct);
+        SlipGridCommand = ReactiveCommand.CreateFromTask<string>(dir => SlipGridByAsync(dir == "-" ? -0.010 : 0.010), canAct);
+        SlipGridFineCommand = ReactiveCommand.CreateFromTask<string>(dir => SlipGridByAsync(dir == "-" ? -0.001 : 0.001), canAct);
         ResetGridCommand = ReactiveCommand.CreateFromTask(ResetGridAsync, this.WhenAnyValue(x => x.IsGridEdited));
         DoubleBpmCommand = ReactiveCommand.CreateFromTask(() => ScaleTempoAsync(2.0), hasTrack);
         HalveBpmCommand = ReactiveCommand.CreateFromTask(() => ScaleTempoAsync(0.5), hasTrack);
         ApplyManualBpmCommand = ReactiveCommand.CreateFromTask(ApplyManualBpmAsync, hasTrack);
+        TapTempoCommand = ReactiveCommand.Create(TapTempo, hasTrack);
+        ApplyTappedBpmCommand = ReactiveCommand.CreateFromTask(ApplyTappedBpmAsync, this.WhenAnyValue(x => x.HasTappedBpm));
+        TwoPointBpmMarkCommand = ReactiveCommand.Create(TwoPointBpmMark, canAct);
+        ApplyTwoPointBpmCommand = ReactiveCommand.CreateFromTask(ApplyTwoPointBpmAsync, this.WhenAnyValue(x => x.TwoPointBpmValue, bpm => bpm is > 40 and < 400));
 
         ZoomInCommand     = ReactiveCommand.Create(() => ZoomAroundPlayhead(1.5));
         ZoomOutCommand    = ReactiveCommand.Create(() => ZoomAroundPlayhead(1 / 1.5));
@@ -1309,6 +1358,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     {
         this.RaisePropertyChanged(nameof(GridBpm));
         this.RaisePropertyChanged(nameof(GridOffset));
+        this.RaisePropertyChanged(nameof(GridOffsetDisplay));
         this.RaisePropertyChanged(nameof(BpmDisplay));
         this.RaisePropertyChanged(nameof(CurrentBarBeatDisplay));
         this.RaisePropertyChanged(nameof(TimeTillDropBars));
@@ -1411,6 +1461,57 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         if (!double.TryParse(ManualBpmInput, NumberStyles.Float, CultureInfo.InvariantCulture, out var bpm))
             return;
         await ApplyBpmAsync(bpm);
+    }
+
+    private void TapTempo()
+    {
+        var tapped = _tapTempo.Tap(DateTime.UtcNow);
+        if (tapped is { } bpm && bpm is >= 40 and <= 400)
+        {
+            _tappedBpm = bpm;
+            this.RaisePropertyChanged(nameof(TappedBpmDisplay));
+            this.RaisePropertyChanged(nameof(HasTappedBpm));
+        }
+    }
+
+    private async Task ApplyTappedBpmAsync()
+    {
+        if (_tappedBpm is not { } bpm) return;
+        await ApplyBpmAsync(bpm);
+        _tapTempo.Reset();
+        _tappedBpm = null;
+        this.RaisePropertyChanged(nameof(TappedBpmDisplay));
+        this.RaisePropertyChanged(nameof(HasTappedBpm));
+    }
+
+    private void TwoPointBpmMark()
+    {
+        if (_twoPointBarOneSeconds is null)
+        {
+            _twoPointBarOneSeconds = CurrentPlayPosition;
+        }
+        else if (_twoPointSecondBarOneSeconds is null && CurrentPlayPosition > _twoPointBarOneSeconds)
+        {
+            _twoPointSecondBarOneSeconds = CurrentPlayPosition;
+        }
+        else
+        {
+            // Start over.
+            _twoPointBarOneSeconds = CurrentPlayPosition;
+            _twoPointSecondBarOneSeconds = null;
+        }
+        this.RaisePropertyChanged(nameof(TwoPointBpmStatus));
+        this.RaisePropertyChanged(nameof(TwoPointBpmValue));
+    }
+
+    private async Task ApplyTwoPointBpmAsync()
+    {
+        double bpm = TwoPointBpmValue;
+        if (bpm is < 40 or > 400) return;
+        await ApplyBpmAsync(bpm);
+        _twoPointBarOneSeconds = null;
+        _twoPointSecondBarOneSeconds = null;
+        this.RaisePropertyChanged(nameof(TwoPointBpmStatus));
     }
 
     public void UpdateCamelotKeyDisplay(string camelotKey)
@@ -1653,17 +1754,12 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         await ApplyGridAsync(barOne, $"The beat at {CueForgeGrid.FormatTime(nearestBeat)} is now the 1 of its bar. Re-run Auto-generate to re-place the auto cues.");
     }
 
-    internal async Task SlipGridAsync(string direction)
-    {
-        double delta = direction == "-" ? -0.010 : 0.010;
-        await SlipGridByAsync(delta);
-    }
-
     private async Task SlipGridByAsync(double delta)
     {
         if (TrackHash is not { } hash) return;
         double next = _downbeat + delta;
         if (next < 0) next += BarSeconds;
+        string message = $"Grid moved {Math.Abs(delta) * 1000:0} ms {(delta < 0 ? "earlier" : "later")}.";
 
         if (_gridEditService is not null)
         {
@@ -1679,13 +1775,13 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 IsGridEdited = Math.Abs(next - _analysedDownbeat) > 1e-4;
                 RaiseGridChanged();
                 Session.UpdateGrid(next);
-                Session.SetStatus($"Grid moved {(delta < 0 ? "10 ms earlier" : "10 ms later")}.");
+                Session.SetStatus(message);
             });
             return;
         }
 
         // Unit-test fallback: the legacy path only moves the downbeat, not the beat list.
-        await ApplyGridAsync(next, $"Grid moved {(delta < 0 ? "10 ms earlier" : "10 ms later")}.");
+        await ApplyGridAsync(next, message);
     }
 
     internal async Task ResetGridAsync()

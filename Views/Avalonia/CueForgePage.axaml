@@ -419,7 +419,15 @@
                                             <Button Classes="secondary small" Content="Bar 1 here" Command="{Binding SetDownbeatAtPlayheadCommand}" Margin="0,0,4,4"/>
                                             <Button Classes="ghost small" Content="−10 ms" Command="{Binding SlipGridCommand}" CommandParameter="-" Margin="0,0,4,4"/>
                                             <Button Classes="ghost small" Content="+10 ms" Command="{Binding SlipGridCommand}" CommandParameter="+" Margin="0,0,4,4"/>
+                                            <Button Classes="ghost small" Content="−1 ms" Command="{Binding SlipGridFineCommand}" CommandParameter="-" Margin="0,0,4,4"/>
+                                            <Button Classes="ghost small" Content="+1 ms" Command="{Binding SlipGridFineCommand}" CommandParameter="+" Margin="0,0,4,4"/>
                                         </WrapPanel>
+                                        <TextBlock Classes="caption mono" Text="{Binding GridOffsetDisplay}" ToolTip.Tip="Cumulative grid offset versus the analysed grid"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,4,0,0">
+                                            <Button Classes="ghost small" Content="Tap" Command="{Binding TapTempoCommand}" ToolTip.Tip="Tap the tempo"/>
+                                            <TextBlock Classes="caption mono" Text="{Binding TappedBpmDisplay}" VerticalAlignment="Center"/>
+                                            <Button Classes="ghost small" Content="Apply tapped BPM" Command="{Binding ApplyTappedBpmCommand}" IsVisible="{Binding HasTappedBpm}"/>
+                                        </StackPanel>
                                         <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding ResetGridCommand}" Content="Reset to the analysed grid" IsVisible="{Binding IsGridEdited}"/>
                                         <Border Classes="divider" Margin="0,4"/>
                                         <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding Session.RevertCommand}" Content="Revert to saved cues…"/>
@@ -557,6 +565,9 @@
                             ToolTip.Tip="Make the grid beat nearest the playhead the 1 of its bar"/>
                     <Button Classes="ghost small" Content="−10 ms" Command="{Binding SlipGridCommand}" CommandParameter="-" Margin="0,0,4,4"/>
                     <Button Classes="ghost small" Content="+10 ms" Command="{Binding SlipGridCommand}" CommandParameter="+" Margin="0,0,4,4"/>
+                    <Button Classes="ghost small" Content="−1 ms" Command="{Binding SlipGridFineCommand}" CommandParameter="-" Margin="0,0,4,4"/>
+                    <Button Classes="ghost small" Content="+1 ms" Command="{Binding SlipGridFineCommand}" CommandParameter="+" Margin="0,0,4,4"/>
+                    <TextBlock Classes="caption mono" Text="{Binding GridOffsetDisplay}" VerticalAlignment="Center" Margin="0,0,8,4"/>
                     <Button Classes="ghost small" Content="Reset" Command="{Binding ResetGridCommand}" IsVisible="{Binding IsGridEdited}" Margin="0,0,12,4"/>
                     <TextBlock Classes="caption" Text="Audition with beat jump:" VerticalAlignment="Center" Margin="0,0,4,4"/>
                     <Button Classes="icon small" Command="{Binding BeatJumpCommand}" ToolTip.Tip="Beat jump back ([)" Margin="0,0,2,4">

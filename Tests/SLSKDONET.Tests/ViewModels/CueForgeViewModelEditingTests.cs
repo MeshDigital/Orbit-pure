@@ -706,6 +706,43 @@ public class CueForgeViewModelEditingTests
     }
 
     [Fact]
+    public async Task SlipGridFine_MovesOneMillisecond()
+    {
+        var (vm, _) = CreateWithGrid();
+        await vm.LoadTrackAsync(Hash, "Emotional", "Flux Pavilion");
+
+        await vm.SlipGridFineCommand.Execute("-");
+
+        Assert.Equal(2.0066, vm.GridOffset, 4);
+        Assert.Equal("-1 ms", vm.GridOffsetDisplay);
+    }
+
+    [Fact]
+    public async Task TwoPointBpm_AppliesThroughTheGridEditService()
+    {
+        var features = new AudioFeaturesEntity { TrackUniqueHash = Hash, Bpm = 150f, DownbeatOffsetSeconds = 2.0076, TrackDuration = 243.2 };
+        var library = new Mock<ILibraryService>();
+        library.Setup(l => l.GetAudioFeaturesByHashAsync(Hash)).ReturnsAsync(features);
+        var grid = new FakeGridEditService();
+        var vm = new CueForgeViewModel(new FakeCueStore(), new FakeTransport(), new AppConfig(), libraryService: library.Object,
+            gridEditService: grid, ui: a => { a(); return Task.CompletedTask; });
+        await vm.LoadTrackAsync(Hash, "Emotional", "Flux Pavilion");
+
+        // Mark Bar 1 at the playhead, jump 16 bars, mark that bar's 1.
+        await vm.SeekPlayheadCommand.Execute(2.0076);
+        vm.TwoPointBpmMarkCommand.Execute().Subscribe();
+        double bar = 240.0 / 150.0;
+        await vm.SeekPlayheadCommand.Execute(2.0076 + 16 * bar);
+        vm.TwoPointBpmMarkCommand.Execute().Subscribe();
+
+        Assert.Equal(150.0, vm.TwoPointBpmValue, 2);
+
+        await vm.ApplyTwoPointBpmCommand.Execute();
+        Assert.Equal(1, grid.SetBpmCalls);
+        Assert.Equal(150.0, grid.LastBpm!.Value, 2);
+    }
+
+    [Fact]
     public async Task DoubleBpm_GoesThroughTheGridEditService_AndUpdatesTempo()
     {
         var features = new AudioFeaturesEntity { TrackUniqueHash = Hash, Bpm = 150f, DownbeatOffsetSeconds = 2.0076, TrackDuration = 243.2 };
