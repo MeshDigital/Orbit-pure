@@ -27,6 +27,9 @@ public interface ISetProjectService
     /// <summary>All sets, newest first, as summaries for the set-list rail.</summary>
     Task<IReadOnlyList<SetSummary>> GetSetsAsync();
 
+    /// <summary>A set's slots, ordered by position.</summary>
+    Task<IReadOnlyList<SetTrackEntity>> GetSlotsAsync(Guid setId);
+
     /// <summary>Renames a set. Returns false when the set no longer exists or the name is blank.</summary>
     Task<bool> RenameSetAsync(Guid setId, string name);
 
@@ -99,6 +102,16 @@ public sealed class SetProjectService : ISetProjectService
         return await db.SetLists
             .OrderByDescending(s => s.LastModifiedAt)
             .Select(s => new SetSummary(s.Id, s.Name, s.Status, s.Tracks.Count, s.LastModifiedAt))
+            .ToListAsync()
+            .ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<SetTrackEntity>> GetSlotsAsync(Guid setId)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+        return await db.SetTracks
+            .Where(t => t.SetListId == setId)
+            .OrderBy(t => t.Position)
             .ToListAsync()
             .ConfigureAwait(false);
     }

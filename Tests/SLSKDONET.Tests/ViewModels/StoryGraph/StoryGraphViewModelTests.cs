@@ -267,6 +267,9 @@ internal sealed class RecordingSetProjectService : ISetProjectService
     public Task<IReadOnlyList<SetSummary>> GetSetsAsync()
         => Task.FromResult<IReadOnlyList<SetSummary>>(Array.Empty<SetSummary>());
 
+    public Task<IReadOnlyList<SetTrackEntity>> GetSlotsAsync(Guid setId)
+        => Task.FromResult<IReadOnlyList<SetTrackEntity>>(Array.Empty<SetTrackEntity>());
+
     public Task<SetTrackEntity?> AppendTrackAsync(Guid setId, string trackUniqueHash)
         => Task.FromResult<SetTrackEntity?>(new SetTrackEntity { SetListId = setId, TrackUniqueHash = trackUniqueHash });
 
