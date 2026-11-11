@@ -565,8 +565,8 @@ public partial class App : Application
         services.AddSingleton<PostDownloadSpectralScanService>(); // Runs FFT analysis on completed FLAC downloads
         services.AddSingleton<PostDownloadDurationCaptureService>(); // TagLib duration probe for every completed download (any format)
         services.AddSingleton<AudioCorruptionScannerService>();   // Fast per-file corruption probe (FFmpeg + NAudio)
-        services.AddSingleton<LibraryCorruptionScanService>();    // Batch library-wide corruption scan
-        services.AddSingleton<CorruptFileRemediationService>();   // Disk delete + DB reset + re-queue for corrupt/missing files
+        services.AddSingleton<ILibraryCorruptionScanService, LibraryCorruptionScanService>();    // Batch library-wide corruption scan
+        services.AddSingleton<ICorruptFileRemediationService, CorruptFileRemediationService>();   // Disk delete + DB reset + re-queue for corrupt/missing files
         services.AddSingleton<UnidentifiedTrackCleanupService>(); // Full removal of "ID" placeholder tracks (no identity to redownload against)
         services.AddSingleton<DuplicateTrackCleanupService>(); // Merges duplicate LibraryEntries + removes duplicate in-playlist track rows
         services.AddSingleton<EngineDiagnosticsService>(); // Structured import/search audit trail — "Engine Diagnostics"
