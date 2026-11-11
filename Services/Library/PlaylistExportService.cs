@@ -601,9 +601,20 @@ public class PlaylistExportService
 
         IReadOnlyList<TempoAnchor> anchors;
         if (string.Equals(beatData?.GridSource, "Rekordbox", StringComparison.Ordinal))
+        {
             anchors = TempoGridDeriver.DeriveRekordboxLosslessAnchors(beatTimestamps, downbeatOffset);
+        }
+        else if (beatData?.IsVariableTempo == true)
+        {
+            var sectionAnchors = TempoGridDeriver.DeriveSectionAnchors(beatTimestamps, downbeatOffset);
+            anchors = sectionAnchors.Count > 0
+                ? sectionAnchors
+                : TempoGridDeriver.DeriveAnchors(beatTimestamps, downbeatOffset, gridBpm, beatData?.BpmStability);
+        }
         else
+        {
             anchors = TempoGridDeriver.DeriveAnchors(beatTimestamps, downbeatOffset, gridBpm, beatData?.BpmStability);
+        }
 
         foreach (var anchor in anchors)
         {

@@ -175,6 +175,23 @@ public static class TempoGridDeriver
     internal static int ComputeBattito(int anchorBeatIndex, int downbeatBeatIndex) =>
         (((anchorBeatIndex - downbeatBeatIndex) % 4) + 4) % 4 + 1;
 
+    /// <summary>
+    /// One TEMPO anchor per piecewise-constant section of a variable-tempo grid, with the correct
+    /// Battito (issue #226). Returns empty for a steady grid (the caller falls back to a single anchor).
+    /// </summary>
+    public static IReadOnlyList<TempoAnchor> DeriveSectionAnchors(
+        IReadOnlyList<double> beatTimestampsSeconds,
+        double downbeatOffsetSeconds)
+    {
+        var sections = SLSKDONET.Services.AudioAnalysis.BeatGridFitter.FitSections(beatTimestampsSeconds);
+        if (sections.Count <= 1) return Array.Empty<TempoAnchor>();
+
+        int downbeatIndex = NearestBeatIndex(beatTimestampsSeconds, downbeatOffsetSeconds);
+        return sections
+            .Select(s => new TempoAnchor(s.StartSeconds, s.Bpm, ComputeBattito(s.StartBeatIndex, downbeatIndex)))
+            .ToList();
+    }
+
     private static double[] SmoothRollingMean(double[] values, int window)
     {
         var result = new double[values.Length];
