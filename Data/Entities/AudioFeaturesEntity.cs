@@ -569,6 +569,9 @@ public class AudioFeaturesEntity
     /// <summary>Where <see cref="MusicStartSeconds"/> came from: <c>"Analysis"</c> or <c>"User"</c>.</summary>
     public string? MusicStartSource { get; set; }
 
+    /// <summary>True when the track has multiple piecewise-constant tempo sections (issue #226).</summary>
+    public bool IsVariableTempo { get; set; }
+
     // ============================================
     // Task 1.6 — Waveform Data Extraction
     // ============================================

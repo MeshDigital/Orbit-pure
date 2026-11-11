@@ -197,6 +197,101 @@ public static class BeatGridFitter
         return GridWriteRules.TryApplyRekordboxGrid(features, bpm, times, downbeat);
     }
 
+    /// <summary>One piecewise-constant tempo section of a variable-tempo grid (issue #226).</summary>
+    public sealed record TempoSection(int StartBeatIndex, double StartSeconds, double Bpm);
+
+    /// <summary>
+    /// Fits a variable-tempo beat list as piecewise-constant sections. Change-point detection on the
+    /// (rolling-median-smoothed) beat intervals finds where the tempo genuinely shifts (minimum
+    /// <paramref name="minSectionBeats"/> beats, runs within <paramref name="changeThresholdRatio"/> merged),
+    /// then each section's BPM is the median of its intervals — the beat list stays the single source
+    /// of truth, and the sections are derived, not stored. A steady track yields one section.
+    /// </summary>
+    public static IReadOnlyList<TempoSection> FitSections(
+        IReadOnlyList<double> ticks,
+        int minSectionBeats = 16,
+        double changeThresholdRatio = 0.003)
+    {
+        if (ticks.Count < 2) return Array.Empty<TempoSection>();
+        int n = ticks.Count;
+
+        var interval = new double[n - 1];
+        for (int i = 0; i < n - 1; i++) interval[i] = ticks[i + 1] - ticks[i];
+
+        var smoothed = RollingMedian(interval, window: 7);
+
+        var boundaries = new List<int>();
+        int idx = 1;
+        while (idx < smoothed.Length)
+        {
+            double prev = smoothed[idx - 1];
+            double cur = smoothed[idx];
+            if (prev > 0 && cur > 0 && Math.Abs(cur - prev) / prev > changeThresholdRatio)
+            {
+                boundaries.Add(idx);
+                // Refractory period: the rolling-median smear of one transition must not re-trigger
+                // as several nearby boundaries — a section is at least minSectionBeats long anyway.
+                idx += minSectionBeats;
+            }
+            else
+            {
+                idx++;
+            }
+        }
+
+        var sections = new List<TempoSection>();
+        int start = 0;
+        foreach (int boundary in boundaries.Concat(new[] { n }))
+        {
+            if (boundary - start >= minSectionBeats)
+            {
+                double bpm = SectionBpm(interval, start, boundary);
+                if (bpm > 0)
+                    sections.Add(new TempoSection(start, ticks[start], bpm));
+            }
+            start = boundary;
+        }
+
+        // Merge adjacent sections whose tempo is within the threshold (spurious splits).
+        var result = new List<TempoSection>();
+        foreach (var s in sections)
+        {
+            if (result.Count > 0 && Math.Abs(s.Bpm - result[^1].Bpm) / result[^1].Bpm < changeThresholdRatio)
+                continue;
+            result.Add(s);
+        }
+
+        return result;
+    }
+
+    private static double[] RollingMedian(double[] values, int window)
+    {
+        var result = new double[values.Length];
+        for (int i = 0; i < values.Length; i++)
+        {
+            int lo = Math.Max(0, i - window / 2);
+            int hi = Math.Min(values.Length, lo + window);
+            lo = Math.Max(0, hi - window);
+            var w = new double[hi - lo];
+            Array.Copy(values, lo, w, 0, hi - lo);
+            Array.Sort(w);
+            result[i] = w[w.Length / 2];
+        }
+        return result;
+    }
+
+    private static double SectionBpm(double[] interval, int startBeat, int endBeat)
+    {
+        // The section spans beats [startBeat, endBeat); its intervals are interval[startBeat .. endBeat-2].
+        int count = endBeat - startBeat - 1;
+        if (count <= 0) return 0;
+        var vals = new double[count];
+        Array.Copy(interval, startBeat, vals, 0, count);
+        Array.Sort(vals);
+        double median = vals[vals.Length / 2];
+        return median > 0 ? 60.0 / median : 0;
+    }
+
     /// <summary>Sub-bass structure events used to decide the downbeat (see <see cref="EstimateBarPhase"/>).</summary>
     public sealed record StructuralEvents(IReadOnlyList<double> BassReturns, IReadOnlyList<double> BassDropouts);
 

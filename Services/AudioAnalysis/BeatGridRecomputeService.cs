@@ -142,6 +142,14 @@ public sealed class BeatGridRecomputeService
 
             if (!fitted)
             {
+                // No single steady tempo: mark genuinely variable-tempo tracks (issue #226) so the UI
+                // can render them from the beat list instead of one BPM. The beat list is kept as-is.
+                var sections = BeatGridFitter.FitSections(ticks);
+                if (sections.Count > 1 && !features.IsVariableTempo)
+                {
+                    features.IsVariableTempo = true;
+                    await _database.UpdateAudioFeaturesAsync(features).ConfigureAwait(false);
+                }
                 unfittable++;
                 continue;
             }
