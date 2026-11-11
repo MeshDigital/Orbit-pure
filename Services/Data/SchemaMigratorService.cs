@@ -3172,6 +3172,35 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // 40. Discogs-400 style scores (P3). Persists the full multi-label style vector so the
+            // style playlists and genre fill can use the explainable top-style label instead of the
+            // collapsed 7-label electronic genre. Guarded per-column because SchemaReconciler may
+            // already have added these on installs that ran the EF model before this patch shipped.
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "StyleScoresBlob"))
+            {
+                _logger.LogInformation("Patching Schema: Adding StyleScoresBlob to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""StyleScoresBlob"" BLOB NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "StyleModelTag"))
+            {
+                _logger.LogInformation("Patching Schema: Adding StyleModelTag to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""StyleModelTag"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "TopStyle"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TopStyle to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""TopStyle"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "TopStyleConfidence"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TopStyleConfidence to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""TopStyleConfidence"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

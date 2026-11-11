@@ -39,6 +39,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
     private readonly Engine.Analysis.StructuralStrippingEngine _structuralStrippingEngine = new(new SubBassDropoutEngine());
     private readonly DiscogsEffnetEmbeddingExtractor _effnetEmbedding;
     private readonly EffnetClassifierHeadService _effnetClassifier;
+    private readonly DiscogsStyleLabels? _styleLabels;
     private readonly TrackFingerprintBuilderService _trackFingerprintBuilder;
     private readonly TrackFingerprintStore _trackFingerprintStore;
     private readonly BreakbeatAnalysisStrategy _breakbeatStrategy;
@@ -77,7 +78,8 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         BassMusicAnalysisStrategy bassMusicStrategy,
         DatabaseService db,
         ILogger<AudioAnalysisService> logger,
-        Rekordbox.IRekordboxPssiService? rekordbox = null)
+        Rekordbox.IRekordboxPssiService? rekordbox = null,
+        DiscogsStyleLabels? styleLabels = null)
     {
         _rekordbox = rekordbox;
         _ingestion     = ingestion;
@@ -92,6 +94,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         _energyAnalysis = energyAnalysis;
         _effnetEmbedding = effnetEmbedding;
         _effnetClassifier = effnetClassifier;
+        _styleLabels = styleLabels;
         _trackFingerprintBuilder = trackFingerprintBuilder;
         _trackFingerprintStore = trackFingerprintStore;
         _breakbeatStrategy = breakbeatStrategy;
@@ -163,7 +166,9 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             // the cancellation token, so a failure in the interim steps is handled at the await.
             // The in-process NWaves/NAudio profile skips this entirely — it analyses the PCM buffer
             // the in-process passes below already have in memory.
-            var needsEssentia = (engines & (AnalysisEngine.Tempo | AnalysisEngine.Key | AnalysisEngine.Mood)) != 0;
+            // Mood runs the in-process ONNX path only — it must not start the external Essentia
+            // process (a Mood-only backfill is meant to be cheap).
+            var needsEssentia = (engines & (AnalysisEngine.Tempo | AnalysisEngine.Key)) != 0;
             if (audioEngine != AnalysisAudioEngine.InProcess && _essentia.IsAvailable && needsEssentia)
             {
                 essentiaTask = _essentia.RunAsync(tempWav, cancellationToken);
@@ -322,6 +327,20 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                     {
                         features.Embedding = embeddingResult.Value.Embedding;
                         features.EmbeddingModelTag = _effnetEmbedding.ModelTag;
+
+                        // Persist the 400 Discogs style scores (previously discarded here) plus the
+                        // top style, so style playlists and genre fill can use the explainable label.
+                        if (_styleLabels is { IsUsable: true })
+                        {
+                            features.StyleScores = embeddingResult.Value.StylePredictions;
+                            features.StyleModelTag = _effnetEmbedding.ModelTag;
+                            var top = _styleLabels.TopN(embeddingResult.Value.StylePredictions, 1);
+                            if (top.Count > 0)
+                            {
+                                features.TopStyle = top[0].Key;
+                                features.TopStyleConfidence = Math.Clamp(top[0].Score, 0f, 1f);
+                            }
+                        }
 
                         var prediction = _effnetClassifier.Classify(embeddingResult.Value.Embedding);
                         onnxGenrePrediction = prediction;

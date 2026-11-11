@@ -965,6 +965,8 @@ public partial class App : Application
         // ── Library Maintenance (#211): reversible tag writes + run undo ──
         services.AddSingleton<Services.Library.Maintenance.TrackMetadataWriter>();
         services.AddSingleton<Services.Library.Maintenance.TagChangeService>();
+        services.AddSingleton<Services.Library.Maintenance.LibraryIdentityIndexLoader>();
+        services.AddSingleton<Services.Library.Maintenance.StyleBackfillService>();
         services.AddSingleton(sp => new Services.Enrichment.MetadataCredentialStore(
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.MetadataCredentialStore>>()));
         static System.Net.Http.HttpClient EnrichmentHttp(IServiceProvider sp) =>
@@ -1040,6 +1042,7 @@ public partial class App : Application
         // no output at all with the binary ORBIT bundles.
         services.AddSingleton<Services.Similarity.DiscogsEffnetEmbeddingExtractor>();
         services.AddSingleton<Services.Similarity.EffnetClassifierHeadService>();
+        services.AddSingleton<Services.Similarity.DiscogsStyleLabels>();
         services.AddSingleton<Services.AudioAnalysis.AudioAnalysisService>();
         services.AddSingleton<Services.IAudioAnalysisService>(sp =>
             sp.GetRequiredService<Services.AudioAnalysis.AudioAnalysisService>());
