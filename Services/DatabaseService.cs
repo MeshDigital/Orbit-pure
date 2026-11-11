@@ -2317,6 +2317,62 @@ public class DatabaseService
     }
 
     /// <summary>
+    /// Atomically applies a beat-grid edit: updates <see cref="AudioFeaturesEntity.Bpm"/>,
+    /// <see cref="AudioFeaturesEntity.BeatGridJson"/> and <see cref="AudioFeaturesEntity.DownbeatOffsetSeconds"/>
+    /// on the audio_features row, and sets BPM + ManualBPM on every LibraryEntries, Tracks and
+    /// PlaylistTracks row for the hash — so the grid edit, the analysis BPM and the displayed library
+    /// BPM can never disagree. TagBPM is left alone (the file tag is not a grid edit). Returns false
+    /// when the track has no audio_features row.
+    /// </summary>
+    public async Task<bool> ApplyGridEditAsync(AudioFeaturesEntity features, CancellationToken ct = default)
+    {
+        await _writeSemaphore.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            var existing = await context.AudioFeatures
+                .FirstOrDefaultAsync(f => f.TrackUniqueHash == features.TrackUniqueHash, ct)
+                .ConfigureAwait(false);
+            if (existing is null) return false;
+
+            features.Id = existing.Id;
+            context.Entry(existing).CurrentValues.SetValues(features);
+
+            double bpm = features.Bpm;
+            string hash = features.TrackUniqueHash;
+
+            foreach (var row in await context.PlaylistTracks
+                         .Where(t => t.TrackUniqueHash == hash)
+                         .ToListAsync(ct).ConfigureAwait(false))
+            {
+                row.BPM = bpm;
+                row.ManualBPM = bpm;
+            }
+            foreach (var row in await context.LibraryEntries
+                         .Where(t => t.UniqueHash == hash)
+                         .ToListAsync(ct).ConfigureAwait(false))
+            {
+                row.BPM = bpm;
+                row.ManualBPM = bpm;
+            }
+            foreach (var row in await context.Tracks
+                         .Where(t => t.GlobalId == hash)
+                         .ToListAsync(ct).ConfigureAwait(false))
+            {
+                row.BPM = bpm;
+                row.ManualBPM = bpm;
+            }
+
+            await context.SaveChangesAsync(ct).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>
     /// Finds AudioFeatures by file path.
     /// Used by PersonalClassifierService to classify tracks on the fly.
     /// </summary>

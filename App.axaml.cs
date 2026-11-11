@@ -712,6 +712,7 @@ public partial class App : Application
         services.AddSingleton<PerformanceTracker>(); // live perf overlay (Ctrl+Shift+P) — page-nav and opted-in ViewModel load timings
         services.AddSingleton<UiStallWatchdog>();
         services.AddSingleton<Services.AudioAnalysis.BeatGridRecomputeService>();
+        services.AddSingleton<Services.AudioAnalysis.IBeatGridEditService, Services.AudioAnalysis.BeatGridEditService>();
         services.AddSingleton<Services.AudioAnalysis.CueLayoutRepairService>();
         services.AddSingleton<IFileInteractionService, FileInteractionService>();
         services.AddSingleton<INotificationService, NotificationServiceAdapter>();

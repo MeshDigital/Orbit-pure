@@ -7,6 +7,7 @@ using System.Reactive;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -47,6 +48,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private readonly IDialogService? _dialogService;
     private readonly IEventBus? _eventBus;
     private readonly Services.Rekordbox.RekordboxLibraryService? _rekordbox;
+    private readonly Services.AudioAnalysis.IBeatGridEditService? _gridEditService;
     private readonly Func<Action, Task> _ui;
     private readonly CompositeDisposable _disposables = new();
 
@@ -736,6 +738,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> ApplyManualBpmCommand { get; }
 
     private double _analysedDownbeat;
+    private double _analysedBpm;
     private bool _isGridEdited;
     public bool IsGridEdited { get => _isGridEdited; private set => this.RaiseAndSetIfChanged(ref _isGridEdited, value); }
 
@@ -829,10 +832,11 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         IDialogService dialogService,
         IEventBus eventBus,
         CueSessionRegistry cueSessions,
-        Services.Rekordbox.RekordboxLibraryService rekordbox)
+        Services.Rekordbox.RekordboxLibraryService rekordbox,
+        Services.AudioAnalysis.IBeatGridEditService gridEditService)
         : this(cueService, new PlayerViewModelCueForgeTransport(playerViewModel, databaseService), config,
                libraryService, engineCueService, camelotKeyService, logger, configManager, dialogService, eventBus,
-               cueSessions, ui: null, restoreSession: true, rekordbox: rekordbox)
+               cueSessions, ui: null, restoreSession: true, rekordbox: rekordbox, gridEditService: gridEditService)
     {
     }
 
@@ -852,7 +856,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         CueSessionRegistry? cueSessions = null,
         Func<Action, Task>? ui = null,
         bool restoreSession = false,
-        Services.Rekordbox.RekordboxLibraryService? rekordbox = null)
+        Services.Rekordbox.RekordboxLibraryService? rekordbox = null,
+        Services.AudioAnalysis.IBeatGridEditService? gridEditService = null)
     {
         _cueService = cueService;
         _transport = transport;
@@ -865,6 +870,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         _dialogService = dialogService;
         _eventBus = eventBus;
         _rekordbox = rekordbox;
+        _gridEditService = gridEditService;
         _ui = ui ?? RunOnUiThread;
         _selectedCueGenerationProfile = CueGenerationProfiles.Find(config.CueGenerationProfile);
         foreach (var profile in CueGenerationProfiles.All)
@@ -907,8 +913,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         SetDownbeatAtPlayheadCommand = ReactiveCommand.CreateFromTask(SetDownbeatAtPlayheadAsync, canAct);
         SlipGridCommand = ReactiveCommand.CreateFromTask<string>(SlipGridAsync, canAct);
         ResetGridCommand = ReactiveCommand.CreateFromTask(ResetGridAsync, this.WhenAnyValue(x => x.IsGridEdited));
-        DoubleBpmCommand = ReactiveCommand.CreateFromTask(() => ApplyBpmAsync(GridBpm * 2), hasTrack);
-        HalveBpmCommand = ReactiveCommand.CreateFromTask(() => ApplyBpmAsync(GridBpm / 2), hasTrack);
+        DoubleBpmCommand = ReactiveCommand.CreateFromTask(() => ScaleTempoAsync(2.0), hasTrack);
+        HalveBpmCommand = ReactiveCommand.CreateFromTask(() => ScaleTempoAsync(0.5), hasTrack);
         ApplyManualBpmCommand = ReactiveCommand.CreateFromTask(ApplyManualBpmAsync, hasTrack);
 
         ZoomInCommand     = ReactiveCommand.Create(() => ZoomAroundPlayhead(1.5));
@@ -1193,6 +1199,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 _preciseBpm = features.Bpm > 0 ? features.Bpm : Bpm;
                 _downbeat = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
                 _analysedDownbeat = _downbeat;
+                _analysedBpm = _preciseBpm;
                 IsGridEdited = false;
                 genre = !string.IsNullOrWhiteSpace(features.DetectedSubGenre) ? features.DetectedSubGenre : features.ElectronicSubgenre;
                 _durationKnown = features.TrackDuration > 0;
@@ -1260,6 +1267,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             {
                 IsWaveformMissing = true;
                 _preciseBpm = 0; _downbeat = 0; Bpm = 120;
+                _analysedBpm = 0; _analysedDownbeat = 0;
                 TrackDuration = 300.0;
                 UpdateCamelotKeyDisplay("");
                 EnergyCurveData = null; VocalDensityCurveData = null; OnsetDensityCurveData = null;
@@ -1308,25 +1316,94 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(HasTimeTillDrop));
     }
 
-    /// <summary>Applies a corrected tempo, rescales the grid, and persists ManualBPM so it survives re-analysis.</summary>
+    /// <summary>Applies a corrected tempo through the beat-grid edit service so the grid BPM, the beat
+    /// list and the library BPM stay in agreement (regenerates a constant grid from Bar 1).</summary>
     private async Task ApplyBpmAsync(double newBpm)
     {
         if (newBpm is < 40 or > 400) return; // sanity bound
+        if (TrackHash is not { } hash) return;
+
+        if (_gridEditService is not null)
+        {
+            var result = await _gridEditService.SetBpmAsync(hash, newBpm, CancellationToken.None);
+            if (!result.Success)
+            {
+                Session.SetStatus(result.Reason ?? "Couldn't save the BPM; nothing was changed.", isError: true);
+                return;
+            }
+        }
+        else if (_libraryService is not null)
+        {
+            // Unit-test fallback when the edit service is not wired in (production always wires it).
+            try
+            {
+                await _libraryService.UpdateBpmAsync(hash, newBpm);
+                _eventBus?.Publish(new TrackMetadataUpdatedEvent(hash));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "CueForge: failed to save BPM for {Hash}", hash);
+                Session.SetStatus("Couldn't save the BPM; nothing was changed. See the log for details.", isError: true);
+                return;
+            }
+        }
+        else
+        {
+            Session.SetStatus("The beat-grid editor is unavailable.", isError: true);
+            return;
+        }
+
         _preciseBpm = newBpm;
         Bpm = (int)Math.Round(newBpm);
         RaiseGridChanged();
         ManualBpmInput = newBpm.ToString("0.#", CultureInfo.InvariantCulture);
+        IsGridEdited = Math.Abs(newBpm - _analysedBpm) > 1e-4 || Math.Abs(_downbeat - _analysedDownbeat) > 1e-4;
+        Session.SetStatus("Tempo updated. Re-run Auto-generate to re-place the auto cues.");
+    }
 
-        if (TrackHash is not { } hash || _libraryService is null) return;
-        try
+    /// <summary>Doubles or halves the grid tempo, keeping Bar 1 on a beat (the beat list changes, not
+    /// just the number).</summary>
+    private async Task ScaleTempoAsync(double factor)
+    {
+        if (TrackHash is not { } hash) return;
+        double newBpm = GridBpm * factor;
+        if (newBpm is < 40 or > 400) return;
+
+        if (_gridEditService is not null)
         {
-            await _libraryService.UpdateBpmAsync(hash, newBpm);
-            _eventBus?.Publish(new TrackMetadataUpdatedEvent(hash));
+            var result = await _gridEditService.ScaleTempoAsync(hash, factor, CancellationToken.None);
+            if (!result.Success)
+            {
+                Session.SetStatus(result.Reason ?? "Couldn't save the tempo change; nothing was changed.", isError: true);
+                return;
+            }
         }
-        catch (Exception ex)
+        else if (_libraryService is not null)
         {
-            _logger.LogError(ex, "CueForge: failed to save BPM for {Hash}", hash);
+            try
+            {
+                await _libraryService.UpdateBpmAsync(hash, newBpm);
+                _eventBus?.Publish(new TrackMetadataUpdatedEvent(hash));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "CueForge: failed to scale BPM for {Hash}", hash);
+                Session.SetStatus("Couldn't save the tempo change; nothing was changed. See the log for details.", isError: true);
+                return;
+            }
         }
+        else
+        {
+            Session.SetStatus("The beat-grid editor is unavailable.", isError: true);
+            return;
+        }
+
+        _preciseBpm = newBpm;
+        Bpm = (int)Math.Round(newBpm);
+        RaiseGridChanged();
+        ManualBpmInput = newBpm.ToString("0.#", CultureInfo.InvariantCulture);
+        IsGridEdited = Math.Abs(newBpm - _analysedBpm) > 1e-4 || Math.Abs(_downbeat - _analysedDownbeat) > 1e-4;
+        Session.SetStatus($"Tempo {(factor > 1.0 ? "doubled" : "halved")}. Re-run Auto-generate to re-place the auto cues.");
     }
 
     private async Task ApplyManualBpmAsync()
@@ -1576,21 +1653,95 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         await ApplyGridAsync(barOne, $"The beat at {CueForgeGrid.FormatTime(nearestBeat)} is now the 1 of its bar. Re-run Auto-generate to re-place the auto cues.");
     }
 
-    internal Task SlipGridAsync(string direction)
+    internal async Task SlipGridAsync(string direction)
     {
         double delta = direction == "-" ? -0.010 : 0.010;
-        double next = _downbeat + delta;
-        if (next < 0) next += BarSeconds;
-        return ApplyGridAsync(next, $"Grid moved {(delta < 0 ? "10 ms earlier" : "10 ms later")}.");
+        await SlipGridByAsync(delta);
     }
 
-    internal Task ResetGridAsync() => ApplyGridAsync(_analysedDownbeat, "Beat grid back to the analysed downbeat.");
+    private async Task SlipGridByAsync(double delta)
+    {
+        if (TrackHash is not { } hash) return;
+        double next = _downbeat + delta;
+        if (next < 0) next += BarSeconds;
+
+        if (_gridEditService is not null)
+        {
+            var result = await _gridEditService.SlipAsync(hash, delta, CancellationToken.None);
+            if (!result.Success)
+            {
+                Session.SetStatus(result.Reason ?? "Couldn't save the grid slip; nothing was changed.", isError: true);
+                return;
+            }
+            await _ui(() =>
+            {
+                _downbeat = next;
+                IsGridEdited = Math.Abs(next - _analysedDownbeat) > 1e-4;
+                RaiseGridChanged();
+                Session.UpdateGrid(next);
+                Session.SetStatus($"Grid moved {(delta < 0 ? "10 ms earlier" : "10 ms later")}.");
+            });
+            return;
+        }
+
+        // Unit-test fallback: the legacy path only moves the downbeat, not the beat list.
+        await ApplyGridAsync(next, $"Grid moved {(delta < 0 ? "10 ms earlier" : "10 ms later")}.");
+    }
+
+    internal async Task ResetGridAsync()
+    {
+        if (TrackHash is not { } hash) return;
+
+        if (_gridEditService is not null)
+        {
+            var result = await _gridEditService.ResetToAnalysedAsync(hash, _analysedBpm, _analysedDownbeat, CancellationToken.None);
+            if (!result.Success)
+            {
+                Session.SetStatus(result.Reason ?? "Couldn't reset the beat grid; nothing was changed.", isError: true);
+                return;
+            }
+            await _ui(() =>
+            {
+                _preciseBpm = _analysedBpm;
+                Bpm = (int)Math.Round(Math.Max(60, _analysedBpm));
+                _downbeat = _analysedDownbeat;
+                IsGridEdited = false;
+                RaiseGridChanged();
+                Session.UpdateGrid(_analysedDownbeat);
+                Session.SetStatus("Beat grid back to the analysed BPM and downbeat.");
+            });
+            return;
+        }
+
+        await ApplyGridAsync(_analysedDownbeat, "Beat grid back to the analysed downbeat.");
+    }
 
     /// <summary>Saves the corrected downbeat to the track's analysis, so exports, mixing and the next
     /// auto-generate all use it. Cues are left where they are.</summary>
     private async Task ApplyGridAsync(double downbeat, string status)
     {
-        if (TrackHash is not { } hash || _libraryService == null) return;
+        if (TrackHash is not { } hash) return;
+
+        if (_gridEditService is not null)
+        {
+            var result = await _gridEditService.SetDownbeatAsync(hash, downbeat, CancellationToken.None);
+            if (!result.Success)
+            {
+                Session.SetStatus(result.Reason ?? "Couldn't save the beat grid change; nothing was changed.", isError: true);
+                return;
+            }
+            await _ui(() =>
+            {
+                _downbeat = downbeat;
+                IsGridEdited = Math.Abs(downbeat - _analysedDownbeat) > 1e-4;
+                RaiseGridChanged();
+                Session.UpdateGrid(downbeat);
+                Session.SetStatus(status);
+            });
+            return;
+        }
+
+        if (_libraryService == null) return;
         try
         {
             var features = await _libraryService.GetAudioFeaturesByHashAsync(hash);
