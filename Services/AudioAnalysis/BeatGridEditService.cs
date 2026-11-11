@@ -45,6 +45,12 @@ public interface IBeatGridEditService
 
     /// <summary>Marks the current grid as user-verified without changing Bpm, the beat list or Bar 1.</summary>
     Task<GridEditResult> MarkGridCorrectAsync(string hash, CancellationToken ct);
+
+    /// <summary>Applies the grid kept in AnalysedGridJson as a suggestion (issue #221).</summary>
+    Task<GridEditResult> UseSuggestionAsync(string hash, CancellationToken ct);
+
+    /// <summary>Discards the grid kept in AnalysedGridJson (issue #221).</summary>
+    Task<GridEditResult> DismissSuggestionAsync(string hash, CancellationToken ct);
 }
 
 public sealed class BeatGridEditService : IBeatGridEditService
@@ -188,6 +194,44 @@ public sealed class BeatGridEditService : IBeatGridEditService
             _logger.LogError(ex, "BeatGridEdit: publishing the update event failed for {Hash}", hash);
         }
 
+        return GridEditResult.Ok();
+    }
+
+    public async Task<GridEditResult> UseSuggestionAsync(string hash, CancellationToken ct)
+    {
+        var features = await _database.GetAudioFeaturesByHashAsync(hash).ConfigureAwait(false);
+        if (features is null)
+            return GridEditResult.Failed("This track has no analysis to apply a suggestion to.");
+
+        var suggestion = GridWriteRules.ParseSuggestion(features.AnalysedGridJson);
+        if (suggestion is null)
+            return GridEditResult.Failed("There is no stored grid suggestion to apply.");
+        if (suggestion.Bpm < MinBpm || suggestion.Bpm > MaxBpm)
+            return GridEditResult.Failed($"The suggested BPM {suggestion.Bpm:0.#} is outside the supported range.");
+
+        return await WriteGridAsync(hash, features, suggestion.Bpm, suggestion.Beats, suggestion.Downbeat, ct).ConfigureAwait(false);
+    }
+
+    public async Task<GridEditResult> DismissSuggestionAsync(string hash, CancellationToken ct)
+    {
+        var features = await _database.GetAudioFeaturesByHashAsync(hash).ConfigureAwait(false);
+        if (features is null)
+            return GridEditResult.Failed("This track has no analysis to dismiss a suggestion from.");
+
+        features.AnalysedGridJson = null;
+        try
+        {
+            await _database.UpdateAudioFeaturesAsync(features).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "BeatGridEdit: failed to dismiss the grid suggestion for {Hash}", hash);
+            return GridEditResult.Failed($"Couldn't dismiss the grid suggestion: {ex.Message}");
+        }
         return GridEditResult.Ok();
     }
 

@@ -264,6 +264,16 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     private string? _gridSource;
     private float? _gridConfidence;
+    private bool _hasGridSuggestion;
+    private string _gridSuggestionSource = "";
+
+    /// <summary>True when a not-applied analysis/Rekordbox grid suggestion is available (#221).</summary>
+    public bool HasGridSuggestion => _hasGridSuggestion;
+
+    /// <summary>Human description of the pending grid suggestion (#221).</summary>
+    public string GridSuggestionDisplay => _gridSuggestionSource == "Rekordbox"
+        ? "Rekordbox has a different grid for this track."
+        : "Analysis suggests a different grid for this track.";
 
     /// <summary>Grid provenance + confidence, shown in the grid tools (#221).</summary>
     public string GridStatusDisplay => _gridSource switch
@@ -784,6 +794,10 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> MarkGridCorrectCommand { get; }
     /// <summary>Sets the "music starts here" marker at the playhead (#224).</summary>
     public ReactiveCommand<Unit, Unit> SetMusicStartAtPlayheadCommand { get; }
+    /// <summary>Applies the stored grid suggestion (#221).</summary>
+    public ReactiveCommand<Unit, Unit> UseGridSuggestionCommand { get; }
+    /// <summary>Discards the stored grid suggestion (#221).</summary>
+    public ReactiveCommand<Unit, Unit> DismissGridSuggestionCommand { get; }
 
     private double _analysedDownbeat;
     private double _analysedBpm;
@@ -1005,6 +1019,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         ApplyTwoPointBpmCommand = ReactiveCommand.CreateFromTask(ApplyTwoPointBpmAsync, this.WhenAnyValue(x => x.TwoPointBpmValue, bpm => bpm is > 40 and < 400));
         MarkGridCorrectCommand = ReactiveCommand.CreateFromTask(MarkGridCorrectAsync, hasTrack);
         SetMusicStartAtPlayheadCommand = ReactiveCommand.CreateFromTask(SetMusicStartAtPlayheadAsync, canAct);
+        UseGridSuggestionCommand = ReactiveCommand.CreateFromTask(UseGridSuggestionAsync, this.WhenAnyValue(x => x.HasGridSuggestion));
+        DismissGridSuggestionCommand = ReactiveCommand.CreateFromTask(DismissGridSuggestionAsync, this.WhenAnyValue(x => x.HasGridSuggestion));
 
         ZoomInCommand     = ReactiveCommand.Create(() => ZoomAroundPlayhead(1.5));
         ZoomOutCommand    = ReactiveCommand.Create(() => ZoomAroundPlayhead(1 / 1.5));
@@ -1294,6 +1310,11 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 _gridSource = features.GridSource;
                 _gridConfidence = features.GridConfidence;
                 this.RaisePropertyChanged(nameof(GridStatusDisplay));
+                var suggestion = Services.AudioAnalysis.GridWriteRules.ParseSuggestion(features.AnalysedGridJson);
+                _hasGridSuggestion = suggestion is not null;
+                _gridSuggestionSource = suggestion?.Source ?? "";
+                this.RaisePropertyChanged(nameof(HasGridSuggestion));
+                this.RaisePropertyChanged(nameof(GridSuggestionDisplay));
                 genre = !string.IsNullOrWhiteSpace(features.DetectedSubGenre) ? features.DetectedSubGenre : features.ElectronicSubgenre;
                 _durationKnown = features.TrackDuration > 0;
                 TrackDuration = features.TrackDuration > 0 ? features.TrackDuration : 300.0;
@@ -1590,6 +1611,35 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             _logger.LogError(ex, "CueForge: saving music start failed for {Hash}", hash);
             Session.SetStatus("Couldn't save the music start; nothing was changed.", isError: true);
         }
+    }
+
+    private async Task UseGridSuggestionAsync()
+    {
+        if (TrackHash is not { } hash) return;
+        if (_gridEditService is null) { Session.SetStatus("The beat-grid editor is unavailable.", isError: true); return; }
+        var result = await _gridEditService.UseSuggestionAsync(hash, CancellationToken.None);
+        if (!result.Success) { Session.SetStatus(result.Reason ?? "Couldn't apply the grid suggestion.", isError: true); return; }
+
+        _hasGridSuggestion = false;
+        _gridSuggestionSource = "";
+        this.RaisePropertyChanged(nameof(HasGridSuggestion));
+        this.RaisePropertyChanged(nameof(GridSuggestionDisplay));
+        // Reload the grid from the newly-applied values.
+        await LoadTrackAsync(hash, TrackTitle, TrackArtist);
+    }
+
+    private async Task DismissGridSuggestionAsync()
+    {
+        if (TrackHash is not { } hash) return;
+        if (_gridEditService is null) { Session.SetStatus("The beat-grid editor is unavailable.", isError: true); return; }
+        var result = await _gridEditService.DismissSuggestionAsync(hash, CancellationToken.None);
+        if (!result.Success) { Session.SetStatus(result.Reason ?? "Couldn't dismiss the grid suggestion.", isError: true); return; }
+
+        _hasGridSuggestion = false;
+        _gridSuggestionSource = "";
+        this.RaisePropertyChanged(nameof(HasGridSuggestion));
+        this.RaisePropertyChanged(nameof(GridSuggestionDisplay));
+        Session.SetStatus("Grid suggestion dismissed.");
     }
 
     public void UpdateCamelotKeyDisplay(string camelotKey)

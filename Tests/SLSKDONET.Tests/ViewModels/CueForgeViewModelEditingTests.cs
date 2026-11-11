@@ -117,6 +117,10 @@ public class CueForgeViewModelEditingTests
         { ResetCalls++; return Task.FromResult(GridEditResult.Ok()); }
         public Task<GridEditResult> MarkGridCorrectAsync(string hash, CancellationToken ct)
         { return Task.FromResult(GridEditResult.Ok()); }
+        public Task<GridEditResult> UseSuggestionAsync(string hash, CancellationToken ct)
+        { return Task.FromResult(GridEditResult.Ok()); }
+        public Task<GridEditResult> DismissSuggestionAsync(string hash, CancellationToken ct)
+        { return Task.FromResult(GridEditResult.Ok()); }
     }
 
     private static (CueForgeViewModel Vm, FakeCueStore Store, FakeTransport Player) Create()

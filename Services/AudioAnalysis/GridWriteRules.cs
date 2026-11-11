@@ -113,6 +113,30 @@ public static class GridWriteRules
     public static bool IsUserOwned(AudioFeaturesEntity features) =>
         string.Equals(features.GridSource, SourceUser, StringComparison.Ordinal) || features.GridVerified;
 
+    /// <summary>A not-applied grid kept in <see cref="AudioFeaturesEntity.AnalysedGridJson"/>.</summary>
+    public sealed record GridSuggestion(double Bpm, double Downbeat, double[] Beats, string Source);
+
+    /// <summary>Parses <see cref="AudioFeaturesEntity.AnalysedGridJson"/>; null when absent/malformed.</summary>
+    public static GridSuggestion? ParseSuggestion(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("bpm", out var bpm) || !root.TryGetProperty("downbeat", out var downbeat) || !root.TryGetProperty("beats", out var beats))
+                return null;
+            var beatArray = beats.EnumerateArray().Select(b => b.GetDouble()).ToArray();
+            if (beatArray.Length == 0) return null;
+            string source = root.TryGetProperty("source", out var s) ? s.GetString() ?? SourceAnalysis : SourceAnalysis;
+            return new GridSuggestion(bpm.GetDouble(), downbeat.GetDouble(), beatArray, source);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     private static void StoreSuggestion(
         AudioFeaturesEntity features, double bpm, IReadOnlyList<double> beats, double downbeat, string source)
     {
