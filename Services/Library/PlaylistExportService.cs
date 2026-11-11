@@ -595,15 +595,32 @@ public class PlaylistExportService
         // downbeat offset. Falls back to a single anchor at 0.000 when no beatgrid data exists.
         var beatTimestamps = ParseBeatGridJson(beatData?.BeatGridJson, t.Name);
         var downbeatOffset = beatData?.DownbeatOffsetSeconds ?? 0.0;
-        var anchors = TempoGridDeriver.DeriveAnchors(beatTimestamps, downbeatOffset, bpm, beatData?.BpmStability);
+        // One BPM source: the grid BPM (audio_features.Bpm), not the library AverageBpm — the two
+        // could disagree after a ×2/÷2 correction before #220.
+        double gridBpm = beatData is not null && beatData.Bpm > 0 ? beatData.Bpm : bpm;
+
+        IReadOnlyList<TempoAnchor> anchors;
+        if (string.Equals(beatData?.GridSource, "Rekordbox", StringComparison.Ordinal))
+            anchors = TempoGridDeriver.DeriveRekordboxLosslessAnchors(beatTimestamps, downbeatOffset);
+        else
+            anchors = TempoGridDeriver.DeriveAnchors(beatTimestamps, downbeatOffset, gridBpm, beatData?.BpmStability);
 
         foreach (var anchor in anchors)
         {
+            // 2% guard: refuse to emit an anchor whose tempo disagrees with the grid BPM (a stale or
+            // split grid), and tell the user instead of silently exporting a wrong grid.
+            if (gridBpm > 0 && Math.Abs(anchor.Bpm - gridBpm) / gridBpm > 0.02)
+            {
+                _logger.LogWarning("Rekordbox export: dropping TEMPO anchor at {Inizio:F3}s (BPM {Anchor:F2} vs grid {Grid:F2}) for {Track}.",
+                    anchor.InizioSeconds, anchor.Bpm, gridBpm, t.Name);
+                continue;
+            }
+
             trackElem.Add(new XElement("TEMPO",
                 new XAttribute("Inizio", anchor.InizioSeconds.ToString("F3", CultureInfo.InvariantCulture)),
                 new XAttribute("Bpm", anchor.Bpm.ToString("F2", CultureInfo.InvariantCulture)),
                 new XAttribute("Metro", "4/4"),
-                new XAttribute("Battito", "1")
+                new XAttribute("Battito", anchor.Battito.ToString(CultureInfo.InvariantCulture))
             ));
         }
 

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
+using SLSKDONET.Services.Library.Rekordbox;
 
 namespace SLSKDONET.Services.Export;
 
@@ -143,6 +144,21 @@ public static class RekordboxExportIntegrity
             if (invalidValue || nonMonotonic)
             {
                 blockers.Add($"{label}: saved beat grid contains negative, non-finite, or non-increasing beat times.");
+            }
+        }
+
+        // A TEMPO anchor that disagrees with the grid BPM by more than 2% means the stored BPM and
+        // the beat list are split-brain; the export would silently drop it — say so up front.
+        if (beats is { Count: > 0 } && beatData != null && beatData.Bpm > 0)
+        {
+            double gridBpm = beatData.Bpm;
+            var anchors = TempoGridDeriver.DeriveAnchors(beats, beatData.DownbeatOffsetSeconds, gridBpm, beatData.BpmStability);
+            foreach (var anchor in anchors)
+            {
+                if (Math.Abs(anchor.Bpm - gridBpm) / gridBpm > 0.02)
+                {
+                    warnings.Add($"{label}: TEMPO anchor at {anchor.InizioSeconds:F3}s is {anchor.Bpm:F2} BPM, >2% from the grid BPM ({gridBpm:F2}); export drops it.");
+                }
             }
         }
 
