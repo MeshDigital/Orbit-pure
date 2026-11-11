@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:health="using:SLSKDONET.Views.Avalonia.SetHealth"
              x:Class="SLSKDONET.Views.Avalonia.Sets.SetsPage">
     <DockPanel>
         <!-- Header -->
@@ -36,6 +37,11 @@
 
             <!-- Center: set lane + track pool -->
             <DockPanel Grid.Column="1">
+                <!-- Set Health strip -->
+                <Border DockPanel.Dock="Bottom" Classes="toolbar" Padding="12,4" IsVisible="{Binding HasSelection}">
+                    <health:SetHealthDashboardView DataContext="{Binding Health}" />
+                </Border>
+
                 <!-- Track pool (bottom drawer) -->
                 <Border DockPanel.Dock="Bottom" Classes="toolbar" Padding="16,8">
                     <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto">
