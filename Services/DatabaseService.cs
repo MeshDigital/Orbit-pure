@@ -691,6 +691,14 @@ public class DatabaseService
         await _trackRepository.SavePhrasesAsync(phrases);
     }
 
+    /// <summary>True when the track has a user-edited phrase map (issue #225) — re-analysis and PSSI re-import must not overwrite it.</summary>
+    public async Task<bool> HasUserPhrasesAsync(string trackHash)
+    {
+        using var context = new AppDbContext();
+        return await context.TrackPhrases
+            .AnyAsync(p => p.TrackUniqueHash == trackHash && p.Source == "User");
+    }
+
     public async Task<int> GetTotalLibraryTrackCountAsync(string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, string? qualityTier = null)
     {
         return await _trackRepository.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier);

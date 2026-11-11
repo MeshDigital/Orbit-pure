@@ -146,7 +146,9 @@ public sealed class AnalyzeTrackStructureJob
             // of 0-44s, Drop 1 at 132s instead of 66s, Outro running past the end of the file).
             // Rekordbox's own PSSI segments are never overwritten by heuristic ones.
             bool keepRekordboxPhrases = string.Equals(features.PhraseSegmentsSource, "RekordboxPSSI", StringComparison.OrdinalIgnoreCase);
-            if (sections.Count >= 2 && !keepRekordboxPhrases)
+            // A user-edited phrase map is never overwritten by re-analysis or a PSSI re-import (#225).
+            bool hasUserPhrases = await _databaseService.HasUserPhrasesAsync(trackUniqueHash).ConfigureAwait(false);
+            if (sections.Count >= 2 && !keepRekordboxPhrases && !hasUserPhrases)
             {
                 features.PhraseSegmentsJson = JsonSerializer.Serialize(ToPhraseSegments(sections, features.Bpm));
                 features.PhraseSegmentsSource = "Heuristic";
@@ -158,13 +160,13 @@ public sealed class AnalyzeTrackStructureJob
                 sections);
             ApplyEnergyProfile(features, sections, energyProfile);
 
-            if (sections.Count > 0)
+            if (sections.Count > 0 && !hasUserPhrases)
                 await _databaseService.SavePhrasesAsync(sections);
 
             // Step 4b: Rekordbox's own phrase analysis (optional — only present if the user has
             // already analysed this exact file in Rekordbox) — its own commercial-grade analysis,
             // preferred over the heuristic sections above; see Services/Rekordbox/RekordboxPssiService.cs.
-            if (_rekordboxPssi?.IsAvailable == true)
+            if (_rekordboxPssi?.IsAvailable == true && !hasUserPhrases)
             {
                 try
                 {
