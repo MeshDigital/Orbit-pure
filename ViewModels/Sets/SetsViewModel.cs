@@ -3,9 +3,12 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reactive;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using ReactiveUI;
+using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Services.Sets;
+using SLSKDONET.ViewModels.SetHealth;
 
 namespace SLSKDONET.ViewModels.Sets;
 
@@ -30,6 +33,7 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
             this.RaiseAndSetIfChanged(ref _selectedSet, value);
             this.RaisePropertyChanged(nameof(HasSelection));
             _ = LoadSlotsAsync(value?.Id);
+            _ = Health.LoadAsync(value?.Id ?? Guid.Empty);
         }
     }
 
@@ -74,9 +78,13 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> AddTrackCommand { get; }
     public ReactiveCommand<Unit, Unit> RemoveSlotCommand { get; }
 
-    public SetsViewModel(ISetProjectService sets)
+    /// <summary>Set Health dashboard for the selected set.</summary>
+    public SetHealthDashboardViewModel Health { get; }
+
+    public SetsViewModel(ISetProjectService sets, IDbContextFactory<AppDbContext> dbFactory)
     {
         _sets = sets;
+        Health = new SetHealthDashboardViewModel(dbFactory);
         NewSetCommand = ReactiveCommand.CreateFromTask(NewSetAsync);
         DeleteSetCommand = ReactiveCommand.CreateFromTask(DeleteSelectedAsync);
         SearchCommand = ReactiveCommand.CreateFromTask(SearchAsync);
