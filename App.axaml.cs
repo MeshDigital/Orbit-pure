@@ -334,6 +334,9 @@ public partial class App : Application
                         // Drop 2 countdowns renamed to [IN2 …]. Auto cues only; no-op once done.
                         Services.GetRequiredService<Services.AudioAnalysis.CueLayoutRepairService>().StartIfPending();
 
+                        // One-time conversion of phrase data to bar-indexed boundaries; no-op once done.
+                        Services.GetRequiredService<Services.AudioAnalysis.PhraseBarMigrationService>().StartIfPending();
+
                         // Fill first-drop/intro timing from stored energy curves. No audio decode,
                         // cue/grid changes or Rekordbox writes; no-op after the first completed pass.
                         Services.GetRequiredService<Services.AudioAnalysis.TimeTillDropBackfillService>().StartIfPending();
@@ -714,6 +717,7 @@ public partial class App : Application
         services.AddSingleton<Services.AudioAnalysis.BeatGridRecomputeService>();
         services.AddSingleton<Services.AudioAnalysis.IBeatGridEditService, Services.AudioAnalysis.BeatGridEditService>();
         services.AddSingleton<Services.AudioAnalysis.CueLayoutRepairService>();
+        services.AddSingleton<Services.AudioAnalysis.PhraseBarMigrationService>();
         services.AddSingleton<IFileInteractionService, FileInteractionService>();
         services.AddSingleton<INotificationService, NotificationServiceAdapter>();
         services.AddSingleton<IClipboardService, ClipboardService>();
