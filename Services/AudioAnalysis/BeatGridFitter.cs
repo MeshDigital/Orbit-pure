@@ -151,10 +151,10 @@ public static class BeatGridFitter
             anchorIndex = (int)Math.Clamp(Math.Round((oldAnchor - fit.PhaseSeconds) / fit.PeriodSeconds), 0, count - 1);
         }
 
-        features.Bpm = (float)Math.Round(fit.Bpm, 2);
-        features.BeatGridJson = JsonSerializer.Serialize(grid);
-        features.DownbeatOffsetSeconds = grid[anchorIndex];
-        return true;
+        double downbeat = grid[anchorIndex];
+        double? barAgreement = structuralEvents is null ? null : BarPhaseAgreement(fit.PeriodSeconds, downbeat, structuralEvents);
+        float confidence = GridWriteRules.ComputeConfidence(fit, ticks.Count, barAgreement);
+        return GridWriteRules.TryApplyAnalysisGrid(features, fit.Bpm, grid, downbeat, confidence);
     }
 
     /// <summary>
@@ -165,8 +165,8 @@ public static class BeatGridFitter
     /// Guard against a wrong match (lookup can fall back to filename only, and two copies of a
     /// track can differ in lead-in): at least half of ORBIT's own beat-tracker ticks must land within
     /// 70 ms of a Rekordbox beat. Half-time ticks still pass (they coincide with every other beat).
-    /// Returns false, leaving the entity untouched, when the grid is missing, too short, or doesn't
-    /// line up.
+    /// Returns false, leaving the entity untouched, when the grid is missing, too short, doesn't
+    /// line up, or the current grid is user-owned (kept as a suggestion instead).
     /// </summary>
     public static bool ApplyRekordboxGrid(AudioFeaturesEntity features, IReadOnlyList<RekordboxBeat> beats, IReadOnlyList<double> orbitTicks)
     {
@@ -193,10 +193,239 @@ public static class BeatGridFitter
         if (bpms.Count == 0) return false;
         int firstDownbeat = beats.ToList().FindIndex(b => b.BeatInBar == 1);
 
-        features.Bpm = (float)Math.Round(bpms[bpms.Count / 2], 2);
-        features.BeatGridJson = JsonSerializer.Serialize(times);
-        features.DownbeatOffsetSeconds = times[Math.Max(0, firstDownbeat)];
+        double bpm = bpms[bpms.Count / 2];
+        double downbeat = times[Math.Max(0, firstDownbeat)];
+        return GridWriteRules.TryApplyRekordboxGrid(features, bpm, times, downbeat);
+    }
+
+    /// <summary>One piecewise-constant tempo section of a variable-tempo grid (issue #226).</summary>
+    public sealed record TempoSection(int StartBeatIndex, double StartSeconds, double Bpm);
+
+    /// <summary>
+    /// The BPM of the tempo section containing <paramref name="timeSeconds"/> (issue #226). For a
+    /// steady track this is the fallback BPM. Consumers use this at a mix-in / mix-out point.
+    /// </summary>
+    public static double LocalBpmAt(IReadOnlyList<double> ticks, double timeSeconds, double fallbackBpm)
+    {
+        // A clean piecewise grid (user-edited or Rekordbox) is read literally; raw beat-tracker ticks
+        // produce many tiny "exact" runs and go through the noise-tolerant fitter instead.
+        var exact = ExactSections(ticks);
+        var sections = exact.Count is >= 2 and <= 8 ? exact : FitSections(ticks);
+        if (sections.Count <= 1) return fallbackBpm;
+        for (int i = 0; i < sections.Count; i++)
+        {
+            double end = i + 1 < sections.Count ? sections[i + 1].StartSeconds : double.MaxValue;
+            if (timeSeconds < end) return sections[i].Bpm;
+        }
+        return sections[^1].Bpm;
+    }
+
+    /// <summary>
+    /// Fits a variable-tempo beat list as piecewise-constant sections. Change-point detection on the
+    /// rolling-<b>mean</b> beat interval finds where the tempo genuinely shifts (minimum
+    /// <paramref name="minSectionBeats"/> beats; sections within <paramref name="changeThresholdRatio"/>
+    /// merged), then each section's BPM is its average beat spacing (first to last beat) — the beat
+    /// list stays the single source of truth, and the sections are derived, not stored. A steady
+    /// track yields one section.
+    /// <para>
+    /// Why a mean and a 3% threshold: Essentia's raw ticks are quantised to 512-sample frames, so a
+    /// steady 174 BPM track's intervals alternate between ~172.27 and ~178.2 BPM (see the class doc).
+    /// A rolling median of those picks one of the two quantised values and a 0.3% threshold split on
+    /// the alternation — 95 of 5,901 real tracks (all steady DnB) were flagged variable-tempo
+    /// (2026-11-11). The mean averages the quantisation out; real tempo changes (transition edits,
+    /// 108 → 128) are far above 3%.
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<TempoSection> FitSections(
+        IReadOnlyList<double> ticks,
+        int minSectionBeats = 32,
+        double changeThresholdRatio = 0.03)
+    {
+        if (ticks.Count < 2) return Array.Empty<TempoSection>();
+        int n = ticks.Count;
+
+        var interval = new double[n - 1];
+        for (int i = 0; i < n - 1; i++) interval[i] = ticks[i + 1] - ticks[i];
+
+        // Octave folding: beat trackers drop to half-time in breakdowns, miss beats (a 2× gap) or add
+        // off-beat ticks (a ½× gap). None of that is a tempo change — a real one never halves or
+        // doubles — so fold each interval onto the track's dominant beat period first. Without this,
+        // 94 of 5,901 real tracks (half-time DnB breakdowns: 86 ↔ 175 BPM) still read as variable.
+        var sortedIntervals = (double[])interval.Clone();
+        Array.Sort(sortedIntervals);
+        double dominant = sortedIntervals[sortedIntervals.Length / 2];
+        if (dominant > 0)
+        {
+            for (int i = 0; i < interval.Length; i++)
+            {
+                double v = interval[i];
+                if (v > dominant * 1.5) v /= Math.Round(v / dominant);           // 2 or 3 beats in one gap
+                else if (v > 0 && v < dominant * 0.75) v *= Math.Round(dominant / v); // 2 or 3 ticks per beat
+                interval[i] = v;
+            }
+        }
+
+        // Two-sided window test: the mean interval of the W beats before idx vs the W beats after it.
+        // Comparing neighbouring rolling means would only see 1/W of a step change per beat.
+        const int W = 16;
+        var prefix = new double[interval.Length + 1];
+        for (int i = 0; i < interval.Length; i++) prefix[i + 1] = prefix[i] + interval[i];
+        double MeanOf(int lo, int hi) => (prefix[hi] - prefix[lo]) / (hi - lo);
+
+        var change = new double[interval.Length + 1];
+        for (int idx = W; idx + W <= interval.Length; idx++)
+        {
+            double left = MeanOf(idx - W, idx), right = MeanOf(idx, idx + W);
+            change[idx] = left > 0 ? Math.Abs(right - left) / left : 0;
+        }
+
+        var boundaries = new List<int>();
+        int k = W;
+        while (k + W <= interval.Length)
+        {
+            if (change[k] > changeThresholdRatio)
+            {
+                // Peak of this excursion = the step itself (the change ramps up and down around it).
+                int peak = k;
+                int j = k;
+                while (j + W <= interval.Length && change[j] > changeThresholdRatio)
+                {
+                    if (change[j] > change[peak]) peak = j;
+                    j++;
+                }
+                boundaries.Add(peak);
+                // Refractory period: a section is at least minSectionBeats long anyway.
+                k = Math.Max(j, peak + minSectionBeats);
+            }
+            else
+            {
+                k++;
+            }
+        }
+
+        var sections = new List<TempoSection>();
+        int start = 0;
+        foreach (int boundary in boundaries.Concat(new[] { n }))
+        {
+            if (boundary - start >= minSectionBeats)
+            {
+                double bpm = SectionBpm(interval, start, boundary);
+                if (bpm > 0)
+                    sections.Add(new TempoSection(start, ticks[start], bpm));
+            }
+            start = boundary;
+        }
+
+        // Merge adjacent sections whose tempo is within the threshold (spurious splits).
+        var result = new List<TempoSection>();
+        foreach (var s in sections)
+        {
+            if (result.Count > 0 && Math.Abs(s.Bpm - result[^1].Bpm) / result[^1].Bpm < changeThresholdRatio)
+                continue;
+            result.Add(s);
+        }
+
+        if (result.Count > 1 && !SectionsAreReliable(result, interval, n))
+        {
+            // The beat tracker lost the beat rather than the music changing tempo: report one section
+            // at the overall (folded) tempo. Callers then treat the track as steady, and the confidence
+            // pass scores its grid low so it lands in "needs review" instead of "variable tempo".
+            double mean = interval.Average();
+            return mean > 0 ? new[] { new TempoSection(0, ticks[0], 60.0 / mean) } : Array.Empty<TempoSection>();
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Tempo sections of a <b>clean</b> piecewise-constant grid — one the user built or Rekordbox's own
+    /// (issue #226). Unlike <see cref="FitSections"/> (for noisy beat-tracker ticks) this reads the beat
+    /// list literally: a new section starts where the spacing changes by more than
+    /// <paramref name="toleranceSeconds"/> (2 ms covers Rekordbox's millisecond rounding) and stays
+    /// changed for at least <paramref name="minSectionBeats"/> beats.
+    /// </summary>
+    public static IReadOnlyList<TempoSection> ExactSections(IReadOnlyList<double> beats, double toleranceSeconds = 0.002, int minSectionBeats = 4)
+    {
+        if (beats.Count < 2) return Array.Empty<TempoSection>();
+        var result = new List<TempoSection>();
+        int start = 0;
+        double sum = beats[1] - beats[0];
+        int count = 1;
+        for (int i = 1; i < beats.Count - 1; i++)
+        {
+            double iv = beats[i + 1] - beats[i];
+            double mean = sum / count;
+            bool changed = Math.Abs(iv - mean) > toleranceSeconds;
+            if (changed)
+            {
+                // A real change persists: the next few intervals agree with each other, not with the old run.
+                int run = 1;
+                while (run < minSectionBeats && i + run < beats.Count - 1 &&
+                       Math.Abs(beats[i + run + 1] - beats[i + run] - iv) <= toleranceSeconds) run++;
+                if (run >= minSectionBeats || i + run >= beats.Count - 1)
+                {
+                    result.Add(new TempoSection(start, beats[start], 60.0 / mean));
+                    start = i;
+                    sum = iv;
+                    count = 1;
+                    continue;
+                }
+            }
+            sum += iv;
+            count++;
+        }
+        result.Add(new TempoSection(start, beats[start], 60.0 / (sum / count)));
+        return result;
+    }
+
+    /// <summary>
+    /// Sections only describe a genuine variable-tempo track when they are clean (2026-11-11, real
+    /// library: the 93 tracks still flagged after octave folding were all steady DnB whose raw ticks
+    /// wander in breakdowns — the same tracks the fitter rejected as "no steady tempo"):
+    /// at most 4 sections; each at least 64 beats (16 bars) and internally steady (coefficient of
+    /// variation of its folded intervals ≤ 4% — frame quantisation alone is ~1.7%); and no two adjacent
+    /// sections at a metric ratio (4:3, 3:2, 2:1 within 3%), which is the tracker locking to a dotted,
+    /// triplet or half-time pulse — a real tempo change essentially never lands on those ratios.
+    /// </summary>
+    private static bool SectionsAreReliable(IReadOnlyList<TempoSection> sections, double[] foldedIntervals, int beatCount)
+    {
+        if (sections.Count > 4) return false;
+        for (int s = 0; s < sections.Count; s++)
+        {
+            int start = sections[s].StartBeatIndex;
+            int end = s + 1 < sections.Count ? sections[s + 1].StartBeatIndex : beatCount;
+            if (end - start < 64) return false;
+
+            int count = Math.Min(end - 1, foldedIntervals.Length) - start;
+            if (count <= 1) return false;
+            double mean = 0;
+            for (int i = start; i < start + count; i++) mean += foldedIntervals[i];
+            mean /= count;
+            double variance = 0;
+            for (int i = start; i < start + count; i++) variance += (foldedIntervals[i] - mean) * (foldedIntervals[i] - mean);
+            if (mean <= 0 || Math.Sqrt(variance / count) / mean > 0.04) return false;
+
+            if (s > 0)
+            {
+                double ratio = Math.Max(sections[s].Bpm, sections[s - 1].Bpm) / Math.Min(sections[s].Bpm, sections[s - 1].Bpm);
+                foreach (double metric in new[] { 4.0 / 3.0, 1.5, 2.0 })
+                    if (Math.Abs(ratio - metric) / metric < 0.03) return false;
+            }
+        }
         return true;
+    }
+
+    private static double SectionBpm(double[] interval, int startBeat, int endBeat)
+    {
+        // The section spans beats [startBeat, endBeat); its intervals are interval[startBeat .. endBeat-2].
+        // Average spacing (sum of intervals / count) = (last beat − first beat) / count: immune to the
+        // frame quantisation that makes any single interval (and so a median) off by up to ~2%.
+        int count = endBeat - startBeat - 1;
+        if (count <= 0) return 0;
+        double sum = 0;
+        for (int i = startBeat; i < startBeat + count; i++) sum += interval[i];
+        double mean = sum / count;
+        return mean > 0 ? 60.0 / mean : 0;
     }
 
     /// <summary>Sub-bass structure events used to decide the downbeat (see <see cref="EstimateBarPhase"/>).</summary>
@@ -242,6 +471,37 @@ public static class BeatGridFitter
         // Require a clear winner — ties/flat scores mean the events don't carry bar information.
         if (total <= 0 || scores[best] < total * 0.4) return null;
         return best;
+    }
+
+    /// <summary>
+    /// How well the stored grid's bar phase is supported by the music (issue #221): the weighted share
+    /// of sub-bass returns / dropouts (arrangement changes land on the "1" of a bar) that fall on a
+    /// bar line of the grid anchored at <paramref name="downbeatSeconds"/>, 0–1. Uses the same event
+    /// weighting as <see cref="EstimateBarPhase"/>. Null when there are too few on-beat events to say —
+    /// bar phase is ORBIT's weakest grid decision (right ~55% of the time on the cue benchmark), so
+    /// this is the part of the confidence that actually separates good grids from bad ones.
+    /// </summary>
+    public static double? BarPhaseAgreement(double periodSeconds, double downbeatSeconds, StructuralEvents events)
+    {
+        if (periodSeconds <= 0) return null;
+        var positions = events.BassReturns
+            .Concat(events.BassDropouts.Select(t => t - DropoutLagBeats * periodSeconds))
+            .Where(t => t > 0)
+            .Select(t => (t - downbeatSeconds) / periodSeconds);
+
+        double onBar = 0, total = 0;
+        int counted = 0;
+        foreach (var pos in positions)
+        {
+            long nearestBeat = (long)Math.Round(pos);
+            double beatDistance = Math.Abs(pos - nearestBeat);
+            if (beatDistance > 0.35) continue;
+            double weight = 1.0 - beatDistance / 0.35;
+            total += weight;
+            counted++;
+            if (((nearestBeat % 4) + 4) % 4 == 0) onBar += weight;
+        }
+        return counted >= 3 && total > 0 ? onBar / total : null;
     }
 
     /// <summary>Structural events already stored on <paramref name="features"/> (see <see cref="EstimateBarPhase"/>).</summary>

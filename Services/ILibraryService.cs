@@ -344,6 +344,12 @@ public interface ILibraryService
     /// </summary>
     Task<List<TrackPhraseEntity>> GetPhrasesByHashAsync(string trackHash);
 
+    /// <summary>Replaces one source's phrase rows (the user's edits: "User"); an empty list removes them (#225).</summary>
+    Task ReplacePhrasesForSourceAsync(string trackHash, string source, IReadOnlyList<TrackPhraseEntity> rows);
+
+    /// <summary>Replaces every phrase row of a track exactly (undo/redo of phrase edits, #225).</summary>
+    Task ReplaceAllPhrasesAsync(string trackHash, IReadOnlyList<TrackPhraseEntity> rows);
+
     /// <summary>
     /// Phase 2: Structural - Persists detected structural segments.
     /// </summary>

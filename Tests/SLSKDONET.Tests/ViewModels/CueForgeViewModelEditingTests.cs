@@ -4,15 +4,22 @@ using System.IO;
 using System.Linq;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using SLSKDONET.Configuration;
+using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
+using SLSKDONET.Services.AudioAnalysis;
+using SLSKDONET.Services.IO;
+using SLSKDONET.Services.Repositories;
 using SLSKDONET.ViewModels;
 using Xunit;
 
@@ -82,7 +89,40 @@ public class CueForgeViewModelEditingTests
         public void Play() => IsPlaying = true;
         public void Pause() => IsPlaying = false;
         public void SeekFraction(double fraction) { Seeks.Add(fraction); PositionFraction = fraction; }
+        public void SetMetronome(IReadOnlyList<double>? beatTimes, double downbeatSeconds, bool enabled) { }
         public Task<string?> ResolveFilePathAsync(string trackHash) => Task.FromResult<string?>($"C:/music/{trackHash}.flac");
+    }
+
+    private sealed class FakeGridEditService : IBeatGridEditService
+    {
+        public int SetBpmCalls;
+        public int ScaleCalls;
+        public int SlipCalls;
+        public int DownbeatCalls;
+        public int ResetCalls;
+        public double? LastBpm;
+        public double? LastFactor;
+        public double? LastDelta;
+        public double? LastDownbeat;
+        /// <summary>When set, edits update this row like the real service updates the store.</summary>
+        public AudioFeaturesEntity? Store;
+
+        public Task<GridEditResult> SetBpmAsync(string hash, double bpm, CancellationToken ct)
+        { SetBpmCalls++; LastBpm = bpm; return Task.FromResult(GridEditResult.Ok()); }
+        public Task<GridEditResult> ScaleTempoAsync(string hash, double factor, CancellationToken ct)
+        { ScaleCalls++; LastFactor = factor; if (Store != null) Store.Bpm = (float)(Store.Bpm * factor); return Task.FromResult(GridEditResult.Ok()); }
+        public Task<GridEditResult> SlipAsync(string hash, double deltaSeconds, CancellationToken ct)
+        { SlipCalls++; LastDelta = deltaSeconds; return Task.FromResult(GridEditResult.Ok()); }
+        public Task<GridEditResult> SetDownbeatAsync(string hash, double barOneSeconds, CancellationToken ct)
+        { DownbeatCalls++; LastDownbeat = barOneSeconds; return Task.FromResult(GridEditResult.Ok()); }
+        public Task<GridEditResult> ResetToAnalysedAsync(string hash, double analysedBpm, double analysedDownbeat, CancellationToken ct)
+        { ResetCalls++; return Task.FromResult(GridEditResult.Ok()); }
+        public Task<GridEditResult> MarkGridCorrectAsync(string hash, CancellationToken ct)
+        { return Task.FromResult(GridEditResult.Ok()); }
+        public Task<GridEditResult> UseSuggestionAsync(string hash, CancellationToken ct)
+        { return Task.FromResult(GridEditResult.Ok()); }
+        public Task<GridEditResult> DismissSuggestionAsync(string hash, CancellationToken ct)
+        { return Task.FromResult(GridEditResult.Ok()); }
     }
 
     private static (CueForgeViewModel Vm, FakeCueStore Store, FakeTransport Player) Create()
@@ -670,6 +710,132 @@ public class CueForgeViewModelEditingTests
         await vm.SlipGridCommand.Execute("-");
 
         Assert.Equal(1.9976, vm.GridOffset, 4);
+    }
+
+    [Fact]
+    public async Task SlipGridFine_MovesOneMillisecond()
+    {
+        var (vm, _) = CreateWithGrid();
+        await vm.LoadTrackAsync(Hash, "Emotional", "Flux Pavilion");
+
+        await vm.SlipGridFineCommand.Execute("-");
+
+        Assert.Equal(2.0066, vm.GridOffset, 4);
+        Assert.Equal("-1 ms", vm.GridOffsetDisplay);
+    }
+
+    [Fact]
+    public async Task TwoPointBpm_AppliesThroughTheGridEditService()
+    {
+        var features = new AudioFeaturesEntity { TrackUniqueHash = Hash, Bpm = 150f, DownbeatOffsetSeconds = 2.0076, TrackDuration = 243.2 };
+        var library = new Mock<ILibraryService>();
+        library.Setup(l => l.GetAudioFeaturesByHashAsync(Hash)).ReturnsAsync(features);
+        var grid = new FakeGridEditService();
+        var vm = new CueForgeViewModel(new FakeCueStore(), new FakeTransport(), new AppConfig(), libraryService: library.Object,
+            gridEditService: grid, ui: a => { a(); return Task.CompletedTask; });
+        await vm.LoadTrackAsync(Hash, "Emotional", "Flux Pavilion");
+
+        // Mark Bar 1 at the playhead, jump 16 bars, mark that bar's 1.
+        await vm.SeekPlayheadCommand.Execute(2.0076);
+        vm.TwoPointBpmMarkCommand.Execute().Subscribe();
+        double bar = 240.0 / 150.0;
+        await vm.SeekPlayheadCommand.Execute(2.0076 + 16 * bar);
+        vm.TwoPointBpmMarkCommand.Execute().Subscribe();
+
+        Assert.Equal(150.0, vm.TwoPointBpmValue, 2);
+
+        await vm.ApplyTwoPointBpmCommand.Execute();
+        Assert.Equal(1, grid.SetBpmCalls);
+        Assert.Equal(150.0, grid.LastBpm!.Value, 2);
+    }
+
+    [Fact]
+    public async Task DoubleBpm_GoesThroughTheGridEditService_AndUpdatesTempo()
+    {
+        var features = new AudioFeaturesEntity { TrackUniqueHash = Hash, Bpm = 150f, DownbeatOffsetSeconds = 2.0076, TrackDuration = 243.2 };
+        var library = new Mock<ILibraryService>();
+        library.Setup(l => l.GetAudioFeaturesByHashAsync(Hash)).ReturnsAsync(features);
+        var grid = new FakeGridEditService { Store = features };
+        var vm = new CueForgeViewModel(new FakeCueStore(), new FakeTransport(), new AppConfig(), libraryService: library.Object,
+            gridEditService: grid, ui: a => { a(); return Task.CompletedTask; });
+
+        await vm.LoadTrackAsync(Hash, "Emotional", "Flux Pavilion");
+        Assert.Equal(150, vm.GridBpm, 6);
+
+        await vm.DoubleBpmCommand.Execute();
+
+        Assert.Equal(300, vm.GridBpm, 6);
+        Assert.Equal(1, grid.ScaleCalls);
+        Assert.Equal(2.0, grid.LastFactor);
+        Assert.True(vm.IsGridEdited);
+
+        await vm.HalveBpmCommand.Execute();
+        Assert.Equal(150, vm.GridBpm, 6);
+        Assert.Equal(2, grid.ScaleCalls);
+        Assert.Equal(0.5, grid.LastFactor);
+    }
+
+    [Fact]
+    public async Task DoubleBpm_SurvivesReopeningCueForge()
+    {
+        // Regression for #220: ×2 wrote only the library BPM, so reopening Cue Forge re-read the
+        // analysis BPM (features.Bpm) and snapped back to the old tempo. The edit service fixes both.
+        var hash = "reopen-" + Guid.NewGuid().ToString("N");
+        var database = CreateDatabaseService();
+        var library = CreateLibraryService(database);
+        var gridEdit = new BeatGridEditService(database, null, NullLogger<BeatGridEditService>.Instance);
+
+        await SeedFeaturesAsync(hash, bpm: 87.0, downbeat: 0.5);
+
+        try
+        {
+            var open = new CueForgeViewModel(new FakeCueStore(), new FakeTransport(), new AppConfig(), libraryService: library,
+                gridEditService: gridEdit, ui: a => { a(); return Task.CompletedTask; });
+            await open.LoadTrackAsync(hash, "Title", "Artist");
+            Assert.Equal(87, open.GridBpm, 2);
+
+            await open.DoubleBpmCommand.Execute();
+            Assert.Equal(174, open.GridBpm, 2);
+
+            var reopened = new CueForgeViewModel(new FakeCueStore(), new FakeTransport(), new AppConfig(), libraryService: library,
+                gridEditService: gridEdit, ui: a => { a(); return Task.CompletedTask; });
+            await reopened.LoadTrackAsync(hash, "Title", "Artist");
+            Assert.Equal(174, reopened.GridBpm, 2);
+        }
+        finally
+        {
+            await using var db = new AppDbContext();
+            db.AudioFeatures.RemoveRange(db.AudioFeatures.Where(f => f.TrackUniqueHash == hash));
+            await db.SaveChangesAsync();
+        }
+    }
+
+    private static DatabaseService CreateDatabaseService()
+    {
+        var schemaMigrator = new SchemaMigratorService(NullLogger<SchemaMigratorService>.Instance);
+        var trackRepository = new TrackRepository(NullLogger<TrackRepository>.Instance);
+        var fileWrite = new Mock<IFileWriteService>();
+        return new DatabaseService(NullLogger<DatabaseService>.Instance, schemaMigrator, trackRepository, fileWrite.Object);
+    }
+
+    private static LibraryService CreateLibraryService(DatabaseService database) =>
+        new(NullLogger<LibraryService>.Instance, database, new AppConfig(), new EventBusService(), new LibraryCacheService());
+
+    private static async Task SeedFeaturesAsync(string hash, double bpm, double downbeat)
+    {
+        await using var db = new AppDbContext();
+        var beats = new List<double>();
+        double period = 60.0 / bpm;
+        for (int n = 0; n < 300; n++) beats.Add(Math.Round(downbeat + n * period, 4));
+        db.AudioFeatures.Add(new AudioFeaturesEntity
+        {
+            TrackUniqueHash = hash,
+            Bpm = (float)bpm,
+            TrackDuration = 300,
+            DownbeatOffsetSeconds = downbeat,
+            BeatGridJson = JsonSerializer.Serialize(beats),
+        });
+        await db.SaveChangesAsync();
     }
 
     [Theory]

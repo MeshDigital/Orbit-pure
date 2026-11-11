@@ -271,6 +271,21 @@ public partial class CueForgePage : UserControl
             case Key.OemCloseBrackets when none:
                 vm.BeatJumpCommand.Execute(1).Subscribe();
                 break;
+            case Key.OemOpenBrackets when shift:
+                vm.SlipGridFineCommand.Execute("-").Subscribe();
+                break;
+            case Key.OemCloseBrackets when shift:
+                vm.SlipGridFineCommand.Execute("+").Subscribe();
+                break;
+            case Key.B when none:
+                vm.SetDownbeatAtPlayheadCommand.Execute().Subscribe();
+                break;
+            case Key.M when none:
+                vm.MetronomeEnabled = !vm.MetronomeEnabled;
+                break;
+            case Key.T when none:
+                vm.TapTempoCommand.Execute().Subscribe();
+                break;
             case Key.F when none:
                 vm.FollowPlayhead = !vm.FollowPlayhead;
                 break;
@@ -405,6 +420,12 @@ public partial class CueForgePage : UserControl
     {
         if (_vm is not { } vm || !vm.HasTrackLoaded) return;
         double t = e.TryGetPosition(Waveform, out var p) ? Waveform.TimeAt(p) : vm.CurrentPlayPosition;
+        if (e.TryGetPosition(Waveform, out var sp) && Waveform.IsInPhraseStrip(sp) && vm.PhraseSegments.Count > 0)
+        {
+            OpenPhraseMenu(vm, t);
+            e.Handled = true;
+            return;
+        }
         var menu = new ContextMenu();
         menu.Items.Add(Item($"Add cue here ({CueForgeGrid.FormatTime(vm.Session.SnapTime(t))})", () => vm.Session.AddCueAtCommand.Execute(t).Subscribe()));
         menu.Items.Add(Item("Mark drop here", () => vm.Session.SetDropAtCommand.Execute(t).Subscribe()));
@@ -413,6 +434,45 @@ public partial class CueForgePage : UserControl
         menu.Items.Add(Item("Move playhead here", () => vm.SeekPlayheadCommand.Execute(t).Subscribe()));
         menu.Open(Waveform);
         e.Handled = true;
+    }
+
+    /// <summary>Phrase-strip actions (#225): the phrase under the pointer is selected first.</summary>
+    private void OpenPhraseMenu(CueForgeViewModel vm, double t)
+    {
+        vm.SelectPhraseAt(t);
+        var menu = new ContextMenu();
+        if (vm.HasSelectedPhrase)
+            menu.Items.Add(new MenuItem { Header = vm.SelectedPhraseDisplay, IsEnabled = false });
+
+        var types = new MenuItem { Header = "Set type", IsEnabled = vm.HasSelectedPhrase };
+        foreach (var type in CueForgeViewModel.PhraseTypeOptions)
+        {
+            var ty = type;
+            types.Items.Add(Item(ty, () => vm.SetPhraseTypeCommand.Execute(ty).Subscribe()));
+        }
+        menu.Items.Add(types);
+        menu.Items.Add(Item($"Split at playhead ({CueForgeGrid.FormatTime(vm.CurrentPlayPosition)})", () => vm.SplitPhraseAtPlayheadCommand.Execute().Subscribe()));
+        var merge = Item("Merge with next phrase", () => vm.MergePhraseWithNextCommand.Execute().Subscribe());
+        merge.IsEnabled = vm.HasSelectedPhrase && vm.SelectedPhraseIndex + 1 < vm.PhraseSegments.Count;
+        menu.Items.Add(merge);
+
+        var snap = new MenuItem { Header = "Boundary snap" };
+        foreach (var bars in CueForgeViewModel.PhraseSnapOptions)
+        {
+            var b = bars;
+            var item = Item(b == 1 ? "1 bar" : $"{b} bars", () => vm.PhraseSnapBars = b);
+            item.ToggleType = MenuItemToggleType.Radio;
+            item.IsChecked = vm.PhraseSnapBars == b;
+            snap.Items.Add(item);
+        }
+        menu.Items.Add(snap);
+
+        if (vm.HasUserPhrases)
+        {
+            menu.Items.Add(new Separator());
+            menu.Items.Add(Item("Reset to the analysed phrases", () => vm.ResetPhrasesCommand.Execute().Subscribe()));
+        }
+        menu.Open(Waveform);
     }
 
     private static MenuItem ColourMenu(CueForgeViewModel vm, OrbitCue cue)

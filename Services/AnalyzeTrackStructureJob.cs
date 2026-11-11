@@ -146,7 +146,9 @@ public sealed class AnalyzeTrackStructureJob
             // of 0-44s, Drop 1 at 132s instead of 66s, Outro running past the end of the file).
             // Rekordbox's own PSSI segments are never overwritten by heuristic ones.
             bool keepRekordboxPhrases = string.Equals(features.PhraseSegmentsSource, "RekordboxPSSI", StringComparison.OrdinalIgnoreCase);
-            if (sections.Count >= 2 && !keepRekordboxPhrases)
+            // A user-edited phrase map is never overwritten by re-analysis or a PSSI re-import (#225).
+            bool hasUserPhrases = await _databaseService.HasUserPhrasesAsync(trackUniqueHash).ConfigureAwait(false);
+            if (sections.Count >= 2 && !keepRekordboxPhrases && !hasUserPhrases)
             {
                 features.PhraseSegmentsJson = JsonSerializer.Serialize(ToPhraseSegments(sections, features.Bpm));
                 features.PhraseSegmentsSource = "Heuristic";
@@ -158,13 +160,27 @@ public sealed class AnalyzeTrackStructureJob
                 sections);
             ApplyEnergyProfile(features, sections, energyProfile);
 
-            if (sections.Count > 0)
+            if (sections.Count > 0 && !hasUserPhrases)
+            {
+                // Tag and bar-index the heuristic rows (#225) so grid edits move them with the bars.
+                double bpmForBars = features.Bpm > 0 ? features.Bpm : analysisResult.Bpm;
+                double downbeatForBars = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
+                foreach (var section in sections)
+                {
+                    section.Source ??= "Heuristic";
+                    if (bpmForBars > 0)
+                    {
+                        section.StartBar = AudioAnalysis.PhraseBarIndexing.SecondsToBar(section.StartTimeSeconds, bpmForBars, downbeatForBars);
+                        section.BarCount = Math.Max(1, AudioAnalysis.PhraseBarIndexing.SecondsToBar(section.EndTimeSeconds, bpmForBars, downbeatForBars) - section.StartBar);
+                    }
+                }
                 await _databaseService.SavePhrasesAsync(sections);
+            }
 
             // Step 4b: Rekordbox's own phrase analysis (optional — only present if the user has
             // already analysed this exact file in Rekordbox) — its own commercial-grade analysis,
             // preferred over the heuristic sections above; see Services/Rekordbox/RekordboxPssiService.cs.
-            if (_rekordboxPssi?.IsAvailable == true)
+            if (_rekordboxPssi?.IsAvailable == true && !hasUserPhrases)
             {
                 try
                 {
@@ -184,6 +200,12 @@ public sealed class AnalyzeTrackStructureJob
                         {
                             features.PhraseSegmentsJson = JsonSerializer.Serialize(rbSegments);
                             features.PhraseSegmentsSource = "RekordboxPSSI";
+                            // The single phrase store (#225): Rekordbox's phrases as their own source,
+                            // beside the heuristic rows (the resolver prefers User > RekordboxPSSI > Heuristic).
+                            await _databaseService.ReplacePhrasesForSourceAsync(trackUniqueHash, "RekordboxPSSI",
+                                Engine.Analysis.PhraseSourceResolver.ToTrackPhrases(trackUniqueHash, rbSegments, "RekordboxPSSI",
+                                    features.Bpm, features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0),
+                                cancellationToken);
                             _logger.LogInformation(
                                 "[AnalyzeTrackStructureJob] Rekordbox PSSI produced {n} phrase segments for {Hash}",
                                 rbSegments.Count, trackUniqueHash);
@@ -206,10 +228,10 @@ public sealed class AnalyzeTrackStructureJob
                 // PSSI replaced them above, in which case the builder's trusted-source path uses
                 // those). Passing them explicitly means cue placement never falls back to the legacy
                 // JSON column, which may still describe an older analysis.
-                bool rekordboxPhrases = string.Equals(features.PhraseSegmentsSource, "RekordboxPSSI", StringComparison.OrdinalIgnoreCase);
-                var phrasesForCues = rekordboxPhrases
-                    ? null
-                    : Engine.Analysis.PhraseSourceResolver.FromTrackPhrases(sections);
+                // Phrases come from the single TrackPhrases store with its precedence (#225): the
+                // user's own map, then Rekordbox's, then the heuristic sections saved above.
+                var phrasesForCues = Engine.Analysis.PhraseSourceResolver.Resolve(
+                    await _databaseService.GetPhrasesByHashAsync(trackUniqueHash), features.TrackDuration);
                 var analysisPipelineResult = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features, phrasesForCues);
                 double downbeatAnchor = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
                 await _cueGenerationService.GenerateAndPersistCuesAsync(
@@ -281,11 +303,8 @@ public sealed class AnalyzeTrackStructureJob
 
             // Same phrase precedence as Auto-generate: TrackPhrases is the current store; the legacy
             // JSON column is only used when Rekordbox's own analysis wrote it.
-            var storedPhrases = await _databaseService.GetPhrasesByHashAsync(trackUniqueHash);
-            bool rekordboxPhrases = string.Equals(features.PhraseSegmentsSource, "RekordboxPSSI", StringComparison.OrdinalIgnoreCase);
-            var phrases = rekordboxPhrases || storedPhrases.Count < 2
-                ? null
-                : Engine.Analysis.PhraseSourceResolver.FromTrackPhrases(storedPhrases);
+            var phrases = Engine.Analysis.PhraseSourceResolver.Resolve(
+                await _databaseService.GetPhrasesByHashAsync(trackUniqueHash), features.TrackDuration);
             var analysisPipelineResult = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features, phrases);
             double downbeatAnchor = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
 

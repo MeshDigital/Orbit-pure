@@ -27,10 +27,12 @@ public interface IPhraseAlignmentService
         float? genreConfidence = null,
         GenreSource genreSource = GenreSource.Unknown);
 
+    /// <param name="outgoingSegments">The outgoing track's phrase map, resolved from TrackPhrases (#225).</param>
     TransitionPoint? DetermineOptimalTransitionTime(
         LibraryEntryEntity? outgoingTrack,
         LibraryEntryEntity? incomingTrack,
-        TransitionArchetype archetype);
+        TransitionArchetype archetype,
+        IReadOnlyList<PhraseSegment>? outgoingSegments = null);
 }
 
 /// <summary>
@@ -343,14 +345,15 @@ public sealed class PhraseAlignmentService : IPhraseAlignmentService
     public TransitionPoint? DetermineOptimalTransitionTime(
         LibraryEntryEntity? outgoingTrack,
         LibraryEntryEntity? incomingTrack,
-        TransitionArchetype archetype)
+        TransitionArchetype archetype,
+        IReadOnlyList<PhraseSegment>? outgoingSegmentsFromStore = null)
     {
         if (outgoingTrack is null)
         {
             return null;
         }
 
-        var outgoingSegments = ParseSegments(outgoingTrack.AudioFeatures?.PhraseSegmentsJson);
+        var outgoingSegments = (outgoingSegmentsFromStore ?? Array.Empty<PhraseSegment>()).ToList();
         var vocalSafeTime = Math.Max(0d, outgoingTrack.VocalEndSeconds ?? 0d);
 
         if (archetype == TransitionArchetype.BuildToDrop)
@@ -594,23 +597,6 @@ public sealed class PhraseAlignmentService : IPhraseAlignmentService
         }
 
         return bars * secondsPerBar;
-    }
-
-    private static List<PhraseSegment> ParseSegments(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return new List<PhraseSegment>();
-        }
-
-        try
-        {
-            return JsonSerializer.Deserialize<List<PhraseSegment>>(json) ?? new List<PhraseSegment>();
-        }
-        catch
-        {
-            return new List<PhraseSegment>();
-        }
     }
 
     private sealed record ExpectedSection(

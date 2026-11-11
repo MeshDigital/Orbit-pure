@@ -265,6 +265,24 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 if (needsDropSignals || engines.HasAny(AnalysisEngine.Tempo | AnalysisEngine.Mood))
                     mono = ToMono(pcmSamples, pcmChannels);
 
+                // Music start (issue #224): first audible sound after silence/run-in. A user-placed
+                // marker is never overwritten by re-analysis (same protection rule as the grid).
+                if (mono.Length > 0 && !string.Equals(features.MusicStartSource, "User", StringComparison.Ordinal))
+                {
+                    try
+                    {
+                        double threshold = features.LoudnessLUFS is > -120 and var lufs
+                            ? MusicStartDetector.ThresholdDbFs(lufs)
+                            : MusicStartDetector.DefaultThresholdDbFs;
+                        features.MusicStartSeconds = MusicStartDetector.Detect(mono, pcmSampleRate, threshold) is { } ms ? (float)ms : null;
+                        features.MusicStartSource = features.MusicStartSeconds.HasValue ? "Analysis" : null;
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        _logger.LogDebug(ex, "[AudioAnalysis] Music-start detection failed for {File}", Path.GetFileName(filePath));
+                    }
+                }
+
                 if (needsDropSignals)
                 try
                 {
@@ -372,6 +390,14 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 progress?.Report((45, "Analysing BPM/key in-process..."));
                 essentiaOutput = _inProcessEngine.Analyze(mono, pcmSampleRate, durationSeconds);
             }
+
+            // A grid the DJ owns must survive re-analysis byte-identical. Snapshot it so the raw
+            // beat-tracker write, downbeat pick and fit below can be rolled back; the fitted/rekordbox
+            // suggestion is kept in AnalysedGridJson by GridWriteRules instead of being applied.
+            bool userOwnsGrid = features.GridSource == GridWriteRules.SourceUser || features.GridVerified;
+            float userBpm = features.Bpm;
+            string userBeatGridJson = features.BeatGridJson;
+            double userDownbeat = features.DownbeatOffsetSeconds;
 
             if (essentiaOutput is not null)
             {
@@ -491,6 +517,16 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 && await _rekordbox.GetBeatGridAsync(filePath, cancellationToken).ConfigureAwait(false) is { } rbGrid
                 && BeatGridFitter.ApplyRekordboxGrid(features, rbGrid, rawTicks))
                 _logger.LogDebug("[AudioAnalysis] Using Rekordbox's beat grid for {File}: {Bpm:F2} BPM", Path.GetFileName(filePath), features.Bpm);
+
+            // Restore a user-owned grid that the raw detection/fit above was not allowed to change.
+            if (userOwnsGrid)
+            {
+                features.Bpm = userBpm;
+                features.BeatGridJson = userBeatGridJson;
+                features.DownbeatOffsetSeconds = userDownbeat;
+                features.GridSource = GridWriteRules.SourceUser;
+                features.GridVerified = true;
+            }
 
             // ── Step 6: Cue point detection ───────────────────────────────
             if (engines.Has(AnalysisEngine.Structure) && features.Bpm > 0 && features.TrackDuration > 0)

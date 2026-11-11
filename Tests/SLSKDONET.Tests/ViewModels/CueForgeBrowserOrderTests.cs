@@ -50,6 +50,7 @@ public class CueForgeBrowserOrderTests
         public void Play() => IsPlaying = true;
         public void Pause() => IsPlaying = false;
         public void SeekFraction(double fraction) => PositionFraction = fraction;
+        public void SetMetronome(IReadOnlyList<double>? beatTimes, double downbeatSeconds, bool enabled) { }
         public Task<string?> ResolveFilePathAsync(string trackHash) => Task.FromResult<string?>($"C:/music/{trackHash}.flac");
     }
 

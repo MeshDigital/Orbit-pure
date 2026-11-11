@@ -691,6 +691,65 @@ public class DatabaseService
         await _trackRepository.SavePhrasesAsync(phrases);
     }
 
+    /// <summary>
+    /// Replaces one source's phrase rows for a track (#225) — the user's phrase-strip edits ("User") or a
+    /// Rekordbox PSSI import ("RekordboxPSSI") — leaving the other sources' rows in place. An empty list
+    /// removes that source (e.g. "Reset to analysed" deletes the User rows).
+    /// </summary>
+    public async Task ReplacePhrasesForSourceAsync(string trackHash, string source, IReadOnlyList<TrackPhraseEntity> rows, CancellationToken ct = default)
+    {
+        await _writeSemaphore.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            context.TrackPhrases.RemoveRange(await context.TrackPhrases
+                .Where(p => p.TrackUniqueHash == trackHash && p.Source == source).ToListAsync(ct).ConfigureAwait(false));
+            foreach (var row in rows)
+            {
+                row.Id = 0;
+                row.TrackUniqueHash = trackHash;
+                row.Source = source;
+                context.TrackPhrases.Add(row);
+            }
+            await context.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>Replaces every phrase row of a track with <paramref name="rows"/> as given (undo/redo of phrase edits, #225).</summary>
+    public async Task ReplaceAllPhrasesAsync(string trackHash, IReadOnlyList<TrackPhraseEntity> rows, CancellationToken ct = default)
+    {
+        await _writeSemaphore.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            context.TrackPhrases.RemoveRange(await context.TrackPhrases
+                .Where(p => p.TrackUniqueHash == trackHash).ToListAsync(ct).ConfigureAwait(false));
+            foreach (var row in rows)
+            {
+                row.Id = 0;
+                row.TrackUniqueHash = trackHash;
+                context.TrackPhrases.Add(row);
+            }
+            await context.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>True when the track has a user-edited phrase map (issue #225) — re-analysis and PSSI re-import must not overwrite it.</summary>
+    public async Task<bool> HasUserPhrasesAsync(string trackHash)
+    {
+        using var context = new AppDbContext();
+        return await context.TrackPhrases
+            .AnyAsync(p => p.TrackUniqueHash == trackHash && p.Source == "User");
+    }
+
     public async Task<int> GetTotalLibraryTrackCountAsync(string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, string? qualityTier = null)
     {
         return await _trackRepository.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier);
@@ -2313,6 +2372,126 @@ public class DatabaseService
             await SyncDenormalizedFeaturesAsync(context, features).ConfigureAwait(false);
 
             await context.SaveChangesAsync();
+        }
+    }
+
+    /// <summary>
+    /// Atomically applies a beat-grid edit: updates <see cref="AudioFeaturesEntity.Bpm"/>,
+    /// <see cref="AudioFeaturesEntity.BeatGridJson"/> and <see cref="AudioFeaturesEntity.DownbeatOffsetSeconds"/>
+    /// on the audio_features row, and sets BPM + ManualBPM on every LibraryEntries, Tracks and
+    /// PlaylistTracks row for the hash — so the grid edit, the analysis BPM and the displayed library
+    /// BPM can never disagree. TagBPM is left alone (the file tag is not a grid edit). Returns false
+    /// when the track has no audio_features row.
+    /// </summary>
+    public async Task<bool> ApplyGridEditAsync(AudioFeaturesEntity features, CancellationToken ct = default)
+    {
+        await _writeSemaphore.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            var existing = await context.AudioFeatures
+                .FirstOrDefaultAsync(f => f.TrackUniqueHash == features.TrackUniqueHash, ct)
+                .ConfigureAwait(false);
+            if (existing is null) return false;
+
+            features.Id = existing.Id;
+            context.Entry(existing).CurrentValues.SetValues(features);
+
+            double bpm = features.Bpm;
+            string hash = features.TrackUniqueHash;
+
+            foreach (var row in await context.PlaylistTracks
+                         .Where(t => t.TrackUniqueHash == hash)
+                         .ToListAsync(ct).ConfigureAwait(false))
+            {
+                row.BPM = bpm;
+                row.ManualBPM = bpm;
+            }
+            foreach (var row in await context.LibraryEntries
+                         .Where(t => t.UniqueHash == hash)
+                         .ToListAsync(ct).ConfigureAwait(false))
+            {
+                row.BPM = bpm;
+                row.ManualBPM = bpm;
+            }
+            foreach (var row in await context.Tracks
+                         .Where(t => t.GlobalId == hash)
+                         .ToListAsync(ct).ConfigureAwait(false))
+            {
+                row.BPM = bpm;
+                row.ManualBPM = bpm;
+            }
+
+            await context.SaveChangesAsync(ct).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// After a <b>tempo</b> edit (×2/÷2, typed BPM, reset): keeps every phrase where it is in the music
+    /// and re-numbers its bars on the new grid (issue #225). Keeping the bar numbers instead would move
+    /// every boundary by 1/factor in time. Phrases that are not bar-indexed (pre-migration) are left alone.
+    /// </summary>
+    public async Task ReindexPhraseBarsFromSecondsAsync(string trackHash, double bpm, double downbeat, CancellationToken ct = default)
+    {
+        if (bpm <= 0) return;
+        await _writeSemaphore.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            var phrases = await context.TrackPhrases
+                .Where(p => p.TrackUniqueHash == trackHash)
+                .ToListAsync(ct).ConfigureAwait(false);
+            foreach (var p in phrases)
+            {
+                if (p.BarCount > 0 || p.StartBar > 0)
+                {
+                    int startBar = AudioAnalysis.PhraseBarIndexing.SecondsToBar(p.StartTimeSeconds, bpm, downbeat);
+                    int endBar = AudioAnalysis.PhraseBarIndexing.SecondsToBar(p.EndTimeSeconds, bpm, downbeat);
+                    p.StartBar = startBar;
+                    p.BarCount = Math.Max(1, endBar - startBar);
+                }
+            }
+            await context.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// Recomputes the seconds columns of a track's bar-indexed phrases from the (new) grid after a
+    /// <b>phase</b> edit (slip, Bar 1), so phrase boundaries follow the bars (issue #225). Phrases that are not bar-indexed
+    /// (<c>BarCount == 0</c>, pre-migration) are left untouched.
+    /// </summary>
+    public async Task ReindexPhraseSecondsFromBarsAsync(string trackHash, double bpm, double downbeat, CancellationToken ct = default)
+    {
+        if (bpm <= 0) return;
+        await _writeSemaphore.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            var phrases = await context.TrackPhrases
+                .Where(p => p.TrackUniqueHash == trackHash)
+                .ToListAsync(ct).ConfigureAwait(false);
+            foreach (var p in phrases)
+            {
+                if (p.BarCount > 0 || p.StartBar > 0)
+                {
+                    p.StartTimeSeconds = (float)AudioAnalysis.PhraseBarIndexing.BarToSeconds(p.StartBar, bpm, downbeat);
+                    p.EndTimeSeconds = (float)AudioAnalysis.PhraseBarIndexing.BarToSeconds(p.StartBar + p.BarCount, bpm, downbeat);
+                }
+            }
+            await context.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
         }
     }
 

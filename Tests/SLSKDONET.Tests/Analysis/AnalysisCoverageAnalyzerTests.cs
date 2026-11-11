@@ -31,6 +31,7 @@ public sealed class AnalysisCoverageAnalyzerTests
         EnergyScore = 7,
         GenreDistributionJson = "{\"house\":0.9}",
         PhraseSegmentsJson = "[{\"type\":\"Intro\"}]",
+        PhraseSegmentsSource = "Heuristic",
         EnergyCurveJson = "[0.1,0.4]",
         CuePointsJson = "[{\"position\":12.5}]",
         Fingerprint = "abc123",
