@@ -56,7 +56,10 @@ public sealed class PhraseBarMigrationService
                 await Task.Delay(StartDelay, ct).ConfigureAwait(false);
                 await RunAsync(ct).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException)
+            {
+                // intentional: app shutdown cancels the one-off pass; no marker is written, so it retries next launch.
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[PhraseBarMigration] Pass failed; it will retry on next launch.");

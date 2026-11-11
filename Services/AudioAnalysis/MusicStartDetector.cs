@@ -13,6 +13,12 @@ public static class MusicStartDetector
     public const double DefaultThresholdDbFs = -50.0;
     public const double MinSustainSeconds = 0.2;
 
+    /// <summary><c>MusicStartSource</c> values: measured from PCM during analysis, placed by the user,
+    /// or estimated from the stored waveform blob by the one-off backfill (display-only).</summary>
+    public const string SourceAnalysis = "Analysis";
+    public const string SourceUser = "User";
+    public const string SourceEstimated = "Estimated";
+
     /// <summary>The RMS threshold for "music present", from the track's integrated loudness.</summary>
     public static double ThresholdDbFs(double? integratedLoudnessLufs)
     {
@@ -63,10 +69,15 @@ public static class MusicStartDetector
 
     /// <summary>
     /// Music-start estimate from the duration-scaled tri-band waveform blob (no decode). Energy is the
-    /// per-sample mean of the three bands; music start is the first sample at or above 5% of the
-    /// track's peak energy sustained for <see cref="MinSustainSeconds"/>. Best-effort for the backfill.
+    /// per-sample loudest of the three bands (a quiet pad lives in one band, so a 3-band mean hid it);
+    /// music start is the first sample above the blob's noise floor (2% of peak, at least 3 of 255)
+    /// sustained for <see cref="MinSustainSeconds"/>. The blob is display-scaled, not dBFS, so a high
+    /// relative threshold treated quiet intros as silence (2026-11-11: <i>Livin' On A Prayer</i> came
+    /// out at 16.9 s). When <paramref name="latestPlausibleSeconds"/> (Bar 1 — the beat tracker found
+    /// beats there, so there is sound) is given, an estimate later than it is rejected as a miss.
+    /// Best-effort, display-only (<see cref="SourceEstimated"/>).
     /// </summary>
-    public static double? DetectFromWaveformBlob(byte[] blob, int sampleCount, double duration)
+    public static double? DetectFromWaveformBlob(byte[] blob, int sampleCount, double duration, double? latestPlausibleSeconds = null)
     {
         if (blob is null || sampleCount <= 0 || blob.Length < sampleCount * 3 || duration <= 0) return null;
 
@@ -74,12 +85,12 @@ public static class MusicStartDetector
         var energy = new double[sampleCount];
         for (int i = 0; i < sampleCount; i++)
         {
-            energy[i] = (blob[i] + blob[sampleCount + i] + blob[2 * sampleCount + i]) / 3.0;
+            energy[i] = Math.Max(blob[i], Math.Max(blob[sampleCount + i], blob[2 * sampleCount + i]));
             if (energy[i] > peak) peak = energy[i];
         }
         if (peak <= 0) return null;
 
-        double threshold = Math.Max(1.0, peak * 0.05);
+        double threshold = Math.Max(3.0, peak * 0.02);
         double secondsPerSample = duration / sampleCount;
         int sustainSamples = Math.Max(1, (int)Math.Ceiling(MinSustainSeconds / secondsPerSample));
 
@@ -89,7 +100,10 @@ public static class MusicStartDetector
             if (energy[i] >= threshold)
             {
                 if (++run >= sustainSamples)
-                    return (i - sustainSamples + 1) * secondsPerSample;
+                {
+                    double start = (i - sustainSamples + 1) * secondsPerSample;
+                    return latestPlausibleSeconds is { } latest && start > latest + MinSustainSeconds ? null : start;
+                }
             }
             else
             {

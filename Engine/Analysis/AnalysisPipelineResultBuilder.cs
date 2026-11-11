@@ -63,8 +63,10 @@ public static class AnalysisPipelineResultBuilder
             result.HintedDropTimestamp = hintedDrop.Value;
 
         // Music start (issue #224): carried into the result so cue generation can anchor the Intro
-        // / load cue on the first audible sound when it precedes Bar 1.
-        if (f.MusicStartSeconds is { } ms && ms >= 0 && (f.TrackDuration <= 0 || ms < f.TrackDuration))
+        // / load cue on the first audible sound when it precedes Bar 1. A waveform-blob estimate
+        // ("Estimated", from the one-off backfill) is display-only: it is too coarse to move cues.
+        if (f.MusicStartSeconds is { } ms && ms >= 0 && (f.TrackDuration <= 0 || ms < f.TrackDuration)
+            && !string.Equals(f.MusicStartSource, Services.AudioAnalysis.MusicStartDetector.SourceEstimated, StringComparison.Ordinal))
             result.MusicStartSeconds = f.MusicStartSeconds;
 
         // Rekordbox's own commercial phrase analysis (PSSI) and the rule-based structural analysis

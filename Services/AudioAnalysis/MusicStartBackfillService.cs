@@ -22,7 +22,9 @@ namespace SLSKDONET.Services.AudioAnalysis;
 /// </summary>
 public sealed class MusicStartBackfillService
 {
-    private const string PassName = "music-start-v1";
+    // v2: noise-floor threshold, Bar-1 plausibility cap, "Estimated" source (display-only). v1 used a
+    // 5%-of-peak threshold that read quiet intros as silence and stored the result as "Analysis".
+    private const string PassName = "music-start-v2";
     private static readonly TimeSpan StartDelay = TimeSpan.FromSeconds(120);
 
     private readonly ILogger<MusicStartBackfillService> _logger;
@@ -51,7 +53,10 @@ public sealed class MusicStartBackfillService
                 await Task.Delay(StartDelay, ct).ConfigureAwait(false);
                 await RunAsync(ct).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException)
+            {
+                // intentional: app shutdown cancels the one-off pass; no marker is written, so it retries next launch.
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[MusicStartBackfill] Pass failed; it will retry on next launch.");
@@ -67,7 +72,8 @@ public sealed class MusicStartBackfillService
         using (var db = new AppDbContext())
         {
             candidates = await db.AudioFeatures.AsNoTracking()
-                .Where(f => f.WaveformBlob != null && f.WaveformBlobSampleCount > 0 && f.TrackDuration > 0 && f.MusicStartSeconds == null)
+                .Where(f => f.WaveformBlob != null && f.WaveformBlobSampleCount > 0 && f.TrackDuration > 0
+                            && (f.MusicStartSeconds == null || f.MusicStartSource == MusicStartDetector.SourceEstimated))
                 .ToListAsync(ct).ConfigureAwait(false);
         }
         if (candidates.Count == 0) { WriteMarker("no candidates"); return; }
@@ -79,14 +85,16 @@ public sealed class MusicStartBackfillService
         foreach (var f in candidates)
         {
             ct.ThrowIfCancellationRequested();
-            double? musicStart = MusicStartDetector.DetectFromWaveformBlob(f.WaveformBlob!, f.WaveformBlobSampleCount, f.TrackDuration);
+            double? barOne = f.DownbeatOffsetSeconds > 0 ? f.DownbeatOffsetSeconds : null;
+            double? musicStart = MusicStartDetector.DetectFromWaveformBlob(f.WaveformBlob!, f.WaveformBlobSampleCount, f.TrackDuration, barOne);
             if (musicStart is null) continue;
 
             using var context = new AppDbContext();
             var existing = await context.AudioFeatures.FirstOrDefaultAsync(x => x.TrackUniqueHash == f.TrackUniqueHash, ct).ConfigureAwait(false);
-            if (existing is null || existing.MusicStartSource == "User") continue;
+            if (existing is null
+                || existing.MusicStartSource is MusicStartDetector.SourceUser or MusicStartDetector.SourceAnalysis) continue;
             existing.MusicStartSeconds = (float)musicStart.Value;
-            existing.MusicStartSource = "Analysis";
+            existing.MusicStartSource = MusicStartDetector.SourceEstimated;
             await context.SaveChangesAsync(ct).ConfigureAwait(false);
             filled++;
         }

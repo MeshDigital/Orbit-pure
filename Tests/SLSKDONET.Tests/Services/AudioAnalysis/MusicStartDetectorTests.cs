@@ -86,6 +86,41 @@ public class MusicStartDetectorTests
         Assert.NotNull(start);
         Assert.InRange(start!.Value, 1.8, 2.2); // 20% of 10 s
     }
+
+    /// <summary>
+    /// Regression (2026-11-11): a quiet intro in one band (a synth pad at ~4% of the peak) was read as
+    /// silence by the old 5%-of-peak, 3-band-mean threshold (<i>Livin' On A Prayer</i> → 16.9 s).
+    /// </summary>
+    [Fact]
+    public void DetectFromWaveformBlob_QuietSingleBandIntro_IsMusic()
+    {
+        int n = 100;
+        var blob = new byte[n * 3];
+        for (int i = 0; i < n; i++)
+        {
+            bool loud = i >= 50;
+            blob[i] = loud ? (byte)230 : (byte)0;                 // low band: kick from 5 s
+            blob[n + i] = loud ? (byte)200 : (byte)10;            // mid band: quiet pad from 0 s
+            blob[2 * n + i] = loud ? (byte)180 : (byte)0;
+        }
+
+        double? start = MusicStartDetector.DetectFromWaveformBlob(blob, n, duration: 10.0);
+
+        Assert.NotNull(start);
+        Assert.InRange(start!.Value, 0.0, 0.3);
+    }
+
+    [Fact]
+    public void DetectFromWaveformBlob_LaterThanBarOne_IsRejected()
+    {
+        // The beat tracker found Bar 1 at 2 s, so there is sound there: an estimate of 6 s is a miss.
+        int n = 100;
+        var blob = new byte[n * 3];
+        for (int i = 60; i < n; i++) { blob[i] = 200; blob[n + i] = 200; blob[2 * n + i] = 200; }
+
+        Assert.Null(MusicStartDetector.DetectFromWaveformBlob(blob, n, duration: 10.0, latestPlausibleSeconds: 2.0));
+        Assert.NotNull(MusicStartDetector.DetectFromWaveformBlob(blob, n, duration: 10.0, latestPlausibleSeconds: 8.0));
+    }
 }
 
 public class MusicStartIntroAnchorTests
