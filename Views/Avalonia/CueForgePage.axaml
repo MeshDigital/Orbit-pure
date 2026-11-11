@@ -435,6 +435,7 @@
                                         <TextBlock Classes="caption" Text="{Binding TwoPointBpmStatus}" TextWrapping="Wrap"/>
                                         <ToggleButton Classes="chip small" Content="Metronome" IsChecked="{Binding MetronomeEnabled}" ToolTip.Tip="Audition the beat grid with a click (M)"/>
                                         <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding MarkGridCorrectCommand}" Content="Mark grid correct" ToolTip.Tip="Confirm this grid is right — re-analysis and Rekordbox will keep it"/>
+                                        <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding SetMusicStartAtPlayheadCommand}" Content="Music starts here" ToolTip.Tip="Mark the playhead as the first audible sound (never trims the audio)"/>
                                         <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding ResetGridCommand}" Content="Reset to the analysed grid" IsVisible="{Binding IsGridEdited}"/>
                                         <Border Classes="divider" Margin="0,4"/>
                                         <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding Session.RevertCommand}" Content="Revert to saved cues…"/>

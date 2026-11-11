@@ -241,6 +241,14 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     private IReadOnlyList<double> _beatGrid = Array.Empty<double>();
 
+    private double? _musicStartSeconds;
+    /// <summary>First audible sound (seconds), for the waveform shading and the Intro anchor (#224).</summary>
+    public double? MusicStartSeconds
+    {
+        get => _musicStartSeconds;
+        private set => this.RaiseAndSetIfChanged(ref _musicStartSeconds, value);
+    }
+
     private bool _metronomeEnabled;
     /// <summary>Mixes a metronome click into Cue Forge playback, scheduled from the beat grid (#222).</summary>
     public bool MetronomeEnabled
@@ -763,6 +771,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> ApplyTwoPointBpmCommand { get; }
     /// <summary>Marks the current grid as verified without changing it (#221).</summary>
     public ReactiveCommand<Unit, Unit> MarkGridCorrectCommand { get; }
+    /// <summary>Sets the "music starts here" marker at the playhead (#224).</summary>
+    public ReactiveCommand<Unit, Unit> SetMusicStartAtPlayheadCommand { get; }
 
     private double _analysedDownbeat;
     private double _analysedBpm;
@@ -983,6 +993,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         TwoPointBpmMarkCommand = ReactiveCommand.Create(TwoPointBpmMark, canAct);
         ApplyTwoPointBpmCommand = ReactiveCommand.CreateFromTask(ApplyTwoPointBpmAsync, this.WhenAnyValue(x => x.TwoPointBpmValue, bpm => bpm is > 40 and < 400));
         MarkGridCorrectCommand = ReactiveCommand.CreateFromTask(MarkGridCorrectAsync, hasTrack);
+        SetMusicStartAtPlayheadCommand = ReactiveCommand.CreateFromTask(SetMusicStartAtPlayheadAsync, canAct);
 
         ZoomInCommand     = ReactiveCommand.Create(() => ZoomAroundPlayhead(1.5));
         ZoomOutCommand    = ReactiveCommand.Create(() => ZoomAroundPlayhead(1 / 1.5));
@@ -1268,6 +1279,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 _analysedDownbeat = _downbeat;
                 _analysedBpm = _preciseBpm;
                 IsGridEdited = false;
+                MusicStartSeconds = features.MusicStartSeconds is { } ms && ms >= 0 ? ms : null;
                 genre = !string.IsNullOrWhiteSpace(features.DetectedSubGenre) ? features.DetectedSubGenre : features.ElectronicSubgenre;
                 _durationKnown = features.TrackDuration > 0;
                 TrackDuration = features.TrackDuration > 0 ? features.TrackDuration : 300.0;
@@ -1540,6 +1552,30 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             return;
         }
         Session.SetStatus("Grid marked correct — re-analysis and Rekordbox will keep it.");
+    }
+
+    private async Task SetMusicStartAtPlayheadAsync()
+    {
+        if (TrackHash is not { } hash || _libraryService is null) return;
+        try
+        {
+            var features = await _libraryService.GetAudioFeaturesByHashAsync(hash);
+            if (features is null)
+            {
+                Session.SetStatus("This track has no analysis to store the music start in. Analyse it first.", isError: true);
+                return;
+            }
+            features.MusicStartSeconds = (float)Math.Max(0, CurrentPlayPosition);
+            features.MusicStartSource = "User";
+            await _libraryService.UpdateAudioFeaturesAsync(features);
+            MusicStartSeconds = features.MusicStartSeconds;
+            Session.SetStatus($"Music starts at {CueForgeGrid.FormatTime((double)features.MusicStartSeconds)}.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "CueForge: saving music start failed for {Hash}", hash);
+            Session.SetStatus("Couldn't save the music start; nothing was changed.", isError: true);
+        }
     }
 
     public void UpdateCamelotKeyDisplay(string camelotKey)
