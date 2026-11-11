@@ -428,12 +428,19 @@
                                             <TextBlock Classes="caption mono" Text="{Binding TappedBpmDisplay}" VerticalAlignment="Center"/>
                                             <Button Classes="ghost small" Content="Apply tapped BPM" Command="{Binding ApplyTappedBpmCommand}" IsVisible="{Binding HasTappedBpm}"/>
                                         </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,4,0,0">
+                                            <Button Classes="ghost small" Content="Mark downbeat" Command="{Binding TwoPointBpmMarkCommand}" ToolTip.Tip="Mark Bar 1, jump N bars, then mark that bar's 1"/>
+                                            <Button Classes="ghost small" Content="Set BPM from two downbeats" Command="{Binding ApplyTwoPointBpmCommand}"/>
+                                        </StackPanel>
+                                        <TextBlock Classes="caption" Text="{Binding TwoPointBpmStatus}" TextWrapping="Wrap"/>
+                                        <ToggleButton Classes="chip small" Content="Metronome" IsChecked="{Binding MetronomeEnabled}" ToolTip.Tip="Audition the beat grid with a click (M)"/>
+                                        <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding MarkGridCorrectCommand}" Content="Mark grid correct" ToolTip.Tip="Confirm this grid is right — re-analysis and Rekordbox will keep it"/>
                                         <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding ResetGridCommand}" Content="Reset to the analysed grid" IsVisible="{Binding IsGridEdited}"/>
                                         <Border Classes="divider" Margin="0,4"/>
                                         <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding Session.RevertCommand}" Content="Revert to saved cues…"/>
                                         <Border Classes="divider" Margin="0,4"/>
                                         <TextBlock Classes="section" Text="SHORTCUTS"/>
-                                        <TextBlock Classes="caption" TextWrapping="Wrap" LineHeight="18" Text="Space play · [ / ] beat jump · C cue · A add cue · D drop · Shift+I intro end · Shift+O outro · 1–8 pads · Up/Down previous/next cue · Left/Right nudge (Shift bar, Ctrl 10 ms) · Enter audition · Delete remove · F2 rename · I / O loop in/out · +/− zoom · F follow · Ctrl+S save · Ctrl+Z / Ctrl+Y undo/redo"/>
+                                        <TextBlock Classes="caption" TextWrapping="Wrap" LineHeight="18" Text="Space play · [ / ] beat jump · C cue · A add cue · D drop · Shift+I intro end · Shift+O outro · 1–8 pads · Up/Down previous/next cue · Left/Right nudge (Shift bar, Ctrl 10 ms) · Enter audition · Delete remove · F2 rename · I / O loop in/out · +/− zoom · F follow · Ctrl+S save · Ctrl+Z / Ctrl+Y undo/redo · B Bar 1 here · [ / ] slip 10 ms · Shift+[ / Shift+] slip 1 ms · M metronome · T tap tempo"/>
                                     </StackPanel>
                                 </ScrollViewer>
                             </Flyout>

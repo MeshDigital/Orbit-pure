@@ -35,6 +35,8 @@ public interface ICueForgeTransport
     void Play();
     void Pause();
     void SeekFraction(double fraction);
+    /// <summary>Enables/disables the metronome click, scheduled from the beat grid (issue #222).</summary>
+    void SetMetronome(IReadOnlyList<double>? beatTimes, double downbeatSeconds, bool enabled);
     Task<string?> ResolveFilePathAsync(string trackHash);
 }
 
@@ -81,6 +83,9 @@ public sealed class PlayerViewModelCueForgeTransport : ICueForgeTransport
     }
 
     public void SeekFraction(double fraction) => _player.Seek((float)Math.Clamp(fraction, 0.0, 1.0));
+
+    public void SetMetronome(IReadOnlyList<double>? beatTimes, double downbeatSeconds, bool enabled) =>
+        _player.SetMetronome(beatTimes, downbeatSeconds, enabled);
 
     public async Task<string?> ResolveFilePathAsync(string trackHash) =>
         _database == null ? null : await _database.GetLocalFilePathByHashAsync(trackHash);

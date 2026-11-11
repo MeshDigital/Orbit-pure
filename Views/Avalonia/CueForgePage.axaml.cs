@@ -271,6 +271,21 @@ public partial class CueForgePage : UserControl
             case Key.OemCloseBrackets when none:
                 vm.BeatJumpCommand.Execute(1).Subscribe();
                 break;
+            case Key.OemOpenBrackets when shift:
+                vm.SlipGridFineCommand.Execute("-").Subscribe();
+                break;
+            case Key.OemCloseBrackets when shift:
+                vm.SlipGridFineCommand.Execute("+").Subscribe();
+                break;
+            case Key.B when none:
+                vm.SetDownbeatAtPlayheadCommand.Execute().Subscribe();
+                break;
+            case Key.M when none:
+                vm.MetronomeEnabled = !vm.MetronomeEnabled;
+                break;
+            case Key.T when none:
+                vm.TapTempoCommand.Execute().Subscribe();
+                break;
             case Key.F when none:
                 vm.FollowPlayhead = !vm.FollowPlayhead;
                 break;

@@ -239,6 +239,21 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     /// <summary>Downbeat offset (seconds) the grid is anchored at.</summary>
     public double GridOffset => _downbeat;
 
+    private IReadOnlyList<double> _beatGrid = Array.Empty<double>();
+
+    private bool _metronomeEnabled;
+    /// <summary>Mixes a metronome click into Cue Forge playback, scheduled from the beat grid (#222).</summary>
+    public bool MetronomeEnabled
+    {
+        get => _metronomeEnabled;
+        set
+        {
+            if (_metronomeEnabled == value) return;
+            this.RaiseAndSetIfChanged(ref _metronomeEnabled, value);
+            _transport.SetMetronome(_beatGrid, _downbeat, value);
+        }
+    }
+
     public string BpmDisplay => !HasTrackLoaded || GridBpm <= 0 ? "—"
         : Math.Abs(GridBpm - Math.Round(GridBpm)) < 0.05
             ? Math.Round(GridBpm).ToString(CultureInfo.InvariantCulture)
@@ -746,6 +761,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> TwoPointBpmMarkCommand { get; }
     /// <summary>Applies the BPM computed from the two marked downbeats.</summary>
     public ReactiveCommand<Unit, Unit> ApplyTwoPointBpmCommand { get; }
+    /// <summary>Marks the current grid as verified without changing it (#221).</summary>
+    public ReactiveCommand<Unit, Unit> MarkGridCorrectCommand { get; }
 
     private double _analysedDownbeat;
     private double _analysedBpm;
@@ -965,6 +982,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         ApplyTappedBpmCommand = ReactiveCommand.CreateFromTask(ApplyTappedBpmAsync, this.WhenAnyValue(x => x.HasTappedBpm));
         TwoPointBpmMarkCommand = ReactiveCommand.Create(TwoPointBpmMark, canAct);
         ApplyTwoPointBpmCommand = ReactiveCommand.CreateFromTask(ApplyTwoPointBpmAsync, this.WhenAnyValue(x => x.TwoPointBpmValue, bpm => bpm is > 40 and < 400));
+        MarkGridCorrectCommand = ReactiveCommand.CreateFromTask(MarkGridCorrectAsync, hasTrack);
 
         ZoomInCommand     = ReactiveCommand.Create(() => ZoomAroundPlayhead(1.5));
         ZoomOutCommand    = ReactiveCommand.Create(() => ZoomAroundPlayhead(1 / 1.5));
@@ -1280,6 +1298,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
                 var beatGrid = ParseJsonFloatArray(features.BeatGridJson)?.Select(f => (double)f).ToList()
                                ?? new List<double>();
+                _beatGrid = beatGrid;
+                if (_metronomeEnabled) _transport.SetMetronome(_beatGrid, _downbeat, true);
                 OnsetDensityCurveData = beatGrid.Count > 0
                     ? new OnsetDensityEngine().ComputeOnsetDensityCurve(beatGrid, TrackDuration)
                     : null;
@@ -1503,6 +1523,23 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         _twoPointBarOneSeconds = null;
         _twoPointSecondBarOneSeconds = null;
         this.RaisePropertyChanged(nameof(TwoPointBpmStatus));
+    }
+
+    private async Task MarkGridCorrectAsync()
+    {
+        if (TrackHash is not { } hash) return;
+        if (_gridEditService is null)
+        {
+            Session.SetStatus("The beat-grid editor is unavailable.", isError: true);
+            return;
+        }
+        var result = await _gridEditService.MarkGridCorrectAsync(hash, CancellationToken.None);
+        if (!result.Success)
+        {
+            Session.SetStatus(result.Reason ?? "Couldn't mark the grid correct.", isError: true);
+            return;
+        }
+        Session.SetStatus("Grid marked correct — re-analysis and Rekordbox will keep it.");
     }
 
     public void UpdateCamelotKeyDisplay(string camelotKey)
