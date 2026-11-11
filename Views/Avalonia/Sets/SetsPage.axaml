@@ -1,0 +1,51 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="SLSKDONET.Views.Avalonia.Sets.SetsPage">
+    <DockPanel>
+        <!-- Header -->
+        <Border DockPanel.Dock="Top" Classes="toolbar" Padding="16,8">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <TextBlock Grid.Column="0" Classes="h2" Text="Sets" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Classes="ghost small" Content="Delete" Command="{Binding DeleteSetCommand}"
+                        IsVisible="{Binding HasSelection}" Margin="0,0,8,0" />
+                <Button Grid.Column="2" Classes="primary small" Content="New Set" Command="{Binding NewSetCommand}" />
+            </Grid>
+        </Border>
+
+        <!-- Inline error -->
+        <Border DockPanel.Dock="Top" Classes="fact warning" Padding="16,4" IsVisible="{Binding HasError}">
+            <TextBlock Text="{Binding ErrorMessage}" />
+        </Border>
+
+        <Grid ColumnDefinitions="240,*">
+            <!-- Set list rail -->
+            <Border Grid.Column="0" Background="{DynamicResource BrushBg1}"
+                    BorderBrush="{DynamicResource BrushBorder0}" BorderThickness="0,0,1,0">
+                <ListBox ItemsSource="{Binding Sets}" SelectedItem="{Binding SelectedSet, Mode=TwoWay}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Spacing="2" Margin="0,4">
+                                <TextBlock Text="{Binding Name}" />
+                                <TextBlock Classes="caption" Text="{Binding Status}" />
+                                <TextBlock Classes="caption mono" Text="{Binding TrackCount}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+
+            <!-- Content: empty state now, set lane in P2.3 -->
+            <Grid Grid.Column="1">
+                <StackPanel Classes="empty-state" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8" MaxWidth="360"
+                            IsVisible="{Binding !HasSets}">
+                    <TextBlock Classes="h3" Text="No sets yet" HorizontalAlignment="Center" />
+                    <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center"
+                               Text="Create a set to start planning your night, or add tracks from the Library via right-click → Add to Set." />
+                </StackPanel>
+
+                <TextBlock Classes="caption muted" Text="Set lane arrives in the next slice."
+                           VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding HasSets}" />
+            </Grid>
+        </Grid>
+    </DockPanel>
+</UserControl>

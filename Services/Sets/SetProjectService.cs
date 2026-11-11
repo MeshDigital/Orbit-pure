@@ -11,6 +11,9 @@ namespace SLSKDONET.Services.Sets;
 /// <summary>A library track as shown in set pickers.</summary>
 public sealed record SetTrackPickerItem(string TrackUniqueHash, string Title, string Artist);
 
+/// <summary>A set's summary row for the set-list rail.</summary>
+public sealed record SetSummary(Guid Id, string Name, SetProjectStatus Status, int TrackCount, DateTime LastModifiedAt);
+
 /// <summary>
 /// The single write path for SetProjects (<see cref="SetListEntity"/>) and their slots
 /// (<see cref="SetTrackEntity"/>). Every call persists immediately, so UI edits can't be lost by a
@@ -20,6 +23,9 @@ public interface ISetProjectService
 {
     /// <summary>Creates a Draft set. A blank name gets a timestamped default.</summary>
     Task<SetListEntity> CreateSetAsync(string? name = null);
+
+    /// <summary>All sets, newest first, as summaries for the set-list rail.</summary>
+    Task<IReadOnlyList<SetSummary>> GetSetsAsync();
 
     /// <summary>Renames a set. Returns false when the set no longer exists or the name is blank.</summary>
     Task<bool> RenameSetAsync(Guid setId, string name);
@@ -85,6 +91,16 @@ public sealed class SetProjectService : ISetProjectService
         db.SetLists.Add(set);
         await db.SaveChangesAsync().ConfigureAwait(false);
         return set;
+    }
+
+    public async Task<IReadOnlyList<SetSummary>> GetSetsAsync()
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+        return await db.SetLists
+            .OrderByDescending(s => s.LastModifiedAt)
+            .Select(s => new SetSummary(s.Id, s.Name, s.Status, s.Tracks.Count, s.LastModifiedAt))
+            .ToListAsync()
+            .ConfigureAwait(false);
     }
 
     public async Task<bool> RenameSetAsync(Guid setId, string name)

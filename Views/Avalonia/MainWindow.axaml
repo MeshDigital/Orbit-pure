@@ -468,11 +468,11 @@
                                 </Button>
 
                                 <Button x:Name="NavSetProjects" Classes="nav" Command="{Binding NavigateSetProjectsCommand}"
-                                        ToolTip.Tip="Set Projects — Plan branching set paths on the Story Graph"
+                                        ToolTip.Tip="Sets — Plan your set, order tracks and manage transitions"
                                         Classes.selected="{Binding IsSetProjectsNavActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
                                         <PathIcon Data="{StaticResource icon_waves}"/>
-                                        <TextBlock Text="Set Projects" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Sets" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
 
