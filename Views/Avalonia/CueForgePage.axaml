@@ -414,44 +414,41 @@
                                                 Command="{Binding ImportRekordboxCuesCommand}" Content="Load cues from Rekordbox"
                                                 ToolTip.Tip="Read-only import matched by file path. Save afterwards to keep the imported cues."/>
                                         <TextBlock Classes="section" Text="BEAT GRID"/>
-                                        <TextBlock Classes="caption" TextWrapping="Wrap" Text="Put the playhead on the real downbeat and press Bar 1 here. Grid changes save to the track immediately; cues are not moved."/>
-                                        <WrapPanel>
-                                            <Button Classes="secondary small" Content="Bar 1 here" Command="{Binding SetDownbeatAtPlayheadCommand}" Margin="0,0,4,4"/>
-                                            <Button Classes="ghost small" Content="−10 ms" Command="{Binding SlipGridCommand}" CommandParameter="-" Margin="0,0,4,4"/>
-                                            <Button Classes="ghost small" Content="+10 ms" Command="{Binding SlipGridCommand}" CommandParameter="+" Margin="0,0,4,4"/>
-                                            <Button Classes="ghost small" Content="−1 ms" Command="{Binding SlipGridFineCommand}" CommandParameter="-" Margin="0,0,4,4"/>
-                                            <Button Classes="ghost small" Content="+1 ms" Command="{Binding SlipGridFineCommand}" CommandParameter="+" Margin="0,0,4,4"/>
-                                        </WrapPanel>
-                                        <TextBlock Classes="caption mono" Text="{Binding GridOffsetDisplay}" ToolTip.Tip="Cumulative grid offset versus the analysed grid"/>
                                         <TextBlock Classes="caption" Text="{Binding GridStatusDisplay}"/>
-                                        <Border Classes="inset" IsVisible="{Binding HasGridSuggestion}" Margin="0,4,0,0">
-                                            <StackPanel Spacing="4">
-                                                <TextBlock Classes="caption" Text="{Binding GridSuggestionDisplay}" TextWrapping="Wrap"/>
-                                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                                    <Button Classes="secondary small" Content="Use suggestion" Command="{Binding UseGridSuggestionCommand}"/>
-                                                    <Button Classes="ghost small" Content="Dismiss" Command="{Binding DismissGridSuggestionCommand}"/>
-                                                </StackPanel>
-                                            </StackPanel>
-                                        </Border>
-                                        <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,4,0,0">
-                                            <Button Classes="ghost small" Content="Tap" Command="{Binding TapTempoCommand}" ToolTip.Tip="Tap the tempo"/>
-                                            <TextBlock Classes="caption mono" Text="{Binding TappedBpmDisplay}" VerticalAlignment="Center"/>
-                                            <Button Classes="ghost small" Content="Apply tapped BPM" Command="{Binding ApplyTappedBpmCommand}" IsVisible="{Binding HasTappedBpm}"/>
+                                        <TextBlock Classes="caption muted" TextWrapping="Wrap" Text="Put the playhead on the real downbeat and press Bar 1 here. Grid changes save to the track immediately; cues are not moved."/>
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <Button Classes="secondary small" Content="Bar 1 here" Command="{Binding SetDownbeatAtPlayheadCommand}" ToolTip.Tip="Make the grid beat nearest the playhead the 1 of its bar (B)"/>
+                                            <Button Classes="ghost small" Content="Reset" Command="{Binding ResetGridCommand}" IsVisible="{Binding IsGridEdited}" ToolTip.Tip="Back to the analysed BPM and Bar 1"/>
                                         </StackPanel>
-                                        <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,4,0,0">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <Button Classes="ghost small" Content="−10" Command="{Binding SlipGridCommand}" CommandParameter="-" ToolTip.Tip="Slip the grid 10 ms earlier"/>
+                                            <Button Classes="ghost small" Content="−1" Command="{Binding SlipGridFineCommand}" CommandParameter="-" ToolTip.Tip="Slip the grid 1 ms earlier (Shift+[)"/>
+                                            <TextBlock Classes="caption mono" Text="{Binding GridOffsetDisplay}" MinWidth="56" TextAlignment="Center" VerticalAlignment="Center" ToolTip.Tip="Cumulative grid offset versus the analysed grid"/>
+                                            <Button Classes="ghost small" Content="+1" Command="{Binding SlipGridFineCommand}" CommandParameter="+" ToolTip.Tip="Slip the grid 1 ms later (Shift+])"/>
+                                            <Button Classes="ghost small" Content="+10" Command="{Binding SlipGridCommand}" CommandParameter="+" ToolTip.Tip="Slip the grid 10 ms later"/>
+                                        </StackPanel>
+                                        <TextBlock Classes="caption muted" Text="Tempo"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <Button Classes="ghost small" Content="Tap" Command="{Binding TapTempoCommand}" ToolTip.Tip="Tap the tempo (T)"/>
+                                            <TextBlock Classes="caption mono" Text="{Binding TappedBpmDisplay}" MinWidth="40" VerticalAlignment="Center"/>
+                                            <Button Classes="ghost small" Content="Apply" Command="{Binding ApplyTappedBpmCommand}" IsVisible="{Binding HasTappedBpm}" ToolTip.Tip="Apply the tapped BPM"/>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
                                             <Button Classes="ghost small" Content="Mark downbeat" Command="{Binding TwoPointBpmMarkCommand}" ToolTip.Tip="Mark Bar 1, jump N bars, then mark that bar's 1"/>
-                                            <Button Classes="ghost small" Content="Set BPM from two downbeats" Command="{Binding ApplyTwoPointBpmCommand}"/>
+                                            <Button Classes="secondary small" Content="Set BPM" Command="{Binding ApplyTwoPointBpmCommand}" IsVisible="{Binding HasTwoPointBpm}" ToolTip.Tip="Set the BPM from the two marked downbeats"/>
                                         </StackPanel>
-                                        <TextBlock Classes="caption" Text="{Binding TwoPointBpmStatus}" TextWrapping="Wrap"/>
-                                        <ToggleButton Classes="chip small" Content="Metronome" IsChecked="{Binding MetronomeEnabled}" ToolTip.Tip="Audition the beat grid with a click (M)"/>
-                                        <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding MarkGridCorrectCommand}" Content="Mark grid correct" ToolTip.Tip="Confirm this grid is right — re-analysis and Rekordbox will keep it"/>
+                                        <TextBlock Classes="caption muted" Text="{Binding TwoPointBpmStatus}" TextWrapping="Wrap"/>
+                                        <TextBlock Classes="caption muted" Text="Verify"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <ToggleButton Classes="chip small" Content="Metronome" IsChecked="{Binding MetronomeEnabled}" ToolTip.Tip="Audition the beat grid with a click (M)"/>
+                                            <Button Classes="ghost small" Content="Mark grid correct" Command="{Binding MarkGridCorrectCommand}" ToolTip.Tip="Confirm this grid is right — re-analysis and Rekordbox will keep it"/>
+                                        </StackPanel>
                                         <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding SetMusicStartAtPlayheadCommand}" Content="Music starts here" ToolTip.Tip="Mark the playhead as the first audible sound (never trims the audio)"/>
-                                        <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding ResetGridCommand}" Content="Reset to the analysed grid" IsVisible="{Binding IsGridEdited}"/>
                                         <Border Classes="divider" Margin="0,4"/>
                                         <Button Classes="ghost small" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding Session.RevertCommand}" Content="Revert to saved cues…"/>
                                         <Border Classes="divider" Margin="0,4"/>
                                         <TextBlock Classes="section" Text="SHORTCUTS"/>
-                                        <TextBlock Classes="caption" TextWrapping="Wrap" LineHeight="18" Text="Space play · [ / ] beat jump · C cue · A add cue · D drop · Shift+I intro end · Shift+O outro · 1–8 pads · Up/Down previous/next cue · Left/Right nudge (Shift bar, Ctrl 10 ms) · Enter audition · Delete remove · F2 rename · I / O loop in/out · +/− zoom · F follow · Ctrl+S save · Ctrl+Z / Ctrl+Y undo/redo · B Bar 1 here · [ / ] slip 10 ms · Shift+[ / Shift+] slip 1 ms · M metronome · T tap tempo"/>
+                                        <TextBlock Classes="caption" TextWrapping="Wrap" LineHeight="18" Text="Space play · [ / ] beat jump · C cue · A add cue · D drop · Shift+I intro end · Shift+O outro · 1–8 pads · Up/Down previous/next cue · Left/Right nudge (Shift bar, Ctrl 10 ms) · Enter audition · Delete remove · F2 rename · I / O loop in/out · +/− zoom · F follow · Ctrl+S save · Ctrl+Z / Ctrl+Y undo/redo · B Bar 1 here · Shift+[ / Shift+] slip grid 1 ms · M metronome · T tap tempo"/>
                                     </StackPanel>
                                 </ScrollViewer>
                             </Flyout>
@@ -494,6 +491,22 @@
                         <Button Grid.Column="2" Classes="secondary small" Content="{Binding WaveformRefreshActionLabel}" Margin="16,0,0,0"
                                 Command="{Binding RefreshWaveformCommand}" IsVisible="{Binding ShowWaveformRefreshAction}"
                                 ToolTip.Tip="Force a fresh high-priority analysis of every available metric. Your ORBIT cues are preserved; nothing is written to Rekordbox."/>
+                    </Grid>
+                </Border>
+                <!-- Grid suggestion (#221): analysis or Rekordbox disagrees with the grid the DJ owns. -->
+                <Border Background="{StaticResource BrushWarningSubtle}" BorderBrush="{StaticResource BrushWarningBorder}"
+                        BorderThickness="0,0,0,1" Padding="24,8"
+                        IsVisible="{Binding HasGridSuggestion}">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                        <PathIcon Data="{StaticResource icon_alert}" Width="14" Height="14" Foreground="{StaticResource BrushWarning}" Margin="0,0,8,0"/>
+                        <TextBlock Grid.Column="1" Classes="body-sm" TextWrapping="Wrap" VerticalAlignment="Center"
+                                   Text="{Binding GridSuggestionDisplay}"/>
+                        <Button Grid.Column="2" Classes="secondary small" Content="Use suggestion" Margin="16,0,0,0"
+                                Command="{Binding UseGridSuggestionCommand}"
+                                ToolTip.Tip="Replace your grid with the suggested one (BPM, beats and Bar 1). Cues are not moved."/>
+                        <Button Grid.Column="3" Classes="ghost small" Content="Keep mine" Margin="4,0,0,0"
+                                Command="{Binding DismissGridSuggestionCommand}"
+                                ToolTip.Tip="Keep your grid and discard the suggestion"/>
                     </Grid>
                 </Border>
                 <!-- Sections: what's marked, and a one-click suggestion for what isn't -->
@@ -578,15 +591,17 @@
             </Border>
 
             <Border Grid.Row="3" Margin="24,0,24,8" Padding="12,6" Classes="inset" IsVisible="{Binding IsGridModeOpen}">
+                <StackPanel>
                 <WrapPanel Orientation="Horizontal">
                     <TextBlock Classes="section" Text="GRID REPAIR" VerticalAlignment="Center" Margin="0,0,12,0"/>
                     <Button Classes="secondary small" Content="Bar 1 here" Command="{Binding SetDownbeatAtPlayheadCommand}" Margin="0,0,4,4"
                             ToolTip.Tip="Make the grid beat nearest the playhead the 1 of its bar"/>
-                    <Button Classes="ghost small" Content="−10 ms" Command="{Binding SlipGridCommand}" CommandParameter="-" Margin="0,0,4,4"/>
-                    <Button Classes="ghost small" Content="+10 ms" Command="{Binding SlipGridCommand}" CommandParameter="+" Margin="0,0,4,4"/>
-                    <Button Classes="ghost small" Content="−1 ms" Command="{Binding SlipGridFineCommand}" CommandParameter="-" Margin="0,0,4,4"/>
-                    <Button Classes="ghost small" Content="+1 ms" Command="{Binding SlipGridFineCommand}" CommandParameter="+" Margin="0,0,4,4"/>
-                    <TextBlock Classes="caption mono" Text="{Binding GridOffsetDisplay}" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                    <Button Classes="ghost small" Content="−10" Command="{Binding SlipGridCommand}" CommandParameter="-" Margin="0,0,4,4" ToolTip.Tip="Slip the grid 10 ms earlier"/>
+                    <Button Classes="ghost small" Content="−1" Command="{Binding SlipGridFineCommand}" CommandParameter="-" Margin="0,0,4,4" ToolTip.Tip="Slip the grid 1 ms earlier (Shift+[)"/>
+                    <TextBlock Classes="caption mono" Text="{Binding GridOffsetDisplay}" MinWidth="56" TextAlignment="Center" VerticalAlignment="Center" Margin="0,0,4,4"
+                               ToolTip.Tip="Cumulative grid offset versus the analysed grid"/>
+                    <Button Classes="ghost small" Content="+1" Command="{Binding SlipGridFineCommand}" CommandParameter="+" Margin="0,0,4,4" ToolTip.Tip="Slip the grid 1 ms later (Shift+])"/>
+                    <Button Classes="ghost small" Content="+10" Command="{Binding SlipGridCommand}" CommandParameter="+" Margin="0,0,12,4" ToolTip.Tip="Slip the grid 10 ms later"/>
                     <Button Classes="ghost small" Content="Reset" Command="{Binding ResetGridCommand}" IsVisible="{Binding IsGridEdited}" Margin="0,0,12,4"/>
                     <TextBlock Classes="caption" Text="Audition with beat jump:" VerticalAlignment="Center" Margin="0,0,4,4"/>
                     <Button Classes="icon small" Command="{Binding BeatJumpCommand}" ToolTip.Tip="Beat jump back ([)" Margin="0,0,2,4">
@@ -599,6 +614,14 @@
                         <PathIcon Data="{StaticResource icon_chevron_right}" Width="12" Height="12"/>
                     </Button>
                 </WrapPanel>
+                <WrapPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <TextBlock Classes="caption" Text="{Binding GridStatusDisplay}" VerticalAlignment="Center" Margin="0,0,12,4"/>
+                    <ToggleButton Classes="chip small" Content="Metronome" IsChecked="{Binding MetronomeEnabled}" Margin="0,0,4,4"
+                                  ToolTip.Tip="Audition the beat grid with a click (M)"/>
+                    <Button Classes="ghost small" Content="Mark grid correct" Command="{Binding MarkGridCorrectCommand}" Margin="0,0,4,4"
+                            ToolTip.Tip="Confirm this grid is right — re-analysis and Rekordbox will keep it"/>
+                </WrapPanel>
+                </StackPanel>
             </Border>
 
             <GridSplitter Grid.Row="4" x:Name="PreparationSplitter" Height="6" HorizontalAlignment="Stretch"

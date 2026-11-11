@@ -32,7 +32,7 @@ public class MetronomeSampleProviderTests
     public void Click_LandsOnEachBeat()
     {
         var beats = new List<double> { 0.5, 1.0, 1.5 };
-        var provider = new MetronomeSampleProvider(new SilentSource(), beats, downbeatSeconds: 0.5);
+        var provider = new MetronomeSampleProvider(new SilentSource(), beats, downbeatSeconds: 0.5) { Enabled = true };
 
         var buffer = ReadAll(provider, seconds: 2.0);
 
@@ -48,7 +48,7 @@ public class MetronomeSampleProviderTests
         // Downbeat at index 1 (time 1.0s) makes that beat the "1" of the bar.
         var beats = Enumerable.Range(0, 20).Select(i => 0.5 + i * 0.5).ToList(); // 120 BPM from 0.5s
         int downbeatIndex = 1; // beats[1] == 1.0s is Bar 1
-        var provider = new MetronomeSampleProvider(new SilentSource(), beats, downbeatSeconds: beats[downbeatIndex]);
+        var provider = new MetronomeSampleProvider(new SilentSource(), beats, downbeatSeconds: beats[downbeatIndex]) { Enabled = true };
 
         var buffer = ReadAll(provider, seconds: 6.0);
 
@@ -58,10 +58,21 @@ public class MetronomeSampleProviderTests
     }
 
     [Fact]
+    public void Disabled_IsAPurePassThrough()
+    {
+        var beats = new List<double> { 0.5, 1.0, 1.5 };
+        var provider = new MetronomeSampleProvider(new SilentSource(), beats, downbeatSeconds: 0.5); // Enabled defaults to false
+
+        var buffer = ReadAll(provider, seconds: 2.0);
+
+        Assert.All(buffer, s => Assert.Equal(0f, s));
+    }
+
+    [Fact]
     public void Seek_ReclocksTheClick()
     {
         var beats = new List<double> { 0.5, 1.0, 1.5, 2.0, 2.5 };
-        var provider = new MetronomeSampleProvider(new SilentSource(), beats, downbeatSeconds: 0.5);
+        var provider = new MetronomeSampleProvider(new SilentSource(), beats, downbeatSeconds: 0.5) { Enabled = true };
 
         provider.Seek(2.0); // jump forward
         var buffer = ReadAll(provider, seconds: 1.0);

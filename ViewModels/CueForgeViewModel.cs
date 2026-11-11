@@ -280,7 +280,10 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     {
         "User" => "Grid: edited by you",
         "Rekordbox" => "Grid: from Rekordbox",
-        _ => _gridConfidence is { } c ? $"Grid: analysis · {c:P0} confidence" : "Grid: analysis",
+        _ => _gridConfidence is { } c
+            ? "Grid: analysis · " + SLSKDONET.Utils.NumFormat.Percent(c) + " confidence"
+              + (c < SLSKDONET.Services.AudioAnalysis.GridWriteRules.ReviewThreshold ? " · needs review" : "")
+            : "Grid: analysis",
     };
 
     public string BpmDisplay => !HasTrackLoaded || GridBpm <= 0 ? "—"
@@ -818,13 +821,16 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     /// <summary>Cumulative grid offset versus the analysed grid, in milliseconds (e.g. "+23 ms").</summary>
     public string GridOffsetDisplay => Math.Abs(GridOffset - _analysedDownbeat) < 1e-4
         ? "0 ms"
-        : $"{(GridOffset - _analysedDownbeat) * 1000:+0;-0;0} ms";
+        : SLSKDONET.Utils.NumFormat.Signed((GridOffset - _analysedDownbeat) * 1000, 0) + " ms";
 
     /// <summary>Two-point BPM workflow status.</summary>
     public string TwoPointBpmStatus =>
         _twoPointBarOneSeconds is null ? "Mark Bar 1 at the playhead"
         : _twoPointSecondBarOneSeconds is null ? "Jump N bars, then mark that bar's 1"
-        : $"BPM from two downbeats: {TwoPointBpmValue:0.##}";
+        : "BPM from two downbeats: " + SLSKDONET.Utils.NumFormat.F(TwoPointBpmValue, 2);
+
+    /// <summary>Both downbeats are marked and they give a usable BPM: shows the Set BPM action.</summary>
+    public bool HasTwoPointBpm => TwoPointBpmValue > 0;
 
     public double TwoPointBpmValue =>
         _twoPointBarOneSeconds is { } t1 && _twoPointSecondBarOneSeconds is { } t2
@@ -1559,6 +1565,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             _twoPointSecondBarOneSeconds = null;
         }
         this.RaisePropertyChanged(nameof(TwoPointBpmStatus));
+        this.RaisePropertyChanged(nameof(HasTwoPointBpm));
         this.RaisePropertyChanged(nameof(TwoPointBpmValue));
     }
 
@@ -1570,6 +1577,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         _twoPointBarOneSeconds = null;
         _twoPointSecondBarOneSeconds = null;
         this.RaisePropertyChanged(nameof(TwoPointBpmStatus));
+        this.RaisePropertyChanged(nameof(HasTwoPointBpm));
     }
 
     private async Task MarkGridCorrectAsync()

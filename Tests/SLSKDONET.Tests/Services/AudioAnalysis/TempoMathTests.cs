@@ -77,7 +77,7 @@ public class TwoPointBpmTests
     }
 
     [Theory]
-    [InlineData(0, 10.0, 4)]      // zero bars
+    [InlineData(0, 10.0, 0)]      // zero bars
     [InlineData(10.0, 10.0, 4)]   // zero span
     [InlineData(20.0, 10.0, 4)]   // negative span
     public void InvalidSpan_ReturnsZero(double barOne, double secondBarOne, int bars)
