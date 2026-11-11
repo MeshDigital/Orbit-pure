@@ -7,7 +7,8 @@ public enum NotificationKind
 {
     DownloadCompleted,
     PrivateMessage,
-    RoomMessage
+    RoomMessage,
+    Maintenance
 }
 
 /// <summary>
@@ -40,6 +41,7 @@ public sealed class NotificationItem : ReactiveObject
     public bool IsDownload => Kind == NotificationKind.DownloadCompleted;
     public bool IsPrivateMessage => Kind == NotificationKind.PrivateMessage;
     public bool IsRoomMessage => Kind == NotificationKind.RoomMessage;
+    public bool IsMaintenance => Kind == NotificationKind.Maintenance;
 
     /// <summary>Local time today ("14:05"), otherwise local date + time. <see cref="TimestampUtc"/> is UTC.</summary>
     public string TimeDisplay

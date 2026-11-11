@@ -17,7 +17,7 @@ using SLSKDONET.Views;
 
 namespace SLSKDONET.ViewModels.Activity;
 
-public enum BackgroundActivityKind { Import, Analysis, Enrichment, Loudness }
+public enum BackgroundActivityKind { Import, Analysis, Enrichment, Loudness, Maintenance }
 
 /// <summary>Minimal INotifyPropertyChanged base (no dispatcher, so the hub is tested headless).</summary>
 public abstract class ActivityObservable : INotifyPropertyChanged
