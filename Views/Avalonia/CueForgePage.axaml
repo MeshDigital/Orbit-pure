@@ -423,6 +423,7 @@
                                             <Button Classes="ghost small" Content="+1 ms" Command="{Binding SlipGridFineCommand}" CommandParameter="+" Margin="0,0,4,4"/>
                                         </WrapPanel>
                                         <TextBlock Classes="caption mono" Text="{Binding GridOffsetDisplay}" ToolTip.Tip="Cumulative grid offset versus the analysed grid"/>
+                                        <TextBlock Classes="caption" Text="{Binding GridStatusDisplay}"/>
                                         <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,4,0,0">
                                             <Button Classes="ghost small" Content="Tap" Command="{Binding TapTempoCommand}" ToolTip.Tip="Tap the tempo"/>
                                             <TextBlock Classes="caption mono" Text="{Binding TappedBpmDisplay}" VerticalAlignment="Center"/>

@@ -262,6 +262,17 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         }
     }
 
+    private string? _gridSource;
+    private float? _gridConfidence;
+
+    /// <summary>Grid provenance + confidence, shown in the grid tools (#221).</summary>
+    public string GridStatusDisplay => _gridSource switch
+    {
+        "User" => "Grid: edited by you",
+        "Rekordbox" => "Grid: from Rekordbox",
+        _ => _gridConfidence is { } c ? $"Grid: analysis · {c:P0} confidence" : "Grid: analysis",
+    };
+
     public string BpmDisplay => !HasTrackLoaded || GridBpm <= 0 ? "—"
         : Math.Abs(GridBpm - Math.Round(GridBpm)) < 0.05
             ? Math.Round(GridBpm).ToString(CultureInfo.InvariantCulture)
@@ -1280,6 +1291,9 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 _analysedBpm = _preciseBpm;
                 IsGridEdited = false;
                 MusicStartSeconds = features.MusicStartSeconds is { } ms && ms >= 0 ? ms : null;
+                _gridSource = features.GridSource;
+                _gridConfidence = features.GridConfidence;
+                this.RaisePropertyChanged(nameof(GridStatusDisplay));
                 genre = !string.IsNullOrWhiteSpace(features.DetectedSubGenre) ? features.DetectedSubGenre : features.ElectronicSubgenre;
                 _durationKnown = features.TrackDuration > 0;
                 TrackDuration = features.TrackDuration > 0 ? features.TrackDuration : 300.0;
