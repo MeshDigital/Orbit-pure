@@ -69,6 +69,23 @@ public class MusicStartDetectorTests
         Assert.Equal(-50.0, MusicStartDetector.ThresholdDbFs(-20.0), 6);         // max(-50, -55)
         Assert.Equal(-43.0, MusicStartDetector.ThresholdDbFs(-8.0), 6);          // max(-50, -43)
     }
+
+    [Fact]
+    public void DetectFromWaveformBlob_SkipsLeadingSilence()
+    {
+        int n = 100;
+        var blob = new byte[n * 3];
+        for (int i = 0; i < n; i++)
+        {
+            byte v = i >= 20 ? (byte)200 : (byte)0; // 20% leading silence, then energy
+            blob[i] = v; blob[n + i] = v; blob[2 * n + i] = v;
+        }
+
+        double? start = MusicStartDetector.DetectFromWaveformBlob(blob, n, duration: 10.0);
+
+        Assert.NotNull(start);
+        Assert.InRange(start!.Value, 1.8, 2.2); // 20% of 10 s
+    }
 }
 
 public class MusicStartIntroAnchorTests

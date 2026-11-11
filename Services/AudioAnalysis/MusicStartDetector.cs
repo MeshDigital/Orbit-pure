@@ -60,6 +60,44 @@ public static class MusicStartDetector
 
         return null;
     }
+
+    /// <summary>
+    /// Music-start estimate from the duration-scaled tri-band waveform blob (no decode). Energy is the
+    /// per-sample mean of the three bands; music start is the first sample at or above 5% of the
+    /// track's peak energy sustained for <see cref="MinSustainSeconds"/>. Best-effort for the backfill.
+    /// </summary>
+    public static double? DetectFromWaveformBlob(byte[] blob, int sampleCount, double duration)
+    {
+        if (blob is null || sampleCount <= 0 || blob.Length < sampleCount * 3 || duration <= 0) return null;
+
+        double peak = 0;
+        var energy = new double[sampleCount];
+        for (int i = 0; i < sampleCount; i++)
+        {
+            energy[i] = (blob[i] + blob[sampleCount + i] + blob[2 * sampleCount + i]) / 3.0;
+            if (energy[i] > peak) peak = energy[i];
+        }
+        if (peak <= 0) return null;
+
+        double threshold = Math.Max(1.0, peak * 0.05);
+        double secondsPerSample = duration / sampleCount;
+        int sustainSamples = Math.Max(1, (int)Math.Ceiling(MinSustainSeconds / secondsPerSample));
+
+        int run = 0;
+        for (int i = 0; i < sampleCount; i++)
+        {
+            if (energy[i] >= threshold)
+            {
+                if (++run >= sustainSamples)
+                    return (i - sustainSamples + 1) * secondsPerSample;
+            }
+            else
+            {
+                run = 0;
+            }
+        }
+        return null;
+    }
 }
 
 /// <summary>
