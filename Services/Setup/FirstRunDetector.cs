@@ -48,7 +48,9 @@ public static class FirstRunDetector
     /// Bump when the wizard gains steps or content an existing user should be offered. On startup,
     /// any install whose saved <see cref="Configuration.AppConfig.SetupVersion"/> is below this is re-onboarded.
     /// </summary>
-    public const int CurrentSetupVersion = 7;
+    // 10 = beat-grid editing epic (#219). 8 and 9 are claimed by unmerged branches (Sets, Library
+    // maintenance); whichever of them merges after this must take the next free number above 10.
+    public const int CurrentSetupVersion = 10;
 
     /// <param name="fallbackDownloadDirectory">
     /// The folder ORBIT fills in when config.ini has none (<see cref="Configuration.AppConfig.FallbackDownloadDirectory"/>).
