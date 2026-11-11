@@ -17,7 +17,7 @@
             <TextBlock Text="{Binding ErrorMessage}" />
         </Border>
 
-        <Grid ColumnDefinitions="240,*">
+        <Grid ColumnDefinitions="240,*,Auto">
             <!-- Set list rail -->
             <Border Grid.Column="0" Background="{DynamicResource BrushBg1}"
                     BorderBrush="{DynamicResource BrushBorder0}" BorderThickness="0,0,1,0">
@@ -54,7 +54,7 @@
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
-                        <Button Grid.Row="0" Grid.Column="2" Classes="primary small" Content="Add" Command="{Binding AddTrackCommand}"
+                        <Button Grid.Row="1" Grid.Column="2" Classes="primary small" Content="Add" Command="{Binding AddTrackCommand}"
                                 IsVisible="{Binding SelectedSearchResult}" />
                     </Grid>
                 </Border>
@@ -103,6 +103,25 @@
                     </ScrollViewer>
                 </Grid>
             </DockPanel>
+
+            <!-- Slot inspector -->
+            <Border Grid.Column="2" Width="240" Background="{DynamicResource BrushBg1}"
+                    BorderBrush="{DynamicResource BrushBorder0}" BorderThickness="1,0,0,0"
+                    IsVisible="{Binding HasSelectedSlot}">
+                <StackPanel Spacing="8" Margin="12">
+                    <TextBlock Classes="section" Text="SLOT" />
+                    <TextBlock Classes="body" Text="{Binding SelectedSlot.Title}" TextTrimming="CharacterEllipsis" />
+                    <Border Classes="divider" />
+                    <TextBlock Classes="caption" Text="Role" />
+                    <ComboBox ItemsSource="{Binding RoleOptions}" SelectedItem="{Binding SelectedSlot.Role, Mode=TwoWay}" />
+                    <TextBlock Classes="caption" Text="Energy" />
+                    <Slider Minimum="0" Maximum="100"
+                            Value="{Binding SelectedSlot.EnergyTarget, Mode=TwoWay, TargetNullValue=0}" />
+                    <TextBlock Classes="caption" Text="Notes" />
+                    <TextBox Text="{Binding SelectedSlot.Notes, Mode=TwoWay}" AcceptsReturn="True" Height="80" />
+                    <Button Classes="ghost small" Content="Remove from set" Command="{Binding RemoveSlotCommand}" />
+                </StackPanel>
+            </Border>
         </Grid>
     </DockPanel>
 </UserControl>

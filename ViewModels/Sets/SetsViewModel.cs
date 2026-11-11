@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reactive;
 using System.Threading.Tasks;
 using ReactiveUI;
+using SLSKDONET.Data.Entities;
 using SLSKDONET.Services.Sets;
 
 namespace SLSKDONET.ViewModels.Sets;
@@ -36,7 +37,11 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
     public SlotViewModel? SelectedSlot
     {
         get => _selectedSlot;
-        set => this.RaiseAndSetIfChanged(ref _selectedSlot, value);
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _selectedSlot, value);
+            this.RaisePropertyChanged(nameof(HasSelectedSlot));
+        }
     }
 
     private string _searchQuery = string.Empty;
@@ -56,6 +61,8 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
     public bool HasSets => Sets.Count > 0;
     public bool HasSelection => SelectedSet is not null;
     public bool HasSlots => Slots.Count > 0;
+    public bool HasSelectedSlot => SelectedSlot is not null;
+    public IReadOnlyList<SetSlotRole> RoleOptions { get; } = Enum.GetValues<SetSlotRole>();
 
     private string? _errorMessage;
     public string? ErrorMessage { get => _errorMessage; private set => this.RaiseAndSetIfChanged(ref _errorMessage, value); }
@@ -65,6 +72,7 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> DeleteSetCommand { get; }
     public ReactiveCommand<Unit, Unit> SearchCommand { get; }
     public ReactiveCommand<Unit, Unit> AddTrackCommand { get; }
+    public ReactiveCommand<Unit, Unit> RemoveSlotCommand { get; }
 
     public SetsViewModel(ISetProjectService sets)
     {
@@ -73,6 +81,7 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
         DeleteSetCommand = ReactiveCommand.CreateFromTask(DeleteSelectedAsync);
         SearchCommand = ReactiveCommand.CreateFromTask(SearchAsync);
         AddTrackCommand = ReactiveCommand.CreateFromTask(AddSelectedTrackAsync);
+        RemoveSlotCommand = ReactiveCommand.CreateFromTask(RemoveSelectedSlotAsync);
     }
 
     public async Task LoadAsync()
@@ -108,10 +117,12 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
             var labels = await _sets.GetTrackLabelsAsync(slots.Select(s => s.TrackUniqueHash));
             foreach (var s in slots)
                 Slots.Add(new SlotViewModel(
+                    _sets,
                     s.Id,
                     labels.TryGetValue(s.TrackUniqueHash, out var label) ? label : s.TrackUniqueHash,
                     s.SlotRole,
-                    s.EnergyTarget));
+                    s.EnergyTarget,
+                    s.DjNotes ?? string.Empty));
         }
         catch (Exception ex)
         {
@@ -152,11 +163,20 @@ public sealed class SetsViewModel : ReactiveObject, IDisposable
         await LoadSlotsAsync(SelectedSet.Id);
     }
 
+    private async Task RemoveSelectedSlotAsync()
+    {
+        if (SelectedSet is null || SelectedSlot is null)
+            return;
+        await _sets.RemoveTrackAsync(SelectedSlot.SlotId);
+        await LoadSlotsAsync(SelectedSet.Id);
+    }
+
     public void Dispose()
     {
         NewSetCommand.Dispose();
         DeleteSetCommand.Dispose();
         SearchCommand.Dispose();
         AddTrackCommand.Dispose();
+        RemoveSlotCommand.Dispose();
     }
 }
