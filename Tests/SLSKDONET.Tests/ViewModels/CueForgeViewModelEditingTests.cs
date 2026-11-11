@@ -104,11 +104,13 @@ public class CueForgeViewModelEditingTests
         public double? LastFactor;
         public double? LastDelta;
         public double? LastDownbeat;
+        /// <summary>When set, edits update this row like the real service updates the store.</summary>
+        public AudioFeaturesEntity? Store;
 
         public Task<GridEditResult> SetBpmAsync(string hash, double bpm, CancellationToken ct)
         { SetBpmCalls++; LastBpm = bpm; return Task.FromResult(GridEditResult.Ok()); }
         public Task<GridEditResult> ScaleTempoAsync(string hash, double factor, CancellationToken ct)
-        { ScaleCalls++; LastFactor = factor; return Task.FromResult(GridEditResult.Ok()); }
+        { ScaleCalls++; LastFactor = factor; if (Store != null) Store.Bpm = (float)(Store.Bpm * factor); return Task.FromResult(GridEditResult.Ok()); }
         public Task<GridEditResult> SlipAsync(string hash, double deltaSeconds, CancellationToken ct)
         { SlipCalls++; LastDelta = deltaSeconds; return Task.FromResult(GridEditResult.Ok()); }
         public Task<GridEditResult> SetDownbeatAsync(string hash, double barOneSeconds, CancellationToken ct)
@@ -753,7 +755,7 @@ public class CueForgeViewModelEditingTests
         var features = new AudioFeaturesEntity { TrackUniqueHash = Hash, Bpm = 150f, DownbeatOffsetSeconds = 2.0076, TrackDuration = 243.2 };
         var library = new Mock<ILibraryService>();
         library.Setup(l => l.GetAudioFeaturesByHashAsync(Hash)).ReturnsAsync(features);
-        var grid = new FakeGridEditService();
+        var grid = new FakeGridEditService { Store = features };
         var vm = new CueForgeViewModel(new FakeCueStore(), new FakeTransport(), new AppConfig(), libraryService: library.Object,
             gridEditService: grid, ui: a => { a(); return Task.CompletedTask; });
 

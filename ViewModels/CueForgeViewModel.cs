@@ -35,7 +35,7 @@ namespace SLSKDONET.ViewModels;
 ///   • Grid: snapping, bar numbers and the drawn beat grid all use the precise BPM anchored at the
 ///     downbeat (<see cref="CueForgeGrid"/>).
 /// </summary>
-public sealed class CueForgeViewModel : ReactiveObject, IDisposable
+public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
 {
     private readonly ICuePointService _cueService;
     private readonly ILibraryService? _libraryService;
@@ -1024,6 +1024,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         TwoPointBpmMarkCommand = ReactiveCommand.Create(TwoPointBpmMark, canAct);
         ApplyTwoPointBpmCommand = ReactiveCommand.CreateFromTask(ApplyTwoPointBpmAsync, this.WhenAnyValue(x => x.TwoPointBpmValue, bpm => bpm is > 40 and < 400));
         MarkGridCorrectCommand = ReactiveCommand.CreateFromTask(MarkGridCorrectAsync, hasTrack);
+        InitGridCommands(hasTrack);
+        InitPhraseCommands(hasTrack);
         SetMusicStartAtPlayheadCommand = ReactiveCommand.CreateFromTask(SetMusicStartAtPlayheadAsync, canAct);
         UseGridSuggestionCommand = ReactiveCommand.CreateFromTask(UseGridSuggestionAsync, this.WhenAnyValue(x => x.HasGridSuggestion));
         DismissGridSuggestionCommand = ReactiveCommand.CreateFromTask(DismissGridSuggestionAsync, this.WhenAnyValue(x => x.HasGridSuggestion));
@@ -1352,6 +1354,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 var beatGrid = ParseJsonFloatArray(features.BeatGridJson)?.Select(f => (double)f).ToList()
                                ?? new List<double>();
                 _beatGrid = beatGrid;
+                ApplyDerivedGridState(features);
                 if (_metronomeEnabled) _transport.SetMetronome(_beatGrid, _downbeat, true);
                 OnsetDensityCurveData = beatGrid.Count > 0
                     ? new OnsetDensityEngine().ComputeOnsetDensityCurve(beatGrid, TrackDuration)
@@ -1360,9 +1363,16 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 // The phrase map, the section suggestions and Auto-generate all read this one list,
                 // resolved from the single TrackPhrases store (User > RekordboxPSSI > Heuristic).
                 _resolvedPhrases = new List<PhraseSegment>();
+                SelectedPhraseIndex = -1;
+                HasUserPhrases = false;
                 if (_libraryService is not null)
                 {
-                    try { _resolvedPhrases = PhraseSourceResolver.Resolve(await _libraryService.GetPhrasesByHashAsync(trackHash), features.TrackDuration); }
+                    try
+                    {
+                        var phraseRows = await _libraryService.GetPhrasesByHashAsync(trackHash);
+                        _resolvedPhrases = PhraseSourceResolver.Resolve(phraseRows, features.TrackDuration);
+                        HasUserPhrases = phraseRows.Count(r => string.Equals(r.Source, UserPhraseSource, StringComparison.Ordinal)) >= 2;
+                    }
                     catch (Exception ex) { _logger.LogWarning(ex, "CueForge: couldn't load stored phrase data for {Hash}", trackHash); }
                     if (version != _loadVersion) return;
                 }
@@ -1439,7 +1449,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
         if (_gridEditService is not null)
         {
-            var result = await _gridEditService.SetBpmAsync(hash, newBpm, CancellationToken.None);
+            var result = await EditGridAsync(hash, "BPM change", g => g.SetBpmAsync(hash, newBpm, CancellationToken.None));
             if (!result.Success)
             {
                 Session.SetStatus(result.Reason ?? "Couldn't save the BPM; nothing was changed.", isError: true);
@@ -1472,6 +1482,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         RaiseGridChanged();
         ManualBpmInput = newBpm.ToString("0.#", CultureInfo.InvariantCulture);
         IsGridEdited = Math.Abs(newBpm - _analysedBpm) > 1e-4 || Math.Abs(_downbeat - _analysedDownbeat) > 1e-4;
+        if (_gridEditService is not null) await ReloadGridFromStoreAsync(hash);
         Session.SetStatus("Tempo updated. Re-run Auto-generate to re-place the auto cues.");
     }
 
@@ -1485,7 +1496,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
         if (_gridEditService is not null)
         {
-            var result = await _gridEditService.ScaleTempoAsync(hash, factor, CancellationToken.None);
+            var result = await EditGridAsync(hash, factor > 1.0 ? "×2" : "÷2", g => g.ScaleTempoAsync(hash, factor, CancellationToken.None));
             if (!result.Success)
             {
                 Session.SetStatus(result.Reason ?? "Couldn't save the tempo change; nothing was changed.", isError: true);
@@ -1517,6 +1528,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         RaiseGridChanged();
         ManualBpmInput = newBpm.ToString("0.#", CultureInfo.InvariantCulture);
         IsGridEdited = Math.Abs(newBpm - _analysedBpm) > 1e-4 || Math.Abs(_downbeat - _analysedDownbeat) > 1e-4;
+        if (_gridEditService is not null) await ReloadGridFromStoreAsync(hash);
         Session.SetStatus($"Tempo {(factor > 1.0 ? "doubled" : "halved")}. Re-run Auto-generate to re-place the auto cues.");
     }
 
@@ -1588,7 +1600,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             Session.SetStatus("The beat-grid editor is unavailable.", isError: true);
             return;
         }
-        var result = await _gridEditService.MarkGridCorrectAsync(hash, CancellationToken.None);
+        var result = await EditGridAsync(hash, "Mark grid correct", g => g.MarkGridCorrectAsync(hash, CancellationToken.None));
         if (!result.Success)
         {
             Session.SetStatus(result.Reason ?? "Couldn't mark the grid correct.", isError: true);
@@ -1625,22 +1637,23 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     {
         if (TrackHash is not { } hash) return;
         if (_gridEditService is null) { Session.SetStatus("The beat-grid editor is unavailable.", isError: true); return; }
-        var result = await _gridEditService.UseSuggestionAsync(hash, CancellationToken.None);
+        var result = await EditGridAsync(hash, "use grid suggestion", g => g.UseSuggestionAsync(hash, CancellationToken.None));
         if (!result.Success) { Session.SetStatus(result.Reason ?? "Couldn't apply the grid suggestion.", isError: true); return; }
 
         _hasGridSuggestion = false;
         _gridSuggestionSource = "";
         this.RaisePropertyChanged(nameof(HasGridSuggestion));
         this.RaisePropertyChanged(nameof(GridSuggestionDisplay));
-        // Reload the grid from the newly-applied values.
-        await LoadTrackAsync(hash, TrackTitle, TrackArtist);
+        // Reload the grid from the newly-applied values (in place, so the step stays undoable).
+        await ReloadGridFromStoreAsync(hash);
+        Session.SetStatus("Suggested grid applied. Ctrl+Z puts your grid back.");
     }
 
     private async Task DismissGridSuggestionAsync()
     {
         if (TrackHash is not { } hash) return;
         if (_gridEditService is null) { Session.SetStatus("The beat-grid editor is unavailable.", isError: true); return; }
-        var result = await _gridEditService.DismissSuggestionAsync(hash, CancellationToken.None);
+        var result = await EditGridAsync(hash, "keep my grid", g => g.DismissSuggestionAsync(hash, CancellationToken.None));
         if (!result.Success) { Session.SetStatus(result.Reason ?? "Couldn't dismiss the grid suggestion.", isError: true); return; }
 
         _hasGridSuggestion = false;
@@ -1899,7 +1912,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
         if (_gridEditService is not null)
         {
-            var result = await _gridEditService.SlipAsync(hash, delta, CancellationToken.None);
+            var result = await EditGridAsync(hash, "grid slip", g => g.SlipAsync(hash, delta, CancellationToken.None));
             if (!result.Success)
             {
                 Session.SetStatus(result.Reason ?? "Couldn't save the grid slip; nothing was changed.", isError: true);
@@ -1913,6 +1926,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 Session.UpdateGrid(next);
                 Session.SetStatus(message);
             });
+            await ReloadGridFromStoreAsync(hash);
             return;
         }
 
@@ -1926,7 +1940,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
         if (_gridEditService is not null)
         {
-            var result = await _gridEditService.ResetToAnalysedAsync(hash, _analysedBpm, _analysedDownbeat, CancellationToken.None);
+            var result = await EditGridAsync(hash, "grid reset", g => g.ResetToAnalysedAsync(hash, _analysedBpm, _analysedDownbeat, CancellationToken.None));
             if (!result.Success)
             {
                 Session.SetStatus(result.Reason ?? "Couldn't reset the beat grid; nothing was changed.", isError: true);
@@ -1942,6 +1956,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 Session.UpdateGrid(_analysedDownbeat);
                 Session.SetStatus("Beat grid back to the analysed BPM and downbeat.");
             });
+            await ReloadGridFromStoreAsync(hash);
             return;
         }
 
@@ -1956,7 +1971,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
         if (_gridEditService is not null)
         {
-            var result = await _gridEditService.SetDownbeatAsync(hash, downbeat, CancellationToken.None);
+            var result = await EditGridAsync(hash, "Bar 1 move", g => g.SetDownbeatAsync(hash, downbeat, CancellationToken.None));
             if (!result.Success)
             {
                 Session.SetStatus(result.Reason ?? "Couldn't save the beat grid change; nothing was changed.", isError: true);
@@ -1970,6 +1985,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 Session.UpdateGrid(downbeat);
                 Session.SetStatus(status);
             });
+            await ReloadGridFromStoreAsync(hash);
             return;
         }
 

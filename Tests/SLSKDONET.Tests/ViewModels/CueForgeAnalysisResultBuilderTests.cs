@@ -29,7 +29,7 @@ public class CueForgeAnalysisResultBuilderTests
         var features = BaseFeatures();
         features.MoodAggressive = 0.8f;
 
-        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+        var result = BuildWithStoredPhrases(features);
 
         Assert.Equal(0.8f, result.EssentiaAggressiveProbability);
     }
@@ -49,7 +49,7 @@ public class CueForgeAnalysisResultBuilderTests
         features.DropConfidence = 0.9f;
         features.CueDrop = 8888f;
 
-        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+        var result = BuildWithStoredPhrases(features);
 
         Assert.Equal(new[] { 40.0, 90.0 }, result.SubBassDropoutTimestamps);
         Assert.Equal(new[] { 100.0, 200.0 }, result.SubBassReturnTimestamps);
@@ -69,7 +69,7 @@ public class CueForgeAnalysisResultBuilderTests
         // Real JSON columns left at their "[]" default — simulates a track analysed
         // before AudioAnalysisService started persisting these.
 
-        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+        var result = BuildWithStoredPhrases(features);
 
         Assert.Single(result.SubBassReturnTimestamps);
         Assert.Equal(120.0, result.SubBassReturnTimestamps[0]);
@@ -85,7 +85,7 @@ public class CueForgeAnalysisResultBuilderTests
         features.DropTimeSeconds = 120f;
         features.DropConfidence = 0.1f; // below the 0.4 confidence gate
 
-        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+        var result = BuildWithStoredPhrases(features);
 
         Assert.Empty(result.SubBassReturnTimestamps);
     }
@@ -95,7 +95,7 @@ public class CueForgeAnalysisResultBuilderTests
     {
         var features = BaseFeatures();
 
-        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+        var result = BuildWithStoredPhrases(features);
 
         Assert.Empty(result.SubBassDropoutTimestamps);
         Assert.Empty(result.SubBassReturnTimestamps);
@@ -113,7 +113,7 @@ public class CueForgeAnalysisResultBuilderTests
         features.DropTimeSeconds = 50f;
         features.DropConfidence = 0.9f;
 
-        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+        var result = BuildWithStoredPhrases(features);
 
         // Malformed real-signal JSON should behave as if it were empty, not crash the
         // whole Auto-Generate flow — and should still fall back to the legacy float.
@@ -132,7 +132,7 @@ public class CueForgeAnalysisResultBuilderTests
             new SLSKDONET.Models.PhraseSegment { Label = "Drop", Start = 100f, Duration = 30f, Confidence = 0.9f },
         });
 
-        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+        var result = BuildWithStoredPhrases(features);
 
         Assert.Single(result.PhraseSegments);
         Assert.Equal("Drop", result.PhraseSegments[0].Label);
@@ -156,7 +156,7 @@ public class CueForgeAnalysisResultBuilderTests
             new SLSKDONET.Models.PhraseSegment { Label = "Intro", Start = 0f, Duration = 30f, Confidence = 0.5f },
         });
 
-        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+        var result = BuildWithStoredPhrases(features);
 
         Assert.Equal(2, result.PhraseSegments.Count);
     }
@@ -184,7 +184,7 @@ public class CueForgeAnalysisResultBuilderTests
             new SLSKDONET.Models.PhraseSegment { Label = "Drop", Start = 280f, Duration = 20f, Confidence = 0.9f },
         });
 
-        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+        var result = BuildWithStoredPhrases(features);
 
         var segment = Assert.Single(result.PhraseSegments);
         Assert.Equal("Intro", segment.Label);
@@ -205,7 +205,7 @@ public class CueForgeAnalysisResultBuilderTests
             new SLSKDONET.Models.PhraseSegment { Label = "Drop", Start = 220f, Duration = 60f, Confidence = 0.9f },
         });
 
-        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+        var result = BuildWithStoredPhrases(features);
 
         var segment = Assert.Single(result.PhraseSegments);
         Assert.Equal(220f, segment.Start);
@@ -223,7 +223,7 @@ public class CueForgeAnalysisResultBuilderTests
             new SLSKDONET.Models.PhraseSegment { Label = "Drop", Start = 100f, Duration = 20f, Confidence = 0.9f },
         });
 
-        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+        var result = BuildWithStoredPhrases(features);
 
         Assert.Equal(2, result.PhraseSegments.Count);
     }
@@ -233,9 +233,21 @@ public class CueForgeAnalysisResultBuilderTests
     {
         var features = BaseFeatures();
 
-        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+        var result = BuildWithStoredPhrases(features);
 
         Assert.Equal(174f, result.Bpm);
         Assert.Equal(240, result.DurationSeconds);
+    }
+
+    /// <summary>
+    /// Phrases now come only from the caller, resolved from TrackPhrases (#225); these tests keep their
+    /// fixtures in the legacy JSON shape and pass them as that resolved list.
+    /// </summary>
+    private static SLSKDONET.Engine.Analysis.AnalysisPipelineResult BuildWithStoredPhrases(AudioFeaturesEntity features)
+    {
+        System.Collections.Generic.List<SLSKDONET.Models.PhraseSegment>? phrases = null;
+        try { phrases = JsonSerializer.Deserialize<System.Collections.Generic.List<SLSKDONET.Models.PhraseSegment>>(features.PhraseSegmentsJson ?? "[]"); }
+        catch (JsonException) { phrases = null; } // intentional: malformed fixture = no phrases
+        return CueForgeViewModel.BuildAnalysisResultFromFeatures(features, phrases);
     }
 }

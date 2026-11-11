@@ -2332,6 +2332,12 @@ public class LibraryService : ILibraryService
         }
     }
 
+    public Task ReplacePhrasesForSourceAsync(string trackHash, string source, IReadOnlyList<TrackPhraseEntity> rows) =>
+        _databaseService.ReplacePhrasesForSourceAsync(trackHash, source, rows);
+
+    public Task ReplaceAllPhrasesAsync(string trackHash, IReadOnlyList<TrackPhraseEntity> rows) =>
+        _databaseService.ReplaceAllPhrasesAsync(trackHash, rows);
+
     public async Task<List<TrackPhraseEntity>> GetPhrasesByHashAsync(string trackHash)
     {
         return await _databaseService.GetPhrasesByHashAsync(trackHash);

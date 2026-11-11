@@ -1995,6 +1995,11 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
 
     public const float GridReviewConfidenceThreshold = SLSKDONET.Services.AudioAnalysis.GridWriteRules.ReviewThreshold;
 
+    /// <summary>Tooltip for the BPM-column marker (#221).</summary>
+    public string GridReviewTip => Model.GridConfidence is { } c
+        ? "Beat grid needs review: " + SLSKDONET.Utils.NumFormat.Percent(c) + " confidence. Check Bar 1 in Cue Forge, then Mark grid correct."
+        : "";
+
     public string MetadataStatus
     {
         get

@@ -691,6 +691,57 @@ public class DatabaseService
         await _trackRepository.SavePhrasesAsync(phrases);
     }
 
+    /// <summary>
+    /// Replaces one source's phrase rows for a track (#225) — the user's phrase-strip edits ("User") or a
+    /// Rekordbox PSSI import ("RekordboxPSSI") — leaving the other sources' rows in place. An empty list
+    /// removes that source (e.g. "Reset to analysed" deletes the User rows).
+    /// </summary>
+    public async Task ReplacePhrasesForSourceAsync(string trackHash, string source, IReadOnlyList<TrackPhraseEntity> rows, CancellationToken ct = default)
+    {
+        await _writeSemaphore.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            context.TrackPhrases.RemoveRange(await context.TrackPhrases
+                .Where(p => p.TrackUniqueHash == trackHash && p.Source == source).ToListAsync(ct).ConfigureAwait(false));
+            foreach (var row in rows)
+            {
+                row.Id = 0;
+                row.TrackUniqueHash = trackHash;
+                row.Source = source;
+                context.TrackPhrases.Add(row);
+            }
+            await context.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>Replaces every phrase row of a track with <paramref name="rows"/> as given (undo/redo of phrase edits, #225).</summary>
+    public async Task ReplaceAllPhrasesAsync(string trackHash, IReadOnlyList<TrackPhraseEntity> rows, CancellationToken ct = default)
+    {
+        await _writeSemaphore.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            context.TrackPhrases.RemoveRange(await context.TrackPhrases
+                .Where(p => p.TrackUniqueHash == trackHash).ToListAsync(ct).ConfigureAwait(false));
+            foreach (var row in rows)
+            {
+                row.Id = 0;
+                row.TrackUniqueHash = trackHash;
+                context.TrackPhrases.Add(row);
+            }
+            await context.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
     /// <summary>True when the track has a user-edited phrase map (issue #225) — re-analysis and PSSI re-import must not overwrite it.</summary>
     public async Task<bool> HasUserPhrasesAsync(string trackHash)
     {

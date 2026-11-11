@@ -207,7 +207,10 @@ public static class BeatGridFitter
     /// </summary>
     public static double LocalBpmAt(IReadOnlyList<double> ticks, double timeSeconds, double fallbackBpm)
     {
-        var sections = FitSections(ticks);
+        // A clean piecewise grid (user-edited or Rekordbox) is read literally; raw beat-tracker ticks
+        // produce many tiny "exact" runs and go through the noise-tolerant fitter instead.
+        var exact = ExactSections(ticks);
+        var sections = exact.Count is >= 2 and <= 8 ? exact : FitSections(ticks);
         if (sections.Count <= 1) return fallbackBpm;
         for (int i = 0; i < sections.Count; i++)
         {
@@ -331,6 +334,47 @@ public static class BeatGridFitter
             return mean > 0 ? new[] { new TempoSection(0, ticks[0], 60.0 / mean) } : Array.Empty<TempoSection>();
         }
 
+        return result;
+    }
+
+    /// <summary>
+    /// Tempo sections of a <b>clean</b> piecewise-constant grid — one the user built or Rekordbox's own
+    /// (issue #226). Unlike <see cref="FitSections"/> (for noisy beat-tracker ticks) this reads the beat
+    /// list literally: a new section starts where the spacing changes by more than
+    /// <paramref name="toleranceSeconds"/> (2 ms covers Rekordbox's millisecond rounding) and stays
+    /// changed for at least <paramref name="minSectionBeats"/> beats.
+    /// </summary>
+    public static IReadOnlyList<TempoSection> ExactSections(IReadOnlyList<double> beats, double toleranceSeconds = 0.002, int minSectionBeats = 4)
+    {
+        if (beats.Count < 2) return Array.Empty<TempoSection>();
+        var result = new List<TempoSection>();
+        int start = 0;
+        double sum = beats[1] - beats[0];
+        int count = 1;
+        for (int i = 1; i < beats.Count - 1; i++)
+        {
+            double iv = beats[i + 1] - beats[i];
+            double mean = sum / count;
+            bool changed = Math.Abs(iv - mean) > toleranceSeconds;
+            if (changed)
+            {
+                // A real change persists: the next few intervals agree with each other, not with the old run.
+                int run = 1;
+                while (run < minSectionBeats && i + run < beats.Count - 1 &&
+                       Math.Abs(beats[i + run + 1] - beats[i + run] - iv) <= toleranceSeconds) run++;
+                if (run >= minSectionBeats || i + run >= beats.Count - 1)
+                {
+                    result.Add(new TempoSection(start, beats[start], 60.0 / mean));
+                    start = i;
+                    sum = iv;
+                    count = 1;
+                    continue;
+                }
+            }
+            sum += iv;
+            count++;
+        }
+        result.Add(new TempoSection(start, beats[start], 60.0 / (sum / count)));
         return result;
     }
 

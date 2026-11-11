@@ -438,6 +438,15 @@
                                             <Button Classes="secondary small" Content="Set BPM" Command="{Binding ApplyTwoPointBpmCommand}" IsVisible="{Binding HasTwoPointBpm}" ToolTip.Tip="Set the BPM from the two marked downbeats"/>
                                         </StackPanel>
                                         <TextBlock Classes="caption muted" Text="{Binding TwoPointBpmStatus}" TextWrapping="Wrap"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <TextBox Width="56" Text="{Binding SectionBpmInput}" Watermark="BPM" VerticalAlignment="Center"/>
+                                            <Button Classes="ghost small" Content="Tempo from here" Command="{Binding AddTempoChangeCommand}" ToolTip.Tip="A tempo change at the playhead: from this beat to the next change, the grid runs at this BPM"/>
+                                            <Button Classes="ghost small" Content="Section" Command="{Binding SetSectionBpmCommand}" ToolTip.Tip="Set the BPM of the whole tempo section under the playhead"/>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding IsVariableTempo}">
+                                            <TextBlock Classes="caption mono" Text="{Binding TempoSectionsDisplay}" TextWrapping="Wrap" MaxWidth="208" VerticalAlignment="Center"/>
+                                            <Button Classes="ghost small" Content="Remove change" Command="{Binding RemoveTempoChangeCommand}" ToolTip.Tip="Remove the tempo change nearest the playhead"/>
+                                        </StackPanel>
                                         <TextBlock Classes="caption muted" Text="Verify"/>
                                         <StackPanel Orientation="Horizontal" Spacing="4">
                                             <ToggleButton Classes="chip small" Content="Metronome" IsChecked="{Binding MetronomeEnabled}" ToolTip.Tip="Audition the beat grid with a click (M)"/>
@@ -497,14 +506,17 @@
                 <Border Background="{StaticResource BrushWarningSubtle}" BorderBrush="{StaticResource BrushWarningBorder}"
                         BorderThickness="0,0,0,1" Padding="24,8"
                         IsVisible="{Binding HasGridSuggestion}">
-                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
                         <PathIcon Data="{StaticResource icon_alert}" Width="14" Height="14" Foreground="{StaticResource BrushWarning}" Margin="0,0,8,0"/>
                         <TextBlock Grid.Column="1" Classes="body-sm" TextWrapping="Wrap" VerticalAlignment="Center"
                                    Text="{Binding GridSuggestionDisplay}"/>
-                        <Button Grid.Column="2" Classes="secondary small" Content="Use suggestion" Margin="16,0,0,0"
+                        <ToggleButton Grid.Column="2" Classes="chip small" Content="Compare" Margin="16,0,0,0"
+                                      IsChecked="{Binding IsGridCompareOn}"
+                                      ToolTip.Tip="Show the suggested grid's bar lines (dashed) over the waveform"/>
+                        <Button Grid.Column="3" Classes="secondary small" Content="Use suggestion" Margin="4,0,0,0"
                                 Command="{Binding UseGridSuggestionCommand}"
                                 ToolTip.Tip="Replace your grid with the suggested one (BPM, beats and Bar 1). Cues are not moved."/>
-                        <Button Grid.Column="3" Classes="ghost small" Content="Keep mine" Margin="4,0,0,0"
+                        <Button Grid.Column="4" Classes="ghost small" Content="Keep mine" Margin="4,0,0,0"
                                 Command="{Binding DismissGridSuggestionCommand}"
                                 ToolTip.Tip="Keep your grid and discard the suggestion"/>
                     </Grid>
@@ -547,6 +559,13 @@
                         Bpm="{Binding Bpm}"
                         GridBpm="{Binding GridBpm}"
                         GridOffset="{Binding GridOffset}"
+                        BeatTimes="{Binding VariableBeatTimes}"
+                        SelectedPhraseIndex="{Binding SelectedPhraseIndex}"
+                        PhraseSnapBars="{Binding PhraseSnapBars}"
+                        PhraseSelectedCommand="{Binding SelectPhraseAtCommand}"
+                        PhraseBoundaryMovedCommand="{Binding MovePhraseBoundaryCommand}"
+                        CompareBeatTimes="{Binding CompareBeatTimes}"
+                        CompareDownbeat="{Binding CompareDownbeat}"
                         MusicStartSeconds="{Binding MusicStartSeconds}"
                         TrackDuration="{Binding TrackDuration}"
                         SnapToGrid="{Binding Session.SnapToGrid}"

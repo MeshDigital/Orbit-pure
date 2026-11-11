@@ -302,4 +302,29 @@ public class TransitionPlannerTests
         Assert.Equal(18.75, structure.MixInMarker);
         Assert.Equal(73.25, structure.MixOutMarker);
     }
+
+    /// <summary>
+    /// #226: a track that slows from 128 to 108 BPM in its last part is tempo-locked with an incoming
+    /// 108 BPM track at the mix point, although its overall BPM (128) is 16 % away.
+    /// </summary>
+    [Fact]
+    public void VariableTempoOutgoing_IsComparedAtItsMixOutTempo()
+    {
+        var beats = new List<double>();
+        double t = 0.5;
+        for (int i = 0; i < 320; i++) { beats.Add(t); t += 60.0 / 128.0; }   // 128 BPM body
+        for (int i = 0; i < 128; i++) { beats.Add(t); t += 60.0 / 108.0; }   // 108 BPM outro
+        var outgoing = new TrackStructure
+        {
+            DurationSeconds = t + 1, Bpm = 128, FirstDownbeat = 0.5, Energy = 0.4,
+            OutroStartMarker = beats[340], BeatGrid = beats,
+        };
+        var incoming = new TrackStructure { DurationSeconds = 240, Bpm = 108, FirstDownbeat = 0.4, Energy = 0.4 };
+
+        Assert.Equal(108.0, TransitionPlanner.MixOutBpm(outgoing), 1);
+        Assert.Equal(128.0, outgoing.LocalBpmAt(beats[100]), 1);
+
+        var plan = TransitionPlanner.Plan(outgoing, incoming, compatibility: 80);
+        Assert.DoesNotContain("apart", plan.Reason); // not treated as a tempo mismatch
+    }
 }

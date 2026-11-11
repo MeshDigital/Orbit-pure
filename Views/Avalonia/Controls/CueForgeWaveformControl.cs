@@ -65,6 +65,46 @@ public class CueForgeWaveformControl : Control
         AvaloniaProperty.Register<CueForgeWaveformControl, double>(nameof(GridOffset));
     public double GridOffset { get => GetValue(GridOffsetProperty); set => SetValue(GridOffsetProperty, value); }
 
+    /// <summary>Index of the selected phrase in <see cref="PhraseSegments"/> (−1 = none), outlined in the strip (#225).</summary>
+    public static readonly StyledProperty<int> SelectedPhraseIndexProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, int>(nameof(SelectedPhraseIndex), -1);
+    public int SelectedPhraseIndex { get => GetValue(SelectedPhraseIndexProperty); set => SetValue(SelectedPhraseIndexProperty, value); }
+
+    /// <summary>Bars a dragged phrase boundary snaps to (1, 8, 16 or 32), counted from Bar 1 (#225).</summary>
+    public static readonly StyledProperty<int> PhraseSnapBarsProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, int>(nameof(PhraseSnapBars), 1);
+    public int PhraseSnapBars { get => GetValue(PhraseSnapBarsProperty); set => SetValue(PhraseSnapBarsProperty, value); }
+
+    /// <summary>Click in the phrase strip: selects the phrase at that time (parameter: seconds).</summary>
+    public static readonly StyledProperty<System.Windows.Input.ICommand?> PhraseSelectedCommandProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, System.Windows.Input.ICommand?>(nameof(PhraseSelectedCommand));
+    public System.Windows.Input.ICommand? PhraseSelectedCommand { get => GetValue(PhraseSelectedCommandProperty); set => SetValue(PhraseSelectedCommandProperty, value); }
+
+    /// <summary>A phrase boundary was dragged (parameter: <see cref="PhraseBoundaryMove"/>).</summary>
+    public static readonly StyledProperty<System.Windows.Input.ICommand?> PhraseBoundaryMovedCommandProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, System.Windows.Input.ICommand?>(nameof(PhraseBoundaryMovedCommand));
+    public System.Windows.Input.ICommand? PhraseBoundaryMovedCommand { get => GetValue(PhraseBoundaryMovedCommandProperty); set => SetValue(PhraseBoundaryMovedCommandProperty, value); }
+
+    /// <summary>True when <paramref name="p"/> is in the phrase strip under the waveform (the page opens the phrase menu there).</summary>
+    public bool IsInPhraseStrip(Point p) => p.Y >= Bounds.Height - PhraseMapHeight && p.Y <= Bounds.Height;
+
+    public const string PhraseStripTip = "Click a phrase to select it · drag a boundary to move it · right-click for phrase actions";
+
+    /// <summary>Variable-tempo beat list (#226). When set, the grid is drawn beat by beat from it
+    /// (bars counted from the beat nearest <see cref="GridOffset"/>) instead of from one BPM.</summary>
+    public static readonly StyledProperty<IReadOnlyList<double>?> BeatTimesProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, IReadOnlyList<double>?>(nameof(BeatTimes));
+    public IReadOnlyList<double>? BeatTimes { get => GetValue(BeatTimesProperty); set => SetValue(BeatTimesProperty, value); }
+
+    /// <summary>A suggested grid (#221 compare overlay): its bar lines are drawn dashed over the waveform.</summary>
+    public static readonly StyledProperty<IReadOnlyList<double>?> CompareBeatTimesProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, IReadOnlyList<double>?>(nameof(CompareBeatTimes));
+    public IReadOnlyList<double>? CompareBeatTimes { get => GetValue(CompareBeatTimesProperty); set => SetValue(CompareBeatTimesProperty, value); }
+
+    public static readonly StyledProperty<double> CompareDownbeatProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, double>(nameof(CompareDownbeat));
+    public double CompareDownbeat { get => GetValue(CompareDownbeatProperty); set => SetValue(CompareDownbeatProperty, value); }
+
     public static readonly StyledProperty<double?> MusicStartSecondsProperty =
         AvaloniaProperty.Register<CueForgeWaveformControl, double?>(nameof(MusicStartSeconds));
     /// <summary>First audible sound (seconds); the area before it is shaded (issue #224).</summary>
@@ -205,7 +245,7 @@ public class CueForgeWaveformControl : Control
     // ── Layout ─────────────────────────────────────────────────────────────
 
     private const double RulerHeight = 16.0;
-    private const double PhraseMapHeight = 10.0;
+    private const double PhraseMapHeight = 14.0;
     private const double HitRadius = 6.0;
     private const double FlagWidth = 16.0;
     private const double FlagHeight = 14.0;
@@ -225,6 +265,14 @@ public class CueForgeWaveformControl : Control
     private static readonly IPen BeatPen = new Pen(new SolidColorBrush(Color.FromArgb(16, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
     private static readonly IPen BarPen = new Pen(new SolidColorBrush(Color.FromArgb(28, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
     private static readonly IPen PhrasePen = new Pen(new SolidColorBrush(Color.FromArgb(64, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
+    // Every 4th bar a step stronger than a single bar, so downbeat structure reads at a glance (#222).
+    private static readonly IPen FourBarPen = new Pen(new SolidColorBrush(Color.FromArgb(44, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
+    // Suggested grid (#221): amber, dashed, so it can't be mistaken for the real grid.
+    private static readonly IPen ComparePen = new Pen(new SolidColorBrush(Color.FromArgb(190, 245, 166, 35)).ToImmutable(), 1,
+        dashStyle: new DashStyle(new double[] { 3, 3 }, 0)).ToImmutable();
+    private static readonly IPen PhraseSelectedPen = new Pen(new SolidColorBrush(Color.FromArgb(230, 255, 255, 255)).ToImmutable(), 1.5).ToImmutable();
+    private static readonly IBrush PhraseLabelBrush = new SolidColorBrush(Color.FromArgb(230, 15, 16, 18)).ToImmutable();
+    private static readonly IBrush CompareTextBrush = new SolidColorBrush(Color.FromArgb(220, 245, 166, 35)).ToImmutable();
     private static readonly IPen RulerTickPen = new Pen(new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
 
     /// <summary>Below this bar width only 8-bar phrase lines run through the waveform; single bars
@@ -261,7 +309,9 @@ public class CueForgeWaveformControl : Control
 
     // ── Drag state ─────────────────────────────────────────────────────────
 
-    private enum DragKind { None, Scrub, Cue, LoopStart, LoopEnd }
+    private enum DragKind { None, Scrub, Cue, LoopStart, LoopEnd, PhraseBoundary }
+    private int _dragPhraseIndex = -1;
+    private double _dragPhraseTime;
     private DragKind _drag;
     private OrbitCue? _dragCue;
     private bool _dragMoved;
@@ -296,6 +346,8 @@ public class CueForgeWaveformControl : Control
     {
         t = Math.Clamp(t, 0, TrackDuration);
         if (!SnapToGrid || (mods & KeyModifiers.Shift) != 0) return t;
+        if (BeatTimes is { Count: > 1 } beats)
+            return Math.Clamp(SnapToBeatList(beats, t, GridOffset, Math.Max(1, SnapBeats)), 0, TrackDuration);
         return Math.Clamp(CueForgeGrid.Snap(t, EffectiveBpm, GridOffset, Math.Max(1, SnapBeats)), 0, TrackDuration);
     }
 
@@ -316,7 +368,7 @@ public class CueForgeWaveformControl : Control
 
         DrawPlayhead(ctx, size);
 
-        if (_readout != null && _drag is DragKind.Cue or DragKind.LoopStart or DragKind.LoopEnd)
+        if (_readout != null && _drag is DragKind.Cue or DragKind.LoopStart or DragKind.LoopEnd or DragKind.PhraseBoundary)
         {
             double w = _readout.Width + 12, h = _readout.Height + 6;
             double x = Math.Clamp(_readoutX + 8, 0, Math.Max(0, size.Width - w));
@@ -380,6 +432,7 @@ public class CueForgeWaveformControl : Control
             DrawPhraseMap(ctx, size, wave);
             if (ShowEnergyCurve) DrawEnergy(ctx, wave);
             if (ShowBeatGrid) DrawGridAndRuler(ctx, size, wave);
+            DrawCompareGrid(ctx, size, wave);
             DrawDoubleDropZone(ctx, wave);
             DrawLoops(ctx, wave);
             DrawCueMarkers(ctx, wave);
@@ -521,12 +574,31 @@ public class CueForgeWaveformControl : Control
         ctx.FillRectangle(RulerBrush, strip);
         if (ShowPhraseSections && PhraseSegments is { Count: > 0 } segments)
         {
-            foreach (var seg in segments)
+            double barSec = EffectiveBpm > 0 ? 240.0 / EffectiveBpm : 0;
+            for (int i = 0; i < segments.Count; i++)
             {
-                double x1 = TimeToX(seg.Start, size.Width), x2 = TimeToX(seg.Start + seg.Duration, size.Width);
+                var seg = segments[i];
+                double start = seg.Start, end = seg.Start + seg.Duration;
+                // Live preview of a boundary drag: the dragged boundary is the end of i−1 / start of i.
+                if (_drag == DragKind.PhraseBoundary)
+                {
+                    if (i == _dragPhraseIndex) start = _dragPhraseTime;
+                    if (i == _dragPhraseIndex - 1) end = _dragPhraseTime;
+                }
+                double x1 = TimeToX(start, size.Width), x2 = TimeToX(end, size.Width);
                 if (x2 <= 0 || x1 >= size.Width) continue;
                 x1 = Math.Max(0, x1); x2 = Math.Min(size.Width, x2);
-                ctx.FillRectangle(GetPhraseStyle(seg.Label).Fill, new Rect(x1, strip.Top + 2, Math.Max(1, x2 - x1 - 1), PhraseMapHeight - 3));
+                var rect = new Rect(x1, strip.Top + 2, Math.Max(1, x2 - x1 - 1), PhraseMapHeight - 3);
+                ctx.FillRectangle(GetPhraseStyle(seg.Label).Fill, rect);
+                if (i == SelectedPhraseIndex) ctx.DrawRectangle(null, PhraseSelectedPen, rect.Deflate(0.75));
+                if (rect.Width >= 56)
+                {
+                    int bars = barSec > 0 ? (int)Math.Round((end - start) / barSec) : 0;
+                    string text = bars > 0 ? $"{seg.Label} · {bars.ToString(CultureInfo.InvariantCulture)}" : seg.Label;
+                    var label = GetText(text, MonoTypeface, 9, PhraseLabelBrush);
+                    if (label.Width + 6 <= rect.Width)
+                        ctx.DrawText(label, new Point(rect.X + 3, rect.Y + (rect.Height - label.Height) / 2));
+                }
             }
         }
         ctx.DrawLine(DividerPen, new Point(0, strip.Top + 0.5), new Point(size.Width, strip.Top + 0.5));
@@ -555,6 +627,11 @@ public class CueForgeWaveformControl : Control
 
     private void DrawGridAndRuler(DrawingContext ctx, Size size, Rect wave)
     {
+        if (BeatTimes is { Count: > 1 } beatTimes)
+        {
+            DrawGridFromBeats(ctx, size, wave, beatTimes);
+            return;
+        }
         double bpm = EffectiveBpm;
         if (bpm <= 0 || TrackDuration <= 0) return;
         double beatSec = 60.0 / bpm, barSec = beatSec * 4;
@@ -576,14 +653,10 @@ public class CueForgeWaveformControl : Control
             double x = TimeToX(t, size.Width);
             if (x >= -1 && x <= size.Width + 1 && t >= 0)
             {
-                bool phrase = k % 8 == 0;
-                if (phrase || barPx >= FullHeightBarMinPx)
-                    ctx.DrawLine(phrase ? PhrasePen : BarPen, new Point(Math.Round(x) + 0.5, wave.Top), new Point(Math.Round(x) + 0.5, wave.Bottom));
-                else if (barPx >= 4)
-                    ctx.DrawLine(RulerTickPen, new Point(Math.Round(x) + 0.5, RulerHeight - 3), new Point(Math.Round(x) + 0.5, RulerHeight));
-                if (k >= 0 && k % labelStep == 0)
+                DrawBarLine(ctx, wave, x, k, barPx);
+                if (k % labelStep == 0)
                 {
-                    var label = GetText((k + 1).ToString(CultureInfo.InvariantCulture), MonoTypeface, 10, RulerTextBrush);
+                    var label = GetText(BarLabel(k), MonoTypeface, 10, RulerTextBrush);
                     ctx.DrawText(label, new Point(x + 3, (RulerHeight - label.Height) / 2));
                     ctx.DrawLine(BarPen, new Point(Math.Round(x) + 0.5, RulerHeight - 5), new Point(Math.Round(x) + 0.5, RulerHeight));
                 }
@@ -598,6 +671,110 @@ public class CueForgeWaveformControl : Control
                 }
             }
         }
+    }
+
+    /// <summary>Bar k (0 = Bar 1) as the DJ reads it: 1, 2, 3 … and pickup bars before Bar 1 as −1, −2 (#222).</summary>
+    private static string BarLabel(long k) =>
+        k >= 0 ? (k + 1).ToString(CultureInfo.InvariantCulture) : "−" + (-k).ToString(CultureInfo.InvariantCulture);
+
+    private void DrawBarLine(DrawingContext ctx, Rect wave, double x, long k, double barPx)
+    {
+        bool phrase = k % 8 == 0;
+        bool fourBar = k % 4 == 0;
+        double px = Math.Round(x) + 0.5;
+        if (phrase || barPx >= FullHeightBarMinPx)
+            ctx.DrawLine(phrase ? PhrasePen : fourBar ? FourBarPen : BarPen, new Point(px, wave.Top), new Point(px, wave.Bottom));
+        else if (fourBar && barPx >= 3)
+            ctx.DrawLine(FourBarPen, new Point(px, wave.Top), new Point(px, wave.Top + wave.Height * 0.15));
+        else if (barPx >= 4)
+            ctx.DrawLine(RulerTickPen, new Point(px, RulerHeight - 3), new Point(px, RulerHeight));
+    }
+
+    /// <summary>
+    /// Variable-tempo grid (#226): every beat from the stored list, bars counted from the beat nearest
+    /// Bar 1, so sections at different tempos line up with the music instead of one BPM's projection.
+    /// </summary>
+    private void DrawGridFromBeats(DrawingContext ctx, Size size, Rect wave, IReadOnlyList<double> beats)
+    {
+        if (TrackDuration <= 0) return;
+        int downbeatIndex = NearestIndex(beats, GridOffset);
+        double pxPerSec = size.Width * Zoom / TrackDuration;
+        double typicalBeat = (beats[^1] - beats[0]) / Math.Max(1, beats.Count - 1);
+        double beatPx = typicalBeat * pxPerSec, barPx = beatPx * 4;
+        int labelStep = 1;
+        while (labelStep * barPx < 40 && labelStep < 1024) labelStep *= 2;
+
+        double tStart = XToTime(-2, size.Width), tEnd = XToTime(size.Width + 2, size.Width);
+        int first = Math.Max(0, NearestIndex(beats, tStart) - 4);
+        for (int i = first; i < beats.Count && beats[i] <= tEnd; i++)
+        {
+            double x = TimeToX(beats[i], size.Width);
+            if (x < -1 || x > size.Width + 1) continue;
+            int rel = i - downbeatIndex;
+            int beatInBar = ((rel % 4) + 4) % 4;
+            if (beatInBar == 0)
+            {
+                long k = (long)Math.Floor(rel / 4.0);
+                DrawBarLine(ctx, wave, x, k, barPx);
+                if (k % labelStep == 0)
+                {
+                    var label = GetText(BarLabel(k), MonoTypeface, 10, RulerTextBrush);
+                    ctx.DrawText(label, new Point(x + 3, (RulerHeight - label.Height) / 2));
+                    ctx.DrawLine(BarPen, new Point(Math.Round(x) + 0.5, RulerHeight - 5), new Point(Math.Round(x) + 0.5, RulerHeight));
+                }
+            }
+            else if (beatPx >= FullHeightBarMinPx)
+            {
+                ctx.DrawLine(BeatPen, new Point(Math.Round(x) + 0.5, wave.Top), new Point(Math.Round(x) + 0.5, wave.Bottom));
+            }
+        }
+    }
+
+    /// <summary>Suggested grid's bar lines, dashed amber, in the top part of the waveform (#221 compare).</summary>
+    private void DrawCompareGrid(DrawingContext ctx, Size size, Rect wave)
+    {
+        if (CompareBeatTimes is not { Count: > 1 } beats || TrackDuration <= 0) return;
+        int downbeatIndex = NearestIndex(beats, CompareDownbeat);
+        double tStart = XToTime(-2, size.Width), tEnd = XToTime(size.Width + 2, size.Width);
+        double pxPerSec = size.Width * Zoom / TrackDuration;
+        double barPx = (beats[^1] - beats[0]) / Math.Max(1, beats.Count - 1) * 4 * pxPerSec;
+        int step = barPx >= 6 ? 1 : barPx >= 1.5 ? 4 : 8;
+        int first = Math.Max(0, NearestIndex(beats, tStart) - 4);
+        double bottom = wave.Top + wave.Height * 0.45;
+        for (int i = first; i < beats.Count && beats[i] <= tEnd; i++)
+        {
+            int rel = i - downbeatIndex;
+            if (((rel % (4 * step)) + 4 * step) % (4 * step) != 0) continue;
+            double x = TimeToX(beats[i], size.Width);
+            if (x < 0 || x > size.Width) continue;
+            ctx.DrawLine(ComparePen, new Point(Math.Round(x) + 0.5, wave.Top), new Point(Math.Round(x) + 0.5, bottom));
+        }
+        var tag = GetText("Suggested grid", UiTypeface, 10, CompareTextBrush);
+        ctx.FillRectangle(LabelBgBrush, new Rect(wave.Right - tag.Width - 12, wave.Top + 4, tag.Width + 8, tag.Height + 4), 3);
+        ctx.DrawText(tag, new Point(wave.Right - tag.Width - 8, wave.Top + 6));
+    }
+
+    private static int NearestIndex(IReadOnlyList<double> values, double t)
+    {
+        int lo = 0, hi = values.Count - 1;
+        while (lo < hi)
+        {
+            int mid = (lo + hi) / 2;
+            if (values[mid] < t) lo = mid + 1; else hi = mid;
+        }
+        if (lo > 0 && Math.Abs(values[lo - 1] - t) <= Math.Abs(values[lo] - t)) lo--;
+        return lo;
+    }
+
+    /// <summary>Snap to the nearest beat whose distance from Bar 1 is a multiple of <paramref name="beatsStep"/> (variable grids).</summary>
+    internal static double SnapToBeatList(IReadOnlyList<double> beats, double t, double downbeat, int beatsStep)
+    {
+        int nearest = NearestIndex(beats, t);
+        int d = NearestIndex(beats, downbeat);
+        int rel = nearest - d;
+        int snappedRel = (int)Math.Round(rel / (double)beatsStep) * beatsStep;
+        int idx = Math.Clamp(d + snappedRel, 0, beats.Count - 1);
+        return beats[idx];
     }
 
     private void DrawMusicStartShade(DrawingContext ctx, Rect wave)
@@ -813,6 +990,23 @@ public class CueForgeWaveformControl : Control
         _pressPoint = pt;
         _dragMoved = false;
 
+        if (ShowPhraseSections && IsInPhraseStrip(pt) && PhraseSegments is { Count: > 0 } phrases)
+        {
+            int boundary = PhraseBoundaryAt(pt.X, phrases);
+            if (boundary > 0)
+            {
+                _drag = DragKind.PhraseBoundary;
+                _dragPhraseIndex = boundary;
+                _dragPhraseTime = phrases[boundary].Start;
+                e.Pointer.Capture(this);
+                return;
+            }
+            double at = TimeAt(pt);
+            if (PhraseSelectedCommand?.CanExecute(at) == true) PhraseSelectedCommand.Execute(at);
+            e.Handled = true;
+            return;
+        }
+
         var (kind, cue) = HitTest(pt);
         if (kind != DragKind.None && cue != null)
         {
@@ -847,6 +1041,13 @@ public class CueForgeWaveformControl : Control
         switch (_drag)
         {
             case DragKind.None:
+                if (ShowPhraseSections && IsInPhraseStrip(pt) && PhraseSegments is { Count: > 0 } hoverPhrases)
+                {
+                    Cursor = PhraseBoundaryAt(pt.X, hoverPhrases) > 0 ? HandleCursor : Cursor.Default;
+                    SetPhraseTip(true);
+                    return;
+                }
+                SetPhraseTip(false);
                 var (kind, _) = HitTest(pt);
                 Cursor = kind == DragKind.None ? ScrubCursor : HandleCursor;
                 SetHoverTip(kind != DragKind.None);
@@ -854,6 +1055,17 @@ public class CueForgeWaveformControl : Control
 
             case DragKind.Scrub:
                 Seek(TimeAt(pt), force: false);
+                return;
+
+            case DragKind.PhraseBoundary:
+                if (!_dragMoved && Math.Abs(pt.X - _pressPoint.X) < MarkerGesture<OrbitCue>.DragThresholdPixels) return;
+                _dragMoved = true;
+                _dragPhraseTime = ClampPhraseBoundary(SnapPhraseTime(XToTime(pt.X, w), e.KeyModifiers));
+                _readoutX = TimeToX(_dragPhraseTime, w);
+                var phraseBar = CueForgeGrid.FormatBarBeat(_dragPhraseTime, EffectiveBpm, GridOffset);
+                _readout = new FormattedText(phraseBar.Length > 0 ? $"{CueForgeGrid.FormatTime(_dragPhraseTime)}  {phraseBar}" : CueForgeGrid.FormatTime(_dragPhraseTime),
+                    CultureInfo.InvariantCulture, FlowDirection.LeftToRight, MonoTypeface, 11, LabelTextBrush);
+                InvalidateStaticThrottled();
                 return;
         }
 
@@ -878,6 +1090,47 @@ public class CueForgeWaveformControl : Control
         var text = bar.Length > 0 ? $"{CueForgeGrid.FormatTime(t)}  {bar}" : CueForgeGrid.FormatTime(t);
         _readout = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, MonoTypeface, 11, LabelTextBrush);
         InvalidateStaticThrottled();
+    }
+
+    private bool _phraseTipShown;
+    private void SetPhraseTip(bool inStrip)
+    {
+        if (inStrip == _phraseTipShown) return;
+        _phraseTipShown = inStrip;
+        if (inStrip) _hoverTipShown = false;
+        ToolTip.SetTip(this, inStrip ? PhraseStripTip : null);
+    }
+
+    /// <summary>Index i ≥ 1 of the phrase whose start boundary is within the hit radius of <paramref name="x"/>; 0 when none.</summary>
+    private int PhraseBoundaryAt(double x, IReadOnlyList<PhraseSegment> phrases)
+    {
+        int best = 0;
+        double bestDist = HitRadius;
+        for (int i = 1; i < phrases.Count; i++)
+        {
+            double d = Math.Abs(TimeToX(phrases[i].Start, Bounds.Width) - x);
+            if (d <= bestDist) { bestDist = d; best = i; }
+        }
+        return best;
+    }
+
+    /// <summary>Snaps a boundary to multiples of <see cref="PhraseSnapBars"/> bars from Bar 1 (Shift = free).</summary>
+    private double SnapPhraseTime(double t, KeyModifiers mods)
+    {
+        if ((mods & KeyModifiers.Shift) != 0 || EffectiveBpm <= 0) return t;
+        double step = 240.0 / EffectiveBpm * Math.Max(1, PhraseSnapBars);
+        return GridOffset + Math.Round((t - GridOffset) / step) * step;
+    }
+
+    /// <summary>Keeps a dragged boundary at least one bar inside its two neighbouring phrases.</summary>
+    private double ClampPhraseBoundary(double t)
+    {
+        if (PhraseSegments is not { } phrases || _dragPhraseIndex < 1 || _dragPhraseIndex >= phrases.Count) return t;
+        double minGap = EffectiveBpm > 0 ? 240.0 / EffectiveBpm : 1.0;
+        double lo = phrases[_dragPhraseIndex - 1].Start + minGap;
+        var cur = phrases[_dragPhraseIndex];
+        double hi = cur.Start + cur.Duration - minGap;
+        return hi > lo ? Math.Clamp(t, lo, hi) : t;
     }
 
     private bool _hoverTipShown;
@@ -919,6 +1172,23 @@ public class CueForgeWaveformControl : Control
         var kind = _drag;
         var cue = _dragCue;
         bool moved = _dragMoved;
+        if (kind == DragKind.PhraseBoundary)
+        {
+            int index = _dragPhraseIndex;
+            double time = _dragPhraseTime;
+            _drag = DragKind.None;
+            _dragPhraseIndex = -1;
+            _dragMoved = false;
+            _readout = null;
+            pointer?.Capture(null);
+            if (commit && moved && PhraseBoundaryMovedCommand is { } cmd)
+            {
+                var move = new PhraseBoundaryMove(index, time);
+                if (cmd.CanExecute(move)) cmd.Execute(move);
+            }
+            InvalidateStaticCache();
+            return;
+        }
         _drag = DragKind.None;
         _dragCue = null;
         _dragMoved = false;
@@ -1008,6 +1278,9 @@ public class CueForgeWaveformControl : Control
 
         if (change.Property == CuesProperty || change.Property == PhraseSegmentsProperty ||
             change.Property == BpmProperty || change.Property == GridBpmProperty || change.Property == GridOffsetProperty ||
+            change.Property == BeatTimesProperty || change.Property == CompareBeatTimesProperty ||
+            change.Property == SelectedPhraseIndexProperty ||
+            change.Property == CompareDownbeatProperty || change.Property == MusicStartSecondsProperty ||
             change.Property == TrackDurationProperty || change.Property == BackgroundProperty ||
             change.Property == WaveformLowProperty || change.Property == WaveformMidProperty ||
             change.Property == WaveformHighProperty || change.Property == EnergyCurveProperty ||

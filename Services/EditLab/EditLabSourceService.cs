@@ -75,6 +75,8 @@ public class EditLabSourceService
             throw new FileNotFoundException($"\"{title ?? entry?.Title ?? "This track"}\" has no audio file on this computer, so it can't be edited.");
 
         var features = _library == null ? null : await _library.GetAudioFeaturesByHashAsync(trackHash).ConfigureAwait(false);
+        // Phrases from the single TrackPhrases store (#225): the user's own map first, then Rekordbox's, then the heuristic.
+        var phraseRows = _library == null ? null : await _library.GetPhrasesByHashAsync(trackHash).ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
 
         var source = new EditSource
@@ -89,7 +91,9 @@ public class EditLabSourceService
             Key = EditKeyMath.Normalize(entry?.ManualKey) ?? EditKeyMath.Normalize(features?.CamelotKey) ?? EditKeyMath.Normalize(entry?.MusicalKey),
             DownbeatSeconds = features?.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0,
             DurationSeconds = features?.TrackDuration > 0 ? features.TrackDuration : entry?.DurationSeconds ?? 0,
-            Phrases = ParsePhrases(features?.PhraseSegmentsJson),
+            Phrases = Engine.Analysis.PhraseSourceResolver.Resolve(phraseRows, features?.TrackDuration ?? 0)
+                .Select(s => new EditPhrase { Label = s.Label, StartSeconds = s.Start, DurationSeconds = s.Duration, Bars = s.Bars })
+                .ToList(),
         };
 
         await Task.Run(() => ReadFileFacts(source), ct).ConfigureAwait(false);
@@ -197,21 +201,6 @@ public class EditLabSourceService
         });
         return failures.Count == 0 ? plan : new EditRenderPlan(plan.SampleRate, plan.Clips, plan.SecondsPerBar, plan.Problems.Concat(failures).Distinct().ToList());
     }, ct);
-
-    private List<EditPhrase> ParsePhrases(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json) || json == "[]") return new();
-        try
-        {
-            var segments = JsonSerializer.Deserialize<List<PhraseSegment>>(json) ?? new();
-            return segments.Select(s => new EditPhrase { Label = s.Label, StartSeconds = s.Start, DurationSeconds = s.Duration, Bars = s.Bars }).ToList();
-        }
-        catch (JsonException ex)
-        {
-            _logger?.LogWarning(ex, "Edit Lab: ignoring unreadable phrase data");
-            return new();
-        }
-    }
 
     private static string FirstNonEmpty(params string?[] values) => values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v)) ?? string.Empty;
 }

@@ -51,7 +51,33 @@ public interface IBeatGridEditService
 
     /// <summary>Discards the grid kept in AnalysedGridJson (issue #221).</summary>
     Task<GridEditResult> DismissSuggestionAsync(string hash, CancellationToken ct);
+
+    /// <summary>The track's full grid state, for undo (issue #222). Null when the track has no analysis.</summary>
+    Task<GridSnapshot?> GetSnapshotAsync(string hash, CancellationToken ct) => Task.FromResult<GridSnapshot?>(null);
+
+    /// <summary>Writes a snapshot back exactly — including its provenance, so undoing the first edit
+    /// returns the grid to "analysis" (issue #222).</summary>
+    Task<GridEditResult> RestoreSnapshotAsync(string hash, GridSnapshot snapshot, CancellationToken ct) =>
+        Task.FromResult(GridEditResult.Failed("Restoring a grid is not supported here."));
+
+    /// <summary>
+    /// Variable tempo (issue #226): from the beat nearest <paramref name="atSeconds"/> up to the next tempo
+    /// change (or the end), beats are re-spaced at <paramref name="bpm"/>; later sections keep their own
+    /// tempo. Used for "Add tempo change here" and for editing the BPM of the section under the playhead.
+    /// </summary>
+    Task<GridEditResult> SetTempoFromAsync(string hash, double atSeconds, double bpm, CancellationToken ct) =>
+        Task.FromResult(GridEditResult.Failed("Tempo sections are not supported here."));
+
+    /// <summary>Removes the tempo change nearest <paramref name="atSeconds"/>: that section takes the
+    /// previous section's tempo (issue #226).</summary>
+    Task<GridEditResult> RemoveTempoChangeAsync(string hash, double atSeconds, CancellationToken ct) =>
+        Task.FromResult(GridEditResult.Failed("Tempo sections are not supported here."));
 }
+
+/// <summary>A track's complete grid state (issue #222 undo).</summary>
+public sealed record GridSnapshot(
+    double Bpm, double[] Beats, double Downbeat,
+    string? Source, bool Verified, float? Confidence, string? AnalysedGridJson, bool IsVariableTempo);
 
 public sealed class BeatGridEditService : IBeatGridEditService
 {
@@ -213,6 +239,107 @@ public sealed class BeatGridEditService : IBeatGridEditService
         return await WriteGridAsync(hash, features, suggestion.Bpm, suggestion.Beats, suggestion.Downbeat, ct, PhraseFollow.KeepSeconds).ConfigureAwait(false);
     }
 
+    public async Task<GridSnapshot?> GetSnapshotAsync(string hash, CancellationToken ct)
+    {
+        var f = await _database.GetAudioFeaturesByHashAsync(hash).ConfigureAwait(false);
+        return f is null ? null : new GridSnapshot(
+            f.Bpm, BeatGridFitter.ParseTicks(f.BeatGridJson), f.DownbeatOffsetSeconds,
+            f.GridSource, f.GridVerified, f.GridConfidence, f.AnalysedGridJson, f.IsVariableTempo);
+    }
+
+    public async Task<GridEditResult> RestoreSnapshotAsync(string hash, GridSnapshot snapshot, CancellationToken ct)
+    {
+        var features = await _database.GetAudioFeaturesByHashAsync(hash).ConfigureAwait(false);
+        if (features is null)
+            return GridEditResult.Failed("This track has no analysis to restore a grid into.");
+        var follow = Math.Abs(features.Bpm - snapshot.Bpm) > 0.005 ? PhraseFollow.KeepSeconds : PhraseFollow.KeepBars;
+        return await WriteGridAsync(hash, features, snapshot.Bpm, snapshot.Beats, snapshot.Downbeat, ct, follow, snapshot).ConfigureAwait(false);
+    }
+
+    public async Task<GridEditResult> SetTempoFromAsync(string hash, double atSeconds, double bpm, CancellationToken ct)
+    {
+        if (bpm < MinBpm || bpm > MaxBpm)
+            return GridEditResult.Failed($"BPM {bpm:0.#} is outside the supported range ({MinBpm:0}–{MaxBpm:0}).");
+        var features = await _database.GetAudioFeaturesByHashAsync(hash).ConfigureAwait(false);
+        if (features is null)
+            return GridEditResult.Failed("This track has no analysis to store a beat grid in. Analyse it first.");
+        double[] beats = BeatGridFitter.ParseTicks(features.BeatGridJson);
+        if (beats.Length < 8)
+            return GridEditResult.Failed("This track has no beat grid to add a tempo change to.");
+
+        // A user/Rekordbox grid is a clean piecewise grid; an analysis grid is made clean first so a
+        // tempo change never inherits the beat tracker's jitter.
+        if (!IsCleanSource(features.GridSource))
+            beats = ConstantGrid(features.DownbeatOffsetSeconds, features.Bpm > 0 ? features.Bpm : MedianIntervalBpm(beats), features.TrackDuration);
+
+        int start = NearestBeatIndex(beats, atSeconds);
+        var sections = BeatGridFitter.ExactSections(beats);
+        int end = sections.Select(s => s.StartBeatIndex).Where(i => i > start).DefaultIfEmpty(beats.Length).Min();
+        double[] newBeats = Respace(beats, start, end, 60.0 / bpm, features.TrackDuration);
+        return await WriteSectionedGridAsync(hash, features, beats, newBeats, ct).ConfigureAwait(false);
+    }
+
+    public async Task<GridEditResult> RemoveTempoChangeAsync(string hash, double atSeconds, CancellationToken ct)
+    {
+        var features = await _database.GetAudioFeaturesByHashAsync(hash).ConfigureAwait(false);
+        if (features is null)
+            return GridEditResult.Failed("This track has no analysis.");
+        double[] beats = BeatGridFitter.ParseTicks(features.BeatGridJson);
+        var sections = BeatGridFitter.ExactSections(beats);
+        if (sections.Count < 2)
+            return GridEditResult.Failed("This grid has no tempo change to remove.");
+
+        // The change nearest the playhead (never the first section's start, which is not a change).
+        int k = Enumerable.Range(1, sections.Count - 1)
+            .OrderBy(i => Math.Abs(sections[i].StartSeconds - atSeconds)).First();
+        int start = sections[k].StartBeatIndex;
+        int end = k + 1 < sections.Count ? sections[k + 1].StartBeatIndex : beats.Length;
+        double[] newBeats = Respace(beats, start, end, 60.0 / sections[k - 1].Bpm, features.TrackDuration);
+        return await WriteSectionedGridAsync(hash, features, beats, newBeats, ct).ConfigureAwait(false);
+    }
+
+    private static bool IsCleanSource(string? source) =>
+        string.Equals(source, GridWriteRules.SourceUser, StringComparison.Ordinal) ||
+        string.Equals(source, GridWriteRules.SourceRekordbox, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Re-spaces beats [start, end) at <paramref name="period"/> from beats[start]; the beats after the
+    /// range keep their own spacing, shifted to follow. The list is trimmed to / extended up to the track
+    /// end at the last section's spacing.
+    /// </summary>
+    internal static double[] Respace(double[] beats, int start, int end, double period, double duration)
+    {
+        var result = new List<double>(beats.Length + 16);
+        for (int i = 0; i <= start && i < beats.Length; i++) result.Add(beats[i]);
+        double t = beats[Math.Min(start, beats.Length - 1)];
+        for (int i = start + 1; i < end; i++) { t += period; result.Add(Math.Round(t, 4)); }
+        double lastPeriod = period;
+        for (int i = Math.Max(end, start + 1); i < beats.Length; i++)
+        {
+            lastPeriod = beats[i] - beats[i - 1];
+            t += lastPeriod;
+            result.Add(Math.Round(t, 4));
+        }
+        double limit = duration > 0 ? duration : double.MaxValue;
+        while (result.Count > 1 && result[^1] > limit) result.RemoveAt(result.Count - 1);
+        if (duration > 0 && lastPeriod > 0)
+            while (result[^1] + lastPeriod <= duration) result.Add(Math.Round(result[^1] + lastPeriod, 4));
+        return result.ToArray();
+    }
+
+    private async Task<GridEditResult> WriteSectionedGridAsync(
+        string hash, Data.Entities.AudioFeaturesEntity features, double[] oldBeats, double[] newBeats, CancellationToken ct)
+    {
+        // Bar 1 stays on the same beat number; the displayed BPM is that of the longest section.
+        int downbeatIndex = NearestBeatIndex(oldBeats, features.DownbeatOffsetSeconds);
+        double downbeat = newBeats[Math.Clamp(downbeatIndex, 0, newBeats.Length - 1)];
+        var sections = BeatGridFitter.ExactSections(newBeats);
+        double bpm = sections.Count == 0 ? features.Bpm
+            : sections.Select((s, i) => (s.Bpm, Length: (i + 1 < sections.Count ? sections[i + 1].StartBeatIndex : newBeats.Length) - s.StartBeatIndex))
+                .OrderByDescending(x => x.Length).First().Bpm;
+        return await WriteGridAsync(hash, features, bpm, newBeats, downbeat, ct, PhraseFollow.KeepSeconds).ConfigureAwait(false);
+    }
+
     public async Task<GridEditResult> DismissSuggestionAsync(string hash, CancellationToken ct)
     {
         var features = await _database.GetAudioFeaturesByHashAsync(hash).ConfigureAwait(false);
@@ -247,17 +374,32 @@ public sealed class BeatGridEditService : IBeatGridEditService
 
     private async Task<GridEditResult> WriteGridAsync(
         string hash, AudioFeaturesEntity features, double bpm, double[] beats, double downbeat, CancellationToken ct,
-        PhraseFollow phraseFollow = PhraseFollow.KeepBars)
+        PhraseFollow phraseFollow = PhraseFollow.KeepBars, GridSnapshot? restore = null)
     {
         features.Bpm = (float)Math.Round(bpm, 2);
         features.BeatGridJson = JsonSerializer.Serialize(beats);
         features.DownbeatOffsetSeconds = Math.Round(downbeat, 4);
-        // A grid the user has touched is user-owned and verified, so re-analysis and Rekordbox
-        // adoption can never silently overwrite it (see GridWriteRules).
-        features.GridSource = GridWriteRules.SourceUser;
-        features.GridVerified = true;
-        features.GridEditedAt = DateTime.UtcNow.ToString("O");
-        features.GridConfidence = 1.0f;
+        if (restore is not null)
+        {
+            // Undo/redo: put the provenance back exactly as it was.
+            features.GridSource = restore.Source;
+            features.GridVerified = restore.Verified;
+            features.GridConfidence = restore.Confidence;
+            features.AnalysedGridJson = restore.AnalysedGridJson;
+            features.IsVariableTempo = restore.IsVariableTempo;
+            features.GridEditedAt = DateTime.UtcNow.ToString("O");
+        }
+        else
+        {
+            // A grid the user has touched is user-owned and verified, so re-analysis and Rekordbox
+            // adoption can never silently overwrite it (see GridWriteRules).
+            features.GridSource = GridWriteRules.SourceUser;
+            features.GridVerified = true;
+            features.GridEditedAt = DateTime.UtcNow.ToString("O");
+            features.GridConfidence = 1.0f;
+            // A user grid is a clean piecewise grid, so its tempo sections are exact (issue #226).
+            features.IsVariableTempo = BeatGridFitter.ExactSections(beats).Count > 1;
+        }
 
         try
         {
@@ -341,14 +483,17 @@ public sealed class BeatGridEditService : IBeatGridEditService
         return beats;
     }
 
-    /// <summary>×2: every beat plus its midpoint.</summary>
+    /// <summary>×2: every beat plus the midpoint to the next beat (so a variable grid doubles section
+    /// by section); the last beat uses <paramref name="period"/> (or its own last interval).</summary>
     internal static double[] InsertMidpoints(double[] beats, double period)
     {
         var result = new List<double>(beats.Length * 2);
-        foreach (var b in beats)
+        for (int i = 0; i < beats.Length; i++)
         {
-            result.Add(b);
-            result.Add(Math.Round(b + period / 2.0, 4));
+            result.Add(beats[i]);
+            double next = i + 1 < beats.Length ? beats[i + 1]
+                : beats[i] + (beats.Length > 1 ? beats[i] - beats[i - 1] : period);
+            result.Add(Math.Round((beats[i] + next) / 2.0, 4));
         }
         result.Sort();
         return result.Distinct().ToArray();
