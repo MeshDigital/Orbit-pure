@@ -95,18 +95,42 @@ public static class GridWriteRules
         return true;
     }
 
+    /// <summary>Below this a grid is "needs review" (Library filter, Cue Forge status).</summary>
+    public const float ReviewThreshold = 0.6f;
+
+    /// <summary>Cap when the music gives no bar-phase evidence: the tempo may be perfect while Bar 1 is
+    /// a guess, so such a grid is never shown as fully confident (but is not flagged for review either).</summary>
+    public const double NoBarEvidenceCap = 0.75;
+
     /// <summary>
-    /// Confidence formula (documented): <c>0.5·(TicksUsed / totalTicks) + 0.5·(1 − ResidualRmsBeats / 0.12)</c>,
-    /// clamped to [0, 1]. A clean, steady fit (most ticks inliers, near-zero residual) scores high;
-    /// a jittered or half-time fit scores low. Bar-phase agreement is used to pick the downbeat in
-    /// <see cref="BeatGridFitter.EstimateBarPhase"/> rather than folded into this scalar.
+    /// Confidence formula (documented), clamped to [0, 1]:
+    /// <list type="bullet">
+    /// <item><b>tempo</b> = <c>0.5·(TicksUsed / totalTicks) + 0.5·(1 − ResidualRmsBeats / 0.12)</c> — a clean,
+    ///   steady fit scores high; a jittered or half-time fit scores low.</item>
+    /// <item><b>bar</b> = <see cref="BeatGridFitter.BarPhaseAgreement"/> — the share of arrangement changes
+    ///   (sub-bass returns/dropouts) that land on the grid's bar lines.</item>
+    /// <item>confidence = <c>0.4·tempo + 0.6·bar</c>; without bar evidence, <c>min(tempo, 0.75)</c>.</item>
+    /// </list>
+    /// Bar phase dominates because it is the error DJs actually hit: a perfect tempo with Bar 1 on beat 3
+    /// misplaces every phrase. (The first version scored tempo only, so every fitted grid read ~1.0.)
     /// </summary>
-    public static float ComputeConfidence(BeatGridFitter.Fit fit, int totalTicks)
+    public static float ComputeConfidence(BeatGridFitter.Fit fit, int totalTicks, double? barAgreement = null)
     {
         const double MaxResidualRmsBeats = 0.12; // matches BeatGridFitter's no-steady-tempo cutoff
         double inlier = totalTicks > 0 ? fit.TicksUsed / (double)totalTicks : 0.0;
         double residual = 1.0 - Math.Clamp(fit.ResidualRmsBeats / MaxResidualRmsBeats, 0.0, 1.0);
-        return (float)Math.Clamp(0.5 * inlier + 0.5 * residual, 0.0, 1.0);
+        double tempo = Math.Clamp(0.5 * inlier + 0.5 * residual, 0.0, 1.0);
+        return Combine(tempo, barAgreement);
+    }
+
+    /// <summary>Combines a tempo score and an optional bar-phase agreement (see <see cref="ComputeConfidence"/>).</summary>
+    public static float Combine(double tempo, double? barAgreement)
+    {
+        tempo = Math.Clamp(tempo, 0.0, 1.0);
+        double value = barAgreement is { } bar
+            ? 0.4 * tempo + 0.6 * Math.Clamp(bar, 0.0, 1.0)
+            : Math.Min(tempo, NoBarEvidenceCap);
+        return (float)Math.Clamp(value, 0.0, 1.0);
     }
 
     /// <summary>True when the current grid is owned by the user (edited or verified).</summary>

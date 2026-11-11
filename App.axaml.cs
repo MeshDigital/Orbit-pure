@@ -340,6 +340,10 @@ public partial class App : Application
                         // One-time estimation of music start for tracks analysed before the detector; no-op once done.
                         Services.GetRequiredService<Services.AudioAnalysis.MusicStartBackfillService>().StartIfPending();
 
+                        // One-time grid confidence + variable-tempo flag for already-analysed grids
+                        // (stored data only; never changes a grid); no-op once done.
+                        Services.GetRequiredService<Services.AudioAnalysis.GridConfidenceBackfillService>().StartIfPending();
+
                         // Fill first-drop/intro timing from stored energy curves. No audio decode,
                         // cue/grid changes or Rekordbox writes; no-op after the first completed pass.
                         Services.GetRequiredService<Services.AudioAnalysis.TimeTillDropBackfillService>().StartIfPending();
@@ -722,6 +726,7 @@ public partial class App : Application
         services.AddSingleton<Services.AudioAnalysis.CueLayoutRepairService>();
         services.AddSingleton<Services.AudioAnalysis.PhraseBarMigrationService>();
         services.AddSingleton<Services.AudioAnalysis.MusicStartBackfillService>();
+        services.AddSingleton<Services.AudioAnalysis.GridConfidenceBackfillService>();
         services.AddSingleton<IFileInteractionService, FileInteractionService>();
         services.AddSingleton<INotificationService, NotificationServiceAdapter>();
         services.AddSingleton<IClipboardService, ClipboardService>();
