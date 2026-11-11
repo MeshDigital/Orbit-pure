@@ -296,7 +296,7 @@ public static class CommentTracklistParser
         return (cleaned, true);
     }
 
-    private static string StripLeadingTrackNumber(string line)
+    internal static string StripLeadingTrackNumber(string line)
     {
         if (string.IsNullOrWhiteSpace(line))
             return line;
@@ -364,7 +364,7 @@ public static class CommentTracklistParser
     /// Split a cleaned line into artist and title.
     /// Handles edge cases like multiple hyphens in the title.
     /// </summary>
-    private static (string Artist, string Title) SplitArtistTitle(string line)
+    internal static (string Artist, string Title) SplitArtistTitle(string line)
     {
         var normalized = StripLeadingMixMarker(line);
 
@@ -385,7 +385,7 @@ public static class CommentTracklistParser
         return (string.Empty, string.Empty);
     }
 
-    private static bool TrySplitFirstSeparator(string value, out string artist, out string title)
+    internal static bool TrySplitFirstSeparator(string value, out string artist, out string title)
     {
         artist = string.Empty;
         title = string.Empty;
@@ -449,7 +449,7 @@ public static class CommentTracklistParser
                ColonSeparatorRegex.IsMatch(line);
     }
 
-    private static string StripTrailingLabel(string title)
+    internal static string StripTrailingLabel(string title)
     {
         if (string.IsNullOrWhiteSpace(title))
             return title;

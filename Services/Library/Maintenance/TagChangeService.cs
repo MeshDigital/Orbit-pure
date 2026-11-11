@@ -16,13 +16,6 @@ namespace SLSKDONET.Services.Library.Maintenance;
 /// <summary>Serialized choices for a run, persisted to <c>MaintenanceRuns.OptionsJson</c>.</summary>
 public sealed record MaintenanceRunOptions(string? OptionsJson = null);
 
-/// <summary>One approved change for one track: the field patches and the rule that produced them.</summary>
-public sealed record ProposedTagChange(
-    string TrackUniqueHash,
-    string? FilePath,
-    IReadOnlyList<TagPatchField> Changes,
-    string Rule);
-
 public sealed record TagApplyReport(
     int Applied,
     int FileWritten,
@@ -102,12 +95,12 @@ public sealed class TagChangeService
             {
                 var oldValue = filePresent
                     ? await _tagger.ReadFieldValueAsync(change.FilePath!, field.Field, ct).ConfigureAwait(false)
-                    : await ReadDbFieldAsync(db, change.TrackUniqueHash, field.Field, ct).ConfigureAwait(false);
+                    : await ReadDbFieldAsync(db, change.Hash, field.Field, ct).ConfigureAwait(false);
 
                 journal.Add(new TagChangeLogEntity
                 {
                     RunId = runIdStr,
-                    TrackUniqueHash = change.TrackUniqueHash,
+                    TrackUniqueHash = change.Hash,
                     FilePath = change.FilePath,
                     Field = field.Field.ToString(),
                     OldValue = oldValue,
@@ -129,11 +122,11 @@ public sealed class TagChangeService
                 if (!fileOk)
                 {
                     failed++;
-                    errors.Add($"{change.TrackUniqueHash}: {patchResult.Error}");
+                    errors.Add($"{change.Hash}: {patchResult.Error}");
                     foreach (var row in journal)
                         row.Error = patchResult.Error;
                     await db.SaveChangesAsync(ct).ConfigureAwait(false);
-                    _logger.LogWarning("Maintenance run {RunId}: file write failed for {Hash}: {Error}", runId, change.TrackUniqueHash, patchResult.Error);
+                    _logger.LogWarning("Maintenance run {RunId}: file write failed for {Hash}: {Error}", runId, change.Hash, patchResult.Error);
                     continue;
                 }
             }
@@ -147,14 +140,14 @@ public sealed class TagChangeService
 
             if (dbChanges.Count > 0)
             {
-                await _writer.ApplyAsync(db, change.TrackUniqueHash, dbChanges, ct).ConfigureAwait(false);
+                await _writer.ApplyAsync(db, change.Hash, dbChanges, ct).ConfigureAwait(false);
                 var provenanceFields = dbChanges
                     .Select(c => FieldToProvenance(c.Field))
                     .Where(f => f is not null)
                     .Select(f => f!)
                     .ToList();
                 if (provenanceFields.Count > 0)
-                    await _enrichment.MarkUserEditedAsync(new[] { change.TrackUniqueHash }, provenanceFields, ct, MetadataMerger.MaintenanceSource).ConfigureAwait(false);
+                    await _enrichment.MarkUserEditedAsync(new[] { change.Hash }, provenanceFields, ct, MetadataMerger.MaintenanceSource).ConfigureAwait(false);
             }
 
             // 4. Mark the journal rows applied.
