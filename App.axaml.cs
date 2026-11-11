@@ -987,6 +987,7 @@ public partial class App : Application
         services.AddSingleton<Services.Library.Maintenance.StyleBackfillService>();
         services.AddSingleton<Services.Library.Maintenance.StylePlaylistApplier>();
         services.AddSingleton<Services.Library.Maintenance.UseAsGenreService>();
+        services.AddSingleton<Services.Library.Maintenance.MaintenanceUndoService>();
         // A fresh wizard per open: state must not leak between maintenance runs.
         services.AddTransient<ViewModels.Maintenance.LibraryMaintenanceViewModel>();
         services.AddSingleton(sp => new ViewModels.Maintenance.MaintenanceShellViewModel(

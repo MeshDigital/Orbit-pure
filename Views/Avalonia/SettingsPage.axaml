@@ -988,6 +988,14 @@
                                                 Command="{Binding RunMaintenanceCommand}"
                                                 Content="Run maintenance…"/>
                                     </Grid>
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto" IsVisible="{Binding CanUndoMaintenance}">
+                                        <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="Undo last maintenance run"/>
+                                            <TextBlock Classes="caption" Text="Reverts the tag and playlist changes from the most recent maintenance run."/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Classes="secondary small" Content="Undo"
+                                                Command="{Binding UndoLastMaintenanceCommand}"/>
+                                    </Grid>
                                     <Border Classes="divider"/>
                                     <Grid Classes="row" ColumnDefinitions="*,Auto">
                                         <StackPanel Classes="label">
