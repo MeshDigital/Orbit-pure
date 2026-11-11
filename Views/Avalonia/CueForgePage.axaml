@@ -534,6 +534,7 @@
                         Bpm="{Binding Bpm}"
                         GridBpm="{Binding GridBpm}"
                         GridOffset="{Binding GridOffset}"
+                        MusicStartSeconds="{Binding MusicStartSeconds}"
                         TrackDuration="{Binding TrackDuration}"
                         SnapToGrid="{Binding Session.SnapToGrid}"
                         SnapBeats="{Binding Session.SnapBeats}"

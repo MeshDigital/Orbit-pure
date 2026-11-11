@@ -65,6 +65,11 @@ public class CueForgeWaveformControl : Control
         AvaloniaProperty.Register<CueForgeWaveformControl, double>(nameof(GridOffset));
     public double GridOffset { get => GetValue(GridOffsetProperty); set => SetValue(GridOffsetProperty, value); }
 
+    public static readonly StyledProperty<double?> MusicStartSecondsProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, double?>(nameof(MusicStartSeconds));
+    /// <summary>First audible sound (seconds); the area before it is shaded (issue #224).</summary>
+    public double? MusicStartSeconds { get => GetValue(MusicStartSecondsProperty); set => SetValue(MusicStartSecondsProperty, value); }
+
     public static readonly StyledProperty<bool> SnapToGridProperty =
         AvaloniaProperty.Register<CueForgeWaveformControl, bool>(nameof(SnapToGrid), true);
     public bool SnapToGrid { get => GetValue(SnapToGridProperty); set => SetValue(SnapToGridProperty, value); }
@@ -214,6 +219,7 @@ public class CueForgeWaveformControl : Control
     private static readonly IBrush FlagTextBrush = new SolidColorBrush(Color.FromArgb(255, 15, 16, 18)).ToImmutable();
     private static readonly IBrush SelectionBrush = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)).ToImmutable();
     private static readonly IBrush DoubleDropBrush = new SolidColorBrush(Color.FromArgb(22, 170, 114, 255)).ToImmutable();
+    private static readonly IBrush PreMusicStartBrush = new SolidColorBrush(Color.FromArgb(60, 0, 0, 0)).ToImmutable();
     // Grid lines stay faint so cue flags and the waveform read first (bar lines at full opacity
     // turned the zoomed-out view into a cage).
     private static readonly IPen BeatPen = new Pen(new SolidColorBrush(Color.FromArgb(16, 255, 255, 255)).ToImmutable(), 1).ToImmutable();
@@ -368,6 +374,7 @@ public class CueForgeWaveformControl : Control
             var wave = new Rect(0, RulerHeight, size.Width, Math.Max(1, size.Height - RulerHeight - PhraseMapHeight));
             ctx.FillRectangle(RulerBrush, new Rect(0, 0, size.Width, RulerHeight));
             if (_waveBitmap != null) ctx.DrawImage(_waveBitmap, CueForgeOverviewControl.PixelRect(_waveBitmap), wave); // pixel source rect, see Render
+            DrawMusicStartShade(ctx, wave);
             if (ShowPhraseSections) DrawSectionBands(ctx, wave);
             DrawSectionRegions(ctx, wave);
             DrawPhraseMap(ctx, size, wave);
@@ -591,6 +598,14 @@ public class CueForgeWaveformControl : Control
                 }
             }
         }
+    }
+
+    private void DrawMusicStartShade(DrawingContext ctx, Rect wave)
+    {
+        if (MusicStartSeconds is not { } ms || ms <= 0) return;
+        double x = TimeToX(ms, wave.Width);
+        if (x <= 0) return;
+        ctx.FillRectangle(PreMusicStartBrush, new Rect(0, wave.Top, Math.Min(x, wave.Width), wave.Height));
     }
 
     private void DrawDoubleDropZone(DrawingContext ctx, Rect wave)
