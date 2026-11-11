@@ -70,3 +70,26 @@ public class MusicStartDetectorTests
         Assert.Equal(-43.0, MusicStartDetector.ThresholdDbFs(-8.0), 6);          // max(-50, -43)
     }
 }
+
+public class MusicStartIntroAnchorTests
+{
+    [Fact]
+    public void MusicStartMoreThanOneBeatBeforeBarOne_AnchorsOnMusicStart()
+    {
+        // Bar 1 at 2.0 s, music starts at 0.5 s (well over one 0.5s beat before).
+        Assert.Equal(0.5, MusicStartIntroAnchor.Resolve(0.5, 2.0, 120.0), 6);
+    }
+
+    [Fact]
+    public void MusicStartWithinOneBeatOfBarOne_KeepsBarOne()
+    {
+        // Music start 0.4 s before Bar 1 at 120 BPM (0.5s beat) is within one beat.
+        Assert.Equal(2.0, MusicStartIntroAnchor.Resolve(1.6, 2.0, 120.0), 6);
+    }
+
+    [Fact]
+    public void NoMusicStart_KeepsBarOne()
+    {
+        Assert.Equal(2.0, MusicStartIntroAnchor.Resolve(null, 2.0, 120.0), 6);
+    }
+}

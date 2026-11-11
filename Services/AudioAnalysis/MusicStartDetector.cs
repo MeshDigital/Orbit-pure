@@ -61,3 +61,19 @@ public static class MusicStartDetector
         return null;
     }
 }
+
+/// <summary>
+/// The Intro/load-cue anchor rule (issue #224): use music start when it precedes
+/// <paramref name="anchorSeconds"/> (normally Bar 1) by more than one beat; otherwise keep the anchor.
+/// </summary>
+public static class MusicStartIntroAnchor
+{
+    public static double Resolve(double? musicStartSeconds, double anchorSeconds, double bpm)
+    {
+        if (musicStartSeconds is not { } ms) return anchorSeconds;
+        double beat = bpm > 0 ? 60.0 / bpm : 0.5;
+        if (ms >= 0 && ms < anchorSeconds && (anchorSeconds - ms) > beat)
+            return ms;
+        return anchorSeconds;
+    }
+}

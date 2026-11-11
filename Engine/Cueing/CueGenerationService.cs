@@ -192,7 +192,7 @@ public sealed class CueGenerationService
             var forcedSegments = SanitizeSegments(analysis.PhraseSegments, bpm);
             return Done(GenerateCuesFromPhraseSegments(
                 trackHash, forcedSegments, duration, bpm, downbeatAnchor,
-                analysis.SubBassReturnTimestamps, analysis.Genre, profile.UseDspRescue),
+                analysis.SubBassReturnTimestamps, analysis.Genre, profile.UseDspRescue, analysis.MusicStartSeconds),
                 CueGenerationPath.PhraseSegments);
         }
 
@@ -242,7 +242,8 @@ public sealed class CueGenerationService
             if ((realDropCount >= 2 && !phraseCoverageIncomplete) || !dspSignalsAvailable)
             {
                 return Done(GenerateCuesFromPhraseSegments(
-                    trackHash, sanitized, duration, bpm, downbeatAnchor, analysis.SubBassReturnTimestamps, analysis.Genre),
+                    trackHash, sanitized, duration, bpm, downbeatAnchor, analysis.SubBassReturnTimestamps, analysis.Genre,
+                    musicStartSeconds: analysis.MusicStartSeconds),
                     CueGenerationPath.PhraseSegments);
             }
 
@@ -271,7 +272,8 @@ public sealed class CueGenerationService
         double downbeatAnchor,
         IReadOnlyList<double>? dspReturns = null,
         string? genre = null,
-        bool useDspRescue = true)
+        bool useDspRescue = true,
+        double? musicStartSeconds = null)
     {
         // Callers pass already-sanitized segments (GenerateCues runs SanitizeSegments once up
         // front to decide between this path and the DSP path) — re-sanitizing here would be
@@ -339,6 +341,7 @@ public sealed class CueGenerationService
         double introTime = intros.Count > 0
             ? SnapToBar(intros[0].Start, bpm, downbeatAnchor)
             : downbeatAnchor;
+        introTime = SLSKDONET.Services.AudioAnalysis.MusicStartIntroAnchor.Resolve(musicStartSeconds, introTime, bpm);
 
         double drop1Time = drops.Count > 0
             ? SnapToBeat(drops[0].Start, bpm, downbeatAnchor)
@@ -641,6 +644,7 @@ public sealed class CueGenerationService
                 }
             }
         }
+        introTime = SLSKDONET.Services.AudioAnalysis.MusicStartIntroAnchor.Resolve(analysis.MusicStartSeconds, introTime, bpm);
 
         // ── 6. Outro — sustained energy drop-off near the end, else bar-math default ──
         double outroTime = SnapToPhrase(duration - bar * 8, bpm, downbeatAnchor);
@@ -944,7 +948,7 @@ public sealed class CueGenerationService
             .Select(c => (Time: c.Timestamp, Intent: c.Result.Intent, Confidence: c.Result.Confidence))
             .ToList();
 
-        double downbeatTime = downbeatAnchor;
+        double downbeatTime = SLSKDONET.Services.AudioAnalysis.MusicStartIntroAnchor.Resolve(analysis.MusicStartSeconds, downbeatAnchor, bpm);
         cues.Add(Make(trackHash, downbeatTime, CuePointType.Intro, "First Downbeat", 1.0f));
 
         var mixInCand = candidates.FirstOrDefault(c => c.Intent == CueIntent.MixIn);

@@ -62,6 +62,11 @@ public static class AnalysisPipelineResultBuilder
         if (hintedDrop is > 0 && (f.TrackDuration <= 0 || hintedDrop < f.TrackDuration - 4))
             result.HintedDropTimestamp = hintedDrop.Value;
 
+        // Music start (issue #224): carried into the result so cue generation can anchor the Intro
+        // / load cue on the first audible sound when it precedes Bar 1.
+        if (f.MusicStartSeconds is { } ms && ms >= 0 && (f.TrackDuration <= 0 || ms < f.TrackDuration))
+            result.MusicStartSeconds = f.MusicStartSeconds;
+
         // Rekordbox's own commercial phrase analysis (PSSI) and the rule-based structural analysis
         // ("Heuristic") are both trusted provenance for the legacy column; the gate itself lives in
         // PhraseSourceResolver so the JSON and TrackPhrases routes share one definition. The
