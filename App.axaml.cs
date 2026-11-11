@@ -1160,9 +1160,8 @@ public partial class App : Application
         services.AddSingleton<Services.KnowledgeLifecycle.IKnowledgeAgent, Services.KnowledgeLifecycle.TransitionAgent>();
         services.AddHostedService<Services.KnowledgeLifecycle.KnowledgeSwarmHost>();
 
-        // ── Slice K5: Story Graph canvas ────────────────────────────────
+        // ── Sets (replaces the Story Graph overlay) ───────────────────────
         services.AddSingleton<Services.Sets.ISetProjectService, Services.Sets.SetProjectService>();
-        services.AddTransient<SLSKDONET.ViewModels.StoryGraph.StoryGraphViewModel>();
     }
 
     /// <summary>

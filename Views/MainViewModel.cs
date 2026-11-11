@@ -170,20 +170,6 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         Activity = activity;
         _workstation = workstation;
 
-        // Keep the nav highlight in sync with the Workstation's active tool (Story Graph vs plain
-        // decks). Without this, Set Projects and Workstation both light up together because they
-        // share IsWorkstationOverlayActive.
-        if (_workstation != null)
-        {
-            _workstation.PropertyChanged += (_, e) =>
-            {
-                if (e.PropertyName is nameof(SLSKDONET.ViewModels.Workstation.WorkstationViewModel.IsStoryGraphActive))
-                {
-                    OnPropertyChanged(nameof(IsSetProjectsNavActive));
-                    OnPropertyChanged(nameof(IsWorkstationNavActive));
-                }
-            };
-        }
         _rightPanelService = rightPanelService;
         PerfTracker = perfTracker;
 
@@ -999,9 +985,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsWorkstationOverlayActive => IsCreativeOverlayPage(CurrentPageType);
     /// <summary>Nav highlight for the "Sets" entry (its own page).</summary>
     public bool IsSetProjectsNavActive => CurrentPageType == PageType.Sets;
-    /// <summary>Nav highlight for the plain "Workstation" entry (not on a tool surface).</summary>
-    public bool IsWorkstationNavActive => IsWorkstationOverlayActive
-        && _workstation?.IsStoryGraphActive != true;
+    /// <summary>Nav highlight for the plain "Workstation" entry.</summary>
+    public bool IsWorkstationNavActive => IsWorkstationOverlayActive;
     public bool IsCueForgeOverlayActive => CurrentPageType == PageType.CueForge;
     public bool IsEditLabOverlayActive => CurrentPageType == PageType.EditLab;
     public bool IsUsersOverlayActive => CurrentPageType == PageType.Users;
