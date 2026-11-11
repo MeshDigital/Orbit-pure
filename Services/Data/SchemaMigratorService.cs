@@ -1214,6 +1214,49 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // Beat-grid provenance & confidence (issue #221)
+            if (!ColumnExists("audio_features", "GridSource"))
+            {
+                _logger.LogInformation("Patching Schema: Adding GridSource to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""GridSource"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "GridVerified"))
+            {
+                _logger.LogInformation("Patching Schema: Adding GridVerified to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""GridVerified"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "GridEditedAt"))
+            {
+                _logger.LogInformation("Patching Schema: Adding GridEditedAt to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""GridEditedAt"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "GridConfidence"))
+            {
+                _logger.LogInformation("Patching Schema: Adding GridConfidence to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""GridConfidence"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "AnalysedGridJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding AnalysedGridJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""AnalysedGridJson"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Backfill GridSource for rows that predate the column (issue #221). Idempotent: after the
+            // first run nothing is NULL. A manual BPM edit is the only retroactive evidence of a user
+            // grid; Rekordbox adoption is not recorded on old rows, so everything else is "Analysis".
+            command.CommandText = @"UPDATE ""audio_features""
+                SET ""GridSource"" = 'User'
+                WHERE ""GridSource"" IS NULL
+                  AND ""TrackUniqueHash"" IN (SELECT ""UniqueHash"" FROM ""LibraryEntries"" WHERE ""ManualBPM"" IS NOT NULL);";
+            await command.ExecuteNonQueryAsync();
+            command.CommandText = @"UPDATE ""audio_features"" SET ""GridSource"" = 'Analysis' WHERE ""GridSource"" IS NULL;";
+            await command.ExecuteNonQueryAsync();
+
             // Task 1.6: Waveform blob columns
             if (!ColumnExists("audio_features", "WaveformBlob"))
             {

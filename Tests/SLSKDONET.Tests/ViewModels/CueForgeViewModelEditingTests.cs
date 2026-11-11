@@ -114,6 +114,8 @@ public class CueForgeViewModelEditingTests
         { DownbeatCalls++; LastDownbeat = barOneSeconds; return Task.FromResult(GridEditResult.Ok()); }
         public Task<GridEditResult> ResetToAnalysedAsync(string hash, double analysedBpm, double analysedDownbeat, CancellationToken ct)
         { ResetCalls++; return Task.FromResult(GridEditResult.Ok()); }
+        public Task<GridEditResult> MarkGridCorrectAsync(string hash, CancellationToken ct)
+        { return Task.FromResult(GridEditResult.Ok()); }
     }
 
     private static (CueForgeViewModel Vm, FakeCueStore Store, FakeTransport Player) Create()

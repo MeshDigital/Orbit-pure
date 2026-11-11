@@ -42,6 +42,9 @@ public interface IBeatGridEditService
 
     /// <summary>Restores the analysed BPM and downbeat, regenerating the constant grid.</summary>
     Task<GridEditResult> ResetToAnalysedAsync(string hash, double analysedBpm, double analysedDownbeat, CancellationToken ct);
+
+    /// <summary>Marks the current grid as user-verified without changing Bpm, the beat list or Bar 1.</summary>
+    Task<GridEditResult> MarkGridCorrectAsync(string hash, CancellationToken ct);
 }
 
 public sealed class BeatGridEditService : IBeatGridEditService
@@ -151,12 +154,55 @@ public sealed class BeatGridEditService : IBeatGridEditService
         return await WriteGridAsync(hash, features, analysedBpm, beats, analysedDownbeat, ct).ConfigureAwait(false);
     }
 
+    public async Task<GridEditResult> MarkGridCorrectAsync(string hash, CancellationToken ct)
+    {
+        var features = await _database.GetAudioFeaturesByHashAsync(hash).ConfigureAwait(false);
+        if (features is null)
+            return GridEditResult.Failed("This track has no analysis to mark correct. Analyse it first.");
+
+        features.GridVerified = true;
+        features.GridEditedAt = DateTime.UtcNow.ToString("O");
+        // A verification never changes the grid itself: Bpm, BeatGridJson, DownbeatOffsetSeconds and
+        // GridSource stay exactly as they were.
+
+        try
+        {
+            await _database.UpdateAudioFeaturesAsync(features).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "BeatGridEdit: failed to mark grid correct for {Hash}", hash);
+            return GridEditResult.Failed($"Couldn't mark the grid correct: {ex.Message}");
+        }
+
+        try
+        {
+            _eventBus?.Publish(new TrackAnalysisUpdatedEvent(hash, DateTime.UtcNow));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "BeatGridEdit: publishing the update event failed for {Hash}", hash);
+        }
+
+        return GridEditResult.Ok();
+    }
+
     private async Task<GridEditResult> WriteGridAsync(
         string hash, AudioFeaturesEntity features, double bpm, double[] beats, double downbeat, CancellationToken ct)
     {
         features.Bpm = (float)Math.Round(bpm, 2);
         features.BeatGridJson = JsonSerializer.Serialize(beats);
         features.DownbeatOffsetSeconds = Math.Round(downbeat, 4);
+        // A grid the user has touched is user-owned and verified, so re-analysis and Rekordbox
+        // adoption can never silently overwrite it (see GridWriteRules).
+        features.GridSource = GridWriteRules.SourceUser;
+        features.GridVerified = true;
+        features.GridEditedAt = DateTime.UtcNow.ToString("O");
+        features.GridConfidence = 1.0f;
 
         try
         {

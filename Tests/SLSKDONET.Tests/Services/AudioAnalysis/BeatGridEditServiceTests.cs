@@ -255,6 +255,67 @@ public class BeatGridEditServiceTests
         }
     }
 
+    [Fact]
+    public async Task Edit_MarksGridUserOwnedAndVerified()
+    {
+        var hash = Guid.NewGuid().ToString("N");
+        var service = CreateService();
+        await SeedTrackAsync(hash);
+
+        try
+        {
+            var result = await service.SetBpmAsync(hash, 174.0, CancellationToken.None);
+            Assert.True(result.Success, result.Reason);
+
+            await using var db = new AppDbContext();
+            var features = await db.AudioFeatures.FirstAsync(f => f.TrackUniqueHash == hash);
+            Assert.Equal("User", features.GridSource);
+            Assert.True(features.GridVerified);
+            Assert.NotNull(features.GridEditedAt);
+            Assert.Equal(1.0f, features.GridConfidence!.Value, 3);
+        }
+        finally
+        {
+            await CleanupAsync(hash);
+        }
+    }
+
+    [Fact]
+    public async Task MarkGridCorrect_SetsVerifiedWithoutChangingTheGrid()
+    {
+        var hash = Guid.NewGuid().ToString("N");
+        var service = CreateService();
+        await SeedTrackAsync(hash);
+
+        try
+        {
+            await using (var before = new AppDbContext())
+            {
+                var f = await before.AudioFeatures.FirstAsync(x => x.TrackUniqueHash == hash);
+                f.GridSource = "Analysis";
+                f.GridVerified = false;
+                f.GridConfidence = 0.6f;
+                await before.SaveChangesAsync();
+            }
+
+            var result = await service.MarkGridCorrectAsync(hash, CancellationToken.None);
+            Assert.True(result.Success, result.Reason);
+
+            await using var db = new AppDbContext();
+            var features = await db.AudioFeatures.FirstAsync(f => f.TrackUniqueHash == hash);
+            Assert.True(features.GridVerified);
+            Assert.Equal("Analysis", features.GridSource); // verified, not edited — source unchanged
+            Assert.Equal(0.6f, features.GridConfidence!.Value, 3);
+            Assert.Equal(Bpm, features.Bpm, 2); // grid untouched
+            Assert.Equal(Downbeat, features.DownbeatOffsetSeconds, 4);
+            Assert.NotNull(features.GridEditedAt);
+        }
+        finally
+        {
+            await CleanupAsync(hash);
+        }
+    }
+
     private static void AssertBeatsMatchBpm(double[] beats, double bpm)
     {
         double median = BeatGridEditService.MedianInterval(beats);

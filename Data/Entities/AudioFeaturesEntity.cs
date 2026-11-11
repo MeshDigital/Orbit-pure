@@ -530,6 +530,36 @@ public class AudioFeaturesEntity
     public double DownbeatOffsetSeconds { get; set; }
 
     // ============================================
+    // Beat-grid provenance & confidence (issue #221)
+    // ============================================
+
+    /// <summary>
+    /// Where the current grid came from: <c>"Analysis"</c> (ORBIT's fitter), <c>"Rekordbox"</c>
+    /// (adopted from a PQTZ grid) or <c>"User"</c> (edited in Cue Forge). Null on older rows means
+    /// "Analysis" — the migration backfills it from available evidence.
+    /// </summary>
+    public string? GridSource { get; set; }
+
+    /// <summary>
+    /// True when the user has confirmed the grid (with or without changing it). A verified grid is
+    /// protected from re-analysis and Rekordbox overwrite exactly like a <c>User</c> grid.
+    /// </summary>
+    public bool GridVerified { get; set; }
+
+    /// <summary>ISO-8601 timestamp of the last user grid edit (or verification), if any.</summary>
+    public string? GridEditedAt { get; set; }
+
+    /// <summary>0–1 confidence in the current grid (fit inlier fraction + residual RMS). Rekordbox and
+    /// user grids get a fixed 1.0. Null means "not computed yet".</summary>
+    public float? GridConfidence { get; set; }
+
+    /// <summary>
+    /// The most recent analysis suggestion that was <b>not</b> applied because the user owns the grid,
+    /// serialised as <c>{"bpm":..,"downbeat":..,"beats":[..],"source":"Analysis"|"Rekordbox"}</c>.
+    /// </summary>
+    public string? AnalysedGridJson { get; set; }
+
+    // ============================================
     // Task 1.6 — Waveform Data Extraction
     // ============================================
 

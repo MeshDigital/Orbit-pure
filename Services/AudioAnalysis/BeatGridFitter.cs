@@ -151,10 +151,9 @@ public static class BeatGridFitter
             anchorIndex = (int)Math.Clamp(Math.Round((oldAnchor - fit.PhaseSeconds) / fit.PeriodSeconds), 0, count - 1);
         }
 
-        features.Bpm = (float)Math.Round(fit.Bpm, 2);
-        features.BeatGridJson = JsonSerializer.Serialize(grid);
-        features.DownbeatOffsetSeconds = grid[anchorIndex];
-        return true;
+        double downbeat = grid[anchorIndex];
+        float confidence = GridWriteRules.ComputeConfidence(fit, ticks.Count);
+        return GridWriteRules.TryApplyAnalysisGrid(features, fit.Bpm, grid, downbeat, confidence);
     }
 
     /// <summary>
@@ -165,8 +164,8 @@ public static class BeatGridFitter
     /// Guard against a wrong match (lookup can fall back to filename only, and two copies of a
     /// track can differ in lead-in): at least half of ORBIT's own beat-tracker ticks must land within
     /// 70 ms of a Rekordbox beat. Half-time ticks still pass (they coincide with every other beat).
-    /// Returns false, leaving the entity untouched, when the grid is missing, too short, or doesn't
-    /// line up.
+    /// Returns false, leaving the entity untouched, when the grid is missing, too short, doesn't
+    /// line up, or the current grid is user-owned (kept as a suggestion instead).
     /// </summary>
     public static bool ApplyRekordboxGrid(AudioFeaturesEntity features, IReadOnlyList<RekordboxBeat> beats, IReadOnlyList<double> orbitTicks)
     {
@@ -193,10 +192,9 @@ public static class BeatGridFitter
         if (bpms.Count == 0) return false;
         int firstDownbeat = beats.ToList().FindIndex(b => b.BeatInBar == 1);
 
-        features.Bpm = (float)Math.Round(bpms[bpms.Count / 2], 2);
-        features.BeatGridJson = JsonSerializer.Serialize(times);
-        features.DownbeatOffsetSeconds = times[Math.Max(0, firstDownbeat)];
-        return true;
+        double bpm = bpms[bpms.Count / 2];
+        double downbeat = times[Math.Max(0, firstDownbeat)];
+        return GridWriteRules.TryApplyRekordboxGrid(features, bpm, times, downbeat);
     }
 
     /// <summary>Sub-bass structure events used to decide the downbeat (see <see cref="EstimateBarPhase"/>).</summary>
