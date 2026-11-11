@@ -1505,6 +1505,9 @@ public class LibraryService : ILibraryService
             BpmStability = entity.AudioFeatures?.BpmStability,
             TimeTillDropSeconds = entity.AudioFeatures?.TimeTillDropSeconds,
 
+            GridConfidence = entity.AudioFeatures?.GridConfidence,
+            GridVerified = entity.AudioFeatures?.GridVerified ?? false,
+
             SourcePlaylistId   = entity.SourcePlaylistId,
             SourcePlaylistName = entity.SourcePlaylistName,
         };

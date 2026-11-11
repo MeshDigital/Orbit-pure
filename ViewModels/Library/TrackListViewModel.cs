@@ -399,10 +399,23 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
                     _isFilterAll = true;
                     this.RaisePropertyChanged(nameof(IsFilterAll));
                 }
-                
+
                 RefreshFilteredTracks();
             }
             finally { _updatingFilters = false; }
+        }
+    }
+
+    private bool _isGridReviewFilter;
+    /// <summary>Shows only tracks whose beat grid is unverified and low-confidence (#221).</summary>
+    public bool IsGridReviewFilter
+    {
+        get => _isGridReviewFilter;
+        set
+        {
+            if (_isGridReviewFilter == value) return;
+            this.RaiseAndSetIfChanged(ref _isGridReviewFilter, value);
+            RefreshFilteredTracks();
         }
     }
 
@@ -1553,6 +1566,9 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
         if (!IsFilterAll)
         {
             if (IsFilterNeedsReview && !track.IsReviewNeeded)
+                return false;
+
+            if (IsGridReviewFilter && !track.IsGridReviewNeeded)
                 return false;
 
             if (IsFilterDownloaded && track.State != PlaylistTrackState.Completed)

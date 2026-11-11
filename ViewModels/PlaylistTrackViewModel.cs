@@ -1989,6 +1989,12 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
         }
     }
 
+    /// <summary>True when the beat grid is unverified and low-confidence — the "Grid: needs review" state (#221).</summary>
+    public bool IsGridReviewNeeded =>
+        !Model.GridVerified && Model.GridConfidence is { } c && c < GridReviewConfidenceThreshold;
+
+    public const float GridReviewConfidenceThreshold = 0.6f;
+
     public string MetadataStatus
     {
         get
