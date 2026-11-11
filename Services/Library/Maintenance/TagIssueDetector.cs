@@ -58,6 +58,12 @@ public sealed record ProposedTagChange(
 /// </summary>
 public static class TagIssueDetector
 {
+    /// <summary>Video/upload junk the filename normaliser keeps: "(Official Video)", "(Official Audio)",
+    /// "(Lyrics)", "[HD]", "(Visualizer)" … Remix/version text is never matched.</summary>
+    private static readonly System.Text.RegularExpressions.Regex VideoJunk = new(
+        @"\s*[\(\[](?:official\s+(?:music\s+)?(?:video|audio|visuali[sz]er|lyric\s+video)|lyrics?(?:\s+video)?|visuali[sz]er|hd|hq|4k)[\)\]]",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
     private static readonly Regex SpacedDash = new(@"\s[-–—]\s", RegexOptions.Compiled);
     private static readonly Regex LeadingTrackNumberRegex = new(@"^\d{1,3}\s*[-._)]\s+", RegexOptions.Compiled);
     private static readonly Regex FeatInTitleRegex = new(@"\b(feat\.?|ft\.?|featuring)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -118,7 +124,7 @@ public static class TagIssueDetector
         }
 
         // ── 3. Junk suffixes / uploader tags (title only) ─────────────────────
-        var junkStripped = FilenameNormalizer.Normalize(title);
+        var junkStripped = VideoJunk.Replace(FilenameNormalizer.Normalize(title) ?? title, "").Trim();
         if (!string.IsNullOrWhiteSpace(junkStripped) && !string.Equals(junkStripped, title, StringComparison.Ordinal))
         {
             title = junkStripped;

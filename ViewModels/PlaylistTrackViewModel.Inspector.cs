@@ -141,7 +141,7 @@ public partial class PlaylistTrackViewModel
     {
         try
         {
-            var features = await _libraryService!.GetAudioFeaturesByHashAsync(GlobalId).ConfigureAwait(false);
+            var features = await _libraryService!.GetAudioFeaturesByHashAsync(GlobalId);
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
                 _topStyleKey = features?.TopStyle;

@@ -148,8 +148,8 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
         StatusText = "Scanning…";
         try
         {
-            await BeginRunAsync(_cts.Token).ConfigureAwait(false);
-            await ScanAsync(_cts.Token).ConfigureAwait(false);
+            await BeginRunAsync(_cts.Token);
+            await ScanAsync(_cts.Token);
             CurrentStep = MaintenanceStep.Review;
             StatusText = null;
         }
@@ -175,7 +175,7 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
         CurrentStep = MaintenanceStep.Apply;
         try
         {
-            await ApplyAsync(tagFixes, genreFills, playlists, _cts.Token).ConfigureAwait(false);
+            await ApplyAsync(tagFixes, genreFills, playlists, _cts.Token);
             CurrentStep = MaintenanceStep.Summary;
         }
         catch (OperationCanceledException)
@@ -196,7 +196,7 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
         if (_runId is null) return;
         try
         {
-            await RevertAsync(_cts.Token).ConfigureAwait(false);
+            await RevertAsync(_cts.Token);
         }
         catch (Exception ex)
         {
@@ -215,7 +215,7 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
 
     public async Task BeginRunAsync(CancellationToken ct = default)
     {
-        _runId = await _tagChanges.BeginRunAsync(new MaintenanceRunOptions(), ct).ConfigureAwait(false);
+        _runId = await _tagChanges.BeginRunAsync(new MaintenanceRunOptions(), ct);
     }
 
     /// <summary>Dry run: builds the identity index, detects tag issues, plans genre fill and style playlists. Reads only.</summary>
@@ -224,15 +224,15 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
         IsScanning = true;
         try
         {
-            _index = await _indexLoader.LoadAsync(ct).ConfigureAwait(false);
+            _index = await _indexLoader.LoadAsync(ct);
 
-            await using var db = await _dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
             if (FixTags)
             {
                 var rows = await db.LibraryEntries.AsNoTracking()
                     .Select(e => new { e.UniqueHash, e.Artist, e.Title, e.Album, e.Label, e.FilePath })
-                    .ToListAsync(ct).ConfigureAwait(false);
+                    .ToListAsync(ct);
 
                 var options = new TagIssueOptions();
                 TagRows.Clear();
@@ -255,12 +255,12 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
                 .Where(e => !string.IsNullOrWhiteSpace(e.PrimaryGenre) ||
                             (e.Genres != null && e.Genres != string.Empty && e.Genres != "[]"))
                 .Select(e => e.UniqueHash)
-                .ToHashSetAsync(ct).ConfigureAwait(false);
+                .ToHashSetAsync(ct);
 
             var styles = await db.AudioFeatures.AsNoTracking()
                 .Where(f => f.TopStyle != null)
                 .Select(f => new { f.TrackUniqueHash, f.TopStyle, f.TopStyleConfidence })
-                .ToListAsync(ct).ConfigureAwait(false);
+                .ToListAsync(ct);
 
             var candidates = styles
                 .Select(s => new StyleCandidate(s.TrackUniqueHash, s.TopStyle, s.TopStyleConfidence ?? 0f, genred.Contains(s.TrackUniqueHash)))
@@ -277,7 +277,7 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
             StylePlan = StylePlaylists ? plan.Playlists : Array.Empty<PlannedStylePlaylist>();
             MissingStyles = plan.MissingStyles;
 
-            EnrichmentCount = await _styleBackfill.CountTracksMissingStylesAsync(ct).ConfigureAwait(false);
+            EnrichmentCount = await _styleBackfill.CountTracksMissingStylesAsync(ct);
         }
         finally
         {
@@ -302,18 +302,18 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
         try
         {
             StatusText = "Applying tag fixes…";
-            var tagReport = await _tagChanges.ApplyAsync(_runId.Value, tagFixes, null, ct).ConfigureAwait(false);
+            var tagReport = await _tagChanges.ApplyAsync(_runId.Value, tagFixes, null, ct);
 
             StatusText = "Applying genre fill…";
-            var genreReport = await _tagChanges.ApplyAsync(_runId.Value, genreFills, null, ct).ConfigureAwait(false);
+            var genreReport = await _tagChanges.ApplyAsync(_runId.Value, genreFills, null, ct);
 
             StatusText = "Creating style playlists…";
-            var playlistReport = await _playlistApplier.ApplyAsync(_runId.Value, playlists, ct).ConfigureAwait(false);
+            var playlistReport = await _playlistApplier.ApplyAsync(_runId.Value, playlists, ct);
 
             StatusText = "Queuing style backfill…";
             var backfillReason = StyleBackfill
                 ? await _styleBackfill.QueueStyleBackfillAsync(
-                    tagFixes.Concat(genreFills).Select(p => p.Hash).Distinct(StringComparer.Ordinal), ct).ConfigureAwait(false)
+                    tagFixes.Concat(genreFills).Select(p => p.Hash).Distinct(StringComparer.Ordinal), ct)
                 : null;
 
             var summary = new MaintenanceRunSummary(
@@ -322,7 +322,7 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
                 DbOnly: tagReport.DbOnly + genreReport.DbOnly,
                 Failed: tagReport.Failed + genreReport.Failed + playlistReport.Failed);
 
-            await _tagChanges.CompleteRunAsync(_runId.Value, summary, ct).ConfigureAwait(false);
+            await _tagChanges.CompleteRunAsync(_runId.Value, summary, ct);
 
             SummaryText = summary.Failed == 0
                 ? $"Applied {summary.Applied} changes ({summary.FileWritten} files, {summary.DbOnly} DB only). {playlistReport.Created} playlists created, {playlistReport.Appended} extended."
@@ -341,8 +341,8 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
     public async Task RevertAsync(CancellationToken ct = default)
     {
         if (_runId is null) return;
-        var tagRevert = await _tagChanges.RevertRunAsync(_runId.Value, ct).ConfigureAwait(false);
-        var playlistRevert = await _playlistApplier.RevertAsync(_runId.Value, ct).ConfigureAwait(false);
+        var tagRevert = await _tagChanges.RevertRunAsync(_runId.Value, ct);
+        var playlistRevert = await _playlistApplier.RevertAsync(_runId.Value, ct);
         SummaryText = $"Reverted {tagRevert.Reverted} tag changes (skipped {tagRevert.Skipped}), " +
                       $"deleted {playlistRevert.Deleted} playlists, removed {playlistRevert.TracksRemoved} tracks.";
     }
