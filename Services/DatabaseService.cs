@@ -2381,8 +2381,41 @@ public class DatabaseService
     }
 
     /// <summary>
+    /// After a <b>tempo</b> edit (×2/÷2, typed BPM, reset): keeps every phrase where it is in the music
+    /// and re-numbers its bars on the new grid (issue #225). Keeping the bar numbers instead would move
+    /// every boundary by 1/factor in time. Phrases that are not bar-indexed (pre-migration) are left alone.
+    /// </summary>
+    public async Task ReindexPhraseBarsFromSecondsAsync(string trackHash, double bpm, double downbeat, CancellationToken ct = default)
+    {
+        if (bpm <= 0) return;
+        await _writeSemaphore.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            var phrases = await context.TrackPhrases
+                .Where(p => p.TrackUniqueHash == trackHash)
+                .ToListAsync(ct).ConfigureAwait(false);
+            foreach (var p in phrases)
+            {
+                if (p.BarCount > 0 || p.StartBar > 0)
+                {
+                    int startBar = AudioAnalysis.PhraseBarIndexing.SecondsToBar(p.StartTimeSeconds, bpm, downbeat);
+                    int endBar = AudioAnalysis.PhraseBarIndexing.SecondsToBar(p.EndTimeSeconds, bpm, downbeat);
+                    p.StartBar = startBar;
+                    p.BarCount = Math.Max(1, endBar - startBar);
+                }
+            }
+            await context.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>
     /// Recomputes the seconds columns of a track's bar-indexed phrases from the (new) grid after a
-    /// grid edit, so phrase boundaries follow the bars (issue #225). Phrases that are not bar-indexed
+    /// <b>phase</b> edit (slip, Bar 1), so phrase boundaries follow the bars (issue #225). Phrases that are not bar-indexed
     /// (<c>BarCount == 0</c>, pre-migration) are left untouched.
     /// </summary>
     public async Task ReindexPhraseSecondsFromBarsAsync(string trackHash, double bpm, double downbeat, CancellationToken ct = default)

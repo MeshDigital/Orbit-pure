@@ -80,7 +80,7 @@ public sealed class BeatGridEditService : IBeatGridEditService
 
         double downbeat = features.DownbeatOffsetSeconds;
         double[] beats = ConstantGrid(downbeat, bpm, features.TrackDuration);
-        return await WriteGridAsync(hash, features, bpm, beats, downbeat, ct).ConfigureAwait(false);
+        return await WriteGridAsync(hash, features, bpm, beats, downbeat, ct, PhraseFollow.KeepSeconds).ConfigureAwait(false);
     }
 
     public async Task<GridEditResult> ScaleTempoAsync(string hash, double factor, CancellationToken ct)
@@ -107,7 +107,7 @@ public sealed class BeatGridEditService : IBeatGridEditService
             ? InsertMidpoints(oldBeats, period)
             : KeepEveryOtherBeat(oldBeats, downbeat);
 
-        return await WriteGridAsync(hash, features, newBpm, newBeats, downbeat, ct).ConfigureAwait(false);
+        return await WriteGridAsync(hash, features, newBpm, newBeats, downbeat, ct, PhraseFollow.KeepSeconds).ConfigureAwait(false);
     }
 
     public async Task<GridEditResult> SlipAsync(string hash, double deltaSeconds, CancellationToken ct)
@@ -157,7 +157,8 @@ public sealed class BeatGridEditService : IBeatGridEditService
             return GridEditResult.Failed("This track has no analysis to store a beat grid in. Analyse it first.");
 
         double[] beats = ConstantGrid(analysedDownbeat, analysedBpm, features.TrackDuration);
-        return await WriteGridAsync(hash, features, analysedBpm, beats, analysedDownbeat, ct).ConfigureAwait(false);
+        // Reset can change the tempo as well as the phase: keep phrases where they are in the music.
+        return await WriteGridAsync(hash, features, analysedBpm, beats, analysedDownbeat, ct, PhraseFollow.KeepSeconds).ConfigureAwait(false);
     }
 
     public async Task<GridEditResult> MarkGridCorrectAsync(string hash, CancellationToken ct)
@@ -209,7 +210,7 @@ public sealed class BeatGridEditService : IBeatGridEditService
         if (suggestion.Bpm < MinBpm || suggestion.Bpm > MaxBpm)
             return GridEditResult.Failed($"The suggested BPM {suggestion.Bpm:0.#} is outside the supported range.");
 
-        return await WriteGridAsync(hash, features, suggestion.Bpm, suggestion.Beats, suggestion.Downbeat, ct).ConfigureAwait(false);
+        return await WriteGridAsync(hash, features, suggestion.Bpm, suggestion.Beats, suggestion.Downbeat, ct, PhraseFollow.KeepSeconds).ConfigureAwait(false);
     }
 
     public async Task<GridEditResult> DismissSuggestionAsync(string hash, CancellationToken ct)
@@ -235,8 +236,18 @@ public sealed class BeatGridEditService : IBeatGridEditService
         return GridEditResult.Ok();
     }
 
+    /// <summary>
+    /// How bar-indexed phrases (issue #225) follow a grid edit. A <b>phase</b> edit (slip, Bar 1) keeps
+    /// each phrase on its bar, so the boundaries move with the bar lines. A <b>tempo</b> edit (×2/÷2,
+    /// typed BPM, reset, suggestion) keeps each phrase where it is in the music and re-numbers its bars:
+    /// keeping the bar number made every boundary land 1/factor as far into the track (2026-11-11:
+    /// correcting a half-time 87.5 → 175 analysis moved "intro ends 1:27" to 0:44).
+    /// </summary>
+    internal enum PhraseFollow { KeepBars, KeepSeconds }
+
     private async Task<GridEditResult> WriteGridAsync(
-        string hash, AudioFeaturesEntity features, double bpm, double[] beats, double downbeat, CancellationToken ct)
+        string hash, AudioFeaturesEntity features, double bpm, double[] beats, double downbeat, CancellationToken ct,
+        PhraseFollow phraseFollow = PhraseFollow.KeepBars)
     {
         features.Bpm = (float)Math.Round(bpm, 2);
         features.BeatGridJson = JsonSerializer.Serialize(beats);
@@ -264,10 +275,14 @@ public sealed class BeatGridEditService : IBeatGridEditService
             return GridEditResult.Failed($"Couldn't save the beat grid change: {ex.Message}");
         }
 
-        // Bar-indexed phrases move with the grid (issue #225): re-derive their seconds columns.
+        // Bar-indexed phrases follow the grid (issue #225) — see PhraseFollow for which way.
+        string? phraseWarning = null;
         try
         {
-            await _database.ReindexPhraseSecondsFromBarsAsync(hash, bpm, downbeat, ct).ConfigureAwait(false);
+            if (phraseFollow == PhraseFollow.KeepSeconds)
+                await _database.ReindexPhraseBarsFromSecondsAsync(hash, bpm, downbeat, ct).ConfigureAwait(false);
+            else
+                await _database.ReindexPhraseSecondsFromBarsAsync(hash, bpm, downbeat, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -275,7 +290,9 @@ public sealed class BeatGridEditService : IBeatGridEditService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "BeatGridEdit: could not re-index phrases for {Hash}", hash);
+            // The grid itself was saved; tell the user the phrase map didn't follow it.
+            _logger.LogError(ex, "BeatGridEdit: could not re-index phrases for {Hash}", hash);
+            phraseWarning = "The beat grid was saved, but the phrase map couldn't be updated to match. Re-analyse the track to rebuild it.";
         }
 
         try
@@ -286,6 +303,19 @@ public sealed class BeatGridEditService : IBeatGridEditService
         catch (Exception ex)
         {
             _logger.LogError(ex, "BeatGridEdit: publishing the update event failed for {Hash}", hash);
+        }
+
+        if (phraseWarning is not null)
+        {
+            try
+            {
+                _eventBus?.Publish(new ToastRequestedEvent("Phrase map not updated", phraseWarning,
+                    SLSKDONET.Views.NotificationType.Warning, TimeSpan.FromSeconds(10)));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "BeatGridEdit: publishing the phrase warning failed for {Hash}", hash);
+            }
         }
 
         return GridEditResult.Ok();
