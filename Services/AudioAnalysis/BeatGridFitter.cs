@@ -201,6 +201,22 @@ public static class BeatGridFitter
     public sealed record TempoSection(int StartBeatIndex, double StartSeconds, double Bpm);
 
     /// <summary>
+    /// The BPM of the tempo section containing <paramref name="timeSeconds"/> (issue #226). For a
+    /// steady track this is the fallback BPM. Consumers use this at a mix-in / mix-out point.
+    /// </summary>
+    public static double LocalBpmAt(IReadOnlyList<double> ticks, double timeSeconds, double fallbackBpm)
+    {
+        var sections = FitSections(ticks);
+        if (sections.Count <= 1) return fallbackBpm;
+        for (int i = 0; i < sections.Count; i++)
+        {
+            double end = i + 1 < sections.Count ? sections[i + 1].StartSeconds : double.MaxValue;
+            if (timeSeconds < end) return sections[i].Bpm;
+        }
+        return sections[^1].Bpm;
+    }
+
+    /// <summary>
     /// Fits a variable-tempo beat list as piecewise-constant sections. Change-point detection on the
     /// (rolling-median-smoothed) beat intervals finds where the tempo genuinely shifts (minimum
     /// <paramref name="minSectionBeats"/> beats, runs within <paramref name="changeThresholdRatio"/> merged),

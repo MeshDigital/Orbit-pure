@@ -32,6 +32,14 @@ public sealed record TrackStructure
     public double? MixInMarker { get; init; }
     /// <summary>Explicit track-level Mix-Out cue shared with Flow Builder and DJ preparation.</summary>
     public double? MixOutMarker { get; init; }
+    /// <summary>Beat ticks (the grid), for local-BPM lookups on variable-tempo tracks (#226).</summary>
+    public IReadOnlyList<double>? BeatGrid { get; init; }
+
+    /// <summary>The BPM of the tempo section containing <paramref name="seconds"/> (issue #226).</summary>
+    public double LocalBpmAt(double seconds) =>
+        BeatGrid is { Count: > 0 } beats
+            ? SLSKDONET.Services.AudioAnalysis.BeatGridFitter.LocalBpmAt(beats, seconds, Bpm)
+            : Bpm;
 }
 
 /// <summary>Mixxx-style regions, derived from a <see cref="TrackStructure"/>.</summary>

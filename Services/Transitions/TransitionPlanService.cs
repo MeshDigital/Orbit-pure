@@ -69,6 +69,7 @@ public sealed class TransitionPlanService
             OutroStartMarker = ordered.LastOrDefault(c => c.Type == CuePointType.OutroStart)?.TimestampInSeconds,
             MixInMarker = ordered.FirstOrDefault(c => c.Type == CuePointType.MixIn)?.TimestampInSeconds,
             MixOutMarker = ordered.LastOrDefault(c => c.Type == CuePointType.MixOut)?.TimestampInSeconds,
+            BeatGrid = SLSKDONET.Services.AudioAnalysis.BeatGridFitter.ParseTicks(f.BeatGridJson),
         };
     }
 

@@ -77,4 +77,19 @@ public class BeatGridSectionFitTests
         Assert.Empty(BeatGridFitter.FitSections(new double[0]));
         Assert.Empty(BeatGridFitter.FitSections(new[] { 0.0 }));
     }
+
+    [Fact]
+    public void LocalBpmAt_ReturnsTheSectionBpm()
+    {
+        var ticks = VariableGrid(108.0, 200, 128.0, 200);
+        Assert.Equal(108.0, BeatGridFitter.LocalBpmAt(ticks, 10.0, 108.0), 2);
+        Assert.Equal(128.0, BeatGridFitter.LocalBpmAt(ticks, ticks[250], 108.0), 2);
+    }
+
+    [Fact]
+    public void LocalBpmAt_SteadyTrack_ReturnsFallback()
+    {
+        var ticks = SteadyGrid(174.0, 500);
+        Assert.Equal(174.0, BeatGridFitter.LocalBpmAt(ticks, 100.0, 174.0), 2);
+    }
 }
