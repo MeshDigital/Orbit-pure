@@ -20,9 +20,11 @@ namespace SLSKDONET
             var startupArgs = SLSKDONET.Configuration.StartupArguments.Parse(args);
             startupArgs.Apply();
 
-            // Build configuration for Serilog
+            // Build configuration for Serilog. Resolve relative to the exe (AppContext.BaseDirectory)
+            // rather than the current working directory, so launching ORBIT from any folder finds
+            // appsettings.json next to the binary instead of crashing with FileNotFoundException.
             var configuration = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetCurrentDirectory())
+                .SetBasePath(AppContext.BaseDirectory)
                 .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
                 .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "Production"}.json", optional: true)
                 .Build();
