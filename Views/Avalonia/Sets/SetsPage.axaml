@@ -1,0 +1,127 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="SLSKDONET.Views.Avalonia.Sets.SetsPage">
+    <DockPanel>
+        <!-- Header -->
+        <Border DockPanel.Dock="Top" Classes="toolbar" Padding="16,8">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <TextBlock Grid.Column="0" Classes="h2" Text="Sets" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Classes="ghost small" Content="Delete" Command="{Binding DeleteSetCommand}"
+                        IsVisible="{Binding HasSelection}" Margin="0,0,8,0" />
+                <Button Grid.Column="2" Classes="primary small" Content="New Set" Command="{Binding NewSetCommand}" />
+            </Grid>
+        </Border>
+
+        <!-- Inline error -->
+        <Border DockPanel.Dock="Top" Classes="fact warning" Padding="16,4" IsVisible="{Binding HasError}">
+            <TextBlock Text="{Binding ErrorMessage}" />
+        </Border>
+
+        <Grid ColumnDefinitions="240,*,Auto">
+            <!-- Set list rail -->
+            <Border Grid.Column="0" Background="{DynamicResource BrushBg1}"
+                    BorderBrush="{DynamicResource BrushBorder0}" BorderThickness="0,0,1,0">
+                <ListBox ItemsSource="{Binding Sets}" SelectedItem="{Binding SelectedSet, Mode=TwoWay}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Spacing="2" Margin="0,4">
+                                <TextBlock Text="{Binding Name}" />
+                                <TextBlock Classes="caption" Text="{Binding Status}" />
+                                <TextBlock Classes="caption mono" Text="{Binding TrackCount}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+
+            <!-- Center: set lane + track pool -->
+            <DockPanel Grid.Column="1">
+                <!-- Track pool (bottom drawer) -->
+                <Border DockPanel.Dock="Bottom" Classes="toolbar" Padding="16,8">
+                    <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Classes="section" Text="ADD TRACK" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBox Grid.Row="0" Grid.Column="1" Watermark="Search title or artist" Text="{Binding SearchQuery, Mode=TwoWay}" />
+                        <Button Grid.Row="0" Grid.Column="2" Classes="ghost small" Content="Search" Command="{Binding SearchCommand}" Margin="8,0,0,0"/>
+                        <ListBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" MaxHeight="140"
+                                 ItemsSource="{Binding SearchResults}" SelectedItem="{Binding SelectedSearchResult, Mode=TwoWay}"
+                                 IsVisible="{Binding HasSelection}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="{Binding Title}" />
+                                        <TextBlock Classes="caption" Text="{Binding Artist}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <Button Grid.Row="1" Grid.Column="2" Classes="primary small" Content="Add" Command="{Binding AddTrackCommand}"
+                                IsVisible="{Binding SelectedSearchResult}" />
+                    </Grid>
+                </Border>
+
+                <!-- Lane + empty states -->
+                <Grid>
+                    <StackPanel Classes="empty-state" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8" MaxWidth="360"
+                                IsVisible="{Binding !HasSets}">
+                        <TextBlock Classes="h3" Text="No sets yet" HorizontalAlignment="Center" />
+                        <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center"
+                                   Text="Create a set to start planning your night, or add tracks from the Library via right-click → Add to Set." />
+                    </StackPanel>
+
+                    <StackPanel Classes="empty-state" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8" MaxWidth="360"
+                                IsVisible="{Binding HasSelection}">
+                        <TextBlock Classes="h3" Text="No tracks in this set" HorizontalAlignment="Center"
+                                   IsVisible="{Binding !HasSlots}" />
+                        <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center"
+                                   Text="Search below and Add tracks to build the set."
+                                   IsVisible="{Binding !HasSlots}" />
+                    </StackPanel>
+
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                  VerticalAlignment="Center" IsVisible="{Binding HasSlots}">
+                        <ListBox ItemsSource="{Binding Slots}" SelectedItem="{Binding SelectedSlot, Mode=TwoWay}"
+                                 Background="Transparent">
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="8" />
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{DynamicResource BrushBg2}"
+                                            BorderBrush="{DynamicResource BrushBorder0}" BorderThickness="1"
+                                            CornerRadius="{DynamicResource RadiusMd}" Padding="12" MinWidth="168">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Classes="section" Text="{Binding Role}" />
+                                            <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Classes="caption mono" Text="{Binding EnergyTarget}" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </ScrollViewer>
+                </Grid>
+            </DockPanel>
+
+            <!-- Slot inspector -->
+            <Border Grid.Column="2" Width="240" Background="{DynamicResource BrushBg1}"
+                    BorderBrush="{DynamicResource BrushBorder0}" BorderThickness="1,0,0,0"
+                    IsVisible="{Binding HasSelectedSlot}">
+                <StackPanel Spacing="8" Margin="12">
+                    <TextBlock Classes="section" Text="SLOT" />
+                    <TextBlock Classes="body" Text="{Binding SelectedSlot.Title}" TextTrimming="CharacterEllipsis" />
+                    <Border Classes="divider" />
+                    <TextBlock Classes="caption" Text="Role" />
+                    <ComboBox ItemsSource="{Binding RoleOptions}" SelectedItem="{Binding SelectedSlot.Role, Mode=TwoWay}" />
+                    <TextBlock Classes="caption" Text="Energy" />
+                    <Slider Minimum="0" Maximum="100"
+                            Value="{Binding SelectedSlot.EnergyTarget, Mode=TwoWay, TargetNullValue=0}" />
+                    <TextBlock Classes="caption" Text="Notes" />
+                    <TextBox Text="{Binding SelectedSlot.Notes, Mode=TwoWay}" AcceptsReturn="True" Height="80" />
+                    <Button Classes="ghost small" Content="Remove from set" Command="{Binding RemoveSlotCommand}" />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </DockPanel>
+</UserControl>

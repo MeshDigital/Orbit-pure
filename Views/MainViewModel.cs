@@ -508,6 +508,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.RegisterPage("CueForge", typeof(Avalonia.CueForgePage));
         _navigationService.RegisterPage("Users", typeof(Avalonia.UsersPage));
         _navigationService.RegisterPage("FlowBuilder", typeof(Avalonia.FlowBuilderPage));
+        _navigationService.RegisterPage("Sets", typeof(Avalonia.Sets.SetsPage));
 
         // Subscribe to navigation events
         _navigationService.Navigated += OnNavigated;
@@ -996,8 +997,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsPlayerOverlayActive => CurrentPageType == PageType.NowPlaying;
     public bool IsSettingsOverlayActive => CurrentPageType == PageType.Settings;
     public bool IsWorkstationOverlayActive => IsCreativeOverlayPage(CurrentPageType);
-    /// <summary>Nav highlight for the "Set Projects" entry (Workstation page + Story Graph tool).</summary>
-    public bool IsSetProjectsNavActive => IsWorkstationOverlayActive && _workstation?.IsStoryGraphActive == true;
+    /// <summary>Nav highlight for the "Sets" entry (its own page).</summary>
+    public bool IsSetProjectsNavActive => CurrentPageType == PageType.Sets;
     /// <summary>Nav highlight for the plain "Workstation" entry (not on a tool surface).</summary>
     public bool IsWorkstationNavActive => IsWorkstationOverlayActive
         && _workstation?.IsStoryGraphActive != true;
@@ -1047,6 +1048,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         if (typeof(Avalonia.EditLabPage).IsAssignableFrom(pageType)) return PageType.EditLab;
         if (typeof(Avalonia.UsersPage).IsAssignableFrom(pageType)) return PageType.Users;
         if (typeof(Avalonia.FlowBuilderPage).IsAssignableFrom(pageType)) return PageType.FlowBuilder;
+        if (typeof(Avalonia.Sets.SetsPage).IsAssignableFrom(pageType)) return PageType.Sets;
         // Was missing: opening Cue Forge kept the previous page highlighted (Dashboard at startup).
         if (typeof(Avalonia.CueForgePage).IsAssignableFrom(pageType)) return PageType.CueForge;
 
@@ -1419,11 +1421,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void NavigateToSetProjects()
     {
-        _navigationService.NavigateTo("Workstation");
-        var sets = _setProjects ?? new SLSKDONET.Services.Sets.SetProjectService(_dbFactory);
-        var pickerVm = new SLSKDONET.ViewModels.StoryGraph.SetProjectPickerViewModel(_dbFactory, sets, _eventBus, _notifications);
-        SLSKDONET.Views.Avalonia.StoryGraph.SetPickerDialog.ShowModal(
-            new SLSKDONET.Views.Avalonia.StoryGraph.SetProjectPickerWindow(pickerVm));
+        _navigationService.NavigateTo("Sets");
     }
 
     private void NavigateToDecks() => NavigateToWorkstation();
