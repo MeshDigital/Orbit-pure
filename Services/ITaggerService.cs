@@ -1,8 +1,28 @@
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using SLSKDONET.Models;
 
 namespace SLSKDONET.Services;
+
+/// <summary>The metadata fields a maintenance patch can set or clear on a file.</summary>
+public enum TagField { Title, Artist, AlbumArtist, Album, Genre, Label, Remixer }
+
+/// <summary>One field change in a patch. <see cref="Value"/> == null means "clear the field".</summary>
+public sealed record TagPatchField(TagField Field, string? Value);
+
+/// <summary>A set of tag changes to apply to a single file in one open.</summary>
+public sealed record TagPatch(IReadOnlyList<TagPatchField> Changes);
+
+/// <summary>
+/// Result of <see cref="ITaggerService.ApplyTagPatchAsync"/>. <see cref="PreviousValues"/> holds the
+/// value of each patched field as it was on disk before the write (null = empty/absent), read inside
+/// the same TagLib open so the revert journal is accurate.
+/// </summary>
+public sealed record TagPatchResult(
+    bool Success,
+    string? Error,
+    IReadOnlyDictionary<TagField, string?> PreviousValues);
 
 /// <summary>
 /// Service for writing metadata tags to audio files.
@@ -18,6 +38,18 @@ public interface ITaggerService
     /// <param name="filePath">Path to the audio file to tag</param>
     /// <returns>True if tagging succeeded, false if file not found or tagging failed</returns>
     Task<bool> TagFileAsync(Track track, string filePath);
+
+    /// <summary>
+    /// Applies a patch of set-or-clear field changes to an audio file atomically (temp copy → TagLib
+    /// write → format verify → safe swap), returning the previous value of each patched field.
+    /// <see cref="TagLib.CorruptFileException"/> is returned as <c>Success = false</c>, not swallowed.
+    /// </summary>
+    Task<TagPatchResult> ApplyTagPatchAsync(string filePath, TagPatch patch, CancellationToken ct = default);
+
+    /// <summary>
+    /// Reads the current value of a single tag field from an audio file (null = empty/absent).
+    /// </summary>
+    Task<string?> ReadFieldValueAsync(string filePath, TagField field, CancellationToken ct = default);
 
     /// <summary>
     /// Reads metadata tags from an audio file.

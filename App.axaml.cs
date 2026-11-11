@@ -961,6 +961,10 @@ public partial class App : Application
         services.AddHttpClient("enrichment", c => c.Timeout = TimeSpan.FromSeconds(20));
         services.AddSingleton<Services.Enrichment.EnrichmentStore>();
         services.AddSingleton<Services.Enrichment.IMetadataLookupCache>(sp => sp.GetRequiredService<Services.Enrichment.EnrichmentStore>());
+
+        // ── Library Maintenance (#211): reversible tag writes + run undo ──
+        services.AddSingleton<Services.Library.Maintenance.TrackMetadataWriter>();
+        services.AddSingleton<Services.Library.Maintenance.TagChangeService>();
         services.AddSingleton(sp => new Services.Enrichment.MetadataCredentialStore(
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.MetadataCredentialStore>>()));
         static System.Net.Http.HttpClient EnrichmentHttp(IServiceProvider sp) =>

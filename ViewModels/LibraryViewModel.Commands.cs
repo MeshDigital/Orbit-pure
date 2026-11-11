@@ -2160,16 +2160,31 @@ public partial class LibraryViewModel
                 // 2. Update Database Entity (PlaylistTrackEntity)
                 try
                 {
+                    // Tag fields (Artist/Title/Album/Genre) route through the shared
+                    // TrackMetadataWriter so the three denormalized tables stay in sync; the
+                    // analysis/manual fields (BPM, key, mood, …) stay inline below.
+                    var tagChanges = new List<Services.Library.Maintenance.TrackMetadataWriter.Change>();
+                    if (!string.IsNullOrWhiteSpace(result.Artist)) tagChanges.Add(new(TagField.Artist, result.Artist));
+                    if (!string.IsNullOrWhiteSpace(result.Title)) tagChanges.Add(new(TagField.Title, result.Title));
+                    if (!string.IsNullOrWhiteSpace(result.Album)) tagChanges.Add(new(TagField.Album, result.Album));
+                    if (!string.IsNullOrWhiteSpace(result.Genre)) tagChanges.Add(new(TagField.Genre, result.Genre));
+                    var useWriter = _metadataWriter != null && !string.IsNullOrEmpty(track.TrackUniqueHash) && tagChanges.Count > 0;
+                    if (useWriter)
+                        await _metadataWriter!.ApplyAsync(context, track.TrackUniqueHash, tagChanges);
+
                     dbTracksById.TryGetValue(track.Id, out var dbTrack);
                     if (dbTrack != null)
                     {
-                        if (!string.IsNullOrWhiteSpace(result.Artist)) dbTrack.Artist = result.Artist;
-                        if (!string.IsNullOrWhiteSpace(result.Title)) dbTrack.Title = result.Title;
-                        if (!string.IsNullOrWhiteSpace(result.Album)) dbTrack.Album = result.Album;
-                        if (!string.IsNullOrWhiteSpace(result.Genre))
+                        if (!useWriter)
                         {
-                            dbTrack.PrimaryGenre = result.Genre;
-                            dbTrack.Genres = System.Text.Json.JsonSerializer.Serialize(new List<string> { result.Genre });
+                            if (!string.IsNullOrWhiteSpace(result.Artist)) dbTrack.Artist = result.Artist;
+                            if (!string.IsNullOrWhiteSpace(result.Title)) dbTrack.Title = result.Title;
+                            if (!string.IsNullOrWhiteSpace(result.Album)) dbTrack.Album = result.Album;
+                            if (!string.IsNullOrWhiteSpace(result.Genre))
+                            {
+                                dbTrack.PrimaryGenre = result.Genre;
+                                dbTrack.Genres = System.Text.Json.JsonSerializer.Serialize(new List<string> { result.Genre });
+                            }
                         }
                         if (releaseDate.HasValue) dbTrack.ReleaseDate = releaseDate;
                         if (bpm.HasValue) dbTrack.BPM = bpm;
@@ -2195,13 +2210,16 @@ public partial class LibraryViewModel
                         dbEntriesByHash.TryGetValue(track.TrackUniqueHash, out var dbLibraryEntry);
                         if (dbLibraryEntry != null)
                         {
-                            if (!string.IsNullOrWhiteSpace(result.Artist)) dbLibraryEntry.Artist = result.Artist;
-                            if (!string.IsNullOrWhiteSpace(result.Title)) dbLibraryEntry.Title = result.Title;
-                            if (!string.IsNullOrWhiteSpace(result.Album)) dbLibraryEntry.Album = result.Album;
-                            if (!string.IsNullOrWhiteSpace(result.Genre))
+                            if (!useWriter)
                             {
-                                dbLibraryEntry.PrimaryGenre = result.Genre;
-                                dbLibraryEntry.Genres = System.Text.Json.JsonSerializer.Serialize(new List<string> { result.Genre });
+                                if (!string.IsNullOrWhiteSpace(result.Artist)) dbLibraryEntry.Artist = result.Artist;
+                                if (!string.IsNullOrWhiteSpace(result.Title)) dbLibraryEntry.Title = result.Title;
+                                if (!string.IsNullOrWhiteSpace(result.Album)) dbLibraryEntry.Album = result.Album;
+                                if (!string.IsNullOrWhiteSpace(result.Genre))
+                                {
+                                    dbLibraryEntry.PrimaryGenre = result.Genre;
+                                    dbLibraryEntry.Genres = System.Text.Json.JsonSerializer.Serialize(new List<string> { result.Genre });
+                                }
                             }
                             if (releaseDate.HasValue) dbLibraryEntry.ReleaseDate = releaseDate;
                             if (bpm.HasValue) dbLibraryEntry.BPM = bpm;
