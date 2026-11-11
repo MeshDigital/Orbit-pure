@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
+using SLSKDONET.Services.Library.Maintenance;
 using SLSKDONET.Views;
 
 namespace SLSKDONET.ViewModels;
@@ -105,6 +106,65 @@ public partial class PlaylistTrackViewModel
         "beatport" => "Beatport",
         _ => source,
     };
+
+    // ── Discogs top style + "Use as genre" ──────────────────────────────────────
+
+    private string? _topStyleKey;
+    private double _topStyleConfidence;
+    private bool _stylesRequested;
+
+    /// <summary>The top Discogs style name (e.g. "Deep House"), loaded on first read.</summary>
+    public string? TopStyleDisplay
+    {
+        get
+        {
+            if (!_stylesRequested && _libraryService != null && !string.IsNullOrEmpty(GlobalId))
+            {
+                _stylesRequested = true;
+                _ = LoadStylesAsync();
+            }
+            return string.IsNullOrWhiteSpace(_topStyleKey) ? null : StylePlaylistPlanner.SplitKey(_topStyleKey).Name;
+        }
+    }
+
+    public bool HasStyleScores => !string.IsNullOrWhiteSpace(_topStyleKey);
+
+    public double TopStyleConfidence => _topStyleConfidence;
+
+    internal void InvalidateStyles()
+    {
+        _stylesRequested = false;
+        OnPropertyChanged(nameof(TopStyleDisplay));
+    }
+
+    private async Task LoadStylesAsync()
+    {
+        try
+        {
+            var features = await _libraryService!.GetAudioFeaturesByHashAsync(GlobalId).ConfigureAwait(false);
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                _topStyleKey = features?.TopStyle;
+                _topStyleConfidence = features?.TopStyleConfidence ?? 0f;
+                OnPropertyChanged(nameof(TopStyleDisplay));
+                OnPropertyChanged(nameof(HasStyleScores));
+                OnPropertyChanged(nameof(TopStyleConfidence));
+            });
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "Could not load style for track {GlobalId}", GlobalId);
+        }
+    }
+
+    private ICommand? _useAsGenreCommand;
+    public ICommand UseAsGenreCommand => _useAsGenreCommand ??= new RelayCommand(UseAsGenre, () => HasStyleScores);
+
+    private void UseAsGenre()
+    {
+        if (!HasStyleScores) return;
+        _eventBus?.Publish(new UseAsGenreRequestedEvent(GlobalId));
+    }
 
     // ── Cues (from the real CuePoints table) ──────────────────────────────────────────────────
 
