@@ -5,7 +5,6 @@ using System.Linq;
 using System.Text.Json;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
-using SLSKDONET.Services.Library.Rekordbox;
 
 namespace SLSKDONET.Services.Export;
 
@@ -147,18 +146,19 @@ public static class RekordboxExportIntegrity
             }
         }
 
-        // A TEMPO anchor that disagrees with the grid BPM by more than 2% means the stored BPM and
-        // the beat list are split-brain; the export would silently drop it — say so up front.
-        if (beats is { Count: > 0 } && beatData != null && beatData.Bpm > 0)
+        // Split-brain grid: the beat list's own tempo disagrees with the stored BPM by more than 2%
+        // (a pre-#220 ×2/÷2 that changed the number but not the beats). The export then writes the
+        // grid BPM — say so up front. Variable-tempo grids are judged per section by the export, and
+        // a drifting tempo is expected to stray from the single stored BPM, so only steady grids are
+        // checked, against the overall beat spacing (immune to per-beat frame quantisation).
+        if (beats is { Count: > 16 } && beatData != null && beatData.Bpm > 0 && !beatData.IsVariableTempo)
         {
             double gridBpm = beatData.Bpm;
-            var anchors = TempoGridDeriver.DeriveAnchors(beats, beatData.DownbeatOffsetSeconds, gridBpm, beatData.BpmStability);
-            foreach (var anchor in anchors)
+            double span = beats[^1] - beats[0];
+            double beatsBpm = span > 0 ? 60.0 * (beats.Count - 1) / span : 0;
+            if (beatsBpm > 0 && Math.Abs(beatsBpm - gridBpm) / gridBpm > 0.02)
             {
-                if (Math.Abs(anchor.Bpm - gridBpm) / gridBpm > 0.02)
-                {
-                    warnings.Add($"{label}: TEMPO anchor at {anchor.InizioSeconds:F3}s is {anchor.Bpm:F2} BPM, >2% from the grid BPM ({gridBpm:F2}); export drops it.");
-                }
+                warnings.Add(SLSKDONET.Utils.NumFormat.Ui($"{label}: the beat grid runs at {beatsBpm:0.00} BPM but the track's BPM is {gridBpm:0.00}; the export writes {gridBpm:0.00}. Re-open the track in Cue Forge or re-analyse it."));
             }
         }
 

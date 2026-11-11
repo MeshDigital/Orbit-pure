@@ -616,17 +616,19 @@ public class PlaylistExportService
             anchors = TempoGridDeriver.DeriveAnchors(beatTimestamps, downbeatOffset, gridBpm, beatData?.BpmStability);
         }
 
+        // 2% guard — single-tempo grids only. A lone anchor that disagrees with the grid BPM means the
+        // stored BPM and the beat list are split-brain (a pre-#220 ×2/÷2): export the grid BPM and log
+        // it. Multi-anchor grids (Rekordbox lossless, tempo sections, drift) legitimately change tempo
+        // by more than 2% — guarding those dropped every real tempo change (2026-11-11 regression).
+        if (anchors.Count == 1 && gridBpm > 0 && Math.Abs(anchors[0].Bpm - gridBpm) / gridBpm > 0.02)
+        {
+            _logger.LogWarning("Rekordbox export: TEMPO anchor BPM {Anchor:F2} disagrees with the grid BPM {Grid:F2} for {Track}; exporting the grid BPM.",
+                anchors[0].Bpm, gridBpm, t.Name);
+            anchors = new[] { anchors[0] with { Bpm = gridBpm } };
+        }
+
         foreach (var anchor in anchors)
         {
-            // 2% guard: refuse to emit an anchor whose tempo disagrees with the grid BPM (a stale or
-            // split grid), and tell the user instead of silently exporting a wrong grid.
-            if (gridBpm > 0 && Math.Abs(anchor.Bpm - gridBpm) / gridBpm > 0.02)
-            {
-                _logger.LogWarning("Rekordbox export: dropping TEMPO anchor at {Inizio:F3}s (BPM {Anchor:F2} vs grid {Grid:F2}) for {Track}.",
-                    anchor.InizioSeconds, anchor.Bpm, gridBpm, t.Name);
-                continue;
-            }
-
             trackElem.Add(new XElement("TEMPO",
                 new XAttribute("Inizio", anchor.InizioSeconds.ToString("F3", CultureInfo.InvariantCulture)),
                 new XAttribute("Bpm", anchor.Bpm.ToString("F2", CultureInfo.InvariantCulture)),
