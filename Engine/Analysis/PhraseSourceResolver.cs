@@ -51,6 +51,26 @@ public static class PhraseSourceResolver
         return json;
     }
 
+    /// <summary>
+    /// Resolves the phrase map from the single <c>TrackPhrases</c> store, preferring the user's own
+    /// edits, then Rekordbox's PSSI, then the heuristic (issue #225). Returns empty when nothing
+    /// usable exists. The legacy <c>PhraseSegmentsJson</c> column is no longer read — the migration
+    /// has moved its contents into <c>TrackPhrases</c>.
+    /// </summary>
+    public static List<PhraseSegment> Resolve(IEnumerable<TrackPhraseEntity>? phrases, double duration)
+    {
+        if (phrases is null) return new List<PhraseSegment>();
+        var rows = phrases.ToList();
+
+        var user = rows.Where(p => string.Equals(p.Source, "User", StringComparison.Ordinal)).ToList();
+        var pssi = rows.Where(p => string.Equals(p.Source, "RekordboxPSSI", StringComparison.OrdinalIgnoreCase)).ToList();
+        var heuristic = rows.Where(p => string.IsNullOrWhiteSpace(p.Source) ||
+                                        string.Equals(p.Source, "Heuristic", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        var chosen = user.Count >= 2 ? user : pssi.Count >= 2 ? pssi : heuristic;
+        return Sanitize(FromTrackPhrases(chosen), duration);
+    }
+
     /// <summary>Converts persisted <c>TrackPhrases</c> rows to the generator's segment model.</summary>
     public static List<PhraseSegment> FromTrackPhrases(IEnumerable<TrackPhraseEntity>? phrases)
     {

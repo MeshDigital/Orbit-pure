@@ -1284,24 +1284,15 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                     ? new OnsetDensityEngine().ComputeOnsetDensityCurve(beatGrid, TrackDuration)
                     : null;
 
-                List<PhraseSegment> storedPhrases = new();
+                // The phrase map, the section suggestions and Auto-generate all read this one list,
+                // resolved from the single TrackPhrases store (User > RekordboxPSSI > Heuristic).
+                _resolvedPhrases = new List<PhraseSegment>();
                 if (_libraryService is not null)
                 {
-                    try { storedPhrases = PhraseSourceResolver.FromTrackPhrases(await _libraryService.GetPhrasesByHashAsync(trackHash)); }
+                    try { _resolvedPhrases = PhraseSourceResolver.Resolve(await _libraryService.GetPhrasesByHashAsync(trackHash), features.TrackDuration); }
                     catch (Exception ex) { _logger.LogWarning(ex, "CueForge: couldn't load stored phrase data for {Hash}", trackHash); }
                     if (version != _loadVersion) return;
                 }
-
-                // The phrase map, the section suggestions and Auto-generate all read this one list.
-                // TrackPhrases is the fresher store: the legacy PhraseSegmentsJson column is only
-                // written when empty, so older tracks keep boundaries from an analysis run on the
-                // pre-correction (half-time) grid forever — exactly the stale "intro ends 1:27"
-                // suggestion and mis-placed drop seen on Against The Grain.
-                _resolvedPhrases = PhraseSourceResolver.Resolve(
-                    features.PhraseSegmentsSource,
-                    ParsePhraseSegments(features.PhraseSegmentsJson),
-                    storedPhrases,
-                    features.TrackDuration);
 
                 var segments = _resolvedPhrases;
                 await _ui(() =>
@@ -2143,13 +2134,6 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         if (string.IsNullOrWhiteSpace(json) || json == "[]") return null;
         try { return JsonSerializer.Deserialize<float[]>(json); }
         catch (Exception ex) { _logger.LogWarning(ex, "CueForge: ignoring unreadable curve data"); return null; }
-    }
-
-    private List<PhraseSegment> ParsePhraseSegments(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json) || json == "[]") return new();
-        try { return JsonSerializer.Deserialize<List<PhraseSegment>>(json) ?? new(); }
-        catch (Exception ex) { _logger.LogWarning(ex, "CueForge: ignoring unreadable phrase data"); return new(); }
     }
 
     // ── Transport navigation ───────────────────────────────────────────────
