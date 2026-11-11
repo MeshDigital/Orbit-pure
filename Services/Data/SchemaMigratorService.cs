@@ -3195,6 +3195,92 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // 39. Library Maintenance wizard (#211): reversible tag-write foundation. The three
+            // tables are the run header, the per-field change journal, and the per-run playlist
+            // changes. No FOREIGN KEY clauses — connections run with PRAGMA foreign_keys=OFF, so
+            // the RunId relationships are enforced in code.
+            if (!TableExists("MaintenanceRuns"))
+            {
+                _logger.LogInformation("Patching Schema: Creating MaintenanceRuns table...");
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS ""MaintenanceRuns"" (
+                        ""Id""          TEXT NOT NULL PRIMARY KEY,
+                        ""StartedAt""   TEXT NOT NULL,
+                        ""CompletedAt"" TEXT NULL,
+                        ""OptionsJson"" TEXT NULL,
+                        ""SummaryJson"" TEXT NULL,
+                        ""Status""      TEXT NOT NULL,
+                        ""RevertedAt""  TEXT NULL
+                    );";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!TableExists("TagChangeLog"))
+            {
+                _logger.LogInformation("Patching Schema: Creating TagChangeLog table...");
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS ""TagChangeLog"" (
+                        ""Id""              TEXT NOT NULL PRIMARY KEY,
+                        ""RunId""           TEXT NOT NULL,
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""FilePath""        TEXT NULL,
+                        ""Field""           TEXT NOT NULL,
+                        ""OldValue""        TEXT NULL,
+                        ""NewValue""        TEXT NULL,
+                        ""Rule""            TEXT NOT NULL,
+                        ""Applied""         INTEGER NOT NULL DEFAULT 0,
+                        ""FileWritten""     INTEGER NOT NULL DEFAULT 0,
+                        ""Error""           TEXT NULL,
+                        ""RevertedAt""      TEXT NULL,
+                        ""RevertSkipReason"" TEXT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_TagChangeLog_RunId"" ON ""TagChangeLog"" (""RunId"");
+                    CREATE INDEX IF NOT EXISTS ""IX_TagChangeLog_TrackUniqueHash"" ON ""TagChangeLog"" (""TrackUniqueHash"");";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!TableExists("MaintenancePlaylistLog"))
+            {
+                _logger.LogInformation("Patching Schema: Creating MaintenancePlaylistLog table...");
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS ""MaintenancePlaylistLog"" (
+                        ""Id""                TEXT NOT NULL PRIMARY KEY,
+                        ""RunId""             TEXT NOT NULL,
+                        ""PlaylistId""        TEXT NOT NULL,
+                        ""Created""           INTEGER NOT NULL DEFAULT 0,
+                        ""AddedTrackIdsJson"" TEXT NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_MaintenancePlaylistLog_RunId"" ON ""MaintenancePlaylistLog"" (""RunId"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 40. Discogs-400 style scores (P3). Persists the full multi-label style vector so the
+            // style playlists and genre fill can use the explainable top-style label instead of the
+            // collapsed 7-label electronic genre. Guarded per-column because SchemaReconciler may
+            // already have added these on installs that ran the EF model before this patch shipped.
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "StyleScoresBlob"))
+            {
+                _logger.LogInformation("Patching Schema: Adding StyleScoresBlob to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""StyleScoresBlob"" BLOB NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "StyleModelTag"))
+            {
+                _logger.LogInformation("Patching Schema: Adding StyleModelTag to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""StyleModelTag"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "TopStyle"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TopStyle to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""TopStyle"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "TopStyleConfidence"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TopStyleConfidence to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""TopStyleConfidence"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

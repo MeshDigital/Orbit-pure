@@ -1,0 +1,50 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="480" d:DesignHeight="360"
+        x:Class="SLSKDONET.Views.Avalonia.Controls.ConfirmationListDialog"
+        Title="Confirmation"
+        SizeToContent="WidthAndHeight"
+        MinWidth="480" MaxWidth="640" MaxHeight="640"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        SystemDecorations="Full">
+
+    <Border Padding="24" Background="{DynamicResource BrushBg2}">
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto">
+
+            <!-- Header -->
+            <TextBlock Name="TitleText" Grid.Row="0" Classes="h2" Text="Confirm"/>
+
+            <!-- Summary message -->
+            <TextBlock Name="MessageText" Grid.Row="1" Classes="body-sm"
+                       TextWrapping="Wrap"
+                       MaxWidth="560"
+                       Margin="0,8,0,0"
+                       Text="Are you sure you want to proceed?"/>
+
+            <!-- Scrollable item list -->
+            <ScrollViewer Grid.Row="2" MaxHeight="260" VerticalScrollBarVisibility="Auto" Margin="0,12,0,0">
+                <ItemsControl Name="ItemsList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Classes="caption mono"
+                                       Text="{Binding}"
+                                       TextTrimming="CharacterEllipsis"
+                                       Margin="0,2"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <!-- Buttons: the safe "keep" action is the default -->
+            <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,24,0,0">
+                <Button Name="CancelButton" Classes="secondary" Content="No" MinWidth="88"
+                        HorizontalContentAlignment="Center" IsDefault="True" IsCancel="True"/>
+                <Button Name="ConfirmButton" Classes="danger" Content="Yes" MinWidth="88"
+                        HorizontalContentAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

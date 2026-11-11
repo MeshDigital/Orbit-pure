@@ -91,6 +91,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private readonly IDbContextFactory<AppDbContext>? _dbFactory;
     private readonly ILibraryService? _libraryService;
     private readonly IDialogService? _dialogService;
+    private readonly Services.Library.Maintenance.MaintenanceUndoService? _maintenanceUndo;
 
     // Hardcoded public client ID provided by user/project
     // Ideally this would be in a secured config, but for this desktop app scenario it's acceptable as a default.
@@ -204,6 +205,49 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public ICommand RunSetupAgainCommand => _runSetupAgainCommand ??= new RelayCommand(() => _eventBus.Publish(new SLSKDONET.Services.Setup.OpenSetupWizardRequestedEvent()));
     private ICommand? _takeTourCommand;
     public ICommand TakeTourCommand => _takeTourCommand ??= new RelayCommand(() => _eventBus.Publish(new SLSKDONET.Services.Setup.StartTourRequestedEvent()));
+
+    /// <summary>Settings → Maintenance: open the Library Maintenance wizard overlay.</summary>
+    private ICommand? _runMaintenanceCommand;
+    public ICommand RunMaintenanceCommand => _runMaintenanceCommand ??= new RelayCommand(() => _eventBus.Publish(new OpenLibraryMaintenanceRequestedEvent()));
+
+    private bool _canUndoMaintenance;
+    public bool CanUndoMaintenance
+    {
+        get => _canUndoMaintenance;
+        private set
+        {
+            if (_canUndoMaintenance == value) return;
+            _canUndoMaintenance = value;
+            OnPropertyChanged(nameof(CanUndoMaintenance));
+        }
+    }
+
+    private ICommand? _undoLastMaintenanceCommand;
+    public ICommand UndoLastMaintenanceCommand => _undoLastMaintenanceCommand ??= new AsyncRelayCommand(UndoLastMaintenanceAsync);
+
+    /// <summary>Re-checks whether a revertable maintenance run exists (called when Settings loads and after undo).</summary>
+    public async Task RefreshMaintenanceUndoAsync()
+    {
+        try
+        {
+            CanUndoMaintenance = _maintenanceUndo != null && await _maintenanceUndo.GetLastRevertableRunIdAsync() != null;
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "Could not check for a revertable maintenance run");
+            CanUndoMaintenance = false;
+        }
+    }
+
+    private async Task UndoLastMaintenanceAsync()
+    {
+        if (_maintenanceUndo == null) return;
+        var undone = await _maintenanceUndo.UndoLastAsync();
+        _eventBus.Publish(undone
+            ? new ToastRequestedEvent("Maintenance undone", "The last maintenance run was reverted.", NotificationType.Success, TimeSpan.FromSeconds(6))
+            : new ToastRequestedEvent("Nothing to undo", "There is no completed maintenance run to revert.", NotificationType.Information, TimeSpan.FromSeconds(6)));
+        await RefreshMaintenanceUndoAsync();
+    }
 
     /// <summary>Cancels a Spotify sign-in started from here or from the setup wizard.</summary>
     public void CancelSpotifyConnect() => _connectCts?.Cancel();
@@ -2015,7 +2059,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         ILibraryImportLauncher? importLauncher = null,
         EnrichmentViewModel? enrichment = null,
         MetadataSourcesSettingsViewModel? metadataSources = null,
-        UpdateViewModel? updateViewModel = null)
+        UpdateViewModel? updateViewModel = null,
+        Services.Library.Maintenance.MaintenanceUndoService? maintenanceUndo = null)
     {
         _logger = logger;
         _config = config;
@@ -2048,6 +2093,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _dbFactory = dbFactory;
         _lifecycle = lifecycle;
         _libraryService = libraryService;
+        _maintenanceUndo = maintenanceUndo;
         KeyboardMappings = keyboardMappings;
         _dialogService = dialogService;
 
@@ -2166,6 +2212,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _ = LoadLibraryFoldersAsync(); // Phase 0.10
         _ = LoadRemovalCandidatesAsync();
         _ = RefreshEngineDiagnosticsFeedAsync();
+        _ = RefreshMaintenanceUndoAsync();
     }
 
     /// <summary>

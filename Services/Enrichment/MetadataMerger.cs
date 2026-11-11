@@ -59,8 +59,14 @@ public static class MetadataMerger
 {
     public const string UserSource = "user";
     public const string TagsSource = "tags";
+    public const string MaintenanceSource = "maintenance";
     public const double MinConfidence = 0.6;
     public const double IdentityMinConfidence = 0.85;
+
+    /// <summary>A field written by the user or by a Library Maintenance run is never overwritten.</summary>
+    private static bool IsProtectedSource(string? source) =>
+        string.Equals(source, UserSource, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(source, MaintenanceSource, StringComparison.OrdinalIgnoreCase);
 
     public static class Fields
     {
@@ -88,7 +94,7 @@ public static class MetadataMerger
         if (string.IsNullOrWhiteSpace(track.Genres)) return true;
         if (provenance == null || provenance.ContainsKey(Fields.Style)) return false;
         if (!provenance.TryGetValue(Fields.Genre, out var genre)) return false; // origin unknown: leave it
-        return !string.Equals(genre.Source, UserSource, StringComparison.OrdinalIgnoreCase)
+        return !IsProtectedSource(genre.Source)
             && !string.Equals(genre.Source, TagsSource, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -131,7 +137,7 @@ public static class MetadataMerger
         bool Take(string field, bool isEmpty, double conf)
         {
             provenance.TryGetValue(field, out var prov);
-            if (prov != null && string.Equals(prov.Source, UserSource, StringComparison.OrdinalIgnoreCase)) return false;
+            if (prov != null && IsProtectedSource(prov.Source)) return false;
             // Fill-empty only: a stored value may be a user edit made outside the batch editor
             // (which records "user" provenance), so nothing non-empty is ever replaced.
             return isEmpty;

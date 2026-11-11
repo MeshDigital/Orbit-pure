@@ -12,12 +12,20 @@ using SLSKDONET.Data.Entities;
 
 namespace SLSKDONET.Services;
 
+/// <summary>Contract for the batch library-wide corruption scan (see <see cref="LibraryCorruptionScanService"/>).</summary>
+public interface ILibraryCorruptionScanService
+{
+    Task<LibraryCorruptionScanResult> ScanLibraryAsync(
+        IProgress<(int Done, int Total, string CurrentFile)>? progress = null,
+        CancellationToken cancellationToken = default);
+}
+
 /// <summary>
 /// Scans every locally available library track for file-level corruption.
 /// Results are persisted to <see cref="AudioAnalysisEntity.CorruptionStatus"/>
 /// and returned as a detailed <see cref="LibraryCorruptionScanResult"/> for UI remediation.
 /// </summary>
-public sealed class LibraryCorruptionScanService
+public sealed class LibraryCorruptionScanService : ILibraryCorruptionScanService
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly AudioCorruptionScannerService _scanner;

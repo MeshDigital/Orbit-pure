@@ -64,6 +64,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>First-run setup wizard and quick tour (null only in tests that build the shell by hand).</summary>
     public SLSKDONET.ViewModels.Setup.SetupShellViewModel? Setup { get; }
 
+    /// <summary>The Library Maintenance wizard overlay (null only in tests).</summary>
+    public SLSKDONET.ViewModels.Maintenance.MaintenanceShellViewModel? Maintenance { get; }
+
     /// <summary>The folder import sheet / top-bar chip (Library folders, Settings and setup "Scan now").</summary>
     public SLSKDONET.ViewModels.LibraryImportViewModel? Import { get; }
 
@@ -139,7 +142,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? activity = null,
         SLSKDONET.ViewModels.Workstation.WorkstationViewModel? workstation = null,
         SLSKDONET.Services.Sets.ISetProjectService? setProjects = null,
-        SLSKDONET.Views.INotificationService? notifications = null)
+        SLSKDONET.Views.INotificationService? notifications = null,
+        SLSKDONET.ViewModels.Maintenance.MaintenanceShellViewModel? maintenance = null)
 
     {
         _setProjects = setProjects;
@@ -168,6 +172,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         Setup = setup;
         Import = import;
         Activity = activity;
+        Maintenance = maintenance;
         _workstation = workstation;
 
         // Keep the nav highlight in sync with the Workstation's active tool (Story Graph vs plain
@@ -552,6 +557,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             SearchViewModel?.Dispose();
             SettingsViewModel?.Dispose();
             Setup?.Dispose();
+            Maintenance?.Dispose();
             HomeViewModel?.Dispose();
             _globalHotkeyService?.Dispose();
         }

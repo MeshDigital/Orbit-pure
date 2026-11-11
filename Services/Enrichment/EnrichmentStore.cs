@@ -317,13 +317,16 @@ public sealed class EnrichmentStore : IMetadataLookupCache
         return rows.ToDictionary(r => r.Field, StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>Records that the user edited these fields, so enrichment leaves them alone.</summary>
-    public async Task MarkUserEditedAsync(IEnumerable<string> hashes, IEnumerable<string> fields, CancellationToken ct = default)
+    /// <summary>
+    /// Records that these fields were edited by the user (or a maintenance run, via
+    /// <paramref name="source"/>), so enrichment leaves them alone.
+    /// </summary>
+    public async Task MarkUserEditedAsync(IEnumerable<string> hashes, IEnumerable<string> fields, CancellationToken ct = default, string source = MetadataMerger.UserSource)
     {
         var fieldList = fields.ToList();
         var updates = hashes.SelectMany(h => fieldList.Select(f => new MetadataProvenanceEntity
         {
-            TrackUniqueHash = h, Field = f, Source = MetadataMerger.UserSource, Confidence = 1.0, UpdatedAtUtc = DateTime.UtcNow,
+            TrackUniqueHash = h, Field = f, Source = source, Confidence = 1.0, UpdatedAtUtc = DateTime.UtcNow,
         })).ToList();
         await UpsertProvenanceAsync(updates, ct).ConfigureAwait(false);
     }

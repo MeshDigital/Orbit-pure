@@ -23,6 +23,14 @@ public interface IDialogService
     Task<bool> ConfirmAsync(string title, string message, string confirmLabel = "Yes", string cancelLabel = "No");
 
     /// <summary>
+    /// Shows a confirmation dialog with a scrollable list of detail lines (paths, reasons, …)
+    /// under the message. Useful when the confirmation concerns many specific items the user
+    /// should be able to review. <paramref name="cancelLabel"/> is the safe default.
+    /// </summary>
+    /// <returns>True if the destructive action is confirmed, False otherwise.</returns>
+    Task<bool> ConfirmListAsync(string title, string message, IReadOnlyList<string> items, string confirmLabel = "Yes", string cancelLabel = "No");
+
+    /// <summary>
     /// Shows the "Remove Track" choice dialog — lets the user pick between removing a track
     /// from just the current playlist (keeping it in the library) or deleting it entirely from
     /// disk and history. <paramref name="canRemoveFromPlaylist"/> should be false when there's

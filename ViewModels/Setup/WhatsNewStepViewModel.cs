@@ -30,5 +30,6 @@ public sealed class WhatsNewStepViewModel : SetupStepViewModel
         new WhatsNewItem("Updates: pick your channel", "Choose Stable, Beta or Any, then check GitHub for a newer version from Settings → Advanced → Updates."),
         new WhatsNewItem("FFmpeg + .NET self-heal", "ORBIT installs FFmpeg and the .NET runtime automatically when they're missing."),
         new WhatsNewItem("Set Health: know your narrative", "Narrative, technical and risk scores for the open set, docked beside the Story Graph."),
+        new WhatsNewItem("Library maintenance", "One pass fixes malformed tags, fills missing metadata and groups unclassified tracks into style playlists — with a preview and a one-click undo."),
     };
 }

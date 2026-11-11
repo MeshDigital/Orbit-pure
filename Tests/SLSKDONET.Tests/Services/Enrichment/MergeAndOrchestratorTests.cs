@@ -75,6 +75,27 @@ public class MetadataMergerTests
     }
 
     [Fact]
+    public void MaintenanceEditedFields_AreNeverOverwritten()
+    {
+        var track = Track();
+        track.Genres = "Maintenance Genre";
+        var provenance = new Dictionary<string, MetadataProvenanceEntity>(StringComparer.OrdinalIgnoreCase)
+        {
+            [MetadataMerger.Fields.Genre] = new() { TrackUniqueHash = "h", Field = "genre", Source = MetadataMerger.MaintenanceSource },
+        };
+        var patch = new MetadataPatch("h");
+        var c = new MetadataCandidate { Confidence = 1.0 };
+        c.Styles.Add("Liquid Funk");
+        c.Genres.Add("Electronic");
+
+        MetadataMerger.Apply(track, provenance, c, "discogs", patch);
+
+        Assert.Null(patch.Genres);
+        Assert.Equal("Maintenance Genre", track.Genres);
+        Assert.False(MetadataMerger.IsStyleMissing(track, provenance));
+    }
+
+    [Fact]
     public void FilledFields_AreKept_FirstProviderWins()
     {
         var track = Track();

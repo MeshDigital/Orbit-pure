@@ -687,6 +687,43 @@ public class AudioFeaturesEntity
     /// Used to invalidate cached embeddings when the model is updated.
     /// </summary>
     public string? EmbeddingModelTag { get; set; }
+
+    // ============================================
+    // Discogs-400 Style Scores (P3)
+    // ============================================
+
+    /// <summary>
+    /// The full 400-D Discogs style prediction vector (sigmoid, multi-label, 0–1), stored as a
+    /// byte blob. Layout: 400 × float32 little-endian = 1 600 bytes.
+    /// </summary>
+    [Column("StyleScoresBlob")]
+    public byte[]? StyleScoresBlob { get; set; }
+
+    /// <summary>Friendly float[] accessor for the 400 style scores (one-copy on read, zero-alloc on write).</summary>
+    [NotMapped]
+    public float[]? StyleScores
+    {
+        get
+        {
+            if (StyleScoresBlob == null || StyleScoresBlob.Length < 4) return null;
+            return MemoryMarshal.Cast<byte, float>(StyleScoresBlob.AsSpan()).ToArray();
+        }
+        set
+        {
+            StyleScoresBlob = value == null
+                ? null
+                : MemoryMarshal.AsBytes(value.AsSpan()).ToArray();
+        }
+    }
+
+    /// <summary>Model tag for the run that produced <see cref="StyleScoresBlob"/>.</summary>
+    public string? StyleModelTag { get; set; }
+
+    /// <summary>Top style key (full <c>Parent---Name</c>), e.g. "Electronic---Deep House".</summary>
+    public string? TopStyle { get; set; }
+
+    /// <summary>Confidence of <see cref="TopStyle"/> (0–1).</summary>
+    public float? TopStyleConfidence { get; set; }
 }
 
 

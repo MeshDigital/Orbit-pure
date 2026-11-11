@@ -12,6 +12,15 @@ using SLSKDONET.Models;
 
 namespace SLSKDONET.Services;
 
+/// <summary>Contract for corrupt/missing-file remediation (see <see cref="CorruptFileRemediationService"/>).</summary>
+public interface ICorruptFileRemediationService
+{
+    Task<RemediationResult> RemediateAsync(
+        IReadOnlyList<CorruptFileScanEntry> entries,
+        IProgress<(int Done, int Total, string CurrentFile)>? progress = null,
+        CancellationToken cancellationToken = default);
+}
+
 /// <summary>
 /// Applies remediation actions to corrupt or missing library files.
 /// For each affected track:
@@ -26,7 +35,7 @@ namespace SLSKDONET.Services;
 ///     Workstation) still holding that track's data in memory can react and clear it too, instead
 ///     of silently continuing to show a waveform/analysis that no longer matches what's in the DB
 /// </summary>
-public sealed class CorruptFileRemediationService
+public sealed class CorruptFileRemediationService : ICorruptFileRemediationService
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly IEventBus _eventBus;

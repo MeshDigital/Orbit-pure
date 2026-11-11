@@ -57,6 +57,27 @@ public class DialogService : IDialogService
         });
     }
 
+    public async Task<bool> ConfirmListAsync(string title, string message, IReadOnlyList<string> items, string confirmLabel = "Yes", string cancelLabel = "No")
+    {
+        return await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var dialog = new ConfirmationListDialog(title, message, items, confirmLabel, cancelLabel);
+            var owner = GetOwnerWindow();
+
+            if (owner != null)
+            {
+                await dialog.ShowDialog(owner);
+            }
+            else
+            {
+                dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                dialog.Show();
+            }
+
+            return dialog.IsConfirmed;
+        });
+    }
+
     public async Task<RemoveTrackChoice> ShowRemoveTrackChoiceAsync(string trackLabel, bool canRemoveFromPlaylist, string? playlistName)
     {
         return await Dispatcher.UIThread.InvokeAsync(async () =>

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Models;
@@ -243,6 +244,160 @@ public class MetadataTaggerService : ITaggerService
         {
             _logger.LogWarning(ex, "Error while tagging {FilePath}", filePath);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Applies a set-or-clear patch to a file atomically, reusing the temp-copy → TagLib write →
+    /// format-verify → safe-swap path of <see cref="TagFileAsync"/>. The previous value of each
+    /// patched field is read from the original file before the swap so the caller can journal it.
+    /// A <see cref="TagLib.CorruptFileException"/> is returned as <c>Success = false</c>, not swallowed.
+    /// </summary>
+    public async Task<TagPatchResult> ApplyTagPatchAsync(string filePath, TagPatch patch, CancellationToken ct = default)
+    {
+        var empty = new Dictionary<TagField, string?>();
+        if (patch is null || patch.Changes.Count == 0)
+            return new TagPatchResult(true, null, empty);
+
+        try
+        {
+            if (!File.Exists(filePath))
+                return new TagPatchResult(false, "File not found", empty);
+
+            var extension = Path.GetExtension(filePath);
+            if (!CanTag(extension))
+                return new TagPatchResult(false, $"Unsupported audio format for tagging: {extension}", empty);
+
+            // Read the pre-write value of every patched field from the original file, before any
+            // swap, so PreviousValues reflects exactly what undo must restore.
+            Dictionary<TagField, string?> previous;
+            try
+            {
+                previous = await Task.Run(() =>
+                {
+                    using var original = TagLib.File.Create(filePath);
+                    var dict = new Dictionary<TagField, string?>();
+                    foreach (var change in patch.Changes)
+                        dict[change.Field] = ReadFieldFromTag(original.Tag, change.Field);
+                    return dict;
+                }, ct).ConfigureAwait(false);
+            }
+            catch (TagLib.CorruptFileException ex)
+            {
+                _logger.LogWarning(ex, "TagLib detected corrupt file {Path}. Cannot apply patch.", filePath);
+                return new TagPatchResult(false, $"Corrupt file: {ex.Message}", empty);
+            }
+
+            var success = await _fileWriteService.WriteAtomicAsync(
+                filePath,
+                async (tempPath) =>
+                {
+                    File.Copy(filePath, tempPath, overwrite: true);
+                    await Task.Run(() =>
+                    {
+                        var mimeType = GetMimeTypeFromExtension(extension);
+                        TagLib.File? file = null;
+                        try
+                        {
+                            file = TagLib.File.Create(new TagLib.File.LocalFileAbstraction(tempPath), mimeType, ReadStyle.Average);
+                        }
+                        catch (TagLib.CorruptFileException ex)
+                        {
+                            throw new InvalidDataException($"Corrupt file: {tempPath}", ex);
+                        }
+
+                        if (file == null)
+                            throw new InvalidOperationException($"Failed to open temp file for tagging: {tempPath}");
+
+                        try
+                        {
+                            foreach (var change in patch.Changes)
+                                ApplyFieldToTag(file.Tag, change.Field, change.Value);
+                            file.Save();
+                        }
+                        finally
+                        {
+                            file.Dispose();
+                        }
+                    }, ct);
+                },
+                async (tempPath) =>
+                {
+                    var isValid = await SLSKDONET.Services.IO.FileVerificationHelper.VerifyAudioFormatAsync(
+                        tempPath, GetMimeTypeFromExtension(extension)).ConfigureAwait(false);
+                    if (!isValid)
+                        _logger.LogWarning("Tagging verification failed: {TempPath}", tempPath);
+                    return isValid;
+                },
+                ct
+            ).ConfigureAwait(false);
+
+            if (success)
+            {
+                _logger.LogInformation("Applied tag patch to {FilePath} ({FieldCount} fields)", filePath, patch.Changes.Count);
+                return new TagPatchResult(true, null, previous);
+            }
+
+            return new TagPatchResult(false, "SafeWrite failed", previous);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error applying tag patch to {FilePath}", filePath);
+            return new TagPatchResult(false, ex.Message, empty);
+        }
+    }
+
+    /// <summary>Reads the current value of one tag field from a file (null = empty/absent).</summary>
+    public async Task<string?> ReadFieldValueAsync(string filePath, TagField field, CancellationToken ct = default)
+    {
+        try
+        {
+            if (!File.Exists(filePath)) return null;
+            return await Task.Run(() =>
+            {
+                using var file = TagLib.File.Create(filePath);
+                return ReadFieldFromTag(file.Tag, field);
+            }, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read {Field} from {FilePath}", field, filePath);
+            return null;
+        }
+    }
+
+    /// <summary>Maps a patch field onto TagLib's tag API. Clearing sets null / an empty array.</summary>
+    private static void ApplyFieldToTag(TagLib.Tag tag, TagField field, string? value)
+    {
+        switch (field)
+        {
+            case TagField.Title:       tag.Title = value; break;
+            case TagField.Artist:      tag.Performers  = value == null ? Array.Empty<string>() : new[] { value }; break;
+            case TagField.AlbumArtist: tag.AlbumArtists = value == null ? Array.Empty<string>() : new[] { value }; break;
+            case TagField.Album:       tag.Album = value; break;
+            case TagField.Genre:       tag.Genres     = value == null ? Array.Empty<string>() : new[] { value }; break;
+            case TagField.Label:       tag.Publisher  = value; break;
+            case TagField.Remixer:     tag.RemixedBy  = value; break;
+        }
+    }
+
+    /// <summary>Reads one tag field from TagLib (null = empty/absent).</summary>
+    private static string? ReadFieldFromTag(TagLib.Tag tag, TagField field)
+    {
+        switch (field)
+        {
+            case TagField.Title:       return tag.Title;
+            case TagField.Artist:      return tag.FirstPerformer;
+            case TagField.AlbumArtist: return tag.FirstAlbumArtist;
+            case TagField.Album:       return tag.Album;
+            case TagField.Genre:       return tag.FirstGenre;
+            case TagField.Label:       return tag.Publisher;
+            case TagField.Remixer:     return tag.RemixedBy;
+            default:                   return null;
         }
     }
 

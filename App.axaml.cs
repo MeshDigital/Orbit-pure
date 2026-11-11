@@ -578,8 +578,8 @@ public partial class App : Application
         services.AddSingleton<PostDownloadSpectralScanService>(); // Runs FFT analysis on completed FLAC downloads
         services.AddSingleton<PostDownloadDurationCaptureService>(); // TagLib duration probe for every completed download (any format)
         services.AddSingleton<AudioCorruptionScannerService>();   // Fast per-file corruption probe (FFmpeg + NAudio)
-        services.AddSingleton<LibraryCorruptionScanService>();    // Batch library-wide corruption scan
-        services.AddSingleton<CorruptFileRemediationService>();   // Disk delete + DB reset + re-queue for corrupt/missing files
+        services.AddSingleton<ILibraryCorruptionScanService, LibraryCorruptionScanService>();    // Batch library-wide corruption scan
+        services.AddSingleton<ICorruptFileRemediationService, CorruptFileRemediationService>();   // Disk delete + DB reset + re-queue for corrupt/missing files
         services.AddSingleton<UnidentifiedTrackCleanupService>(); // Full removal of "ID" placeholder tracks (no identity to redownload against)
         services.AddSingleton<DuplicateTrackCleanupService>(); // Merges duplicate LibraryEntries + removes duplicate in-playlist track rows
         services.AddSingleton<EngineDiagnosticsService>(); // Structured import/search audit trail — "Engine Diagnostics"
@@ -979,6 +979,21 @@ public partial class App : Application
         services.AddHttpClient("enrichment", c => c.Timeout = TimeSpan.FromSeconds(20));
         services.AddSingleton<Services.Enrichment.EnrichmentStore>();
         services.AddSingleton<Services.Enrichment.IMetadataLookupCache>(sp => sp.GetRequiredService<Services.Enrichment.EnrichmentStore>());
+
+        // ── Library Maintenance (#211): reversible tag writes + run undo ──
+        services.AddSingleton<Services.Library.Maintenance.TrackMetadataWriter>();
+        services.AddSingleton<Services.Library.Maintenance.TagChangeService>();
+        services.AddSingleton<Services.Library.Maintenance.LibraryIdentityIndexLoader>();
+        services.AddSingleton<Services.Library.Maintenance.StyleBackfillService>();
+        services.AddSingleton<Services.Library.Maintenance.StylePlaylistApplier>();
+        services.AddSingleton<Services.Library.Maintenance.UseAsGenreService>();
+        services.AddSingleton<Services.Library.Maintenance.MaintenanceUndoService>();
+        // A fresh wizard per open: state must not leak between maintenance runs.
+        services.AddTransient<ViewModels.Maintenance.LibraryMaintenanceViewModel>();
+        services.AddSingleton(sp => new ViewModels.Maintenance.MaintenanceShellViewModel(
+            () => sp.GetRequiredService<ViewModels.Maintenance.LibraryMaintenanceViewModel>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ViewModels.Maintenance.MaintenanceShellViewModel>>(),
+            sp.GetRequiredService<IEventBus>()));
         services.AddSingleton(sp => new Services.Enrichment.MetadataCredentialStore(
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.MetadataCredentialStore>>()));
         static System.Net.Http.HttpClient EnrichmentHttp(IServiceProvider sp) =>
@@ -1054,6 +1069,7 @@ public partial class App : Application
         // no output at all with the binary ORBIT bundles.
         services.AddSingleton<Services.Similarity.DiscogsEffnetEmbeddingExtractor>();
         services.AddSingleton<Services.Similarity.EffnetClassifierHeadService>();
+        services.AddSingleton<Services.Similarity.DiscogsStyleLabels>();
         services.AddSingleton<Services.AudioAnalysis.AudioAnalysisService>();
         services.AddSingleton<Services.IAudioAnalysisService>(sp =>
             sp.GetRequiredService<Services.AudioAnalysis.AudioAnalysisService>());
