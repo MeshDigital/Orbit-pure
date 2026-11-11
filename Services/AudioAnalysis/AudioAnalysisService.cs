@@ -265,6 +265,24 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 if (needsDropSignals || engines.HasAny(AnalysisEngine.Tempo | AnalysisEngine.Mood))
                     mono = ToMono(pcmSamples, pcmChannels);
 
+                // Music start (issue #224): first audible sound after silence/run-in. A user-placed
+                // marker is never overwritten by re-analysis (same protection rule as the grid).
+                if (mono.Length > 0 && !string.Equals(features.MusicStartSource, "User", StringComparison.Ordinal))
+                {
+                    try
+                    {
+                        double threshold = features.LoudnessLUFS is > -120 and var lufs
+                            ? MusicStartDetector.ThresholdDbFs(lufs)
+                            : MusicStartDetector.DefaultThresholdDbFs;
+                        features.MusicStartSeconds = MusicStartDetector.Detect(mono, pcmSampleRate, threshold) is { } ms ? (float)ms : null;
+                        features.MusicStartSource = features.MusicStartSeconds.HasValue ? "Analysis" : null;
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        _logger.LogDebug(ex, "[AudioAnalysis] Music-start detection failed for {File}", Path.GetFileName(filePath));
+                    }
+                }
+
                 if (needsDropSignals)
                 try
                 {

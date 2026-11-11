@@ -1245,6 +1245,18 @@ public class SchemaMigratorService
                 command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""AnalysedGridJson"" TEXT NULL;";
                 await command.ExecuteNonQueryAsync();
             }
+            if (!ColumnExists("audio_features", "MusicStartSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding MusicStartSeconds to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""MusicStartSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "MusicStartSource"))
+            {
+                _logger.LogInformation("Patching Schema: Adding MusicStartSource to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""MusicStartSource"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
 
             // Backfill GridSource for rows that predate the column (issue #221). Idempotent: after the
             // first run nothing is NULL. A manual BPM edit is the only retroactive evidence of a user

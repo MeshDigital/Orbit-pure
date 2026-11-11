@@ -560,6 +560,16 @@ public class AudioFeaturesEntity
     public string? AnalysedGridJson { get; set; }
 
     // ============================================
+    // Music start (issue #224) — marker only, the audio is never trimmed
+    // ============================================
+
+    /// <summary>Time (seconds) of the first audible sound, after vinyl run-in / encoder padding / silence.</summary>
+    public float? MusicStartSeconds { get; set; }
+
+    /// <summary>Where <see cref="MusicStartSeconds"/> came from: <c>"Analysis"</c> or <c>"User"</c>.</summary>
+    public string? MusicStartSource { get; set; }
+
+    // ============================================
     // Task 1.6 — Waveform Data Extraction
     // ============================================
 
