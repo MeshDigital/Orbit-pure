@@ -1,0 +1,20 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="640" d:DesignHeight="480"
+             x:Class="SLSKDONET.Views.Avalonia.Maintenance.LibraryMaintenanceView">
+
+    <!-- Placeholder shell (filled out in the wizard-UI commit). Gives the overlay a real host so the
+         wizard is reachable end-to-end now; the five steps land next. -->
+    <Border Background="{DynamicResource BrushBg2}" Padding="24" CornerRadius="8">
+        <Grid RowDefinitions="Auto,Auto,Auto">
+            <TextBlock Classes="h2" Text="Library maintenance"/>
+            <TextBlock Grid.Row="1" Classes="body-sm" Margin="0,8,0,0" TextWrapping="Wrap"
+                       Text="Fix malformed tags, fill missing metadata and group unclassified tracks into style playlists — with a preview and one-click undo."/>
+            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,24,0,0">
+                <Button Classes="secondary" Content="Close" Click="OnCloseClicked" MinWidth="88" HorizontalContentAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

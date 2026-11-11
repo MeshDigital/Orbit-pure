@@ -11,6 +11,7 @@
          xmlns:vmDiag="clr-namespace:SLSKDONET.ViewModels.Diagnostics"
          xmlns:svc="clr-namespace:SLSKDONET.Services"
          xmlns:setupViews="clr-namespace:SLSKDONET.Views.Avalonia.Setup"
+         xmlns:maintenanceViews="clr-namespace:SLSKDONET.Views.Avalonia.Maintenance"
         mc:Ignorable="d" d:DesignWidth="1400" d:DesignHeight="900"
         x:Class="SLSKDONET.Views.Avalonia.MainWindow"
         x:DataType="vm:MainViewModel"
@@ -939,6 +940,11 @@
              below toasts so its own notifications stay visible. -->
         <Panel Grid.RowSpan="3" ZIndex="1500" IsVisible="{Binding Setup.IsWizardOpen, FallbackValue=False}">
             <setupViews:SetupWizardView DataContext="{Binding Setup.Wizard}"/>
+        </Panel>
+
+        <!-- Library Maintenance wizard: same overlay tier as the setup wizard. -->
+        <Panel Grid.RowSpan="3" ZIndex="1500" IsVisible="{Binding Maintenance.IsOpen, FallbackValue=False}">
+            <maintenanceViews:LibraryMaintenanceView DataContext="{Binding Maintenance.Wizard}"/>
         </Panel>
 
         <!-- Folder import sheet: over the shell and the setup wizard (its "Scan now" opens it),

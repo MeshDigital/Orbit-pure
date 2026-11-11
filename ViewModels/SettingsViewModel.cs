@@ -205,6 +205,10 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private ICommand? _takeTourCommand;
     public ICommand TakeTourCommand => _takeTourCommand ??= new RelayCommand(() => _eventBus.Publish(new SLSKDONET.Services.Setup.StartTourRequestedEvent()));
 
+    /// <summary>Settings → Maintenance: open the Library Maintenance wizard overlay.</summary>
+    private ICommand? _runMaintenanceCommand;
+    public ICommand RunMaintenanceCommand => _runMaintenanceCommand ??= new RelayCommand(() => _eventBus.Publish(new OpenLibraryMaintenanceRequestedEvent()));
+
     /// <summary>Cancels a Spotify sign-in started from here or from the setup wizard.</summary>
     public void CancelSpotifyConnect() => _connectCts?.Cancel();
 

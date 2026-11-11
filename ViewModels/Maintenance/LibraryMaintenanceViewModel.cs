@@ -44,6 +44,12 @@ public sealed class LibraryMaintenanceViewModel : IDisposable
     public bool IsApplying { get; private set; }
     public string? StatusText { get; private set; }
 
+    /// <summary>Raised when the wizard overlay closes (via <see cref="Close"/>).</summary>
+    public event EventHandler? Closed;
+
+    /// <summary>Closes the wizard; the shell disposes this instance.</summary>
+    public void Close() => Closed?.Invoke(this, EventArgs.Empty);
+
     public LibraryMaintenanceViewModel(
         IEventBus eventBus,
         ILogger<LibraryMaintenanceViewModel> logger,
