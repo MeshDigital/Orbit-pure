@@ -288,6 +288,16 @@ internal sealed class RecordingSetProjectService : ISetProjectService
             await Task.Run(() => Thread.Sleep(5)).ConfigureAwait(false);
         return new[] { new SetTrackPickerItem("h1", "Title", "Artist") };
     }
+
+    public Task<bool> RenameSetAsync(Guid setId, string name) => Task.FromResult(true);
+    public Task<bool> DeleteSetAsync(Guid setId) => Task.FromResult(true);
+    public Task<SetListEntity?> DuplicateSetAsync(Guid setId, string? name = null) => Task.FromResult<SetListEntity?>(new SetListEntity { Name = name ?? "Copy" });
+    public Task<SetTrackEntity?> InsertTrackAsync(Guid setId, string trackUniqueHash, int position) => Task.FromResult<SetTrackEntity?>(new SetTrackEntity { SetListId = setId, TrackUniqueHash = trackUniqueHash, Position = position });
+    public Task<bool> MoveTrackAsync(Guid slotId, int newPosition) => Task.FromResult(true);
+    public Task<bool> RemoveTrackAsync(Guid slotId) => Task.FromResult(true);
+    public Task<bool> UpdateSlotNotesAsync(Guid slotId, string? notes) => Task.FromResult(true);
+    public Task<SetStoryEdgeEntity?> AddAlternateAsync(Guid setId, Guid fromSlotId, Guid toSlotId, double probability = 0.5, string? conditionText = null) => Task.FromResult<SetStoryEdgeEntity?>(new SetStoryEdgeEntity { SetProjectId = setId, FromSlotId = fromSlotId, ToSlotId = toSlotId, Probability = probability, ConditionText = conditionText });
+    public Task<bool> RemoveAlternateAsync(Guid edgeId) => Task.FromResult(true);
 }
 
 /// <summary>
