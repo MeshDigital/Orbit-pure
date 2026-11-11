@@ -769,7 +769,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
 
     // ── Tap Tempo ─────────────────────────────────────────────────────────────
 
-    private readonly System.Collections.Generic.List<DateTime> _tapTimes = new();
+    private readonly Services.AudioAnalysis.TapTempoTracker _tapTempo = new();
     public ReactiveCommand<Unit, Unit> TapTempoCommand { get; }
 
     // ── Active mode ───────────────────────────────────────────────────────────
@@ -1191,16 +1191,9 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
 
         TapTempoCommand = ReactiveCommand.Create(() =>
         {
-            var now = DateTime.UtcNow;
-            // Discard taps older than 3 seconds (reset after pause)
-            _tapTimes.RemoveAll(t => (now - t).TotalSeconds > 3.0);
-            _tapTimes.Add(now);
-            if (_tapTimes.Count >= 2)
-            {
-                double totalSeconds = (_tapTimes[^1] - _tapTimes[0]).TotalSeconds;
-                double avgInterval  = totalSeconds / (_tapTimes.Count - 1);
-                MasterBpm = Math.Round(60.0 / avgInterval, 1);
-            }
+            var tapped = _tapTempo.Tap(DateTime.UtcNow);
+            if (tapped is { } bpm && bpm > 0)
+                MasterBpm = Math.Round(bpm, 1);
         });
 
         var canAnalyze = this.WhenAnyValue(x => x.IsAnalyzing, busy => !busy);

@@ -32,6 +32,14 @@ public sealed record TrackStructure
     public double? MixInMarker { get; init; }
     /// <summary>Explicit track-level Mix-Out cue shared with Flow Builder and DJ preparation.</summary>
     public double? MixOutMarker { get; init; }
+    /// <summary>Beat ticks (the grid), for local-BPM lookups on variable-tempo tracks (#226).</summary>
+    public IReadOnlyList<double>? BeatGrid { get; init; }
+
+    /// <summary>The BPM of the tempo section containing <paramref name="seconds"/> (issue #226).</summary>
+    public double LocalBpmAt(double seconds) =>
+        BeatGrid is { Count: > 0 } beats
+            ? SLSKDONET.Services.AudioAnalysis.BeatGridFitter.LocalBpmAt(beats, seconds, Bpm)
+            : Bpm;
 }
 
 /// <summary>Mixxx-style regions, derived from a <see cref="TrackStructure"/>.</summary>
@@ -191,9 +199,24 @@ public static class TransitionPlanner
         };
     }
 
-    /// <summary>Playback tempo-matches up to 6 %, but beyond ~4 % the pitch shift is audible.</summary>
-    private static bool TempoLocked(TrackStructure a, TrackStructure b) =>
-        a.Bpm > 0 && b.Bpm > 0 && Math.Abs(a.Bpm - b.Bpm) / a.Bpm <= 0.04;
+    /// <summary>
+    /// Playback tempo-matches up to 6 %, but beyond ~4 % the pitch shift is audible. Compared at the
+    /// mix point (#226): the outgoing track's tempo where it is mixed out and the incoming track's where
+    /// it is mixed in — a variable-tempo track's overall BPM says nothing about its outro.
+    /// </summary>
+    private static bool TempoLocked(TrackStructure a, TrackStructure b)
+    {
+        double outBpm = MixOutBpm(a), inBpm = MixInBpm(b);
+        return outBpm > 0 && inBpm > 0 && Math.Abs(outBpm - inBpm) / outBpm <= 0.04;
+    }
+
+    /// <summary>The outgoing track's tempo where it is mixed out (Mix-Out marker, Outro, or its last 15 %).</summary>
+    internal static double MixOutBpm(TrackStructure t) =>
+        t.LocalBpmAt(t.MixOutMarker ?? t.OutroStartMarker ?? t.OutroCue ?? t.DurationSeconds * 0.85);
+
+    /// <summary>The incoming track's tempo where it is mixed in (Mix-In marker, Intro cue, or Bar 1).</summary>
+    internal static double MixInBpm(TrackStructure t) =>
+        t.LocalBpmAt(t.MixInMarker ?? t.IntroCue ?? t.FirstDownbeat);
 
     public static PlannedTransitionKind? KindFromPresetName(string? presetName) => presetName switch
     {
@@ -348,7 +371,7 @@ public static class TransitionPlanner
     }
 
     private static string PctText(TrackStructure a, TrackStructure b) =>
-        a.Bpm > 0 ? $"{Math.Abs(a.Bpm - b.Bpm) / a.Bpm * 100:0}%" : "?";
+        MixOutBpm(a) is var o && o > 0 ? SLSKDONET.Utils.NumFormat.F(Math.Abs(o - MixInBpm(b)) / o * 100, 0) + "%" : "?";
 
     private static void AddIfNotNull<T>(this List<T> list, T? item) where T : class
     {

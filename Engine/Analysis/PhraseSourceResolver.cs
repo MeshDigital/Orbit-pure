@@ -51,6 +51,68 @@ public static class PhraseSourceResolver
         return json;
     }
 
+    /// <summary>
+    /// Resolves the phrase map from the single <c>TrackPhrases</c> store, preferring the user's own
+    /// edits, then Rekordbox's PSSI, then the heuristic (issue #225). Returns empty when nothing
+    /// usable exists. The legacy <c>PhraseSegmentsJson</c> column is no longer read — the migration
+    /// has moved its contents into <c>TrackPhrases</c>.
+    /// </summary>
+    public static List<PhraseSegment> Resolve(IEnumerable<TrackPhraseEntity>? phrases, double duration)
+    {
+        if (phrases is null) return new List<PhraseSegment>();
+        var rows = phrases.ToList();
+
+        var user = rows.Where(p => string.Equals(p.Source, "User", StringComparison.Ordinal)).ToList();
+        var pssi = rows.Where(p => string.Equals(p.Source, "RekordboxPSSI", StringComparison.OrdinalIgnoreCase)).ToList();
+        var heuristic = rows.Where(p => string.IsNullOrWhiteSpace(p.Source) ||
+                                        string.Equals(p.Source, "Heuristic", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        var chosen = user.Count >= 2 ? user : pssi.Count >= 2 ? pssi : heuristic;
+        return Sanitize(FromTrackPhrases(chosen), duration);
+    }
+
+    /// <summary>
+    /// Segments → bar-indexed <c>TrackPhrases</c> rows for one source (#225): Rekordbox's PSSI import and
+    /// the user's phrase-strip edits both land in the single store through this.
+    /// </summary>
+    public static List<TrackPhraseEntity> ToTrackPhrases(string trackHash, IEnumerable<PhraseSegment> segments, string source, double bpm, double downbeat)
+    {
+        return segments
+            .OrderBy(s => s.Start)
+            .Select((s, i) =>
+            {
+                double end = s.Start + s.Duration;
+                int startBar = bpm > 0 ? Services.AudioAnalysis.PhraseBarIndexing.SecondsToBar(s.Start, bpm, downbeat) : 0;
+                int endBar = bpm > 0 ? Services.AudioAnalysis.PhraseBarIndexing.SecondsToBar(end, bpm, downbeat) : 0;
+                return new TrackPhraseEntity
+                {
+                    TrackUniqueHash = trackHash,
+                    Type = TypeFromLabel(s.Label),
+                    Label = s.Label,
+                    StartTimeSeconds = s.Start,
+                    EndTimeSeconds = (float)end,
+                    Confidence = s.Confidence,
+                    OrderIndex = i,
+                    StartBar = startBar,
+                    BarCount = Math.Max(1, endBar - startBar),
+                    Source = source,
+                };
+            })
+            .ToList();
+    }
+
+    /// <summary>The <see cref="PhraseType"/> a segment label names (e.g. "Drop 2" → Drop); Unknown when none.</summary>
+    public static PhraseType TypeFromLabel(string? label)
+    {
+        if (string.IsNullOrWhiteSpace(label)) return PhraseType.Unknown;
+        foreach (PhraseType t in Enum.GetValues(typeof(PhraseType)))
+            if (t != PhraseType.Unknown && label.StartsWith(t.ToString(), StringComparison.OrdinalIgnoreCase))
+                return t;
+        if (label.Contains("break", StringComparison.OrdinalIgnoreCase)) return PhraseType.Breakdown;
+        if (label.Contains("up", StringComparison.OrdinalIgnoreCase) || label.Contains("rise", StringComparison.OrdinalIgnoreCase)) return PhraseType.Build;
+        return PhraseType.Unknown;
+    }
+
     /// <summary>Converts persisted <c>TrackPhrases</c> rows to the generator's segment model.</summary>
     public static List<PhraseSegment> FromTrackPhrases(IEnumerable<TrackPhraseEntity>? phrases)
     {

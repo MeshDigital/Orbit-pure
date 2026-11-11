@@ -18,6 +18,10 @@ public sealed class WhatsNewStepViewModel : SetupStepViewModel
 
     public IReadOnlyList<WhatsNewItem> Items { get; } = new[]
     {
+        new WhatsNewItem("BPM fixes now stick", "×2, ÷2 and a typed BPM in Cue Forge update the beat grid itself, so transitions, cues and Rekordbox export all use the corrected tempo."),
+        new WhatsNewItem("Your beat grid is protected", "A grid you edited or marked correct is never overwritten by re-analysis or Rekordbox; a banner offers any different grid instead."),
+        new WhatsNewItem("Grid review", "The Library's Grid review chip lists tracks whose bar lines don't match the music, so you can check them in Cue Forge."),
+        new WhatsNewItem("Finer grid tools", "Cue Forge → Preparation: 1 ms slip, tap tempo, BPM from two downbeats and a metronome click to check the grid by ear."),
         new WhatsNewItem("Set edits now stick", "Role and energy changes on the Story Graph are saved straight away, and adding a track no longer undoes them. Click a slot to select it."),
         new WhatsNewItem("Find any track for a set", "The Add Track picker now searches your whole library by title or artist."),
         new WhatsNewItem("Transition Lab is moving", "It's hidden for now while it merges into Flow Builder's transition editor, so there's one place to edit and rate transitions."),

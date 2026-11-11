@@ -58,8 +58,11 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
     private readonly ICueAudition _audition;
     private readonly CueSessionRegistry _registry;
     private readonly ILogger _logger;
-    private readonly List<OrbitCue[]> _undoStack = new();
-    private readonly Stack<OrbitCue[]> _redoStack = new();
+    private readonly List<UndoEntry> _undoStack = new();
+    private readonly Stack<UndoEntry> _redoStack = new();
+
+    /// <summary>One undo step: a snapshot of the cue list, or an edit outside it (see <see cref="ExternalEdit"/>).</summary>
+    private sealed record UndoEntry(OrbitCue[]? Cues, ExternalEdit? Edit);
     private readonly HashSet<OrbitCue> _trackedCues = new();
 
     // Each cue's position and source as of the last finished edit. The waveforms move a cue in
@@ -1338,8 +1341,43 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
     {
         _redoStack.Clear();
         if (_undoStack.Count >= MaxUndoHistory) _undoStack.RemoveAt(0);
-        _undoStack.Add(fromBaseline ? TakeBaselineSnapshot() : TakeSnapshot());
+        _undoStack.Add(new UndoEntry(fromBaseline ? TakeBaselineSnapshot() : TakeSnapshot(), null));
         UpdateUndoRedoState();
+    }
+
+    /// <summary>
+    /// Adds an edit made outside the cue list (a beat-grid or phrase change, issues #222/#225) to this
+    /// session's history, so Ctrl+Z / Ctrl+Y step through cue and grid edits in the order they were made.
+    /// The edit is already applied; undo/redo run its delegates.
+    /// </summary>
+    public void PushExternalEdit(ExternalEdit edit)
+    {
+        _redoStack.Clear();
+        if (_undoStack.Count >= MaxUndoHistory) _undoStack.RemoveAt(0);
+        _undoStack.Add(new UndoEntry(null, edit));
+        UpdateUndoRedoState();
+    }
+
+    private async Task RunExternalAsync(UndoEntry entry, bool undo)
+    {
+        var edit = entry.Edit!;
+        bool ok;
+        try { ok = await (undo ? edit.UndoAsync() : edit.RedoAsync()); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "CueEditorSession: {Action} of '{Edit}' failed", undo ? "undo" : "redo", edit.Description);
+            ok = false;
+        }
+        if (ok)
+        {
+            SetStatus(undo ? $"Undone: {edit.Description}." : $"Redone: {edit.Description}.");
+            return;
+        }
+        // Put the step back where it was so the history still matches what is stored.
+        if (undo) { if (_redoStack.Count > 0 && ReferenceEquals(_redoStack.Peek(), entry)) _redoStack.Pop(); _undoStack.Add(entry); }
+        else if (_undoStack.Count > 0 && ReferenceEquals(_undoStack[^1], entry)) { _undoStack.RemoveAt(_undoStack.Count - 1); _redoStack.Push(entry); }
+        UpdateUndoRedoState();
+        SetStatus(undo ? $"Couldn't undo {edit.Description}; nothing was changed." : $"Couldn't redo {edit.Description}; nothing was changed.", isError: true);
     }
 
     private OrbitCue[] TakeSnapshot() => Cues.Select(c => c.Clone()).ToArray();
@@ -1365,10 +1403,17 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
     private void Undo()
     {
         if (_undoStack.Count == 0) return;
-        _redoStack.Push(TakeSnapshot());
-        var s = _undoStack[^1];
+        var entry = _undoStack[^1];
         _undoStack.RemoveAt(_undoStack.Count - 1);
-        RestoreSnapshot(s);
+        if (entry.Edit is not null)
+        {
+            _redoStack.Push(entry);
+            UpdateUndoRedoState();
+            _ = RunExternalAsync(entry, undo: true);
+            return;
+        }
+        _redoStack.Push(new UndoEntry(TakeSnapshot(), null));
+        RestoreSnapshot(entry.Cues!);
         UpdateUndoRedoState();
         Changed("Undone.");
     }
@@ -1376,8 +1421,16 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
     private void Redo()
     {
         if (_redoStack.Count == 0) return;
-        _undoStack.Add(TakeSnapshot());
-        RestoreSnapshot(_redoStack.Pop());
+        var entry = _redoStack.Pop();
+        if (entry.Edit is not null)
+        {
+            _undoStack.Add(entry);
+            UpdateUndoRedoState();
+            _ = RunExternalAsync(entry, undo: false);
+            return;
+        }
+        _undoStack.Add(new UndoEntry(TakeSnapshot(), null));
+        RestoreSnapshot(entry.Cues!);
         UpdateUndoRedoState();
         Changed("Redone.");
     }
@@ -1484,3 +1537,9 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         _trackedCues.Clear();
     }
 }
+
+/// <summary>
+/// An edit outside the cue list (beat grid, phrase map) that shares a cue session's undo history.
+/// The delegates return false (and should show nothing themselves) when the step couldn't be applied.
+/// </summary>
+public sealed record ExternalEdit(string Description, Func<Task<bool>> UndoAsync, Func<Task<bool>> RedoAsync);

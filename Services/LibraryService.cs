@@ -1505,6 +1505,9 @@ public class LibraryService : ILibraryService
             BpmStability = entity.AudioFeatures?.BpmStability,
             TimeTillDropSeconds = entity.AudioFeatures?.TimeTillDropSeconds,
 
+            GridConfidence = entity.AudioFeatures?.GridConfidence,
+            GridVerified = entity.AudioFeatures?.GridVerified ?? false,
+
             SourcePlaylistId   = entity.SourcePlaylistId,
             SourcePlaylistName = entity.SourcePlaylistName,
         };
@@ -2328,6 +2331,12 @@ public class LibraryService : ILibraryService
             return new List<PlaylistTrack>();
         }
     }
+
+    public Task ReplacePhrasesForSourceAsync(string trackHash, string source, IReadOnlyList<TrackPhraseEntity> rows) =>
+        _databaseService.ReplacePhrasesForSourceAsync(trackHash, source, rows);
+
+    public Task ReplaceAllPhrasesAsync(string trackHash, IReadOnlyList<TrackPhraseEntity> rows) =>
+        _databaseService.ReplaceAllPhrasesAsync(trackHash, rows);
 
     public async Task<List<TrackPhraseEntity>> GetPhrasesByHashAsync(string trackHash)
     {

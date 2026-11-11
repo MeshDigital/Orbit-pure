@@ -2849,6 +2849,10 @@ namespace SLSKDONET.ViewModels
             _playerService.Position = position;
         }
 
+        /// <summary>Enables/disables the Cue Forge metronome click on the shared player (issue #222).</summary>
+        public void SetMetronome(IReadOnlyList<double>? beatTimes, double downbeatSeconds, bool enabled) =>
+            _playerService.SetMetronome(beatTimes, downbeatSeconds, enabled);
+
         private void JumpToPhrase(CueRole role, double fallbackRatio)
         {
             if (_playerService.Length <= 0)

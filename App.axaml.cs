@@ -334,6 +334,19 @@ public partial class App : Application
                         // Drop 2 countdowns renamed to [IN2 …]. Auto cues only; no-op once done.
                         Services.GetRequiredService<Services.AudioAnalysis.CueLayoutRepairService>().StartIfPending();
 
+                        // One-time conversion of phrase data to bar-indexed boundaries; no-op once done.
+                        Services.GetRequiredService<Services.AudioAnalysis.PhraseBarMigrationService>().StartIfPending();
+
+                        // One-time estimation of music start for tracks analysed before the detector; no-op once done.
+                        Services.GetRequiredService<Services.AudioAnalysis.MusicStartBackfillService>().StartIfPending();
+
+                        // One-time repair of pre-#220 BPM fixes that never reached the beat grid; no-op once done.
+                        Services.GetRequiredService<Services.AudioAnalysis.BpmSplitRepairService>().StartIfPending();
+
+                        // One-time grid confidence + variable-tempo flag for already-analysed grids
+                        // (stored data only; never changes a grid); no-op once done.
+                        Services.GetRequiredService<Services.AudioAnalysis.GridConfidenceBackfillService>().StartIfPending();
+
                         // Fill first-drop/intro timing from stored energy curves. No audio decode,
                         // cue/grid changes or Rekordbox writes; no-op after the first completed pass.
                         Services.GetRequiredService<Services.AudioAnalysis.TimeTillDropBackfillService>().StartIfPending();
@@ -712,7 +725,12 @@ public partial class App : Application
         services.AddSingleton<PerformanceTracker>(); // live perf overlay (Ctrl+Shift+P) — page-nav and opted-in ViewModel load timings
         services.AddSingleton<UiStallWatchdog>();
         services.AddSingleton<Services.AudioAnalysis.BeatGridRecomputeService>();
+        services.AddSingleton<Services.AudioAnalysis.IBeatGridEditService, Services.AudioAnalysis.BeatGridEditService>();
         services.AddSingleton<Services.AudioAnalysis.CueLayoutRepairService>();
+        services.AddSingleton<Services.AudioAnalysis.PhraseBarMigrationService>();
+        services.AddSingleton<Services.AudioAnalysis.MusicStartBackfillService>();
+        services.AddSingleton<Services.AudioAnalysis.GridConfidenceBackfillService>();
+        services.AddSingleton<Services.AudioAnalysis.BpmSplitRepairService>();
         services.AddSingleton<IFileInteractionService, FileInteractionService>();
         services.AddSingleton<INotificationService, NotificationServiceAdapter>();
         services.AddSingleton<IClipboardService, ClipboardService>();

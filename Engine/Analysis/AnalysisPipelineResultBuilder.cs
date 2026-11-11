@@ -36,21 +36,13 @@ public static class AnalysisPipelineResultBuilder
                 : GenreSource.Unknown,
         };
 
-        // Phrase source, highest precedence first:
-        //   1. A list the caller resolved itself (Cue Forge and the structural job read the fresh
-        //      TrackPhrases rows, so they pass those in — the legacy JSON column is only rewritten
-        //      when empty and can therefore hold boundaries from an older, wrong-duration analysis).
-        //   2. The legacy PhraseSegmentsJson column, but only when it records a trusted provenance.
-        //      An empty source means the row predates the bridge (or was written by an analysis that
-        //      never finished), and its timestamps cannot be trusted for cue placement.
-        //   3. Nothing — the DSP path scores raw audio signals instead.
+        // Phrases come only from the caller, resolved from the single TrackPhrases store (User >
+        // RekordboxPSSI > Heuristic, #225). The legacy PhraseSegmentsJson column is no longer read: it
+        // never saw the user's phrase edits and could hold boundaries from an older, wrong-grid
+        // analysis. Without a list, the DSP path scores raw audio signals instead.
         if (phraseSegments is not null)
         {
             result.PhraseSegments = PhraseSourceResolver.Sanitize(phraseSegments, f.TrackDuration);
-        }
-        else if (PhraseSourceResolver.IsTrustedSource(f.PhraseSegmentsSource))
-        {
-            result.PhraseSegments = PhraseSourceResolver.Sanitize(ParsePhraseSegments(f.PhraseSegmentsJson), f.TrackDuration);
         }
 
         // Detected first-drop timestamp (the value behind the header's "Time till drop"). It is a
@@ -61,6 +53,13 @@ public static class AnalysisPipelineResultBuilder
             : f.DropTimeSeconds is > 0 && f.DropConfidence >= 0.5f ? f.DropTimeSeconds : null;
         if (hintedDrop is > 0 && (f.TrackDuration <= 0 || hintedDrop < f.TrackDuration - 4))
             result.HintedDropTimestamp = hintedDrop.Value;
+
+        // Music start (issue #224): carried into the result so cue generation can anchor the Intro
+        // / load cue on the first audible sound when it precedes Bar 1. A waveform-blob estimate
+        // ("Estimated", from the one-off backfill) is display-only: it is too coarse to move cues.
+        if (f.MusicStartSeconds is { } ms && ms >= 0 && (f.TrackDuration <= 0 || ms < f.TrackDuration)
+            && !string.Equals(f.MusicStartSource, Services.AudioAnalysis.MusicStartDetector.SourceEstimated, StringComparison.Ordinal))
+            result.MusicStartSeconds = f.MusicStartSeconds;
 
         // Rekordbox's own commercial phrase analysis (PSSI) and the rule-based structural analysis
         // ("Heuristic") are both trusted provenance for the legacy column; the gate itself lives in

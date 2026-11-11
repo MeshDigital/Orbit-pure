@@ -100,7 +100,7 @@ public static class AnalysisCoverageAnalyzer
     /// </summary>
     public static bool HasStructure(AudioFeaturesEntity features) =>
         features.StructuralVersion > 0 ||
-        !IsEmptyJson(features.PhraseSegmentsJson) ||
+        !string.IsNullOrWhiteSpace(features.PhraseSegmentsSource) ||
         features.DropTimeSeconds is not null;
 
     /// <summary>

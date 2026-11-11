@@ -1146,7 +1146,10 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
                 bpm = f.Bpm;
                 downbeat = f.DownbeatOffsetSeconds;
                 genre = !string.IsNullOrWhiteSpace(f.DetectedSubGenre) ? f.DetectedSubGenre : f.ElectronicSubgenre;
-                phrases = ParsePhrases(f.PhraseSegmentsJson, track.TrackUniqueHash);
+                // The single TrackPhrases store (#225): the user's own map first, then Rekordbox's, then the heuristic.
+                var resolved = Engine.Analysis.PhraseSourceResolver.Resolve(
+                    await _libraryService.GetPhrasesByHashAsync(track.TrackUniqueHash), f.TrackDuration);
+                phrases = resolved.Count > 0 ? resolved : null;
             }
         }
         catch (Exception ex)
@@ -1156,17 +1159,6 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         editor.Load(track.TrackUniqueHash, vm.Title, track.ResolvedFilePath, bpm, downbeat, track.Duration, cues, genre);
         // Phrase analysis (read-only) feeds the deck's Intro end / Outro suggestions.
         editor.Session.SetStructureHints(phrases);
-    }
-
-    private List<PhraseSegment>? ParsePhrases(string? json, string hash)
-    {
-        if (string.IsNullOrWhiteSpace(json) || json == "[]") return null;
-        try { return System.Text.Json.JsonSerializer.Deserialize<List<PhraseSegment>>(json); }
-        catch (System.Text.Json.JsonException ex)
-        {
-            _logger.LogDebug(ex, "Unreadable phrase data for {Hash}; no section suggestions", hash);
-            return null;
-        }
     }
 
     private void RebuildLiveModel()

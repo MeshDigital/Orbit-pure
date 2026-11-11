@@ -79,6 +79,9 @@ public sealed class AnalysisPipelineResult
     /// </summary>
     public double? HintedDropTimestamp { get; set; }
 
+    /// <summary>First audible sound (seconds), when detected — used to anchor the Intro/load cue (issue #224).</summary>
+    public double? MusicStartSeconds { get; set; }
+
     /// <summary>
     /// Detected (sub-)genre hint, e.g. "DnB", "TechHouse", "MelodicTechno". Used by
     /// <see cref="Cueing.CueGenerationService"/>'s DSP path to weight drop-candidate signals —

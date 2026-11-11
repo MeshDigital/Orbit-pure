@@ -32,6 +32,9 @@ namespace SLSKDONET.Services
         /// <summary>Moves playback onto the output device currently selected in Settings, without stopping.</summary>
         void ApplyOutputSettings();
 
+        /// <summary>Enables/disables the Cue Forge metronome click, scheduled from the beat grid (issue #222).</summary>
+        void SetMetronome(System.Collections.Generic.IReadOnlyList<double>? beatTimes, double downbeatSeconds, bool enabled);
+
         event EventHandler EndReached;
         event EventHandler PausableChanged;
 
