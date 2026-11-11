@@ -967,6 +967,7 @@ public partial class App : Application
         services.AddSingleton<Services.Library.Maintenance.TagChangeService>();
         services.AddSingleton<Services.Library.Maintenance.LibraryIdentityIndexLoader>();
         services.AddSingleton<Services.Library.Maintenance.StyleBackfillService>();
+        services.AddSingleton<Services.Library.Maintenance.StylePlaylistApplier>();
         services.AddSingleton(sp => new Services.Enrichment.MetadataCredentialStore(
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.MetadataCredentialStore>>()));
         static System.Net.Http.HttpClient EnrichmentHttp(IServiceProvider sp) =>
