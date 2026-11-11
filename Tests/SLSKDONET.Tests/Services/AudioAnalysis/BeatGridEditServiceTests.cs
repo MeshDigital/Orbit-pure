@@ -404,6 +404,55 @@ public class BeatGridEditServiceTests
         }
     }
 
+    /// <summary>
+    /// The one-off repair (#220): a pre-fix ×2 left ManualBPM = 174 on the library row while the grid
+    /// stayed at 87. The pass re-applies it through the edit service, so the grid itself becomes 174.
+    /// </summary>
+    [Fact]
+    public async Task SplitBpmRepair_AppliesTheOldManualBpmToTheGrid()
+    {
+        var hash = Guid.NewGuid().ToString("N");
+        await SeedTrackAsync(hash); // grid at 87
+        await using (var db = new AppDbContext())
+        {
+            var entry = await db.LibraryEntries.FindAsync(hash);
+            entry!.ManualBPM = 174.0;
+            entry.BPM = 174.0;
+            await db.SaveChangesAsync();
+        }
+
+        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "orbit-bpm-repair-" + Guid.NewGuid().ToString("N"));
+        var pass = new BpmSplitRepairService(NullLogger<BpmSplitRepairService>.Instance, CreateService(), new Mock<IEventBus>().Object)
+        {
+            DataDirectory = dir,
+        };
+
+        try
+        {
+            await pass.RunAsync(CancellationToken.None);
+
+            await using var verify = new AppDbContext();
+            var features = await verify.AudioFeatures.SingleAsync(f => f.TrackUniqueHash == hash);
+            Assert.Equal(174f, features.Bpm, 2);
+            AssertBeatsMatchBpm(BeatGridFitter.ParseTicks(features.BeatGridJson), 174.0);
+            Assert.True(System.IO.File.Exists(System.IO.Path.Combine(dir, "bpm-split-repair-v1.done")));
+        }
+        finally
+        {
+            await CleanupAsync(hash);
+            if (System.IO.Directory.Exists(dir)) System.IO.Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(87.0, 174.0, 2.0)]
+    [InlineData(174.0, 87.0, 0.5)]
+    [InlineData(172.27, 174.0, null)] // a fine correction is a typed BPM, not a rescale
+    public void SplitBpmRepair_PicksScaleOrTypedBpm(double grid, double manual, double? expected)
+    {
+        Assert.Equal(expected, BpmSplitRepairService.ScaleFactorFor(grid, manual));
+    }
+
     private static void AssertBeatsMatchBpm(double[] beats, double bpm)
     {
         double median = BeatGridEditService.MedianInterval(beats);

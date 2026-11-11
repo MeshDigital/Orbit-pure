@@ -340,6 +340,9 @@ public partial class App : Application
                         // One-time estimation of music start for tracks analysed before the detector; no-op once done.
                         Services.GetRequiredService<Services.AudioAnalysis.MusicStartBackfillService>().StartIfPending();
 
+                        // One-time repair of pre-#220 BPM fixes that never reached the beat grid; no-op once done.
+                        Services.GetRequiredService<Services.AudioAnalysis.BpmSplitRepairService>().StartIfPending();
+
                         // One-time grid confidence + variable-tempo flag for already-analysed grids
                         // (stored data only; never changes a grid); no-op once done.
                         Services.GetRequiredService<Services.AudioAnalysis.GridConfidenceBackfillService>().StartIfPending();
@@ -727,6 +730,7 @@ public partial class App : Application
         services.AddSingleton<Services.AudioAnalysis.PhraseBarMigrationService>();
         services.AddSingleton<Services.AudioAnalysis.MusicStartBackfillService>();
         services.AddSingleton<Services.AudioAnalysis.GridConfidenceBackfillService>();
+        services.AddSingleton<Services.AudioAnalysis.BpmSplitRepairService>();
         services.AddSingleton<IFileInteractionService, FileInteractionService>();
         services.AddSingleton<INotificationService, NotificationServiceAdapter>();
         services.AddSingleton<IClipboardService, ClipboardService>();
