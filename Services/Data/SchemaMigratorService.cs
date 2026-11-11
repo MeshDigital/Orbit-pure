@@ -1986,6 +1986,25 @@ public class SchemaMigratorService
                     command.CommandText = @"ALTER TABLE ""TrackPhrases"" ADD COLUMN ""EmbeddingModel"" TEXT NOT NULL DEFAULT '';";
                     await command.ExecuteNonQueryAsync();
                 }
+
+                // Bar-indexed phrase map (issue #225)
+                if (!ColumnExists("TrackPhrases", "StartBar"))
+                {
+                    command.CommandText = @"ALTER TABLE ""TrackPhrases"" ADD COLUMN ""StartBar"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                if (!ColumnExists("TrackPhrases", "BarCount"))
+                {
+                    command.CommandText = @"ALTER TABLE ""TrackPhrases"" ADD COLUMN ""BarCount"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                if (!ColumnExists("TrackPhrases", "Source"))
+                {
+                    command.CommandText = @"ALTER TABLE ""TrackPhrases"" ADD COLUMN ""Source"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
             }
 
             // 8. Phase 17: GenreCueTemplates Table

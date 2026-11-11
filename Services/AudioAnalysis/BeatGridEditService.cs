@@ -220,6 +220,20 @@ public sealed class BeatGridEditService : IBeatGridEditService
             return GridEditResult.Failed($"Couldn't save the beat grid change: {ex.Message}");
         }
 
+        // Bar-indexed phrases move with the grid (issue #225): re-derive their seconds columns.
+        try
+        {
+            await _database.ReindexPhraseSecondsFromBarsAsync(hash, bpm, downbeat, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "BeatGridEdit: could not re-index phrases for {Hash}", hash);
+        }
+
         try
         {
             _eventBus?.Publish(new TrackAnalysisUpdatedEvent(hash, DateTime.UtcNow));

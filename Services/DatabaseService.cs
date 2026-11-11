@@ -2373,6 +2373,37 @@ public class DatabaseService
     }
 
     /// <summary>
+    /// Recomputes the seconds columns of a track's bar-indexed phrases from the (new) grid after a
+    /// grid edit, so phrase boundaries follow the bars (issue #225). Phrases that are not bar-indexed
+    /// (<c>BarCount == 0</c>, pre-migration) are left untouched.
+    /// </summary>
+    public async Task ReindexPhraseSecondsFromBarsAsync(string trackHash, double bpm, double downbeat, CancellationToken ct = default)
+    {
+        if (bpm <= 0) return;
+        await _writeSemaphore.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            var phrases = await context.TrackPhrases
+                .Where(p => p.TrackUniqueHash == trackHash)
+                .ToListAsync(ct).ConfigureAwait(false);
+            foreach (var p in phrases)
+            {
+                if (p.BarCount > 0 || p.StartBar > 0)
+                {
+                    p.StartTimeSeconds = (float)AudioAnalysis.PhraseBarIndexing.BarToSeconds(p.StartBar, bpm, downbeat);
+                    p.EndTimeSeconds = (float)AudioAnalysis.PhraseBarIndexing.BarToSeconds(p.StartBar + p.BarCount, bpm, downbeat);
+                }
+            }
+            await context.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>
     /// Finds AudioFeatures by file path.
     /// Used by PersonalClassifierService to classify tracks on the fly.
     /// </summary>

@@ -316,6 +316,40 @@ public class BeatGridEditServiceTests
         }
     }
 
+    [Fact]
+    public async Task GridEdit_ReindexesBarIndexedPhrases()
+    {
+        var hash = Guid.NewGuid().ToString("N");
+        var service = CreateService();
+        await SeedTrackAsync(hash); // 87 BPM, downbeat 0.5
+
+        await using (var db = new AppDbContext())
+        {
+            db.TrackPhrases.Add(new TrackPhraseEntity
+            {
+                TrackUniqueHash = hash, Type = PhraseType.Drop,
+                StartBar = 4, BarCount = 8, Source = "Heuristic",
+                StartTimeSeconds = 0, EndTimeSeconds = 0, // stale; the grid edit must fix them
+            });
+            await db.SaveChangesAsync();
+        }
+
+        try
+        {
+            var result = await service.SlipAsync(hash, 0.010, CancellationToken.None);
+            Assert.True(result.Success, result.Reason);
+
+            await using var db2 = new AppDbContext();
+            var phrase = await db2.TrackPhrases.SingleAsync(p => p.TrackUniqueHash == hash);
+            Assert.Equal(PhraseBarIndexing.BarToSeconds(4, 87.0, 0.51), phrase.StartTimeSeconds, 3);
+            Assert.Equal(PhraseBarIndexing.BarToSeconds(12, 87.0, 0.51), phrase.EndTimeSeconds, 3);
+        }
+        finally
+        {
+            await CleanupAsync(hash);
+        }
+    }
+
     private static void AssertBeatsMatchBpm(double[] beats, double bpm)
     {
         double median = BeatGridEditService.MedianInterval(beats);
@@ -371,6 +405,7 @@ public class BeatGridEditServiceTests
         db.Tracks.RemoveRange(db.Tracks.Where(t => t.GlobalId == hash));
         db.PlaylistTracks.RemoveRange(db.PlaylistTracks.Where(t => t.TrackUniqueHash == hash));
         db.CuePoints.RemoveRange(db.CuePoints.Where(c => c.TrackUniqueHash == hash));
+        db.TrackPhrases.RemoveRange(db.TrackPhrases.Where(p => p.TrackUniqueHash == hash));
         await db.SaveChangesAsync();
     }
 
