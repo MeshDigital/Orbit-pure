@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using SLSKDONET.Engine.Transitions;
 using SLSKDONET.Models;
 using SLSKDONET.ViewModels;
 
@@ -89,6 +90,8 @@ public sealed class TransitionOverlayControl : Control
     private bool _pressed, _dragging;
     private double _pressX, _dragOffsetSeconds;
     private double _ghostTarget;
+    private SnapKind _ghostSnapKind;
+    private string? _ghostSnapLabel;
 
     static TransitionOverlayControl()
     {
@@ -184,7 +187,10 @@ public sealed class TransitionOverlayControl : Control
         }
 
         // Ghost readout while dragging: where B would come in.
-        if (_dragging && Label("B in " + FormatTime(_ghostTarget)) is { } ghost)
+        var ghostText = _ghostSnapLabel is { } snapLabel && _ghostSnapKind != SnapKind.None
+            ? $"B in {FormatTime(_ghostTarget)} · {snapLabel}"
+            : $"B in {FormatTime(_ghostTarget)}";
+        if (_dragging && Label(ghostText) is { } ghost)
             ctx.DrawText(ghost, new Point(Math.Clamp(ox0 + shiftPx + 4, 0, Math.Max(0, w - ghost.Width)), top + 2));
 
         // Preview playhead.
@@ -361,7 +367,13 @@ public sealed class TransitionOverlayControl : Control
         if (!_dragging && Math.Abs(x - _pressX) < MarkerGesture<object>.DragThresholdPixels) return;
         _dragging = true;
         double raw = (x - _pressX) / Bounds.Width * model.SpanSeconds;
-        _ghostTarget = model.ShiftedTargetTrigger(raw, snapToBar: (e.KeyModifiers & KeyModifiers.Shift) == 0);
+        double pixelsPerSecond = Bounds.Width / model.SpanSeconds;
+        bool altHeld = (e.KeyModifiers & KeyModifiers.Alt) != 0;
+        bool shiftHeld = (e.KeyModifiers & KeyModifiers.Shift) != 0;
+        var snap = model.SnapTargetTrigger(raw, pixelsPerSecond, tolerancePx: 8, altHeld: altHeld, shiftHeld: shiftHeld);
+        _ghostTarget = snap.Seconds;
+        _ghostSnapKind = snap.Kind;
+        _ghostSnapLabel = snap.Label;
         _dragOffsetSeconds = model.DrawOffsetFor(_ghostTarget); // B jumps bar by bar (snapped)
         InvalidateVisual();
     }
@@ -388,6 +400,8 @@ public sealed class TransitionOverlayControl : Control
         _pressed = false;
         _dragging = false;
         _dragOffsetSeconds = 0;
+        _ghostSnapKind = SnapKind.None;
+        _ghostSnapLabel = null;
         InvalidateVisual();
     }
 }

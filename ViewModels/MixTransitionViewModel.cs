@@ -816,7 +816,12 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
             OutgoingBpm, IncomingBpm, EffectiveSourceTriggerSeconds, TargetTriggerSeconds, TransitionWindowSeconds,
             PreviewLeadInSeconds, OutgoingDurationSeconds, IncomingDurationSeconds, IncomingEditor.Session.GridOffset,
             OutgoingAutomationCurve as IReadOnlyList<float>, IncomingAutomationCurve as IReadOnlyList<float>, OverlayMarkers(),
-            IncomingPlaybackRate);
+            IncomingPlaybackRate,
+            SLSKDONET.Engine.Transitions.TransitionSnap.BuildCandidates(
+                IncomingEditor.Session.Cues.Select(c => (c.Timestamp, c.Name)),
+                OutgoingEditor.Session.Cues.Select(c => (c.Timestamp, c.Name)),
+                EffectiveSourceTriggerSeconds,
+                toleranceSeconds: 0.05));
         this.RaisePropertyChanged(nameof(OverlaySummary));
     }
 
