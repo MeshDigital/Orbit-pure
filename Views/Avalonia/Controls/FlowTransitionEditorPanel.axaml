@@ -77,7 +77,8 @@
             <Border Grid.Row="1" Classes="toolbar" Padding="16,0" DataContext="{Binding MixTransitionVm}" x:DataType="vm:MixTransitionViewModel">
                 <WrapPanel>
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,4,16,4">
-                        <TextBlock Classes="caption" Text="Blend" VerticalAlignment="Center"/>
+                        <TextBlock Classes="caption" Text="Type" VerticalAlignment="Center"
+                                   ToolTip.Tip="Auto, Rolling, Relaxed, Drop Sync and 1-Bar Drop Swap place both mix points from the tracks' cues (Drop Sync lands B's drop on A's drop). The others only change the blend effect."/>
                         <ComboBox Classes="small" Width="128" ItemsSource="{Binding PresetNames}" SelectedItem="{Binding SelectedPreset}"
                                   ToolTip.Tip="{Binding SelectedPresetDescription}"/>
                     </StackPanel>
@@ -194,6 +195,19 @@
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                                 <TextBlock Classes="caption" Text="Mix-out" VerticalAlignment="Center"/>
                                 <TextBlock Classes="mono" Text="{Binding SourceTriggerDisplay}" Width="40" TextAlignment="Right" VerticalAlignment="Center"/>
+                                <ComboBox Classes="small" Width="132" ItemsSource="{Binding OutgoingCues}" SelectedItem="{Binding OutgoingMixCue}"
+                                          PlaceholderText="custom" VerticalAlignment="Center"
+                                          ToolTip.Tip="Put the mix-out exactly on a cue. Shows the cue it sits on, or 'custom' between cues.">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate DataType="models:OrbitCue">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Ellipse Width="6" Height="6" Fill="{Binding Color}" VerticalAlignment="Center"/>
+                                                <TextBlock Classes="body-sm" Text="{Binding Name}"/>
+                                                <TextBlock Classes="mono muted" Text="{Binding TimestampDisplay}"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
                                 <Button Classes="icon small" Command="{Binding NudgeBackCommand}" ToolTip.Tip="Mix-out one beat earlier">
                                     <PathIcon Data="{StaticResource icon_chevron_left}" Width="14" Height="14"/>
                                 </Button>
@@ -292,6 +306,19 @@
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                                 <TextBlock Classes="caption" Text="Mix-in" VerticalAlignment="Center"/>
                                 <TextBlock Classes="mono" Text="{Binding TargetTriggerDisplay}" Width="40" TextAlignment="Right" VerticalAlignment="Center"/>
+                                <ComboBox Classes="small" Width="132" ItemsSource="{Binding IncomingCues}" SelectedItem="{Binding IncomingMixCue}"
+                                          PlaceholderText="custom" VerticalAlignment="Center"
+                                          ToolTip.Tip="Put the mix-in exactly on a cue. Shows the cue it sits on, or 'custom' between cues.">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate DataType="models:OrbitCue">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Ellipse Width="6" Height="6" Fill="{Binding Color}" VerticalAlignment="Center"/>
+                                                <TextBlock Classes="body-sm" Text="{Binding Name}"/>
+                                                <TextBlock Classes="mono muted" Text="{Binding TimestampDisplay}"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
                                 <Button Classes="icon small" Command="{Binding NudgeIncomingBackCommand}" ToolTip.Tip="Mix-in one beat earlier">
                                     <PathIcon Data="{StaticResource icon_chevron_left}" Width="14" Height="14"/>
                                 </Button>
