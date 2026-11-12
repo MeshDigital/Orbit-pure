@@ -1713,13 +1713,12 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
             // track. Trusting the hash first made the outgoing track look attached while the player
             // actually held the incoming file, so clicking an outgoing cue seeked and played the
             // incoming track instead of the one on screen.
-            if (_transport.CurrentFilePath is { Length: > 0 } loaded)
-                return SameAudioFile(loaded, _trackFilePath);
-
-            // No loaded path reported yet (the player was just opened): fall back to queue
-            // identity. Cue Forge also borrows the player for a track the queue is not on, and in
-            // that case the path check above is the one that identifies it.
-            return string.Equals(_transport.CurrentTrackHash, TrackHash, StringComparison.OrdinalIgnoreCase);
+            // Only a file the audio engine really has open counts. Right after startup the player
+            // shows the restored queue track without having opened it: treating that as attached
+            // made the first cue click seek an empty engine (ignored) and then Play loaded the file
+            // from 0:00 — "the first cue I click plays from the start". Not attached → the click
+            // borrows the player: load, seek, then play.
+            return _transport.LoadedFilePath is { Length: > 0 } loaded && SameAudioFile(loaded, _trackFilePath);
         }
     }
 
@@ -1750,6 +1749,8 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
             Session.SetStatus("Can't play this track: its audio file wasn't found on disk.", isError: true);
             return false;
         }
+        // Remember where the playlist was before taking the player over ("Resume playlist").
+        _transport.MarkInterrupted();
         if (_borrow == null)
         {
             var prev = _transport.CurrentFilePath;
@@ -1834,6 +1835,13 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
         if (_borrow is not { } borrow) return;
         _borrow = null;
         if (!IsAttachedToPlayer) return; // someone else already took the player over
+        // Through the queue when the player remembered the interrupted playlist: that also re-arms
+        // the next transition with the cues just edited.
+        if (_transport.TryResumeInterrupted(resumePlayback))
+        {
+            this.RaisePropertyChanged(nameof(IsPlaying));
+            return;
+        }
         _transport.Pause();
         if (!string.IsNullOrEmpty(borrow.PreviousPath))
         {
@@ -2028,6 +2036,8 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
 
     private void SeekPlayer(double seconds)
     {
+        // Seeking the playlist's own track moves the mix: remember where it was first.
+        _transport.MarkInterrupted();
         seconds = Math.Clamp(seconds, 0, TrackDuration);
         double length = EffectiveLength(_transport.LengthSeconds);
         if (length > 0) _transport.SeekFraction(seconds / length);

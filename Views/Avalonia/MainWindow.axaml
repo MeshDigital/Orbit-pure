@@ -209,6 +209,17 @@
                                 ToolTip.Tip="Next track">
                             <PathIcon Data="{StaticResource icon_skip_next}"/>
                         </Button>
+                        <!-- Resume playlist: an editor (Cue Forge) interrupted the playlist; one click back to where it was. -->
+                        <Button Classes="secondary small" Command="{Binding PlayerViewModel.ResumeInterruptedCommand}"
+                                IsVisible="{Binding PlayerViewModel.HasResumePoint}" Padding="8,2" Margin="4,0" MaxWidth="240"
+                                ToolTip.Tip="Continue the playlist where Cue Forge interrupted it (the next transition uses your edited cues)">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <PathIcon Data="{StaticResource icon_undo}" Width="12" Height="12"/>
+                                <TextBlock Text="Resume" FontSize="12" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding PlayerViewModel.ResumeLabel}" FontSize="11" Classes="mono" VerticalAlignment="Center"
+                                           Foreground="{StaticResource BrushText2}" TextTrimming="CharacterEllipsis" MaxWidth="160"/>
+                            </StackPanel>
+                        </Button>
                         <Button Classes="icon small" Command="{Binding PlayerViewModel.ToggleExpandedPlayerCommand}"
                                 ToolTip.Tip="Fullscreen player">
                             <PathIcon Data="{StaticResource icon_expand}"/>

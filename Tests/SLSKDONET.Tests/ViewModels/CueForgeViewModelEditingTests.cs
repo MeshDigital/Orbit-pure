@@ -67,6 +67,11 @@ public class CueForgeViewModelEditingTests
         public bool IsPlaying { get; set; }
         public string? CurrentFilePath { get; set; }
         public string? CurrentTrackHash { get; set; }
+        /// <summary>Models a restored queue track that the audio engine hasn't opened yet (app just started).</summary>
+        public bool NothingLoaded;
+        public int Interruptions;
+        string? ICueForgeTransport.LoadedFilePath => NothingLoaded ? null : CurrentFilePath;
+        void ICueForgeTransport.MarkInterrupted() => Interruptions++;
         public string Title { get; set; } = "";
         public string Artist { get; set; } = "";
         public double PositionFraction { get; set; }
@@ -82,6 +87,7 @@ public class CueForgeViewModelEditingTests
         public void LoadPaused(string filePath, string title, string artist)
         {
             Loads.Add(filePath);
+            NothingLoaded = false;
             CurrentFilePath = filePath; Title = title; Artist = artist;
             IsPlaying = false;
             LengthSeconds = filePath.Contains("track-") ? 300 : 200;
@@ -240,6 +246,29 @@ public class CueForgeViewModelEditingTests
         Assert.Equal("C:/music/playlist-track.flac", player.CurrentFilePath);
         Assert.True(player.IsPlaying, "the playlist track must resume after saving");
         Assert.Equal(0.25, player.Seeks.Last(), 6);
+    }
+
+    /// <summary>
+    /// Regression: right after startup the player shows the restored queue track (this one) but the
+    /// audio engine has not opened it. The first cue click used to count as "attached", seek an empty
+    /// engine (ignored) and then Play loaded the file from 0:00. It must load first, then seek.
+    /// </summary>
+    [Fact]
+    public async Task FirstCueClick_WhenTheQueueTrackIsOnlyRestored_LoadsThenSeeksToTheCue()
+    {
+        var (vm, _, player) = await CreateLoaded();
+        player.CurrentFilePath = "C:/music/track-a.flac";   // the queue's track = the one in Cue Forge
+        player.CurrentTrackHash = Hash;
+        player.NothingLoaded = true;                         // …but nothing is open yet
+        player.Loads.Clear(); player.Seeks.Clear();
+        vm.Session.ReplaceAllCues(new[] { new OrbitCue { Timestamp = 60.0, Name = "[DROP 1]", Role = CueRole.Drop } }, "seeded");
+
+        vm.Session.PrelistenCue(vm.Session.Cues[0]);
+
+        Assert.Single(player.Loads);                         // borrowed: the file was opened first
+        Assert.Equal(60.0 / 300.0, player.Seeks.Last(), 3);  // then sought to the cue, not left at 0:00
+        Assert.True(player.IsPlaying);
+        Assert.True(player.Interruptions > 0, "the playlist position is remembered before the take-over");
     }
 
     [Fact]

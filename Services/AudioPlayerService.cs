@@ -19,6 +19,11 @@ namespace SLSKDONET.Services
         /// the next track already open and ready (preloaded) while the current one is still
         /// playing, which is what makes gapless transitions and crossfading possible.
         /// </summary>
+        public string? LoadedFilePath
+        {
+            get { lock (_deckLock) return _current is { IsDisposed: false } d && !string.IsNullOrEmpty(d.FilePath) ? d.FilePath : null; }
+        }
+
         private class Deck : IDisposable
         {
             public AudioFileReader? AudioFile;

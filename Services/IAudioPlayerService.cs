@@ -4,6 +4,10 @@ namespace SLSKDONET.Services
 {
     public interface IAudioPlayerService : IDisposable
     {
+        /// <summary>The file the audio engine actually has open (its current deck), or null when nothing is
+        /// loaded — unlike the player's queue track, which is restored at startup before any file is opened.</summary>
+        string? LoadedFilePath => null;
+
         bool IsPlaying { get; }
         bool IsInitialized { get; } // Check if LibVLC native libraries loaded successfully
         long Length { get; } // Duration in ms
