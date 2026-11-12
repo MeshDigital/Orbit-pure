@@ -4019,13 +4019,36 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     ReleaseDate = ctx.Model.ReleaseDate,
                 };
 
-                // Issue #235: hash the audio payload (ignores tags) for exact-duplicate detection.
-                // Failure is non-fatal: the entry is still created, just without a hash.
+                // Issue #235/#239: hash the audio payload (ignores tags). Failure is non-fatal.
                 if (_contentHasher is not null)
                 {
                     var contentHash = await _contentHasher.ComputeAsync(finalPath, ct).ConfigureAwait(false);
                     if (contentHash is not null)
+                    {
                         libraryEntry.AudioContentHash = contentHash.Value;
+
+                        // Already in library by content hash? Link to the existing entry instead of
+                        // creating a silent second one. The downloaded file is kept on disk.
+                        var duplicate = await _databaseService
+                            .FindLibraryEntryByContentHashAsync(contentHash.Value)
+                            .ConfigureAwait(false);
+                        if (duplicate != null &&
+                            !string.Equals(duplicate.UniqueHash, ctx.Model.TrackUniqueHash, StringComparison.OrdinalIgnoreCase))
+                        {
+                            ctx.Model.TrackUniqueHash = duplicate.UniqueHash;
+                            ctx.Model.ResolvedFilePath = duplicate.FilePath;
+                            ctx.Model.IsFlagged = true;
+                            ctx.Model.FlagReason = $"Same audio as {duplicate.FilePath}";
+                            await _libraryService.UpdatePlaylistTrackAsync(ctx.Model).ConfigureAwait(false);
+                            _eventBus.Publish(new NotificationEvent(
+                                "Already in library",
+                                $"'{ctx.Model.Artist} – {ctx.Model.Title}' is a duplicate of '{duplicate.Artist} – {duplicate.Title}'.",
+                                NotificationType.Information));
+                            _auditLogger.Log(ctx.GlobalId,
+                                $"• Duplicate: same audio as {duplicate.FilePath} (kept {finalPath})", isError: false);
+                            return;
+                        }
+                    }
                 }
 
                 await _libraryService.SaveOrUpdateLibraryEntryAsync(libraryEntry);

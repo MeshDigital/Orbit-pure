@@ -385,6 +385,16 @@ public class DatabaseService
             .FirstOrDefaultAsync(e => e.UniqueHash == uniqueHash);
     }
 
+    /// <summary>Finds a library entry whose tag-independent audio content hash matches (issue #239).</summary>
+    public async Task<LibraryEntryEntity?> FindLibraryEntryByContentHashAsync(string contentHash)
+    {
+        if (string.IsNullOrWhiteSpace(contentHash))
+            return null;
+        using var context = new AppDbContext();
+        return await context.LibraryEntries
+            .FirstOrDefaultAsync(e => e.AudioContentHash == contentHash);
+    }
+
 
 
     public async Task SaveLibraryEntryAsync(LibraryEntryEntity entry)
