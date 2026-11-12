@@ -38,28 +38,18 @@ public class AudioContentHasher
 
     private AudioContentHash ComputeCore(string path, CancellationToken ct)
     {
-        var ext = Path.GetExtension(path).ToLowerInvariant();
+        var ext = Path.GetExtension(path);
         using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
 
-        switch (ext)
+        return Services.Audio.AudioFormats.Find(ext)?.Family switch
         {
-            case ".flac":
-                return HashFlac(fs, ct);
-            case ".wav":
-                return HashWav(fs, ct);
-            case ".mp3":
-                return HashMp3(fs, ct);
-            case ".m4a":
-            case ".mp4":
-            case ".aac":
-            case ".alac":
-                return HashM4a(fs, ct);
-            case ".aiff":
-            case ".aif":
-                return HashAiff(fs, ct);
-            default:
-                return HashWholeFile(fs, "file", ct);
-        }
+            Services.Audio.AudioContainerFamily.Flac => HashFlac(fs, ct),
+            Services.Audio.AudioContainerFamily.Wave => HashWav(fs, ct),
+            Services.Audio.AudioContainerFamily.Mpeg => HashMp3(fs, ct),
+            Services.Audio.AudioContainerFamily.Mp4 => HashM4a(fs, ct),
+            Services.Audio.AudioContainerFamily.Aiff => HashAiff(fs, ct),
+            _ => HashWholeFile(fs, "file", ct),
+        };
     }
 
     private AudioContentHash HashFlac(FileStream fs, CancellationToken ct)

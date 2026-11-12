@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Generic;
+using SLSKDONET.Services.Audio;
 
 namespace SLSKDONET.Services.AutoDownload;
 
@@ -10,11 +10,6 @@ namespace SLSKDONET.Services.AutoDownload;
 public static class CandidateSizePlausibility
 {
     public sealed record Result(bool IsPlausible, string Reason, double ImpliedKbps);
-
-    private static readonly HashSet<string> LosslessFormats = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "flac", "wav", "aiff", "aif", "ape", "alac"
-    };
 
     public static Result Evaluate(
         long? sizeBytes,
@@ -37,7 +32,7 @@ public static class CandidateSizePlausibility
             return new Result(true, "duration unknown", 0);
 
         var impliedKbps = size * 8.0 / 1000.0 / referenceSeconds;
-        bool lossless = !string.IsNullOrWhiteSpace(format) && LosslessFormats.Contains(format.Trim().TrimStart('.'));
+        bool lossless = AudioFormats.IsLossless(format);
 
         if (lossless)
         {
