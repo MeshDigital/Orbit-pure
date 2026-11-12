@@ -355,6 +355,8 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         _mixTransitionVm = mixTransitionVm;
         _mixTransitionVm.Closed += OnMixEditorClosed;
         _mixTransitionVm.SavedStateChanged += OnMixSavedStateChanged;
+        // Cue Forge opened from this editor returns to the same playlist and transition.
+        _mixTransitionVm.CueForgeReturnFactory = BuildCueForgeReturnPoint;
         _disposables.Add(System.Reactive.Disposables.Disposable.Create(() =>
         {
             _mixTransitionVm.Closed -= OnMixEditorClosed;
@@ -1363,6 +1365,41 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         _mixTransitionVm.SaveBlockedReason = GetSaveBlockedReason(SelectedPlaylist?.Id, currentCard.Model, nextCard.Model);
         // Loading a new pair auto-saves the previous pair's cue edits (MixTransitionViewModel.LoadPairAsync).
         _ = LoadPairSafeAsync(SelectedPlaylist?.Id ?? currentCard.Model.PlaylistId, currentCard.Model, nextCard.Model);
+    }
+
+    /// <summary>
+    /// Cue Forge's "← Back to Flow Builder · playlist · transition N of M" for the open pair. Returning
+    /// navigates here and reopens that exact transition (found again by track if the set reloaded).
+    /// </summary>
+    internal CueForgeReturnPoint? BuildCueForgeReturnPoint()
+    {
+        if (!IsTransitionEditorOpen || _activeOutgoingCard is not { } outgoing || _activeIncomingCard is not { } incoming)
+            return null;
+        var playlistId = SelectedPlaylist?.Id;
+        var position = ActiveTransitionPositionText;
+        var label = $"Flow Builder · {SelectedPlaylist?.SourceTitle ?? "set"}"
+            + (string.IsNullOrEmpty(position) ? string.Empty : $" · {position.ToLowerInvariant()}");
+        return new CueForgeReturnPoint(label, () => ReturnFromCueForge(playlistId, outgoing.Model.Id, incoming.Model.Id));
+    }
+
+    /// <summary>Back from Cue Forge: show Flow Builder with the transition the user left from.</summary>
+    internal void ReturnFromCueForge(Guid? playlistId, Guid outgoingTrackId, Guid incomingTrackId)
+    {
+        _eventBus.Publish(new NavigateToPageEvent("FlowBuilder"));
+        if (SelectedPlaylist?.Id != playlistId)
+        {
+            StatusText = "The set you came from isn't open any more. Pick it in the playlist picker.";
+            return;
+        }
+        if (IsTransitionEditorOpen && _activeOutgoingCard?.Model.Id == outgoingTrackId && _activeIncomingCard?.Model.Id == incomingTrackId)
+            return; // still open on it: the decks already reloaded the saved cues live
+        int index = -1;
+        for (int i = 0; i < Tracks.Count - 1; i++)
+        {
+            if (Tracks[i].Model.Id == outgoingTrackId && Tracks[i + 1].Model.Id == incomingTrackId) { index = i; break; }
+        }
+        if (index >= 0) OpenTransition(Tracks[index]);
+        else StatusText = "That transition isn't in the set any more (the order changed).";
     }
 
     private async Task LoadPairSafeAsync(Guid playlistId, PlaylistTrack outgoing, PlaylistTrack incoming)

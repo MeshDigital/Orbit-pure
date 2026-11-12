@@ -19,6 +19,16 @@
             <Setter Property="Margin" Value="0,0,4,4"/>
             <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}"/>
         </Style>
+        <Style Selector="Button.cue-pick.current-out">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="{StaticResource BrushAccentSubtle}"/>
+        </Style>
+        <Style Selector="Button.cue-pick.current-in">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushInfo}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="{StaticResource BrushInfoSubtle}"/>
+        </Style>
     </UserControl.Styles>
 
     <Border Background="{StaticResource BrushBg1}">
@@ -43,9 +53,6 @@
                                 <MenuFlyout Placement="BottomEdgeAlignedRight">
                                     <MenuItem Header="Find a bridge track between these two" Command="{Binding FindBridgeForActiveTransitionCommand}"/>
                                     <MenuItem Header="Forget saved transition (use the Auto plan)" Command="{Binding MixTransitionVm.ForgetSavedTransitionCommand}"/>
-                                    <Separator/>
-                                    <MenuItem Header="Open outgoing track in Cue Forge" Command="{Binding MixTransitionVm.OpenOutgoingInCueForgeCommand}"/>
-                                    <MenuItem Header="Open incoming track in Cue Forge" Command="{Binding MixTransitionVm.OpenIncomingInCueForgeCommand}"/>
                                 </MenuFlyout>
                             </Button.Flyout>
                         </Button>
@@ -95,12 +102,12 @@
                         <TextBlock Classes="mono muted" Text="{Binding TransitionWindowDisplay}" VerticalAlignment="Center"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="0,4,12,4">
-                        <Button Classes="icon small" Command="{Binding ZoomOutCommand}" ToolTip.Tip="Zoom out (both decks)">
+                        <Button Classes="icon small" Command="{Binding ZoomOutCommand}" ToolTip.Tip="Zoom both decks out to the same level">
                             <PathIcon Data="{StaticResource ws_zoom_out_regular}" Width="14" Height="14"/>
                         </Button>
                         <TextBlock Classes="mono muted" Width="36" TextAlignment="Center" VerticalAlignment="Center"
                                    Text="{Binding WaveformZoomLevel, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:0.0}x'}"/>
-                        <Button Classes="icon small" Command="{Binding ZoomInCommand}" ToolTip.Tip="Zoom in (both decks)">
+                        <Button Classes="icon small" Command="{Binding ZoomInCommand}" ToolTip.Tip="Zoom both decks in to the same level">
                             <PathIcon Data="{StaticResource ws_zoom_in_regular}" Width="14" Height="14"/>
                         </Button>
                     </StackPanel>
@@ -183,21 +190,46 @@
                         </Border>
                     </StackPanel>
 
-                    <!-- Outgoing (A) -->
+                    <!-- Outgoing (A): identity + Cue Forge, deck toolbar, waveform, every cue -->
                     <StackPanel Spacing="8">
                         <Grid ColumnDefinitions="*,Auto">
                             <WrapPanel VerticalAlignment="Center">
                                 <TextBlock Classes="section accent" Text="OUT" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                 <TextBlock Classes="body" Text="{Binding OutgoingTrack.Title}" TextTrimming="CharacterEllipsis"
-                                           MaxWidth="200" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                           MaxWidth="280" VerticalAlignment="Center" Margin="0,0,8,0"
+                                           ToolTip.Tip="{Binding OutgoingTrack.Artist}"/>
                                 <TextBlock Classes="mono muted" Text="{Binding OutgoingBpm, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:0.0} BPM'}" VerticalAlignment="Center"/>
                             </WrapPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                <TextBlock Classes="caption" Text="Mix-out" VerticalAlignment="Center"/>
+                                <Button Classes="secondary small" Command="{Binding OpenOutgoingInCueForgeCommand}"
+                                        ToolTip.Tip="Edit this track's cues in Cue Forge. Its Back button returns to this transition.">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <PathIcon Data="{StaticResource icon_open_external}" Width="12" Height="12"/>
+                                        <TextBlock Text="Cue Forge"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Classes="icon small" ToolTip.Tip="More outgoing track actions">
+                                    <PathIcon Data="{StaticResource icon_more}" Width="14" Height="14"/>
+                                    <Button.Flyout>
+                                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                            <MenuItem Header="Save the mix-out as a memory cue" Command="{Binding ShareMixOutCommand}"
+                                                      ToolTip.Tip="Save this mix-out as a reusable memory cue in Workstation and Cue Forge. Other transitions keep their own timing."/>
+                                            <MenuItem Header="Generate cues" Command="{Binding OutgoingEditor.GenerateCuesCommand}" CommandParameter="orbit"/>
+                                            <MenuItem Header="Analyse again in Cue Forge" Command="{Binding FixOutgoingInCueForgeCommand}"/>
+                                        </MenuFlyout>
+                                    </Button.Flyout>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Deck toolbar: where this side mixes, and how the waveform is shown -->
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                <TextBlock Classes="caption" Text="Mix-out" VerticalAlignment="Center" Margin="0,0,4,0"/>
                                 <TextBlock Classes="mono" Text="{Binding SourceTriggerDisplay}" Width="40" TextAlignment="Right" VerticalAlignment="Center"/>
-                                <ComboBox Classes="small" Width="132" ItemsSource="{Binding OutgoingCues}" SelectedItem="{Binding OutgoingMixCue}"
-                                          PlaceholderText="custom" VerticalAlignment="Center"
-                                          ToolTip.Tip="Put the mix-out exactly on a cue. Shows the cue it sits on, or 'custom' between cues.">
+                                <ComboBox Classes="small" Width="160" ItemsSource="{Binding OutgoingPickableCues}" SelectedItem="{Binding OutgoingMixCue}"
+                                          PlaceholderText="between cues" VerticalAlignment="Center"
+                                          ToolTip.Tip="Put the mix-out exactly on any cue of this track. Shows the cue it sits on.">
                                     <ComboBox.ItemTemplate>
                                         <DataTemplate DataType="models:OrbitCue">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
@@ -214,16 +246,29 @@
                                 <Button Classes="icon small" Command="{Binding NudgeForwardCommand}" ToolTip.Tip="Mix-out one beat later">
                                     <PathIcon Data="{StaticResource icon_chevron_right}" Width="14" Height="14"/>
                                 </Button>
-                                <Button Classes="secondary small" Content="Share" Command="{Binding ShareMixOutCommand}"
-                                        ToolTip.Tip="Save this snapped mix-out as a reusable track memory cue in Workstation and Cue Forge. Other playlist transitions keep their own timing."/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                <Button Classes="icon small" Command="{Binding ZoomOutgoingOutCommand}" ToolTip.Tip="Zoom out (this deck)">
+                                    <PathIcon Data="{StaticResource ws_zoom_out_regular}" Width="14" Height="14"/>
+                                </Button>
+                                <TextBlock Classes="mono muted" Width="36" TextAlignment="Center" VerticalAlignment="Center"
+                                           Text="{Binding OutgoingZoomLevel, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:0.0}x'}"/>
+                                <Button Classes="icon small" Command="{Binding ZoomOutgoingInCommand}" ToolTip.Tip="Zoom in (this deck). Ctrl+wheel over the waveform zooms too.">
+                                    <PathIcon Data="{StaticResource ws_zoom_in_regular}" Width="14" Height="14"/>
+                                </Button>
+                                <Button Classes="icon small" Command="{Binding CenterOutgoingOnMixPointCommand}" ToolTip.Tip="Center on the mix-out">
+                                    <PathIcon Data="{StaticResource icon_target}" Width="14" Height="14"/>
+                                </Button>
                             </StackPanel>
                         </Grid>
-                        <Border Classes="inset" Height="120" Padding="0" ClipToBounds="True">
+
+                        <Border Classes="inset" Height="120" Padding="0" ClipToBounds="True"
+                                ToolTip.Tip="Drag the amber marker to move the mix-out (snaps to a cue, otherwise to the beat). Click a cue to mix out there and hear it. Right-click for more. Drag the background to scroll, Ctrl+wheel to zoom.">
                             <Panel>
                                 <controls:TimeRegionOverlay DurationSeconds="{Binding OutgoingDurationSeconds}"
                                                             StartSeconds="{Binding OutgoingEditor.Session.IntroRegionStart}"
                                                             EndSeconds="{Binding OutgoingEditor.Session.IntroRegionEnd}"
-                                                            ZoomLevel="{Binding WaveformZoomLevel}"
+                                                            ZoomLevel="{Binding OutgoingZoomLevel}"
                                                             ViewOffset="{Binding OutgoingViewOffset}"
                                                             Fill="{StaticResource BrushSectionIntroFill}"
                                                             EdgeBrush="{StaticResource BrushSectionIntroEdge}"
@@ -231,7 +276,7 @@
                                 <controls:TimeRegionOverlay DurationSeconds="{Binding OutgoingDurationSeconds}"
                                                             StartSeconds="{Binding OutgoingEditor.Session.OutroRegionStart}"
                                                             EndSeconds="{Binding OutgoingEditor.Session.OutroRegionEnd}"
-                                                            ZoomLevel="{Binding WaveformZoomLevel}"
+                                                            ZoomLevel="{Binding OutgoingZoomLevel}"
                                                             ViewOffset="{Binding OutgoingViewOffset}"
                                                             Fill="{StaticResource BrushSectionOutroFill}"
                                                             EdgeBrush="{StaticResource BrushSectionOutroEdge}"
@@ -240,7 +285,7 @@
                                 <controls:TimeRegionOverlay DurationSeconds="{Binding OutgoingDurationSeconds}"
                                                             StartSeconds="{Binding EffectiveSourceTriggerSeconds}"
                                                             EndSeconds="{Binding OutgoingRegionEndSeconds}"
-                                                            ZoomLevel="{Binding WaveformZoomLevel}"
+                                                            ZoomLevel="{Binding OutgoingZoomLevel}"
                                                             ViewOffset="{Binding OutgoingViewOffset}"
                                                             Fill="{StaticResource BrushAccentSubtle}"
                                                             EdgeBrush="{StaticResource BrushAccentBorder}"/>
@@ -254,10 +299,14 @@
                                     CueHoverTip="{Binding CueFlagTip}"
                                     CueUpdatedCommand="{Binding OutgoingEditor.Session.CueUpdatedCommand}"
                                     SnapToGridEnabled="False"
-                                    ZoomLevel="{Binding WaveformZoomLevel}"
+                                    ZoomLevel="{Binding OutgoingZoomLevel, Mode=TwoWay}"
                                     ViewOffset="{Binding OutgoingViewOffset, Mode=TwoWay}"
                                     TriggerPointSeconds="{Binding EffectiveSourceTriggerSeconds}"
+                                    TriggerPointMovedCommand="{Binding SetMixOutAtCommand}"
+                                    TriggerPointLabel="Mix out"
+                                    EditCueCommand="{Binding EditOutgoingInCueForgeAtCommand}"
                                     EnableScrollZoom="False"
+                                    CtrlWheelZooms="True"
                                     PanOnBackgroundDrag="True"
                                     PreviewSeekCommand="{Binding PreviewSeekOutgoingCommand}"
                                     AddCueAtCommand="{Binding AddCueToOutgoingInCueForgeCommand}"
@@ -270,45 +319,81 @@
                         <Panel IsVisible="{Binding IsCueEditMode}">
                             <controls:TrackCueEditorStrip DataContext="{Binding OutgoingEditor}"/>
                         </Panel>
-                        <ItemsControl ItemsSource="{Binding OutgoingCues}" IsVisible="{Binding !IsCueEditMode}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate DataType="models:OrbitCue">
-                                    <Button Classes="ghost small cue-pick"
-                                            Command="{ReflectionBinding #Decks.DataContext.OutgoingCueChipCommand}"
-                                            CommandParameter="{Binding}"
-                                            ToolTip.Tip="Click to play from here and mix out here (click again to stop)">
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <Ellipse Width="6" Height="6" Fill="{Binding Color}"/>
-                                            <TextBlock Classes="body-sm" Text="{Binding Name}"/>
-                                            <TextBlock Classes="mono muted" Text="{Binding TimestampDisplay}"/>
-                                        </StackPanel>
-                                    </Button>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+
+                        <!-- Every cue of the track (not just the mix cues the waveform filter shows) -->
+                        <StackPanel Spacing="4" IsVisible="{Binding !IsCueEditMode}">
+                            <ItemsControl ItemsSource="{Binding OutgoingCueRail}" IsVisible="{Binding OutgoingHasCues}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="vm:DeckCueItem">
+                                        <Button Classes="ghost small cue-pick" Classes.current-out="{Binding IsCurrentMixPoint}"
+                                                Command="{Binding ClickCommand}" ToolTip.Tip="{Binding Tip}">
+                                            <Button.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="{Binding MixHereLabel}" Command="{Binding MixHereCommand}"/>
+                                                    <MenuItem Header="Play from here" Command="{Binding PlayCommand}"/>
+                                                    <MenuItem Header="Edit in Cue Forge" Command="{Binding EditInCueForgeCommand}"/>
+                                                </ContextMenu>
+                                            </Button.ContextMenu>
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Ellipse Width="6" Height="6" Fill="{Binding Color}" VerticalAlignment="Center"/>
+                                                <TextBlock Classes="body-sm" Text="{Binding Name}"/>
+                                                <TextBlock Classes="mono muted" Text="{Binding TimeDisplay}"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Classes="caption" IsVisible="{Binding !OutgoingHasCues}" TextWrapping="Wrap"
+                                       Text="No cues on this track yet. Generate them from this deck's More menu, or add them in Cue Forge."/>
+                        </StackPanel>
                     </StackPanel>
 
-                    <!-- Incoming (B) -->
+                    <!-- Incoming (B): identity + Cue Forge, deck toolbar, waveform, every cue -->
                     <StackPanel Spacing="8">
                         <Grid ColumnDefinitions="*,Auto">
                             <WrapPanel VerticalAlignment="Center">
                                 <TextBlock Classes="section" Foreground="{StaticResource BrushInfo}" Text="IN" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                 <TextBlock Classes="body" Text="{Binding IncomingTrack.Title}" TextTrimming="CharacterEllipsis"
-                                           MaxWidth="200" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBlock Classes="mono muted" Text="{Binding IncomingBpm, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:0.0} BPM'}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBlock Classes="mono" Text="{Binding TempoDeltaDisplay}" VerticalAlignment="Center"
+                                           MaxWidth="280" VerticalAlignment="Center" Margin="0,0,8,0"
+                                           ToolTip.Tip="{Binding IncomingTrack.Artist}"/>
+                                <TextBlock Classes="mono muted" Text="{Binding IncomingBpm, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:0.0} BPM'}" VerticalAlignment="Center"/>
+                                <TextBlock Classes="mono" Text="{Binding TempoDeltaDisplay}" VerticalAlignment="Center" Margin="8,0,0,0"
                                            Classes.warning="{Binding HasTempoWarning}"
                                            ToolTip.Tip="{Binding TempoSyncDisplay}"/>
                             </WrapPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                <TextBlock Classes="caption" Text="Mix-in" VerticalAlignment="Center"/>
+                                <Button Classes="secondary small" Command="{Binding OpenIncomingInCueForgeCommand}"
+                                        ToolTip.Tip="Edit this track's cues in Cue Forge. Its Back button returns to this transition.">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <PathIcon Data="{StaticResource icon_open_external}" Width="12" Height="12"/>
+                                        <TextBlock Text="Cue Forge"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Classes="icon small" ToolTip.Tip="More incoming track actions">
+                                    <PathIcon Data="{StaticResource icon_more}" Width="14" Height="14"/>
+                                    <Button.Flyout>
+                                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                            <MenuItem Header="Save the mix-in as a memory cue" Command="{Binding ShareMixInCommand}"
+                                                      ToolTip.Tip="Save this mix-in as a reusable memory cue in Workstation and Cue Forge. Other transitions keep their own timing."/>
+                                            <MenuItem Header="Generate cues" Command="{Binding IncomingEditor.GenerateCuesCommand}" CommandParameter="orbit"/>
+                                            <MenuItem Header="Analyse again in Cue Forge" Command="{Binding FixIncomingInCueForgeCommand}"/>
+                                        </MenuFlyout>
+                                    </Button.Flyout>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Deck toolbar: where this side mixes, and how the waveform is shown -->
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                <TextBlock Classes="caption" Text="Mix-in" VerticalAlignment="Center" Margin="0,0,4,0"/>
                                 <TextBlock Classes="mono" Text="{Binding TargetTriggerDisplay}" Width="40" TextAlignment="Right" VerticalAlignment="Center"/>
-                                <ComboBox Classes="small" Width="132" ItemsSource="{Binding IncomingCues}" SelectedItem="{Binding IncomingMixCue}"
-                                          PlaceholderText="custom" VerticalAlignment="Center"
-                                          ToolTip.Tip="Put the mix-in exactly on a cue. Shows the cue it sits on, or 'custom' between cues.">
+                                <ComboBox Classes="small" Width="160" ItemsSource="{Binding IncomingPickableCues}" SelectedItem="{Binding IncomingMixCue}"
+                                          PlaceholderText="between cues" VerticalAlignment="Center"
+                                          ToolTip.Tip="Put the mix-in exactly on any cue of this track. Shows the cue it sits on.">
                                     <ComboBox.ItemTemplate>
                                         <DataTemplate DataType="models:OrbitCue">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
@@ -325,16 +410,29 @@
                                 <Button Classes="icon small" Command="{Binding NudgeIncomingForwardCommand}" ToolTip.Tip="Mix-in one beat later">
                                     <PathIcon Data="{StaticResource icon_chevron_right}" Width="14" Height="14"/>
                                 </Button>
-                                <Button Classes="secondary small" Content="Share" Command="{Binding ShareMixInCommand}"
-                                        ToolTip.Tip="Save this snapped mix-in as a reusable track memory cue in Workstation and Cue Forge. Other playlist transitions keep their own timing."/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                <Button Classes="icon small" Command="{Binding ZoomIncomingOutCommand}" ToolTip.Tip="Zoom out (this deck)">
+                                    <PathIcon Data="{StaticResource ws_zoom_out_regular}" Width="14" Height="14"/>
+                                </Button>
+                                <TextBlock Classes="mono muted" Width="36" TextAlignment="Center" VerticalAlignment="Center"
+                                           Text="{Binding IncomingZoomLevel, Converter={StaticResource NumberConverter}, ConverterParameter='{}{0:0.0}x'}"/>
+                                <Button Classes="icon small" Command="{Binding ZoomIncomingInCommand}" ToolTip.Tip="Zoom in (this deck). Ctrl+wheel over the waveform zooms too.">
+                                    <PathIcon Data="{StaticResource ws_zoom_in_regular}" Width="14" Height="14"/>
+                                </Button>
+                                <Button Classes="icon small" Command="{Binding CenterIncomingOnMixPointCommand}" ToolTip.Tip="Center on the mix-in">
+                                    <PathIcon Data="{StaticResource icon_target}" Width="14" Height="14"/>
+                                </Button>
                             </StackPanel>
                         </Grid>
-                        <Border Classes="inset" Height="120" Padding="0" ClipToBounds="True">
+
+                        <Border Classes="inset" Height="120" Padding="0" ClipToBounds="True"
+                                ToolTip.Tip="Drag the amber marker to move the mix-in (snaps to a cue, otherwise to the beat). Click a cue to mix in there and hear it. Right-click for more. Drag the background to scroll, Ctrl+wheel to zoom.">
                             <Panel>
                                 <controls:TimeRegionOverlay DurationSeconds="{Binding IncomingDurationSeconds}"
                                                             StartSeconds="{Binding IncomingEditor.Session.IntroRegionStart}"
                                                             EndSeconds="{Binding IncomingEditor.Session.IntroRegionEnd}"
-                                                            ZoomLevel="{Binding WaveformZoomLevel}"
+                                                            ZoomLevel="{Binding IncomingZoomLevel}"
                                                             ViewOffset="{Binding IncomingViewOffset}"
                                                             Fill="{StaticResource BrushSectionIntroFill}"
                                                             EdgeBrush="{StaticResource BrushSectionIntroEdge}"
@@ -342,7 +440,7 @@
                                 <controls:TimeRegionOverlay DurationSeconds="{Binding IncomingDurationSeconds}"
                                                             StartSeconds="{Binding IncomingEditor.Session.OutroRegionStart}"
                                                             EndSeconds="{Binding IncomingEditor.Session.OutroRegionEnd}"
-                                                            ZoomLevel="{Binding WaveformZoomLevel}"
+                                                            ZoomLevel="{Binding IncomingZoomLevel}"
                                                             ViewOffset="{Binding IncomingViewOffset}"
                                                             Fill="{StaticResource BrushSectionOutroFill}"
                                                             EdgeBrush="{StaticResource BrushSectionOutroEdge}"
@@ -351,7 +449,7 @@
                                 <controls:TimeRegionOverlay DurationSeconds="{Binding IncomingDurationSeconds}"
                                                             StartSeconds="{Binding TargetTriggerSeconds}"
                                                             EndSeconds="{Binding IncomingRegionEndSeconds}"
-                                                            ZoomLevel="{Binding WaveformZoomLevel}"
+                                                            ZoomLevel="{Binding IncomingZoomLevel}"
                                                             ViewOffset="{Binding IncomingViewOffset}"
                                                             Fill="{StaticResource BrushInfoSubtle}"
                                                             EdgeBrush="{StaticResource BrushInfoBorder}"/>
@@ -365,10 +463,14 @@
                                     CueHoverTip="{Binding CueFlagTip}"
                                     CueUpdatedCommand="{Binding IncomingEditor.Session.CueUpdatedCommand}"
                                     SnapToGridEnabled="False"
-                                    ZoomLevel="{Binding WaveformZoomLevel}"
+                                    ZoomLevel="{Binding IncomingZoomLevel, Mode=TwoWay}"
                                     ViewOffset="{Binding IncomingViewOffset, Mode=TwoWay}"
                                     TriggerPointSeconds="{Binding TargetTriggerSeconds}"
+                                    TriggerPointMovedCommand="{Binding SetMixInAtCommand}"
+                                    TriggerPointLabel="Mix in"
+                                    EditCueCommand="{Binding EditIncomingInCueForgeAtCommand}"
                                     EnableScrollZoom="False"
+                                    CtrlWheelZooms="True"
                                     PanOnBackgroundDrag="True"
                                     PreviewSeekCommand="{Binding PreviewSeekIncomingCommand}"
                                     AddCueAtCommand="{Binding AddCueToIncomingInCueForgeCommand}"
@@ -381,25 +483,36 @@
                         <Panel IsVisible="{Binding IsCueEditMode}">
                             <controls:TrackCueEditorStrip DataContext="{Binding IncomingEditor}"/>
                         </Panel>
-                        <ItemsControl ItemsSource="{Binding IncomingCues}" IsVisible="{Binding !IsCueEditMode}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate DataType="models:OrbitCue">
-                                    <Button Classes="ghost small cue-pick"
-                                            Command="{ReflectionBinding #Decks.DataContext.IncomingCueChipCommand}"
-                                            CommandParameter="{Binding}"
-                                            ToolTip.Tip="Click to play from here and mix in here (click again to stop)">
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <Ellipse Width="6" Height="6" Fill="{Binding Color}"/>
-                                            <TextBlock Classes="body-sm" Text="{Binding Name}"/>
-                                            <TextBlock Classes="mono muted" Text="{Binding TimestampDisplay}"/>
-                                        </StackPanel>
-                                    </Button>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+
+                        <!-- Every cue of the track (not just the mix cues the waveform filter shows) -->
+                        <StackPanel Spacing="4" IsVisible="{Binding !IsCueEditMode}">
+                            <ItemsControl ItemsSource="{Binding IncomingCueRail}" IsVisible="{Binding IncomingHasCues}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="vm:DeckCueItem">
+                                        <Button Classes="ghost small cue-pick" Classes.current-in="{Binding IsCurrentMixPoint}"
+                                                Command="{Binding ClickCommand}" ToolTip.Tip="{Binding Tip}">
+                                            <Button.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="{Binding MixHereLabel}" Command="{Binding MixHereCommand}"/>
+                                                    <MenuItem Header="Play from here" Command="{Binding PlayCommand}"/>
+                                                    <MenuItem Header="Edit in Cue Forge" Command="{Binding EditInCueForgeCommand}"/>
+                                                </ContextMenu>
+                                            </Button.ContextMenu>
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Ellipse Width="6" Height="6" Fill="{Binding Color}" VerticalAlignment="Center"/>
+                                                <TextBlock Classes="body-sm" Text="{Binding Name}"/>
+                                                <TextBlock Classes="mono muted" Text="{Binding TimeDisplay}"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Classes="caption" IsVisible="{Binding !IncomingHasCues}" TextWrapping="Wrap"
+                                       Text="No cues on this track yet. Generate them from this deck's More menu, or add them in Cue Forge."/>
+                        </StackPanel>
                     </StackPanel>
 
                     <!-- Why these points -->

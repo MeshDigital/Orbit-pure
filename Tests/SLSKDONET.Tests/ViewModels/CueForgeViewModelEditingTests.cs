@@ -999,6 +999,85 @@ public class CueForgeViewModelEditingTests
         Assert.Equal("Bar 1.1", CueForgeGrid.FormatBarBeat(2.0076, 150, 2.0076));
         Assert.Equal("Bar 2.1", CueForgeGrid.FormatBarBeat(3.6076, 150, 2.0076));
     }
+
+    // ── "← Back to …" (where the visit came from) ─────────────────────────────
+
+    [Fact]
+    public async Task ExplicitReturnPoint_SurvivesThePageOpen_AndBackRunsItOnce()
+    {
+        var (vm, _, _) = await CreateLoaded();
+        int returned = 0;
+
+        vm.SetReturnPoint(new CueForgeReturnPoint("Flow Builder · Set · transition 2 of 5", () => returned++));
+        await vm.OnViewActivatedAsync();
+
+        Assert.True(vm.HasReturnPoint);
+        Assert.Equal("Back to Flow Builder · Set · transition 2 of 5", vm.ReturnLabel);
+
+        vm.ReturnToOriginCommand.Execute().Subscribe();
+        Assert.Equal(1, returned);
+        Assert.False(vm.HasReturnPoint);
+    }
+
+    [Fact]
+    public async Task ReturnPoint_IsDroppedOnLeaving_AndALaterPlainVisitHasNone()
+    {
+        var (vm, _, _) = await CreateLoaded();
+        vm.SetReturnPoint(new CueForgeReturnPoint("Flow Builder", () => { }));
+        await vm.OnViewActivatedAsync();
+
+        vm.OnViewDeactivated();
+        Assert.False(vm.HasReturnPoint);
+
+        await vm.OnViewActivatedAsync();
+        Assert.False(vm.HasReturnPoint);
+    }
+
+    [Fact]
+    public async Task PlainVisit_OffersBackToThePreviousPage()
+    {
+        var bus = new EventBusService();
+        var vm = new CueForgeViewModel(new FakeCueStore(), new FakeTransport(), new AppConfig(),
+            eventBus: bus, ui: a => { a(); return Task.CompletedTask; });
+        int returned = 0;
+
+        bus.Publish(new SLSKDONET.Events.CueForgeVisitStartedEvent(new CueForgeReturnPoint("Library · Neuro", () => returned++)));
+        await vm.OnViewActivatedAsync();
+
+        Assert.Equal("Back to Library · Neuro", vm.ReturnLabel);
+        vm.ReturnToOriginCommand.Execute().Subscribe();
+        Assert.Equal(1, returned);
+    }
+
+    [Fact]
+    public async Task ExplicitReturnPoint_WinsOverThePreviousPage()
+    {
+        var bus = new EventBusService();
+        var vm = new CueForgeViewModel(new FakeCueStore(), new FakeTransport(), new AppConfig(),
+            eventBus: bus, ui: a => { a(); return Task.CompletedTask; });
+
+        // Real order: the opener sets its return point, then navigation publishes the visit.
+        vm.SetReturnPoint(new CueForgeReturnPoint("Flow Builder · Set · transition 3 of 9", () => { }));
+        bus.Publish(new SLSKDONET.Events.CueForgeVisitStartedEvent(new CueForgeReturnPoint("Flow Builder", () => { })));
+        await vm.OnViewActivatedAsync();
+
+        Assert.Equal("Back to Flow Builder · Set · transition 3 of 9", vm.ReturnLabel);
+    }
+
+    [Fact]
+    public async Task FocusCueAt_SelectsThatCue()
+    {
+        var (vm, _, _) = await CreateLoaded();
+        vm.Session.ReplaceAllCues(new[]
+        {
+            new OrbitCue { Timestamp = 10, Name = "[IN -16]", Role = CueRole.Build },
+            new OrbitCue { Timestamp = 21, Name = "[DROP 1]", Role = CueRole.Drop },
+        }, "seeded");
+
+        vm.FocusCueAt(21.01);
+
+        Assert.Equal("[DROP 1]", vm.Session.SelectedCue?.Name);
+    }
 }
 
 public class CueForgeGridTests
