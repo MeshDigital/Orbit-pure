@@ -40,7 +40,8 @@ public sealed class ActiveTransferRegistry
     /// </summary>
     public long RecordBytes(TransferKey key, long bytesReceived)
     {
-        var previous = _lastBytes.AddOrUpdate(key, bytesReceived, (_, old) => bytesReceived);
+        var previous = _lastBytes.TryGetValue(key, out var old) ? old : 0;
+        _lastBytes[key] = bytesReceived;
         var delta = bytesReceived - previous;
         return delta > 0 ? delta : 0;
     }
