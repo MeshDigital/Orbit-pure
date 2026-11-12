@@ -1307,13 +1307,42 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     // Lazy-loaded page instances
     // Page instances no longer needed here as they are managed by NavigationService
 
+    /// <summary>A "Back to …" target for a page Cue Forge was opened from; null for pages that are
+    /// not a destination of their own (Now Playing overlays, Theater Mode).</summary>
+    private SLSKDONET.ViewModels.CueForgeReturnPoint? BuildReturnPointTo(PageType page)
+    {
+        string? label = page switch
+        {
+            PageType.Home => "Home",
+            PageType.Search => "Search",
+            PageType.Library => LibraryViewModel.SelectedProject is { } project ? $"Library · {project.SourceTitle}" : "Library",
+            PageType.Projects => "Download Center",
+            PageType.Settings => "Settings",
+            PageType.Import => "Import",
+            PageType.Analysis => "Analysis",
+            PageType.Workstation => "Workstation",
+            PageType.EditLab => "Edit Lab",
+            PageType.Users => "Users",
+            PageType.FlowBuilder => "Flow Builder",
+            PageType.Sets => "Sets",
+            _ => null,
+        };
+        return label == null ? null
+            : new SLSKDONET.ViewModels.CueForgeReturnPoint(label, () => _navigationService.NavigateTo(page.ToString()));
+    }
+
     private void OnNavigated(object? sender, global::Avalonia.Controls.UserControl page)
     {
         if (page != null)
         {
             var previousPageType = CurrentPageType;
+            var nextPageType = ResolvePageType(page.GetType(), CurrentPageType);
+            // Cue Forge offers "← Back to <the page you came from>" (before the page attaches, so
+            // its activation already sees it).
+            if (nextPageType == PageType.CueForge && previousPageType != PageType.CueForge)
+                _eventBus.Publish(new SLSKDONET.Events.CueForgeVisitStartedEvent(BuildReturnPointTo(previousPageType)));
             CurrentPage = page;
-            CurrentPageType = ResolvePageType(page.GetType(), CurrentPageType);
+            CurrentPageType = nextPageType;
 
             if (ShouldCloseInspectorOnRouteTransition(previousPageType, CurrentPageType, _rightPanelService.CurrentPanelVm, PlayerViewModel))
             {

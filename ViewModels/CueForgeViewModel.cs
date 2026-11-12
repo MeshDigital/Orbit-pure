@@ -593,33 +593,75 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
             _ = LoadPlaylistBrowserAsync(playlist.Id);
     }
 
-    // ── Mix Transition origin (for the "Back to mix" link) ─────────────────
+    // ── Where this visit came from (the "← Back to …" link) ───────────────
 
-    private Guid? _mixOriginPlaylistId;
-    private Guid? _mixOriginOutgoingTrackId;
-    private Guid? _mixOriginIncomingTrackId;
+    private CueForgeReturnPoint? _returnPoint;
+    /// <summary>Set until this is the instant of the matching page open, so a return point set right
+    /// before navigating here survives that open, while a later plain visit (sidebar) drops it.</summary>
+    private DateTime _returnPointArmedUntilUtc;
 
-    public bool HasMixOrigin => _mixOriginPlaylistId.HasValue;
-
-    /// <summary>Called by MixTransitionViewModel.OpenTrackInCueForgeAsync right after LoadTrackAsync,
-    /// so the Mix Editor → Cue Forge link has a way back.</summary>
-    public void SetMixTransitionOrigin(Guid playlistId, Guid outgoingTrackId, Guid incomingTrackId)
+    /// <summary>The page this track was opened from, if any. Shown as "← Back to …".</summary>
+    public CueForgeReturnPoint? ReturnPoint
     {
-        _mixOriginPlaylistId = playlistId;
-        _mixOriginOutgoingTrackId = outgoingTrackId;
-        _mixOriginIncomingTrackId = incomingTrackId;
-        this.RaisePropertyChanged(nameof(HasMixOrigin));
+        get => _returnPoint;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _returnPoint, value);
+            this.RaisePropertyChanged(nameof(HasReturnPoint));
+            this.RaisePropertyChanged(nameof(ReturnLabel));
+            this.RaisePropertyChanged(nameof(HasMixOrigin));
+        }
     }
 
-    private void BackToMixTransition()
+    /// <summary>The page navigation came from (CueForgeVisitStartedEvent), used when no explicit
+    /// return point was set for this visit.</summary>
+    private CueForgeReturnPoint? _previousPageReturn;
+
+    public bool HasReturnPoint => _returnPoint != null;
+    public string ReturnLabel => _returnPoint is { } r ? $"Back to {r.Label}" : string.Empty;
+
+    /// <summary>Kept for older callers: true while a way back exists.</summary>
+    public bool HasMixOrigin => HasReturnPoint;
+
+    /// <summary>
+    /// Records where this visit came from. Call right before navigating to Cue Forge; the next page
+    /// open keeps it, and leaving Cue Forge (or a later plain visit) drops it.
+    /// </summary>
+    public void SetReturnPoint(CueForgeReturnPoint? returnPoint)
     {
-        if (_mixOriginPlaylistId is not { } playlistId ||
-            _mixOriginOutgoingTrackId is not { } outgoingId ||
-            _mixOriginIncomingTrackId is not { } incomingId)
+        ReturnPoint = returnPoint;
+        _returnPointArmedUntilUtc = returnPoint != null ? DateTime.UtcNow.AddSeconds(15) : default;
+    }
+
+    /// <summary>The Library Mix sidepanel's way back: reopen that playlist and pair.</summary>
+    public void SetMixTransitionOrigin(Guid playlistId, Guid outgoingTrackId, Guid incomingTrackId, string? label = null) =>
+        SetReturnPoint(new CueForgeReturnPoint(label ?? "mix transition",
+            () => _eventBus?.Publish(new OpenLibraryForPlaylistEvent(playlistId, outgoingTrackId, incomingTrackId))));
+
+    private void ReturnToOrigin()
+    {
+        var target = _returnPoint;
+        if (target == null) return;
+        ReturnPoint = null;
+        _returnPointArmedUntilUtc = default;
+        try { target.Return(); }
+        catch (Exception ex)
         {
-            return;
+            _logger.LogWarning(ex, "Cue Forge: going back to {Origin} failed", target.Label);
+            _eventBus?.Publish(new NotificationEvent("Cue Forge", $"Couldn't go back to {target.Label}: {ex.Message}", SLSKDONET.Views.NotificationType.Error));
         }
-        _eventBus?.Publish(new OpenLibraryForPlaylistEvent(playlistId, outgoingId, incomingId));
+    }
+
+    /// <summary>Selects the cue at <paramref name="seconds"/> (within 50 ms) and moves the playhead
+    /// there — "Edit in Cue Forge" on a specific cue lands on that cue.</summary>
+    public void FocusCueAt(double seconds)
+    {
+        var cue = Session.Cues
+            .Where(c => Math.Abs(c.Timestamp - seconds) < 0.05)
+            .OrderBy(c => Math.Abs(c.Timestamp - seconds))
+            .FirstOrDefault();
+        if (cue != null) Session.SelectedCue = cue;
+        SetPlayhead(seconds);
     }
 
     private async Task LoadAllPlaylistsAsync()
@@ -852,6 +894,8 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<double, Unit> SeekPlayheadCommand { get; }
     public ReactiveCommand<OrbitCue, Unit> AuditionCueCommand { get; }
     public ReactiveCommand<Unit, Unit> BackToMixTransitionCommand { get; }
+    /// <summary>"← Back to …": returns to the page this track was opened from.</summary>
+    public ReactiveCommand<Unit, Unit> ReturnToOriginCommand => BackToMixTransitionCommand;
     public ReactiveCommand<Unit, Unit> PlayPauseCommand { get; }
     /// <summary>CDJ-style CUE: playing → back to the cue point and pause; paused → set the cue point here.</summary>
     public ReactiveCommand<Unit, Unit> CueButtonCommand { get; }
@@ -1036,7 +1080,7 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
 
         PreviousCueCommand = ReactiveCommand.Create(NavigateToPreviousCue, canAct);
         NextCueCommand     = ReactiveCommand.Create(NavigateToNextCue, canAct);
-        BackToMixTransitionCommand = ReactiveCommand.Create(BackToMixTransition, this.WhenAnyValue(x => x.HasMixOrigin));
+        BackToMixTransitionCommand = ReactiveCommand.Create(ReturnToOrigin, this.WhenAnyValue(x => x.HasReturnPoint));
         SeekPlayheadCommand = ReactiveCommand.Create<double>(SetPlayhead);
         AuditionCueCommand = ReactiveCommand.Create<OrbitCue>(AuditionCue);
         PlayPauseCommand = ReactiveCommand.Create(TogglePlayPause, hasTrack);
@@ -1077,6 +1121,10 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
 
         if (_eventBus != null)
         {
+            // Synchronous on purpose: it arrives before the page attaches and activates.
+            _eventBus.GetEvent<SLSKDONET.Events.CueForgeVisitStartedEvent>()
+                .Subscribe(evt => _previousPageReturn = evt.PreviousPage)
+                .DisposeWith(_disposables);
             _eventBus.GetEvent<TrackAnalysisUpdatedEvent>()
                 .ObserveOn(RxApp.MainThreadScheduler)
                 .Subscribe(evt => _ = OnWaveformRefreshCompletedAsync(evt))
@@ -1781,6 +1829,11 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
     {
         bool pinned = DateTime.UtcNow < _keepExplicitTrackUntilUtc;
         _keepExplicitTrackUntilUtc = default;
+        // A return point is only valid for the visit it was set for; a plain visit gets the
+        // generic "Back to <previous page>" (see CueForgeVisitStartedEvent).
+        if (DateTime.UtcNow >= _returnPointArmedUntilUtc) ReturnPoint = _previousPageReturn;
+        _returnPointArmedUntilUtc = default;
+        _previousPageReturn = null;
 
         if (!pinned &&
             _transport.CurrentTrackHash is { Length: > 0 } playing &&
@@ -1818,6 +1871,8 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
     public void OnViewDeactivated()
     {
         _keepExplicitTrackUntilUtc = default;
+        _returnPointArmedUntilUtc = default;
+        ReturnPoint = null;
         IsAuditioningLoop = false;
         HandBackPlayer(resumePlayback: true);
     }

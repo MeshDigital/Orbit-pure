@@ -185,11 +185,11 @@
                             <PathIcon Data="{StaticResource ws_redo_regular}" Width="14" Height="14"/>
                         </Button>
                     </StackPanel>
-                    <Button Classes="ghost small" Command="{Binding BackToMixTransitionCommand}" IsVisible="{Binding HasMixOrigin}"
-                            ToolTip.Tip="Back to the playlist and mix transition this track was opened from">
+                    <Button Classes="ghost small" Command="{Binding ReturnToOriginCommand}" IsVisible="{Binding HasReturnPoint}"
+                            MaxWidth="360" ToolTip.Tip="{Binding ReturnLabel}">
                         <StackPanel Orientation="Horizontal" Spacing="4">
                             <PathIcon Data="{StaticResource icon_chevron_left}" Width="12" Height="12"/>
-                            <TextBlock Text="Back to mix"/>
+                            <TextBlock Text="{Binding ReturnLabel}" TextTrimming="CharacterEllipsis"/>
                         </StackPanel>
                     </Button>
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding Session.IsDirty}">
