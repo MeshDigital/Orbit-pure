@@ -374,6 +374,8 @@ namespace SLSKDONET.ViewModels
         /// to play/seek/audition it, without duplicating the resolution order used internally.
         /// </summary>
         public string? CurrentFilePath => _currentFilePath ?? CurrentTrack?.Model?.ResolvedFilePath;
+        /// <summary>The file the audio engine really has open; null right after startup, when the queue track is only restored.</summary>
+        public string? LoadedFilePath => _playerService.LoadedFilePath;
         public string CurrentTrackContextSummary => BuildTrackContextSummary(_currentTrack);
         public string CurrentTrackWorkflowHint => BuildTrackWorkflowHint(_currentTrack);
         public string CurrentTrackWorkstationPrepSummary => BuildWorkstationPrepSummary(_currentTrack);
@@ -2078,6 +2080,7 @@ namespace SLSKDONET.ViewModels
         
         private void PlayTrackAtIndex(int index)
         {
+            if (!_resuming) ClearResumePoint(); // the user chose other playback: the old return point is stale
             // A queued track that is missing or fails to open is skipped rather than ending
             // playback there. Bounded to one pass over the queue so a queue of nothing but broken
             // files can't loop forever.
@@ -3005,7 +3008,10 @@ namespace SLSKDONET.ViewModels
         
         // Helper to load track
         public void PlayTrack(string filePath, string title, string artist, double? loudnessLufs = null)
-            => _ = LoadTrackCore(filePath, title, artist, autoPlay: true, loudnessLufs);
+        {
+            if (!_resuming) ClearResumePoint();
+            _ = LoadTrackCore(filePath, title, artist, autoPlay: true, loudnessLufs);
+        }
 
         /// <summary>
         /// Loads a track "hot and ready" without starting playback — e.g. Cue Forge loading
