@@ -1107,6 +1107,57 @@ public class CueForgeViewModelEditingTests
 
         Assert.Equal("[DROP 1]", vm.Session.SelectedCue?.Name);
     }
+
+    // ── Unsaved drafts survive reopening the same track ─────────────────────────
+
+    /// <summary>Flow Builder's / Library's "Open in Cue Forge" reloads the track; for the track that is
+    /// already open with unsaved edits that used to replace the draft with the stored cues.</summary>
+    [Fact]
+    public async Task ReopeningTheSameTrack_KeepsTheUnsavedDraft()
+    {
+        var (vm, store, _) = await CreateLoaded();
+        vm.Session.ReplaceAllCues(new[] { new OrbitCue { Timestamp = 42, Name = "My edit", Role = CueRole.Drop } }, "edit");
+        Assert.True(vm.Session.IsDirty);
+
+        await vm.LoadTrackAsync(Hash, "Title", "Artist");
+
+        Assert.True(vm.Session.IsDirty);
+        Assert.Contains(vm.Session.Cues, c => c.Name == "My edit");
+    }
+
+    [Fact]
+    public async Task LeavingWithUnsavedEdits_ShowsAReminder_AndKeepsThem()
+    {
+        var bus = new EventBusService();
+        var notes = new List<NotificationEvent>();
+        using var sub = bus.GetEvent<NotificationEvent>().Subscribe(notes.Add);
+        var vm = new CueForgeViewModel(new FakeCueStore(), new FakeTransport(), new AppConfig(),
+            eventBus: bus, ui: a => { a(); return Task.CompletedTask; });
+        await vm.LoadTrackAsync(Hash, "Title", "Artist");
+        vm.Session.ReplaceAllCues(new[] { new OrbitCue { Timestamp = 42, Name = "My edit", Role = CueRole.Drop } }, "edit");
+
+        vm.OnViewDeactivated();
+
+        var reminder = Assert.Single(notes);
+        Assert.Contains("not saved", reminder.Message);
+        Assert.Equal("CueForge", reminder.OpenPage);
+        Assert.True(vm.Session.IsDirty);
+    }
+
+    [Fact]
+    public async Task LeavingWithNothingUnsaved_ShowsNoReminder()
+    {
+        var bus = new EventBusService();
+        var notes = new List<NotificationEvent>();
+        using var sub = bus.GetEvent<NotificationEvent>().Subscribe(notes.Add);
+        var vm = new CueForgeViewModel(new FakeCueStore(), new FakeTransport(), new AppConfig(),
+            eventBus: bus, ui: a => { a(); return Task.CompletedTask; });
+        await vm.LoadTrackAsync(Hash, "Title", "Artist");
+
+        vm.OnViewDeactivated();
+
+        Assert.Empty(notes);
+    }
 }
 
 public class CueForgeGridTests

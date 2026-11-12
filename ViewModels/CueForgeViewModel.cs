@@ -1285,6 +1285,15 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
 
     public async Task LoadTrackAsync(string trackHash, string? title = null, string? artist = null)
     {
+        // Reopening the track that is already open (Flow Builder's or the Library's "Open in Cue
+        // Forge") must not reload the stored cues over an unsaved draft — that silently threw the
+        // user's edits away. Keep the draft; Save stays highlighted as the reminder.
+        if (Session.IsDirty && string.Equals(Session.TrackHash, trackHash, StringComparison.OrdinalIgnoreCase))
+        {
+            Session.SetStatus("Your unsaved edits for this track are still here. Press Save (Ctrl+S) to keep them.");
+            return;
+        }
+
         // If Cue Forge borrowed the shared player for the track being left, give it back before
         // opening the next track. Otherwise the player keeps playing the auditioned file while the
         // page shows a different track, and the next cue click seeks/plays the wrong audio.
@@ -1876,6 +1885,14 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
         ReturnPoint = null;
         IsAuditioningLoop = false;
         HandBackPlayer(resumePlayback: true);
+        // Leaving with unsaved edits: they are kept (the view model outlives the page), but say so,
+        // so the user comes back and saves instead of assuming they were saved.
+        if (Session.IsDirty && Session.TrackHash != null)
+        {
+            _eventBus?.Publish(new NotificationEvent("Cue Forge: unsaved edits",
+                $"Your cue edits for \"{TrackTitle}\" are not saved yet. They are kept; open Cue Forge and press Save (Ctrl+S).",
+                SLSKDONET.Views.NotificationType.Warning) { OpenPage = "CueForge" });
+        }
     }
 
     /// <summary>

@@ -121,7 +121,10 @@
 
         <!-- ═══ Header: track identity + facts + save state ═══ -->
         <Border Grid.Column="1" Grid.Row="0" Padding="24,12" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+            <!-- Columns: navigation | track + facts | save. Only the middle column gives way when the
+                 page is narrow (side panels open): the facts wrap under the title, and Save is never
+                 pushed off screen. -->
+            <Grid ColumnDefinitions="Auto,*,Auto">
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="0,0,16,0">
                     <Button Classes="icon small" Command="{Binding PreviousTrackCommand}" ToolTip.Tip="Previous track in the playlist">
                         <PathIcon Data="{StaticResource icon_chevron_left}" Width="14" Height="14"/>
@@ -137,14 +140,22 @@
                     </ToggleButton>
                 </StackPanel>
 
-                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                <WrapPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal">
+                <StackPanel VerticalAlignment="Center" Spacing="2" MaxWidth="420" Margin="0,0,16,0">
+                    <Button Classes="ghost small" Command="{Binding ReturnToOriginCommand}" IsVisible="{Binding HasReturnPoint}"
+                            HorizontalAlignment="Left" Padding="4,0" ToolTip.Tip="{Binding ReturnLabel}">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <PathIcon Data="{StaticResource icon_chevron_left}" Width="12" Height="12"/>
+                            <TextBlock Text="{Binding ReturnLabel}" TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                    </Button>
                     <TextBlock Classes="h2" Text="{Binding TrackName}" TextTrimming="CharacterEllipsis" IsVisible="{Binding HasTrackLoaded}"/>
                     <TextBlock Classes="h2" Text="Cue Forge" IsVisible="{Binding HasNoTrack}"/>
                     <TextBlock Classes="subtitle" Text="{Binding TrackArtist}" TextTrimming="CharacterEllipsis" IsVisible="{Binding HasTrackLoaded}"/>
                 </StackPanel>
 
                 <!-- Track facts: mono so values never jitter. -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="24" VerticalAlignment="Center" Margin="16,0"
+                <StackPanel Orientation="Horizontal" Spacing="24" VerticalAlignment="Center" Margin="0,4,16,4"
                             IsVisible="{Binding HasTrackLoaded}">
                     <StackPanel Spacing="2">
                         <TextBlock Classes="section" Text="BPM"/>
@@ -174,8 +185,9 @@
                         </StackPanel>
                     </StackPanel>
                 </StackPanel>
+                </WrapPanel>
 
-                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                     <!-- Undo / redo / more live up here so the toolbar fits next to the track list -->
                     <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                         <Button Classes="icon small" Command="{Binding Session.UndoCommand}" ToolTip.Tip="Undo (Ctrl+Z)">
@@ -185,16 +197,9 @@
                             <PathIcon Data="{StaticResource ws_redo_regular}" Width="14" Height="14"/>
                         </Button>
                     </StackPanel>
-                    <Button Classes="ghost small" Command="{Binding ReturnToOriginCommand}" IsVisible="{Binding HasReturnPoint}"
-                            MaxWidth="360" ToolTip.Tip="{Binding ReturnLabel}">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <PathIcon Data="{StaticResource icon_chevron_left}" Width="12" Height="12"/>
-                            <TextBlock Text="{Binding ReturnLabel}" TextTrimming="CharacterEllipsis"/>
-                        </StackPanel>
-                    </Button>
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding Session.IsDirty}">
                         <Ellipse Classes="status-dot warning"/>
-                        <TextBlock Classes="caption" Text="Unsaved changes"/>
+                        <TextBlock Classes="caption" Text="Unsaved"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding Session.IsSaved}">
                         <PathIcon Data="{StaticResource icon_check}" Width="12" Height="12" Foreground="{StaticResource BrushText2}"/>
