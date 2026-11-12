@@ -184,10 +184,11 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 features.TrackDuration = durationSeconds;
 
             // ── Step 4: Extract waveform bands ────────────────────────────
+            var waveformExtracted = false;
             if (engines.Has(AnalysisEngine.Waveform))
             {
                 progress?.Report((25, "Extracting waveform..."));
-                await _waveform.ExtractAsync(tempWav, features, cancellationToken).ConfigureAwait(false);
+                waveformExtracted = await _waveform.ExtractAsync(tempWav, features, cancellationToken).ConfigureAwait(false);
             }
 
             // ── Step 4b/4c: Decode once, feed both the RMS energy curve and the ─
@@ -560,7 +561,12 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             // ── Step 7: Timestamp and save ────────────────────────────────
             progress?.Report((90, "Saving to database..."));
             features.AnalyzedAt = DateTime.UtcNow;
-            features.AnalysisVersion = WaveformExtractionService.CurrentWaveformVersion;
+            // AnalysisVersion is the waveform's version (Cue Forge and the coverage card read it to
+            // flag old waveforms). Only stamp it when this run actually re-extracted the waveform —
+            // a key- or mood-only repair run, or a failed extraction that left the old blob in
+            // place, must not make an old waveform look current.
+            if (waveformExtracted)
+                features.AnalysisVersion = WaveformExtractionService.CurrentWaveformVersion;
             await _db.SaveAudioFeaturesAsync(features).ConfigureAwait(false);
 
             // ── Step 8: A10.1 Track fingerprint build/persist (fail-open) ─

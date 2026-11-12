@@ -1392,10 +1392,8 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
                 if (features.WaveformBlob is { Length: > 0 } blob && features.WaveformBlobSampleCount > 0 &&
                     blob.Length >= features.WaveformBlobSampleCount * 3)
                 {
-                    IsWaveformOutdated = !string.Equals(
-                        features.AnalysisVersion,
-                        Services.AudioAnalysis.WaveformExtractionService.CurrentWaveformVersion,
-                        StringComparison.Ordinal);
+                    // Same rule the Analysis page's coverage card counts "outdated" waveforms by.
+                    IsWaveformOutdated = Services.AudioAnalysis.AnalysisCoverageAnalyzer.IsWaveformOutdated(features);
                     int n = features.WaveformBlobSampleCount;
                     var low = new byte[n]; var mid = new byte[n]; var high = new byte[n];
                     Buffer.BlockCopy(blob, 0, low, 0, n);

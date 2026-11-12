@@ -212,8 +212,11 @@ public sealed class PlaylistAnalysisCoverage
     /// <summary>Tracks with nothing at all — never analysed.</summary>
     public int UnanalysedTracks => Tracks.Count(t => !t.Coverage.HasAnyOutput);
 
-    /// <summary>Tracks with some output but at least one gap.</summary>
+    /// <summary>Tracks with some output but at least one gap (missing or outdated engine).</summary>
     public int PartiallyAnalyzedTracks => TotalTracks - FullyAnalyzedTracks - UnanalysedTracks;
+
+    /// <summary>Tracks whose waveform exists but was drawn by an older analysis version.</summary>
+    public int OutdatedWaveformTracks => Tracks.Count(t => (t.Coverage.Outdated & AnalysisEngine.Waveform) != 0);
 
     /// <summary>True when every track in the playlist has every engine.</summary>
     public bool IsComplete => TotalTracks > 0 && FullyAnalyzedTracks == TotalTracks;
