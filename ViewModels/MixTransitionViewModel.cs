@@ -160,6 +160,11 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         _previewPlayer.PreviewStopped += OnPreviewStopped;
         if (_libraryPreviewPlayer != null) _libraryPreviewPlayer.PreviewStopped += OnLibraryPreviewStopped;
 
+        // The header cue pickers follow every mix-point and cue change (drags, nudges, re-plans, cue edits).
+        this.WhenAnyValue(x => x.SourceTriggerSeconds, x => x.NudgeSeconds, x => x.OutgoingCues)
+            .Subscribe(_ => this.RaisePropertyChanged(nameof(OutgoingMixCue)));
+        this.WhenAnyValue(x => x.TargetTriggerSeconds, x => x.IncomingCues)
+            .Subscribe(_ => this.RaisePropertyChanged(nameof(IncomingMixCue)));
         SelectPresetCommand = ReactiveCommand.Create<string>(preset => SelectedPreset = preset);
         SelectBarsCommand = ReactiveCommand.Create<int>(bars => DurationBars = bars);
         // DurationBars is also set straight on the field by the structure planner and pair loading,
@@ -586,6 +591,38 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
 
     private IEnumerable<OrbitCue> _incomingCues = Array.Empty<OrbitCue>();
     public IEnumerable<OrbitCue> IncomingCues { get => _incomingCues; private set => this.RaiseAndSetIfChanged(ref _incomingCues, value); }
+
+    /// <summary>
+    /// The outgoing cue the mix-out sits on (null = between cues, "custom"). Picking one in the
+    /// header puts the mix-out exactly on it — after editing cues in Cue Forge, one pick re-aligns
+    /// the transition instead of nudging beat by beat. Undoable like every mix-point change.
+    /// </summary>
+    public OrbitCue? OutgoingMixCue
+    {
+        get => _outgoingCues.FirstOrDefault(c => !c.IsLoop && Math.Abs(c.Timestamp - EffectiveSourceTriggerSeconds) < 0.05);
+        set
+        {
+            if (value == null || !HasLoadedPair || Math.Abs(value.Timestamp - EffectiveSourceTriggerSeconds) < 1e-6) return;
+            RecordMixPointUndo();
+            _nudgeSeconds = 0;
+            this.RaisePropertyChanged(nameof(NudgeSeconds));
+            SourceTriggerSeconds = value.Timestamp;
+            StatusMessage = $"Mix-out on {value.Name} ({FormatTimestamp(value.Timestamp)})";
+        }
+    }
+
+    /// <summary>The incoming cue the mix-in sits on (null = between cues); picking one moves the mix-in there.</summary>
+    public OrbitCue? IncomingMixCue
+    {
+        get => _incomingCues.FirstOrDefault(c => !c.IsLoop && Math.Abs(c.Timestamp - TargetTriggerSeconds) < 0.05);
+        set
+        {
+            if (value == null || !HasLoadedPair || Math.Abs(value.Timestamp - TargetTriggerSeconds) < 1e-6) return;
+            RecordMixPointUndo();
+            TargetTriggerSeconds = value.Timestamp;
+            StatusMessage = $"Mix-in on {value.Name} ({FormatTimestamp(value.Timestamp)})";
+        }
+    }
 
     private bool _mixCuesOnly = true;
     /// <summary>Focused transition view: show only shared Mix-In / Mix-Out cues (including legacy
