@@ -275,9 +275,12 @@ public class AnalysisTrackItem : ReactiveObject
     /// <summary>True when this track is measurable and at least one engine is missing.</summary>
     public bool HasMissingEngines => _coverage is { IsComplete: false };
 
-    /// <summary>"Key, Cues and Fingerprint" for the row chip; empty when complete or unmeasured.</summary>
+    /// <summary>
+    /// "Missing Key and Cues · Waveform outdated" for the row's warning line; empty when complete
+    /// or unmeasured.
+    /// </summary>
     public string MissingEnginesSummary => _coverage is { IsComplete: false } coverage
-        ? AnalysisEngines.Describe(coverage.Missing)
+        ? coverage.MissingSummary
         : string.Empty;
 
     /// <summary>The engines a "run what's missing" action should queue for this row.</summary>
@@ -2687,7 +2690,10 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         : Coverage switch
         {
             { TotalTracks: 0 } => "No tracks with audio on disk in this selection yet.",
-            { IsComplete: true } => "Nothing missing — every engine has output for every track.",
+            { IsComplete: true } => "Nothing missing — every engine has current output for every track.",
+            { OutdatedWaveformTracks: > 0 } =>
+                $"{Coverage.PartiallyAnalyzedTracks} partially analysed · {Coverage.UnanalysedTracks} not analysed at all · " +
+                $"{Coverage.OutdatedWaveformTracks} with an outdated waveform",
             _ => $"{Coverage.PartiallyAnalyzedTracks} partially analysed · {Coverage.UnanalysedTracks} not analysed at all",
         };
 

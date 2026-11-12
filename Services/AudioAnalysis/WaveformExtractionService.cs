@@ -44,8 +44,12 @@ public sealed class WaveformExtractionService
         return Math.Clamp(scaled, MinSamples, MaxSamples);
     }
 
-    /// <summary>Reads the decoded PCM WAV and writes a full-duration tri-band waveform.</summary>
-    public async Task ExtractAsync(
+    /// <summary>
+    /// Reads the decoded PCM WAV and writes a full-duration tri-band waveform. Returns false (and
+    /// leaves any previous waveform untouched) when extraction failed, so the caller does not
+    /// stamp an old waveform with the current version.
+    /// </summary>
+    public async Task<bool> ExtractAsync(
         string decodedWavPath,
         AudioFeaturesEntity target,
         CancellationToken ct = default)
@@ -54,7 +58,7 @@ public sealed class WaveformExtractionService
         if (string.IsNullOrWhiteSpace(decodedWavPath) || !File.Exists(decodedWavPath))
         {
             _logger.LogWarning("[WaveformExtraction] WAV file not found: {Path}", decodedWavPath);
-            return;
+            return false;
         }
 
         try
@@ -69,6 +73,7 @@ public sealed class WaveformExtractionService
 
             target.WaveformBlob = blob;
             target.WaveformBlobSampleCount = sampleCount;
+            return true;
         }
         catch (OperationCanceledException)
         {
@@ -78,6 +83,7 @@ public sealed class WaveformExtractionService
         catch (Exception ex)
         {
             _logger.LogError(ex, "[WaveformExtraction] Failed for {Path}", decodedWavPath);
+            return false;
         }
     }
 

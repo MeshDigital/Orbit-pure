@@ -231,7 +231,8 @@
                                     <!-- Column 2 is Auto, not a fixed 64: at 12px mono a four-digit
                                          count ("4163 / 4177") is ~75px and was being clipped to
                                          "4163 / 417", which made the coverage numbers untrustworthy. -->
-                                    <Grid ColumnDefinitions="150,*,Auto,84,Auto" MinHeight="30">
+                                    <!-- Column 3 is 96 so "4177 outdated" fits without clipping. -->
+                                    <Grid ColumnDefinitions="150,*,Auto,96,Auto" MinHeight="30">
                                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                             <TextBlock Classes="body-sm" Text="{Binding Name}"/>
                                         </StackPanel>
@@ -240,12 +241,19 @@
                                                        TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Produces}"/>
                                             <ProgressBar Classes="meter" Value="{Binding Complete}" Maximum="{Binding Total}"/>
                                         </StackPanel>
-                                        <TextBlock Grid.Column="2" Classes="num" HorizontalAlignment="Right"
-                                                   Text="{Binding CompleteOfTotal}" ToolTip.Tip="Tracks with this output / tracks measured"/>
-                                        <TextBlock Grid.Column="3" Classes="caption" HorizontalAlignment="Right"
-                                                   Classes.success="{Binding IsComplete}"
-                                                   Classes.warning="{Binding !IsComplete}"
-                                                   Text="{Binding MissingLabel}"/>
+                                        <TextBlock Grid.Column="2" Classes="num" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                   Text="{Binding CompleteOfTotal}" ToolTip.Tip="Tracks with current output / tracks measured (outdated output is not counted)"/>
+                                        <StackPanel Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Right">
+                                            <TextBlock Classes="caption" HorizontalAlignment="Right"
+                                                       Classes.success="{Binding IsComplete}"
+                                                       Classes.warning="{Binding !IsComplete}"
+                                                       Text="{Binding MissingLabel}"
+                                                       ToolTip.Tip="{Binding StatusToolTip}"/>
+                                            <TextBlock Classes="caption warning" HorizontalAlignment="Right"
+                                                       IsVisible="{Binding ShowOutdatedLine}"
+                                                       Text="{Binding OutdatedLabel}"
+                                                       ToolTip.Tip="{Binding OutdatedToolTip}"/>
+                                        </StackPanel>
                                         <Button Grid.Column="4" Classes="secondary small" Margin="12,0,0,0"
                                                 Content="Run"
                                                 IsVisible="{Binding !IsComplete}"
@@ -574,9 +582,9 @@
                                             <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                                 <TextBlock Classes="body" Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
                                                 <TextBlock Classes="caption" Text="{Binding Artist}" TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Classes="caption warning" Text="{Binding MissingEnginesSummary, StringFormat='Missing {0}'}"
+                                                <TextBlock Classes="caption warning" Text="{Binding MissingEnginesSummary}"
                                                            TextTrimming="CharacterEllipsis" IsVisible="{Binding HasMissingEngines}"
-                                                           ToolTip.Tip="Engines with no stored output for this track. Run fills only these."/>
+                                                           ToolTip.Tip="Engines with no stored output, or with output from an older analysis version, for this track. Run fills or refreshes only these."/>
                                             </StackPanel>
                                             <Border Grid.Column="1" Classes="fact" Margin="8,0,0,0"
                                                     IsVisible="{Binding Bpm, Converter={x:Static ObjectConverters.IsNotNull}}">
@@ -595,7 +603,7 @@
                                                         IsVisible="{Binding HasMissingEngines}"
                                                         Command="{ReflectionBinding $parent[UserControl].DataContext.RunMissingForTrackCommand}"
                                                         CommandParameter="{Binding}"
-                                                        ToolTip.Tip="Run only the engines this track is missing">
+                                                        ToolTip.Tip="Run only the engines this track is missing or has outdated">
                                                     <PathIcon Data="{StaticResource icon_sync}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
                                                 </Button>
                                                 <Button Classes="icon small"

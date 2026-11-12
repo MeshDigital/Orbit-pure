@@ -64,7 +64,9 @@ public sealed class EngineCoverageRow
 
     public int Total => Summary.Total;
 
-    /// <summary>"118 / 140" for the mono column.</summary>
+    public int Outdated => Summary.Outdated;
+
+    /// <summary>"118 / 140" for the mono column (tracks with current output).</summary>
     public string CompleteOfTotal => Summary.CompleteOfTotal;
 
     /// <summary>0–1, for the row's progress meter.</summary>
@@ -72,8 +74,23 @@ public sealed class EngineCoverageRow
 
     public bool IsComplete => Summary.IsComplete;
 
-    /// <summary>"22 missing" or "Complete".</summary>
-    public string MissingLabel => IsComplete ? "Complete" : $"{Missing} missing";
+    /// <summary>"22 missing", "160 outdated" (when nothing is missing) or "Complete".</summary>
+    public string MissingLabel => Missing > 0 ? $"{Missing} missing"
+        : Outdated > 0 ? $"{Outdated} outdated"
+        : "Complete";
+
+    /// <summary>Second line under <see cref="MissingLabel"/> when a row has both missing and outdated output.</summary>
+    public bool ShowOutdatedLine => Missing > 0 && Outdated > 0;
+
+    public string OutdatedLabel => $"{Outdated} outdated";
+
+    /// <summary>Explains what "outdated" means for this engine.</summary>
+    public string OutdatedToolTip => Engine == AnalysisEngine.Waveform
+        ? $"{Outdated} track(s) have a waveform from an older analysis version — less accurate timing, bass detail and drop contrast. Run refreshes them."
+        : $"{Outdated} track(s) have output from an older version of this engine. Run refreshes them.";
+
+    /// <summary>Tooltip for the status column: the outdated explanation when that is what the row shows.</summary>
+    public string StatusToolTip => Outdated > 0 ? OutdatedToolTip : MissingLabel;
 
     /// <summary>Tooltip: what the engine produces and, if applicable, why it cannot run here.</summary>
     public string ToolTip => Info.RunsInPipeline
