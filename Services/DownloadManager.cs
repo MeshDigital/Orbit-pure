@@ -59,6 +59,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     private readonly PrefetchVerifier _prefetchVerifier;
     private readonly INetworkHealthService _networkHealth;
     private readonly SLSKDONET.Services.Diagnostics.ITrackAuditLogger _auditLogger;
+    private readonly SLSKDONET.Services.Library.AudioContentHasher? _contentHasher;
 
 
     private readonly List<IDisposable> _eventBusSubs = new();
@@ -207,7 +208,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         CrashRecoveryJournal crashJournal,
         PeerReliabilityService peerReliability,
         INetworkHealthService networkHealth,
-        SLSKDONET.Services.Diagnostics.ITrackAuditLogger auditLogger) // Phase 1: Engine Overhaul
+        SLSKDONET.Services.Diagnostics.ITrackAuditLogger auditLogger, // Phase 1: Engine Overhaul
+        SLSKDONET.Services.Library.AudioContentHasher? contentHasher = null)
 
     {
         _logger = logger;
@@ -227,6 +229,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         _prefetchVerifier = prefetchVerifier;
         _networkHealth = networkHealth;
         _auditLogger = auditLogger;
+        _contentHasher = contentHasher;
 
         System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
 
@@ -3798,6 +3801,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     // throws (uncatchable from here — surfaces as an unobserved task exception).
                     startPosition = File.Exists(partPath) ? new FileInfo(partPath).Length : 0;
                     ctx.BytesReceived = startPosition;
+                    if (ctx.ActiveTransferKey is { } activeKey && startPosition > 0)
+                        _activeTransfers.Seed(activeKey, startPosition);
 
                     success = await _soulseek.DownloadAsync(
                         bestMatch.Username!,
@@ -4013,6 +4018,16 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     CanonicalDuration = ctx.Model.CanonicalDuration,
                     ReleaseDate = ctx.Model.ReleaseDate,
                 };
+
+                // Issue #235: hash the audio payload (ignores tags) for exact-duplicate detection.
+                // Failure is non-fatal: the entry is still created, just without a hash.
+                if (_contentHasher is not null)
+                {
+                    var contentHash = await _contentHasher.ComputeAsync(finalPath, ct).ConfigureAwait(false);
+                    if (contentHash is not null)
+                        libraryEntry.AudioContentHash = contentHash.Value;
+                }
+
                 await _libraryService.SaveOrUpdateLibraryEntryAsync(libraryEntry);
                 _logger.LogInformation("📚 Added to library: {Artist} - {Title}", ctx.Model.Artist, ctx.Model.Title);
                 _auditLogger.Log(ctx.GlobalId, $"📚 Added to library: {ctx.Model.Artist} - {ctx.Model.Title} | Format: {libraryEntry.Format} | Bitrate: {libraryEntry.Bitrate}kbps");

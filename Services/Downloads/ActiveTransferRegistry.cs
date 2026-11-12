@@ -38,6 +38,9 @@ public sealed class ActiveTransferRegistry
     /// Records the latest byte count for <paramref name="key"/> and returns the delta since the
     /// previous call (0 when the count did not advance).
     /// </summary>
+    /// <summary>Sets the resume baseline so the first progress sample doesn't count bytes already on disk.</summary>
+    public void Seed(TransferKey key, long initialBytes) => _lastBytes[key] = initialBytes;
+
     public long RecordBytes(TransferKey key, long bytesReceived)
     {
         var previous = _lastBytes.TryGetValue(key, out var old) ? old : 0;

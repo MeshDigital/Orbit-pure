@@ -36,6 +36,23 @@ public class AudioContentHasher
         }
     }
 
+    /// <summary>Synchronous form for callers already on a worker thread (e.g. the folder scanner).</summary>
+    public AudioContentHash? Compute(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return null;
+
+        try
+        {
+            return ComputeCore(path, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Audio content hash failed for {Path}", path);
+            return null;
+        }
+    }
+
     private AudioContentHash ComputeCore(string path, CancellationToken ct)
     {
         var ext = Path.GetExtension(path);

@@ -145,6 +145,8 @@ public class LibraryService : ILibraryService
                 existingEntity.Format = entry.Format;
                 existingEntity.Label = entry.Label;
                 existingEntity.Comments = entry.Comments;
+                if (!string.IsNullOrWhiteSpace(entry.AudioContentHash))
+                    existingEntity.AudioContentHash = entry.AudioContentHash;
                 existingEntity.LastUsedAt = DateTime.UtcNow;
                 
                 // Preserve scientific data if input is empty (don't overwrite enrichment with nulls)
@@ -1876,6 +1878,7 @@ public class LibraryService : ILibraryService
         entity.IsEnriched = entry.IsEnriched;
         entity.Label = entry.Label;
         entity.Comments = entry.Comments;
+        entity.AudioContentHash = entry.AudioContentHash;
         entity.MoodTag = entry.MoodTag;
         entity.PrimaryGenre = entry.PrimaryGenre;
         
