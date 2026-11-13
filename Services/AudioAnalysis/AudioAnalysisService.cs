@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Data.Essentia;
 using SLSKDONET.Engine.Analysis;
+using SLSKDONET.Engine.Analysis.GenreFusion;
 using SLSKDONET.Models;
 using SLSKDONET.Services.Similarity;
 
@@ -48,15 +49,6 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
     private readonly DatabaseService _db;
     private readonly ILogger<AudioAnalysisService> _logger;
     private readonly Rekordbox.IRekordboxPssiService? _rekordbox;
-
-    // ── Style-definition cache ──────────────────────────────────────────────
-    // StyleDefinitions is static reference data outside of the offline Style Lab curation tool —
-    // caching it avoids a full-table re-query on every single track analyzed (a "Force Reanalyze
-    // All" pass over a large library was otherwise re-fetching the same table thousands of times).
-    private List<StyleDefinitionEntity>? _styleDefinitionsCache;
-    private DateTime _styleDefinitionsCacheAt = DateTime.MinValue;
-    private readonly SemaphoreSlim _styleDefinitionsCacheLock = new(1, 1);
-    private static readonly TimeSpan StyleDefinitionsCacheTtl = TimeSpan.FromMinutes(5);
 
     public AudioAnalysisService(
         AudioIngestionPipeline ingestion,
@@ -519,7 +511,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
 
             // ── Step 5b: Genre inference + canonical normalisation ──────
             if (engines.Has(AnalysisEngine.Mood))
-                await InferAndApplyGenreAsync(essentiaOutput, features, onnxGenrePrediction, cancellationToken).ConfigureAwait(false);
+                InferAndApplyGenre(features, onnxGenrePrediction);
 
             // ── Step 5c: Fit a precise constant grid to the beat ticks ───
             // Runs after genre inference because that step can still change the BPM's octave. Replaces
@@ -688,181 +680,30 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         }
     }
 
-    private static readonly string[] MusicnnElectronicModelKeys =
-    [
-        "genreelectronicmusicnnmsd2",
-        "genreelectronic",
-        "genre_electronic"
-    ];
-
-    private static readonly string[] JamendoModelKeys =
-    [
-        "mtgjamendogenrediscogseffnet1",
-        "mtgjamendogenre",
-        "jamendogenre",
-        "mtg_jamendo_genre"
-    ];
-
-    private static readonly string[] Discogs400ModelKeys =
-    [
-        "genrediscogs400discogseffnet1",
-        "genrediscogs400",
-        "genre_discogs400"
-    ];
-
-    private async Task InferAndApplyGenreAsync(
-        EssentiaOutput? output,
-        AudioFeaturesEntity features,
-        GenreMoodPrediction? onnxPrediction,
-        CancellationToken cancellationToken)
+    private void InferAndApplyGenre(AudioFeaturesEntity features, GenreMoodPrediction? onnxPrediction)
     {
-        var candidates = new List<GenreInferenceCandidate>();
+        var jamendo = onnxPrediction is { } prediction
+            ? prediction.JamendoGenres.Select(g => new GenreLabelScore(g.Label, g.Probability)).ToArray()
+            : Array.Empty<GenreLabelScore>();
 
-        // 0) ONNX-based MTG-Jamendo classifier head, run in-process (see the call site in
-        // AnalyzeFileAsync). Weighted above the Essentia-sourced "jamendo" source below because
-        // that source is currently dead in practice (ORBIT's bundled Essentia binary doesn't
-        // produce highlevel/TensorFlow output at all — confirmed empirically) — this is the one
-        // that actually fires. Kept as a separate, higher-weighted source rather than replacing
-        // the Essentia path outright, so a future fixed Essentia binary would just add a second
-        // corroborating vote instead of requiring code changes.
-        if (onnxPrediction is { } prediction)
-        {
-            foreach (var (label, probability) in prediction.JamendoGenres.Take(10))
-            {
-                var canonical = MapJamendoToElectronicGenre(label);
-                if (string.IsNullOrWhiteSpace(canonical)) continue;
-                candidates.Add(new GenreInferenceCandidate(canonical, probability, "onnx-jamendo", 0.85f));
-            }
-        }
-
-        // 1) Explicit model heads from Essentia output
-        var extension = output?.HighLevel?.ExtensionData;
-        if (extension is not null)
-        {
-            foreach (var kvp in extension)
-            {
-                var normalizedKey = NormalizeModelKey(kvp.Key);
-
-                if (MusicnnElectronicModelKeys.Any(k => normalizedKey.Contains(k, StringComparison.OrdinalIgnoreCase)))
-                {
-                    foreach (var pair in ParseLabelProbabilities(kvp.Value))
-                    {
-                        var canonical = CanonicalizeGenre(pair.Label);
-                        if (string.IsNullOrWhiteSpace(canonical)) continue;
-                        candidates.Add(new GenreInferenceCandidate(canonical, pair.Probability, "musicnn", 1.00f));
-                    }
-                    continue;
-                }
-
-                if (JamendoModelKeys.Any(k => normalizedKey.Contains(k, StringComparison.OrdinalIgnoreCase)))
-                {
-                    foreach (var pair in ParseLabelProbabilities(kvp.Value))
-                    {
-                        var canonical = MapJamendoToElectronicGenre(pair.Label);
-                        if (string.IsNullOrWhiteSpace(canonical)) continue;
-                        candidates.Add(new GenreInferenceCandidate(canonical, pair.Probability, "jamendo", 0.75f));
-                    }
-                    continue;
-                }
-
-                if (Discogs400ModelKeys.Any(k => normalizedKey.Contains(k, StringComparison.OrdinalIgnoreCase)))
-                {
-                    foreach (var pair in ParseLabelProbabilities(kvp.Value))
-                    {
-                        var canonical = MapDiscogs400ToElectronicGenre(pair.Label);
-                        if (string.IsNullOrWhiteSpace(canonical)) continue;
-                        candidates.Add(new GenreInferenceCandidate(canonical, pair.Probability, "discogs400", 0.65f));
-                    }
-                }
-            }
-        }
-
-        // 2) Embedding prior from user style definitions (if vectors + style centroids exist)
-        var embeddingPrior = await InferGenreFromStyleCentroidsAsync(features, cancellationToken).ConfigureAwait(false);
-        if (!string.IsNullOrWhiteSpace(embeddingPrior.Label))
-        {
-            candidates.Add(new GenreInferenceCandidate(embeddingPrior.Label, embeddingPrior.Confidence, "embedding", 0.60f));
-        }
-
-        // 3) Fallback heuristic only when model-derived candidates are missing
-        if (candidates.Count == 0)
-        {
-            var heuristic = InferGenreHeuristic(features.Bpm);
-            if (!string.IsNullOrWhiteSpace(heuristic.Label))
-            {
-                candidates.Add(new GenreInferenceCandidate(heuristic.Label, heuristic.Confidence, "heuristic", 0.35f));
-            }
-        }
-
-        if (candidates.Count == 0)
+        var result = GenreFusionEngine.Fuse(new GenreFusionInput(jamendo, features.Bpm));
+        if (result is null)
         {
             return;
         }
 
-        // 4) Fuse candidate scores with guardrails + DnB calibration
-        var fusedScores = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
-        var maxConfidence = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var candidate in candidates)
-        {
-            if (string.IsNullOrWhiteSpace(candidate.Label) || candidate.Confidence <= 0f)
-            {
-                continue;
-            }
-
-            var guarded = ApplyBpmGuardrails(candidate.Label, candidate.Confidence, features.Bpm);
-            if (guarded <= 0f)
-            {
-                continue;
-            }
-
-            var score = guarded * candidate.Weight;
-            if (fusedScores.TryGetValue(candidate.Label, out var current))
-            {
-                fusedScores[candidate.Label] = current + score;
-            }
-            else
-            {
-                fusedScores[candidate.Label] = score;
-            }
-
-            if (maxConfidence.TryGetValue(candidate.Label, out var existingMax))
-            {
-                maxConfidence[candidate.Label] = Math.Max(existingMax, guarded);
-            }
-            else
-            {
-                maxConfidence[candidate.Label] = guarded;
-            }
-        }
-
-        if (fusedScores.Count == 0)
-        {
-            return;
-        }
-
-        var ranked = fusedScores
-            .OrderByDescending(kv => kv.Value)
-            .ToList();
-
-        var winner = ranked[0];
-        var runnerUpScore = ranked.Count > 1 ? ranked[1].Value : 0f;
-        var margin = Math.Max(0f, winner.Value - runnerUpScore);
-        var winnerConfidence = maxConfidence.TryGetValue(winner.Key, out var conf) ? conf : 0.5f;
-        var finalConfidence = Math.Clamp(winnerConfidence + Math.Min(0.20f, margin), 0f, 0.99f);
-
-        features.ElectronicSubgenre = winner.Key;
-        features.ElectronicSubgenreConfidence = finalConfidence;
-        features.DetectedSubGenre = winner.Key;
-        features.SubGenreConfidence = finalConfidence;
-        features.PredictedVibe = winner.Key;
-        features.PredictionConfidence = finalConfidence;
+        features.ElectronicSubgenre = result.WinnerLabel;
+        features.ElectronicSubgenreConfidence = result.Confidence;
+        features.DetectedSubGenre = result.WinnerLabel;
+        features.SubGenreConfidence = result.Confidence;
+        features.PredictedVibe = result.WinnerLabel;
+        features.PredictionConfidence = result.Confidence;
 
         // Genre-family BPM refinement — this is the one place both a final genre string and BPM
         // are both settled, the correct seam for a genre-corroborated bracket correction (unlike
         // BpmDetectionService's genre-agnostic half-time correction, which runs before genre is
         // known and can't use it). See BreakbeatAnalysisStrategy/FourOnTheFloorAnalysisStrategy.
-        var classification = GenreFamilyClassifier.Classify(winner.Key, features.Bpm, finalConfidence, GenreSource.ModelInferred);
+        var classification = GenreFamilyClassifier.Classify(result.WinnerLabel, features.Bpm, result.Confidence, GenreSource.ModelInferred);
         IGenreFamilyAnalysisStrategy? strategy = classification.Family switch
         {
             GenreFamily.Breakbeat => _breakbeatStrategy,
@@ -881,11 +722,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             }
         }
 
-        var distribution = fusedScores
-            .OrderByDescending(kv => kv.Value)
-            .Take(6)
-            .ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value, 4));
-        features.GenreDistributionJson = JsonSerializer.Serialize(distribution);
+        features.GenreDistributionJson = JsonSerializer.Serialize(result.Distribution);
     }
 
     /// <summary>Appends a short note to <see cref="AudioFeaturesEntity.AnomaliesJson"/> for later
@@ -906,208 +743,6 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
 
         anomalies.Add(note);
         target.AnomaliesJson = JsonSerializer.Serialize(anomalies);
-    }
-
-    private static string NormalizeModelKey(string key)
-    {
-        if (string.IsNullOrWhiteSpace(key))
-        {
-            return string.Empty;
-        }
-
-        return new string(key
-            .Trim()
-            .ToLowerInvariant()
-            .Where(char.IsLetterOrDigit)
-            .ToArray());
-    }
-
-    private static IEnumerable<(string Label, float Probability)> ParseLabelProbabilities(JsonElement element)
-    {
-        if (element.ValueKind != JsonValueKind.Object)
-        {
-            yield break;
-        }
-
-        // Shape: { "all": { "label": score, ... } }
-        if (element.TryGetProperty("all", out var allProp) && allProp.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var prop in allProp.EnumerateObject())
-            {
-                if (prop.Value.ValueKind == JsonValueKind.Number && prop.Value.TryGetSingle(out var score))
-                {
-                    yield return (prop.Name, Math.Clamp(score, 0f, 1f));
-                }
-            }
-
-            yield break;
-        }
-
-        // Shape: { "value": "label", "probability": 0.9 }
-        if (element.TryGetProperty("value", out var valueProp) && valueProp.ValueKind == JsonValueKind.String)
-        {
-            var label = valueProp.GetString() ?? string.Empty;
-            var probability = 0f;
-            if (element.TryGetProperty("probability", out var probProp) && probProp.TryGetSingle(out var p))
-            {
-                probability = Math.Clamp(p, 0f, 1f);
-            }
-
-            if (!string.IsNullOrWhiteSpace(label))
-            {
-                yield return (label, probability);
-            }
-        }
-    }
-
-    private static (string Label, float Confidence) InferGenreHeuristic(float bpm)
-    {
-        if (bpm >= 160 && bpm <= 182)
-        {
-            return ("Drum and Bass", 0.62f);
-        }
-
-        if (bpm >= 120 && bpm <= 132)
-        {
-            return ("House", 0.56f);
-        }
-
-        if (bpm >= 125 && bpm <= 142)
-        {
-            return ("Techno", 0.53f);
-        }
-
-        return (string.Empty, 0f);
-    }
-
-    /// <summary>
-    /// Returns the cached style-definition table, refreshing it from the database at most once
-    /// per <see cref="StyleDefinitionsCacheTtl"/>. Safe to call concurrently — only one refresh
-    /// runs at a time, and other callers just wait on the freshly-populated cache.
-    /// </summary>
-    private async Task<List<StyleDefinitionEntity>> GetStyleDefinitionsCachedAsync(CancellationToken cancellationToken)
-    {
-        if (_styleDefinitionsCache is not null && DateTime.UtcNow - _styleDefinitionsCacheAt < StyleDefinitionsCacheTtl)
-            return _styleDefinitionsCache;
-
-        await _styleDefinitionsCacheLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (_styleDefinitionsCache is not null && DateTime.UtcNow - _styleDefinitionsCacheAt < StyleDefinitionsCacheTtl)
-                return _styleDefinitionsCache;
-
-            _logger.LogDebug("[AudioAnalysis] Style definitions cache refreshed");
-            _styleDefinitionsCache = await _db.LoadAllStyleDefinitionsAsync().ConfigureAwait(false);
-            _styleDefinitionsCacheAt = DateTime.UtcNow;
-            return _styleDefinitionsCache;
-        }
-        finally
-        {
-            _styleDefinitionsCacheLock.Release();
-        }
-    }
-
-    /// <summary>Explicit invalidation hook for future wiring (e.g. from Style Lab curation saves).</summary>
-    public void InvalidateStyleDefinitionsCache() => _styleDefinitionsCache = null;
-
-    private async Task<(string Label, float Confidence)> InferGenreFromStyleCentroidsAsync(
-        AudioFeaturesEntity features,
-        CancellationToken cancellationToken)
-    {
-        var embedding = features.DeepTextureEmbedding ?? features.VectorEmbedding;
-        if (embedding is not { Length: > 0 })
-        {
-            return (string.Empty, 0f);
-        }
-
-        var styles = await GetStyleDefinitionsCachedAsync(cancellationToken).ConfigureAwait(false);
-        if (styles.Count == 0)
-        {
-            return (string.Empty, 0f);
-        }
-
-        string bestGenre = string.Empty;
-        var bestSimilarity = 0f;
-
-        foreach (var style in styles)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var centroid = style.Centroid;
-            if (centroid.Count == 0)
-            {
-                continue;
-            }
-
-            var similarity = CosineSimilarity(embedding, centroid);
-            if (similarity > bestSimilarity)
-            {
-                var proposed = !string.IsNullOrWhiteSpace(style.ParentGenre) ? style.ParentGenre : style.Name;
-                bestGenre = CanonicalizeGenre(proposed);
-                bestSimilarity = similarity;
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(bestGenre) || bestSimilarity < 0.55f)
-        {
-            return (string.Empty, 0f);
-        }
-
-        var confidence = Math.Clamp((bestSimilarity + 1f) * 0.5f, 0f, 1f);
-        return (bestGenre, confidence);
-    }
-
-    private static float ApplyBpmGuardrails(string genre, float confidence, float bpm)
-    {
-        var adjusted = confidence;
-
-        if (genre.Equals("Drum and Bass", StringComparison.OrdinalIgnoreCase))
-        {
-            if (bpm >= 160 && bpm <= 182) adjusted += 0.10f; // calibration bias for DnB
-            if (bpm < 150) adjusted -= 0.15f;
-        }
-
-        if (genre.Equals("House", StringComparison.OrdinalIgnoreCase))
-        {
-            if (bpm >= 118 && bpm <= 132) adjusted += 0.08f;
-            if (bpm >= 155) adjusted -= 0.12f;
-        }
-
-        if (genre.Equals("Techno", StringComparison.OrdinalIgnoreCase))
-        {
-            if (bpm >= 124 && bpm <= 145) adjusted += 0.08f;
-            if (bpm >= 165) adjusted -= 0.10f;
-        }
-
-        return Math.Clamp(adjusted, 0f, 1f);
-    }
-
-    private static float CosineSimilarity(float[] a, List<float> b)
-    {
-        var len = Math.Min(a.Length, b.Count);
-        if (len == 0)
-        {
-            return 0f;
-        }
-
-        double dot = 0d;
-        double magA = 0d;
-        double magB = 0d;
-        for (var i = 0; i < len; i++)
-        {
-            var va = a[i];
-            var vb = b[i];
-            dot += va * vb;
-            magA += va * va;
-            magB += vb * vb;
-        }
-
-        if (magA <= 0 || magB <= 0)
-        {
-            return 0f;
-        }
-
-        return (float)(dot / (Math.Sqrt(magA) * Math.Sqrt(magB)));
     }
 
     private static void ApplyMoodClassification(HighLevelData? hl, AudioFeaturesEntity features)
@@ -1145,52 +780,16 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             features.Sadness = sadScore;
     }
 
-    private static string? MapDiscogs400ToElectronicGenre(string label)
-    {
-        // Discogs-400 uses "Parent---Subgenre" path notation; only keep Electronic sub-genres
-        if (label.IndexOf("Electronic", StringComparison.OrdinalIgnoreCase) < 0)
-            return null;
-
-        var parts    = label.Split("---", 2, StringSplitOptions.TrimEntries);
-        var subgenre = parts.Length > 1 ? parts[1] : label.Trim();
-        return CanonicalizeGenre(subgenre);
-    }
-
-    private static string MapJamendoToElectronicGenre(string label)
-    {
-        var canonical = CanonicalizeGenre(label);
-        if (!string.IsNullOrWhiteSpace(canonical) &&
-            (canonical.Equals("Drum and Bass", StringComparison.OrdinalIgnoreCase) ||
-             canonical.Equals("House", StringComparison.OrdinalIgnoreCase) ||
-             canonical.Equals("Techno", StringComparison.OrdinalIgnoreCase) ||
-             canonical.Equals("Trance", StringComparison.OrdinalIgnoreCase) ||
-             canonical.Equals("Ambient", StringComparison.OrdinalIgnoreCase) ||
-             canonical.Equals("Dubstep", StringComparison.OrdinalIgnoreCase) ||
-             canonical.Equals("Trap", StringComparison.OrdinalIgnoreCase)))
-        {
-            return canonical;
-        }
-
-        var normalized = new string(label
-            .Trim()
-            .ToLowerInvariant()
-            .Where(char.IsLetterOrDigit)
-            .ToArray());
-
-        if (normalized.Contains("drumnbass") || normalized.Contains("breakbeat")) return "Drum and Bass";
-        if (normalized.Contains("deephouse") || normalized.Contains("club")) return "House";
-        if (normalized.Contains("minimal") || normalized.Equals("idm", StringComparison.OrdinalIgnoreCase)) return "Techno";
-
-        return string.Empty;
-    }
-
     private void ValidateGenreModelFiles()
     {
+        // The models the ONNX genre path actually loads (the DiscogsEffnet embedding, the
+        // MTG-Jamendo classifier head) plus the Discogs-400 label JSON — not the unused .pb
+        // TensorFlow checkpoints the legacy Essentia path referenced.
         var expected = new[]
         {
-            Path.Combine("Tools", "Essentia", "models", "genre_electronic-musicnn-msd-2.pb"),
-            Path.Combine("Tools", "Essentia", "models", "mtg_jamendo_genre-discogs-effnet-1.pb"),
-            Path.Combine("Tools", "Essentia", "models", "discogs-effnet-bs64-1.pb")
+            Path.Combine("Tools", "Essentia", "models", "discogs-effnet-bsdynamic-1.onnx"),
+            Path.Combine("Tools", "Essentia", "models", "mtg_jamendo_genre-discogs-effnet-1.onnx"),
+            Path.Combine("Tools", "Essentia", "models", "genre_discogs400-discogs-effnet-1.json"),
         };
 
         var missing = expected
@@ -1200,74 +799,11 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
 
         if (missing.Count > 0)
         {
-            _logger.LogWarning("[AudioAnalysis] Genre models missing: {Missing}", string.Join(" | ", missing));
+            _logger.LogWarning("[AudioAnalysis] Genre model files missing: {Missing}", string.Join(" | ", missing));
         }
         else
         {
-            _logger.LogInformation("[AudioAnalysis] Genre models detected (Musicnn + MTG-Jamendo + DiscogsEffnet).");
+            _logger.LogInformation("[AudioAnalysis] Genre models detected (DiscogsEffnet embedding + MTG-Jamendo head + Discogs-400 labels).");
         }
-    }
-
-    private readonly record struct GenreInferenceCandidate(string Label, float Confidence, string Source, float Weight);
-
-    private static string CanonicalizeGenre(string raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            return string.Empty;
-        }
-
-        var normalized = new string(raw
-            .Trim()
-            .ToLowerInvariant()
-            .Where(char.IsLetterOrDigit)
-            .ToArray());
-
-        if (normalized.Contains("dnb") || normalized.Contains("drumandbass"))
-        {
-            return "Drum and Bass";
-        }
-
-        if (normalized.Contains("techhouse"))
-        {
-            return "Tech House";
-        }
-
-        if (normalized.Contains("melodictechno"))
-        {
-            return "Melodic Techno";
-        }
-
-        if (normalized.Contains("techno"))
-        {
-            return "Techno";
-        }
-
-        if (normalized.Contains("house"))
-        {
-            return "House";
-        }
-
-        if (normalized.Contains("trance"))
-        {
-            return "Trance";
-        }
-
-        if (normalized.Contains("dubstep"))
-        {
-            return "Dubstep";
-        }
-
-        if (normalized.Contains("trap"))
-        {
-            return "Trap";
-        }
-
-        if (normalized.Contains("ambient"))
-        {
-            return "Ambient";
-        }
-
-        return raw.Trim();
     }
 }
