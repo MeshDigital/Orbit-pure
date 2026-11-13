@@ -113,6 +113,8 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
     public ICommand UndoCommand { get; }
     public ICommand BackCommand { get; }
     public ICommand FinishCommand { get; }
+    /// <summary>Switches to the exact-duplicate review (the shell closes this wizard).</summary>
+    public ICommand FindExactDuplicatesCommand { get; }
 
     public LibraryMaintenanceViewModel(
         IEventBus eventBus,
@@ -137,6 +139,7 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
         UndoCommand = new AsyncRelayCommand(UndoAsync);
         BackCommand = new RelayCommand(GoBack);
         FinishCommand = new RelayCommand(() => Close());
+        FindExactDuplicatesCommand = new RelayCommand(() => _eventBus.Publish(new OpenExactDuplicatesRequestedEvent()));
     }
 
     /// <summary>Closes the wizard; the shell disposes this instance.</summary>

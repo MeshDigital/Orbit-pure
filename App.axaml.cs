@@ -993,9 +993,14 @@ public partial class App : Application
         services.AddSingleton(sp => new ViewModels.Maintenance.MaintenanceShellViewModel(
             () => sp.GetRequiredService<ViewModels.Maintenance.LibraryMaintenanceViewModel>(),
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ViewModels.Maintenance.MaintenanceShellViewModel>>(),
-            sp.GetRequiredService<IEventBus>()));
+            sp.GetRequiredService<IEventBus>(),
+            duplicatesFactory: () => sp.GetRequiredService<ViewModels.Maintenance.ExactDuplicatesViewModel>()));
         services.AddSingleton<Services.Library.AudioContentHasher>();
         services.AddSingleton<Services.Library.Maintenance.LibraryContentHashBackfillService>();
+        // Exact-duplicate review (#238): merge via DuplicateTrackCleanupService, opt-in Recycle Bin.
+        services.AddSingleton<Services.Library.Maintenance.IFileRecycler, Services.Library.Maintenance.ShellFileRecycler>();
+        services.AddSingleton<Services.Library.Maintenance.ExactDuplicateResolver>();
+        services.AddTransient<ViewModels.Maintenance.ExactDuplicatesViewModel>();
         services.AddSingleton(sp => new Services.Enrichment.MetadataCredentialStore(
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.MetadataCredentialStore>>()));
         static System.Net.Http.HttpClient EnrichmentHttp(IServiceProvider sp) =>

@@ -1,0 +1,168 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vmMaintenance="clr-namespace:SLSKDONET.ViewModels.Maintenance"
+             mc:Ignorable="d" d:DesignWidth="920" d:DesignHeight="680"
+             x:Class="SLSKDONET.Views.Avalonia.Maintenance.ExactDuplicatesView"
+             x:DataType="vmMaintenance:ExactDuplicatesViewModel">
+
+    <Border Classes="dialog" Background="{DynamicResource BrushBg2}" Padding="24" CornerRadius="8"
+            MinWidth="720" MaxWidth="960" MaxHeight="760" Margin="16">
+        <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+
+            <!-- Header: title left, close right -->
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="h2" Text="Exact duplicates"/>
+                <Button Grid.Column="1" Classes="icon" Command="{Binding CloseCommand}" ToolTip.Tip="Close (a running check keeps going in the background)">
+                    <PathIcon Data="{StaticResource icon_close}" Width="16" Height="16"/>
+                </Button>
+            </Grid>
+            <TextBlock Grid.Row="1" Classes="caption" Margin="0,4,0,0" TextWrapping="Wrap"
+                       Text="The same audio stored more than once, even under different tags, file names or folders. Pick the copy to keep; playlists, set slots, cues and analysis move to it."/>
+
+            <!-- Check status: running progress, or what hasn't been checked yet -->
+            <StackPanel Grid.Row="2" Margin="0,12,0,0" Spacing="8">
+                <Border Classes="callout info" IsVisible="{Binding IsHashing}">
+                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                        <TextBlock Classes="body-sm" Text="Checking your library, one file at a time" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                            <TextBlock Classes="mono" Text="{Binding HashCountsText}" VerticalAlignment="Center"/>
+                            <Button Classes="secondary small" Content="Cancel" Command="{Binding CancelHashingCommand}"/>
+                        </StackPanel>
+                        <ProgressBar Grid.Row="1" Grid.ColumnSpan="2" Margin="0,8,0,0"
+                                     Value="{Binding HashProgress}" IsIndeterminate="{Binding IsHashProgressIndeterminate}"/>
+                    </Grid>
+                </Border>
+                <Border Classes="callout" IsVisible="{Binding HasUnhashed}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Classes="body-sm" Text="{Binding UnhashedText}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                        <Button Grid.Column="1" Classes="secondary small" Content="Check library" Command="{Binding StartHashingCommand}"
+                                ToolTip.Tip="Hashes each track's audio (tags excluded) in the background. Cancel any time; the next run picks up where it stopped."/>
+                    </Grid>
+                </Border>
+                <TextBlock Classes="caption warning" Text="{Binding HashNote}" TextWrapping="Wrap" IsVisible="{Binding HasHashNote}"/>
+            </StackPanel>
+
+            <!-- Body: loading / error / empty / groups -->
+            <Panel Grid.Row="3" Margin="0,16,0,0" MinHeight="220">
+
+                <StackPanel IsVisible="{Binding IsLoading}" Spacing="8" VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <ProgressBar IsIndeterminate="True" Width="240"/>
+                    <TextBlock Classes="caption" Text="Loading duplicates…" HorizontalAlignment="Center"/>
+                </StackPanel>
+
+                <Border Classes="callout error" IsVisible="{Binding HasError}" VerticalAlignment="Top">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Classes="body-sm" Text="{Binding ErrorText}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Classes="secondary small" Content="Retry" Command="{Binding RefreshCommand}"/>
+                    </Grid>
+                </Border>
+
+                <StackPanel Classes="empty-state" IsVisible="{Binding IsEmpty}" VerticalAlignment="Center">
+                    <PathIcon Data="{StaticResource icon_check}"/>
+                    <TextBlock Classes="h3" Text="{Binding EmptyTitle}"/>
+                    <TextBlock Classes="caption" Text="{Binding EmptyText}" TextWrapping="Wrap" MaxWidth="480" TextAlignment="Center"/>
+                </StackPanel>
+
+                <ListBox IsVisible="{Binding HasGroups}" ItemsSource="{Binding Groups}"
+                         Background="Transparent" SelectionMode="Single"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <VirtualizingStackPanel/>
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vmMaintenance:ExactDuplicateGroupViewModel">
+                            <Border Classes="card" Margin="0,0,0,8" Padding="12">
+                                <StackPanel Spacing="4">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <CheckBox IsChecked="{Binding IsIncluded}" VerticalAlignment="Center"
+                                                  ToolTip.Tip="Include this group when removing duplicates"/>
+                                        <TextBlock Grid.Column="1" Classes="body" Text="{Binding Title}" Margin="8,0"
+                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Classes="caption mono" Text="{Binding CopiesText}" VerticalAlignment="Center"/>
+                                    </Grid>
+
+                                    <!-- Column captions -->
+                                    <Grid ColumnDefinitions="72,*,96,48,48,88" Margin="0,4,0,0">
+                                        <TextBlock Grid.Column="1" Classes="caption" Text="TAGS · FILE"/>
+                                        <TextBlock Grid.Column="2" Classes="caption" Text="FORMAT"/>
+                                        <TextBlock Grid.Column="3" Classes="caption" Text="CUES" HorizontalAlignment="Right"/>
+                                        <TextBlock Grid.Column="4" Classes="caption" Text="LISTS" HorizontalAlignment="Right"
+                                                   ToolTip.Tip="Playlists this copy is in"/>
+                                        <TextBlock Grid.Column="5" Classes="caption" Text="ADDED" HorizontalAlignment="Right"/>
+                                    </Grid>
+
+                                    <ItemsControl ItemsSource="{Binding Entries}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vmMaintenance:ExactDuplicateEntryViewModel">
+                                                <Grid ColumnDefinitions="72,*,96,48,48,88" MinHeight="40">
+                                                    <Border Classes="fact" IsVisible="{Binding IsKeeper}" HorizontalAlignment="Left"
+                                                            ToolTip.Tip="This copy is kept">
+                                                        <TextBlock Text="KEEP"/>
+                                                    </Border>
+                                                    <Button Classes="ghost small" Content="Keep" IsVisible="{Binding IsNotKeeper}"
+                                                            Command="{Binding KeepCommand}" HorizontalAlignment="Left"
+                                                            ToolTip.Tip="Keep this copy instead"/>
+
+                                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="8,0">
+                                                        <TextBlock Classes="body-sm" Text="{Binding TagsText}" TextTrimming="CharacterEllipsis"/>
+                                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                            <Border Classes="fact warning" IsVisible="{Binding IsMissing}">
+                                                                <TextBlock Text="File missing"/>
+                                                            </Border>
+                                                            <TextBlock Classes="caption mono" Text="{Binding FilePath}" TextTrimming="PrefixCharacterEllipsis"
+                                                                       ToolTip.Tip="{Binding FilePath}" VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                    </StackPanel>
+
+                                                    <Border Grid.Column="2" Classes="fact" HorizontalAlignment="Left" ToolTip.Tip="{Binding QualityText}">
+                                                        <TextBlock Text="{Binding FormatText}"/>
+                                                    </Border>
+                                                    <TextBlock Grid.Column="3" Classes="mono" Text="{Binding CuesText}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                               ToolTip.Tip="{Binding AnalysedText}"/>
+                                                    <TextBlock Grid.Column="4" Classes="mono" Text="{Binding PlaylistsText}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="5" Classes="mono" Text="{Binding AddedText}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Panel>
+
+            <!-- Footer: result, opt-in file removal, confirmation, primary action -->
+            <StackPanel Grid.Row="4" Margin="0,16,0,0" Spacing="8">
+                <TextBlock Classes="body-sm" Text="{Binding ResultText}" TextWrapping="Wrap" IsVisible="{Binding HasResult}"
+                           Classes.warning="{Binding ResultHasErrors}"/>
+
+                <Border Classes="callout warning" IsVisible="{Binding IsConfirmingRecycle}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Classes="body-sm" Text="{Binding ConfirmRecycleText}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0">
+                            <Button Classes="ghost small" Content="Cancel" Command="{Binding CancelConfirmCommand}"/>
+                            <Button Classes="danger small" Content="Move to Recycle Bin &amp; remove" Command="{Binding ConfirmRecycleMergeCommand}"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasGroups}">
+                    <StackPanel Spacing="4" VerticalAlignment="Center">
+                        <TextBlock Classes="caption" Text="{Binding SelectionText}"/>
+                        <CheckBox Content="Also move the removed copies' files to the Recycle Bin" IsChecked="{Binding MoveFilesToRecycleBin}"
+                                  IsVisible="{Binding CanRecycle}"
+                                  ToolTip.Tip="Off: only the library entries are removed and every file stays on disk. On: the duplicate files go to the Recycle Bin (never deleted permanently)."/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Classes="primary" Content="Remove duplicate entries" Command="{Binding MergeCommand}"
+                            VerticalAlignment="Bottom"
+                            ToolTip.Tip="Merges each selected group into its kept copy, after a safety backup of the library database"/>
+                </Grid>
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

@@ -209,6 +209,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>Settings → Maintenance: open the Library Maintenance wizard overlay.</summary>
     private ICommand? _runMaintenanceCommand;
     public ICommand RunMaintenanceCommand => _runMaintenanceCommand ??= new RelayCommand(() => _eventBus.Publish(new OpenLibraryMaintenanceRequestedEvent()));
+    private ICommand? _findExactDuplicatesCommand;
+    public ICommand FindExactDuplicatesCommand => _findExactDuplicatesCommand ??= new RelayCommand(() => _eventBus.Publish(new OpenExactDuplicatesRequestedEvent()));
 
     private bool _canUndoMaintenance;
     public bool CanUndoMaintenance
