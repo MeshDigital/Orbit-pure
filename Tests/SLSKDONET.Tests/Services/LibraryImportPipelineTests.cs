@@ -231,13 +231,19 @@ public class LibraryImportPipelineTests : IDisposable
         Assert.Equal(1, result.Added);          // only first.wav: the watcher didn't ingest in parallel
         Assert.Equal(1, deferredDuringImport);  // held back...
         Assert.Equal(0, pendingDuringImport);   // ...not scheduled
-        Assert.False(_scanner.IsFolderImporting(folderId));
+        // Not asserting IsFolderImporting == false here: the import's completion event is what starts
+        // the replay (after a 50 ms settle), so on a slow CI runner the replay import can already be
+        // running by now. That the first import released the folder is proven below — imports of one
+        // folder never overlap, so the replay could only ingest late.wav after it ended.
 
         // Replayed after the import's completion event, as a small background import with a toast.
         var deadline = DateTime.UtcNow.AddSeconds(15);
         while (CountEntriesInFolder() < 2 && DateTime.UtcNow < deadline) await Task.Delay(50);
         Assert.Equal(2, CountEntriesInFolder());
         Assert.Equal(0, watcher.DeferredCount(folderId));
+        deadline = DateTime.UtcNow.AddSeconds(5);
+        while (_scanner.IsFolderImporting(folderId) && DateTime.UtcNow < deadline) await Task.Delay(25);
+        Assert.False(_scanner.IsFolderImporting(folderId)); // the replay import released the folder too
         deadline = DateTime.UtcNow.AddSeconds(5);
         while (!toasts.Any(t => t.Message.Contains("1 new track added from Watch folder")) && DateTime.UtcNow < deadline) await Task.Delay(25);
         Assert.Contains(toasts, t => t.Message.Contains("1 new track added from Watch folder"));

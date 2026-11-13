@@ -1696,6 +1696,22 @@ public class SchemaMigratorService
                 command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""ColorTag"" TEXT NULL;";
                 await command.ExecuteNonQueryAsync();
             }
+            if (!ColumnExists("LibraryEntries", "AudioContentHash"))
+            {
+                _logger.LogInformation("Patching Schema: Adding AudioContentHash to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""AudioContentHash"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            // index
+            try
+            {
+                command.CommandText = @"CREATE INDEX IF NOT EXISTS ""IX_LibraryEntries_AudioContentHash"" ON ""LibraryEntries"" (""AudioContentHash"");";
+                await command.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "AudioContentHash index creation skipped");
+            }
             if (!ColumnExists("LibraryEntries", "EnergyRatio"))
             {
                 _logger.LogInformation("Patching Schema: Adding EnergyRatio to LibraryEntries...");

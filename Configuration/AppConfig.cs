@@ -285,6 +285,10 @@ public class AppConfig
     public int AutoDownloadExtendedWaitMs { get; set; } = 20000; // Extended window: fallback search (default 20-30s)
     public List<string>? AutoDownloadAllowedExtensions { get; set; } = new() { "flac", "wav", "aiff", "aif", "ape", "alac" }; // Conservative defaults
     public long AutoDownloadMinFileSizeBytes { get; set; } = 1024 * 500; // 500 KB minimum (anti-stub)
+    // Implied-bitrate plausibility (issue #234): catches previews/truncated files that pass a flat floor.
+    public int AutoDownloadLosslessMinImpliedKbps { get; set; } = 400;
+    public int AutoDownloadLossyMinImpliedKbps { get; set; } = 96;
+    public double AutoDownloadLossyDeclaredBitrateRatio { get; set; } = 0.6;
     public int AutoDownloadMinBitrateKbps { get; set; } = 320; // Conservative for fallback tier
     public int AutoDownloadMinMatchScore { get; set; } = 75; // Minimum score required to accept a candidate
     public bool AutoDownloadExactFirstOnly { get; set; } = false; // When true, reject all fuzzy/template matches

@@ -279,6 +279,22 @@ public class SoulseekSearchHelper
                 {
                     continue;
                 }
+
+                // Implied-bitrate plausibility (issue #234): reject previews/truncated files that
+                // pass a flat floor, including when the peer lies about Length.
+                var plausibility = CandidateSizePlausibility.Evaluate(
+                    candidate.Size,
+                    candidate.Bitrate,
+                    candidate.Length,
+                    expectedDurationSeconds,
+                    format,
+                    _config.AutoDownloadLosslessMinImpliedKbps,
+                    _config.AutoDownloadLossyMinImpliedKbps,
+                    _config.AutoDownloadLossyDeclaredBitrateRatio);
+                if (!plausibility.IsPlausible)
+                {
+                    continue;
+                }
             }
 
             if (expectedDurationSeconds.HasValue && expectedDurationSeconds.Value > 0 && durationToleranceSeconds >= 0)

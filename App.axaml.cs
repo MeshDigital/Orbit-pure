@@ -994,6 +994,8 @@ public partial class App : Application
             () => sp.GetRequiredService<ViewModels.Maintenance.LibraryMaintenanceViewModel>(),
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ViewModels.Maintenance.MaintenanceShellViewModel>>(),
             sp.GetRequiredService<IEventBus>()));
+        services.AddSingleton<Services.Library.AudioContentHasher>();
+        services.AddSingleton<Services.Library.Maintenance.LibraryContentHashBackfillService>();
         services.AddSingleton(sp => new Services.Enrichment.MetadataCredentialStore(
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Enrichment.MetadataCredentialStore>>()));
         static System.Net.Http.HttpClient EnrichmentHttp(IServiceProvider sp) =>

@@ -67,13 +67,17 @@ public class LibraryFolderScannerService
         ILogger<LibraryFolderScannerService> logger,
         DatabaseService databaseService,
         LibraryService libraryService,
-        IEventBus eventBus)
+        IEventBus eventBus,
+        Services.Library.AudioContentHasher? contentHasher = null)
     {
         _logger = logger;
         _databaseService = databaseService;
         _libraryService = libraryService;
         _eventBus = eventBus;
+        _contentHasher = contentHasher;
     }
+
+    private readonly Services.Library.AudioContentHasher? _contentHasher;
 
     /// <summary>True while an import is reading or writing this folder.</summary>
     public bool IsFolderImporting(Guid folderId)
@@ -602,7 +606,7 @@ public class LibraryFolderScannerService
             var format = Path.GetExtension(filePath).TrimStart('.').ToLowerInvariant();
             var qualityScore = ComputeQualityScore(format, bitrate, sampleRate, bitsPerSample);
 
-            return new LibraryEntryEntity
+            var entry = new LibraryEntryEntity
             {
                 Id = Guid.NewGuid(),
                 UniqueHash = BuildLibraryUniqueHash(artist, title, duration, filePath),
@@ -621,6 +625,16 @@ public class LibraryFolderScannerService
                 BPM = tagBpm,
                 MusicalKey = tagKey
             };
+
+            // Issue #235: hash the audio payload for exact-duplicate detection. Best-effort.
+            if (_contentHasher is not null)
+            {
+                var contentHash = _contentHasher.Compute(filePath);
+                if (contentHash is not null)
+                    entry.AudioContentHash = contentHash.Value;
+            }
+
+            return entry;
         }
         catch (Exception ex)
         {

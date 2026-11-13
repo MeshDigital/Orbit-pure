@@ -172,7 +172,7 @@
                                        Text="{Binding OverlaySummary}" TextTrimming="CharacterEllipsis"/>
                         </Grid>
                         <Border Classes="inset" Height="96" Padding="0" ClipToBounds="True"
-                                ToolTip.Tip="A and B as they will overlap, tempo-matched. Drag to shift where B comes in (snaps to B's bars; hold Shift for beats). Lines: each track's gain; dashed: EQ swap.">
+                                ToolTip.Tip="A and B as they will overlap, tempo-matched. Drag to shift where B comes in: it snaps to cues (B's cue on the mix point, or B's cue landing on one of A's), otherwise to B's bars; hold Shift for beats, Alt for free movement. Lines: each track's gain; dashed: EQ swap.">
                             <controls:TransitionOverlayControl Model="{Binding Overlay}"
                                                                OutgoingWaveform="{Binding WaveformDataA}"
                                                                IncomingWaveform="{Binding WaveformDataB}"
