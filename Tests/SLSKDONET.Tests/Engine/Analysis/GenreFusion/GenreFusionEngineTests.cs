@@ -118,9 +118,16 @@ public class GenreFusionEngineTests
     [Fact]
     public void Fuse_FiltersZeroAndNegativeConfidence()
     {
-        // "techno" at 174 BPM is guardrailed to ≤ 0, and "drumnbass" is boosted — only DnB survives.
+        // "techno" arrives with zero confidence (dropped before fusion), and "house" at 0.1 is pushed
+        // to ≤ 0 by the ≥155 BPM guardrail (−0.12) — only the boosted DnB vote survives.
+        // (Techno at 0.9 would only lose 0.10 at 174 BPM and stay in the distribution.)
         var result = GenreFusionEngine.Fuse(new GenreFusionInput(
-            new[] { new GenreLabelScore("drumnbass", 0.9f), new GenreLabelScore("techno", 0.9f) }, 174f));
+            new[]
+            {
+                new GenreLabelScore("drumnbass", 0.9f),
+                new GenreLabelScore("techno", 0f),
+                new GenreLabelScore("house", 0.1f),
+            }, 174f));
 
         Assert.NotNull(result);
         Assert.Equal("Drum and Bass", result.WinnerLabel);
