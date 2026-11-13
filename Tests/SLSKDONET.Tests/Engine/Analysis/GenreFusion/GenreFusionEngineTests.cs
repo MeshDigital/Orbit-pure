@@ -78,6 +78,14 @@ public class GenreFusionEngineTests
     }
 
     [Fact]
+    public void NoRhythm_TheGateIsANoOp()
+    {
+        var r = Fuse(174, null, ("house", 0.6f), ("drumnbass", 0.5f));
+        Assert.Equal(GenreBucket.House, r.Bucket); // tempo alone no longer overrules the models
+        Assert.Empty(r.Gate!);
+    }
+
+    [Fact]
     public void NoDiscogsScores_StillFusesOnJamendo()
     {
         var r = Fuse(124, null, ("house", 0.8f), ("techno", 0.3f));
@@ -112,7 +120,7 @@ public class GenreFusionEngineTests
     [Fact]
     public void WeightedTaxonomyMembers_CountPartially()
     {
-        // Jamendo "minimal" is a 0.5-weight Techno member: 0.6 × 0.5 = 0.3 before the BPM boost.
+        // Jamendo "minimal" is a 0.5-weight Techno member: 0.6 × 0.5 = 0.3.
         var r = Fuse(132, null, ("minimal", 0.6f));
         var techno = Assert.Single(r.Candidates);
         Assert.Equal(GenreBucket.Techno, techno.Bucket);
@@ -120,48 +128,33 @@ public class GenreFusionEngineTests
     }
 
     [Fact]
-    public void JunkOnlyJamendo_FallsBackToTheHeuristic()
+    public void JunkOnlyJamendo_NoRhythm_GivesNoGenre()
     {
-        var r = Fuse(174, null, ("electronic", 0.9f));
-        Assert.True(r.RanHeuristic);
-        Assert.Equal(GenreBucket.DrumAndBass, r.Bucket);
-        Assert.Contains(r.Candidates, c => c.Source == "heuristic" && c.Weight == 0.35f);
-    }
-
-    [Fact]
-    public void TempoOnlyGuess_IsNeverConfident()
-    {
-        // v1 reached 0.92 here (0.62 + 0.10 guardrail + 0.20 margin): hip-hop at 175 BPM became "confident DnB".
-        var r = Fuse(175, null);
-        Assert.True(r.RanHeuristic);
-        Assert.True(r.Confidence <= GenreFusionEngine.HeuristicMaxConfidence, $"{r.Confidence}");
-    }
-
-    [Fact]
-    public void ModelVotesAllGuardedAway_FallBackToTheHeuristic()
-    {
-        // Techno 0.08 at 174 BPM is pushed to ≤ 0 by the ≥165 guardrail: nothing survives, so the tempo guess runs.
-        var r = Fuse(174, null, ("techno", 0.08f));
-        Assert.True(r.RanHeuristic);
-        Assert.Equal(GenreBucket.DrumAndBass, r.Bucket);
-    }
-
-    [Fact]
-    public void NothingAtAll_OutsideHeuristicRanges_IsNull()
-    {
-        Assert.Null(GenreFusionEngine.Fuse(new GenreFusionInput(Array.Empty<GenreLabelScore>(), 90f)));
+        // The v1/v2 BPM heuristic is gone (GA6): tempo alone no longer names a genre.
+        Assert.Null(GenreFusionEngine.Fuse(new GenreFusionInput(new[] { S("electronic", 0.9f) }, 174f)));
+        Assert.Null(GenreFusionEngine.Fuse(new GenreFusionInput(Array.Empty<GenreLabelScore>(), 174f)));
         Assert.Null(GenreFusionEngine.Fuse(new GenreFusionInput(new[] { S("drumnbass", 0f) }, 90f)));
     }
 
     [Fact]
-    public void Fuse_FiltersZeroAndNegativeConfidence()
+    public void NoModelVote_ReliableDnbRhythm_GivesACappedRhythmOnlyGuess()
     {
-        // "techno" at 0 never votes; "house" at 0.1 is pushed to ≤ 0 by the ≥155 BPM guardrail.
-        var r = Fuse(174, null, ("drumnbass", 0.9f), ("techno", 0f), ("house", 0.1f));
+        var rhythm = new RhythmSignature(0.02, 0.95, 0.05, 0.95, 87, 174, 32, 0.9);
+        var r = GenreFusionEngine.Fuse(new GenreFusionInput(Array.Empty<GenreLabelScore>(), 174f, null, rhythm));
+        Assert.NotNull(r);
+        Assert.True(r!.RanHeuristic);
+        Assert.Equal(GenreBucket.DrumAndBass, r.Bucket);
+        Assert.True(r.Confidence <= RhythmTempoGate.RhythmOnlyMaxConfidence);
+        Assert.Contains(r.Gate!, e => e.RuleId == "dnb-break");
+    }
+
+    [Fact]
+    public void ZeroConfidenceVotes_AreDropped()
+    {
+        var r = Fuse(174, null, ("drumnbass", 0.9f), ("techno", 0f));
         Assert.Equal("Drum and Bass", r.WinnerLabel);
         Assert.Single(r.Distribution);
     }
-
     [Fact]
     public void Distribution_IsKeyedByStableDisplayText()
     {
@@ -172,5 +165,5 @@ public class GenreFusionEngineTests
     }
 
     [Fact]
-    public void FusionVersion_IsBumpedForGa5() => Assert.Equal(2, GenreFusionEngine.FusionVersion);
+    public void FusionVersion_IsBumpedForGa6() => Assert.Equal(3, GenreFusionEngine.FusionVersion);
 }

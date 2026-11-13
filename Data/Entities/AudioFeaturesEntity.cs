@@ -724,6 +724,13 @@ public class AudioFeaturesEntity
 
     /// <summary>Confidence of <see cref="TopStyle"/> (0–1).</summary>
     public float? TopStyleConfidence { get; set; }
+
+    /// <summary>
+    /// The drums' <see cref="SLSKDONET.Engine.Analysis.RhythmSignature"/> as JSON (GA6 #251): four-on-the-floor,
+    /// backbeat, half-time, break scores and the octave-folded tempo. Kept so genre can be re-fused
+    /// without decoding audio again (#255). Null for rows analysed before it existed.
+    /// </summary>
+    public string? RhythmSignatureJson { get; set; }
 }
 
 
