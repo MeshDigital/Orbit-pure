@@ -31,6 +31,15 @@
                               ToolTip.Tip="Runs a cheap style-only (Mood) analysis in the background."/>
                     <CheckBox Content="Fill empty Genre from AI style" IsChecked="{Binding GenreFill}"/>
                     <CheckBox Content="Group unclassified tracks into style playlists" IsChecked="{Binding StylePlaylists}"/>
+                    <Border Classes="divider"/>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Spacing="4">
+                            <TextBlock Classes="body-sm" Text="Exact duplicates"/>
+                            <TextBlock Classes="caption" TextWrapping="Wrap" Text="The same audio stored more than once, even under different tags. Reviewed separately."/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Classes="secondary small" Content="Review duplicates…" VerticalAlignment="Center"
+                                Command="{Binding FindExactDuplicatesCommand}"/>
+                    </Grid>
                 </StackPanel>
 
                 <!-- 2. Scan -->

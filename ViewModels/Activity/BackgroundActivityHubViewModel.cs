@@ -158,6 +158,7 @@ public sealed class BackgroundActivityHubViewModel : ActivityObservable, IDispos
     private EnrichmentProgress? _enrichmentProgress;
     private AnalysisQueueStatusChangedEvent? _analysisStatus;
     private LoudnessBackfillProgressEvent? _loudness;
+    private ContentHashBackfillProgressEvent? _contentHash;
     private int _analysisBaseline = -1;
     private int _applyScheduled;
     private int _applyCount;
@@ -188,8 +189,9 @@ public sealed class BackgroundActivityHubViewModel : ActivityObservable, IDispos
         Loudness = new BackgroundActivityItemViewModel(BackgroundActivityKind.Loudness, "Loudness", "Open",
             null, null, navigate == null ? null : () => navigate("Analysis"));
         // Loudness is stopped from its Analysis-page card; the flyout only opens it.
-        Maintenance = new BackgroundActivityItemViewModel(BackgroundActivityKind.Maintenance, "Maintenance", "Open",
-            null, null, navigate == null ? null : () => navigate("Library"));
+        // Maintenance = the exact-duplicate check's audio hashing (#238); Open shows its review.
+        Maintenance = new BackgroundActivityItemViewModel(BackgroundActivityKind.Maintenance, "Duplicate check", "Open",
+            null, null, () => eventBus.Publish(new OpenExactDuplicatesRequestedEvent()));
         Items = new[] { Import, Enrichment, Analysis, Loudness, Maintenance };
 
         try
@@ -197,6 +199,7 @@ public sealed class BackgroundActivityHubViewModel : ActivityObservable, IDispos
             _subscriptions.Add(eventBus.GetEvent<EnrichmentProgressEvent>().Subscribe(e => { lock (_gate) _enrichmentProgress = e.Progress; ScheduleApply(); }));
             _subscriptions.Add(eventBus.GetEvent<AnalysisQueueStatusChangedEvent>().Subscribe(e => { lock (_gate) _analysisStatus = e; ScheduleApply(); }));
             _subscriptions.Add(eventBus.GetEvent<LoudnessBackfillProgressEvent>().Subscribe(e => { lock (_gate) _loudness = e; ScheduleApply(); }));
+            _subscriptions.Add(eventBus.GetEvent<ContentHashBackfillProgressEvent>().Subscribe(e => { lock (_gate) _contentHash = e; ScheduleApply(); }));
         }
         catch (Exception ex)
         {
@@ -284,17 +287,20 @@ public sealed class BackgroundActivityHubViewModel : ActivityObservable, IDispos
             EnrichmentProgress? enrichment;
             AnalysisQueueStatusChangedEvent? analysis;
             LoudnessBackfillProgressEvent? loudness;
+            ContentHashBackfillProgressEvent? contentHash;
             lock (_gate)
             {
                 enrichment = _enrichmentProgress;
                 analysis = _analysisStatus;
                 loudness = _loudness;
+                contentHash = _contentHash;
             }
 
             ApplyImport();
             ApplyEnrichment(enrichment);
             ApplyAnalysis(analysis);
             ApplyLoudness(loudness);
+            ApplyContentHash(contentHash);
 
             var active = Items.Where(i => i.IsActive).ToList();
             ActiveCount = active.Count;
@@ -322,6 +328,7 @@ public sealed class BackgroundActivityHubViewModel : ActivityObservable, IDispos
             BackgroundActivityKind.Import => "Importing",
             BackgroundActivityKind.Analysis => "Analysing",
             BackgroundActivityKind.Enrichment => item.IsPaused ? "Enrichment paused" : "Enriching",
+            BackgroundActivityKind.Maintenance => "Checking duplicates",
             _ => "Measuring loudness",
         };
         return string.IsNullOrEmpty(item.CountsText) ? verb : $"{verb} {item.CountsText}";
@@ -375,6 +382,12 @@ public sealed class BackgroundActivityHubViewModel : ActivityObservable, IDispos
     {
         if (p == null || !p.IsRunning) { Loudness.Update(false, false, false, 0, 0, string.Empty); return; }
         Loudness.Update(true, false, false, p.Done, p.Total, p.IsWaitingForAnalysis ? "Waiting while analysis runs" : "Measuring LUFS");
+    }
+
+    private void ApplyContentHash(ContentHashBackfillProgressEvent? p)
+    {
+        if (p == null || !p.IsRunning) { Maintenance.Update(false, false, false, 0, 0, string.Empty); return; }
+        Maintenance.Update(true, false, false, p.Done, p.Total, "Hashing audio, one file at a time", indeterminate: p.Total == 0);
     }
 
     public void Dispose()
