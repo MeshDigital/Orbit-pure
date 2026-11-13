@@ -17,6 +17,27 @@ Effort: **S** is under an hour, **M** is about half a day to a day, **L** is sev
 
 ---
 
+## Q. Genre accuracy: DnB / Dubstep / Techno / House (epic #245, added 2026-11-12)
+
+The plan, the verified current state, the mapping tables and the tips are in `DOCS/GENRE_ACCURACY_PLAN.md`.
+Each item is a self-contained issue.
+
+- [ ] #246 GA1: `GenreTaxonomy`, the canonical bucket/subgenre mapping plus a junk list (Wave 0)
+- [ ] #247 GA2: extract `GenreFusionEngine` with no behaviour change, and delete the dead Essentia genre paths (Wave 0)
+- [ ] #248 GA4: `RhythmSignatureAnalyzer` (4x4 vs backbeat vs half-time) (Wave 0)
+- [ ] #249 GA3: ground-truth genre benchmark `Tests/GenreBenchmark`, with a baseline (Wave 1)
+- [ ] #250 GA5: wire the Discogs-400 style scores into fusion (built but never wired) (Wave 1)
+- [ ] #251 GA6: rhythm & tempo gate, replacing `ApplyBpmGuardrails` (Wave 2)
+- [ ] #252 GA7: energy-weighted per-patch pooling (Wave 2)
+- [ ] #253 GA8: metadata-first `TrackGenreResolver` plus `GenreEvidenceJson` (Wave 2)
+- [ ] #254 GA9: Inspector "Genre evidence" plus a Maintenance `GenreConflict` rule (Wave 3)
+- [ ] #255 GA10: stale-row detection plus re-fuse without audio (Wave 3)
+- [ ] #256 GA11: personal genre head from user corrections (Wave 3)
+- [ ] #257 GA12: spike, MAEST-30s-519 decision doc (Wave 4)
+- [ ] #258 GA13: release, `CurrentSetupVersion` bump plus What's New (Wave 4)
+
+---
+
 ## H. PRIORITY: drop detection and cue placement accuracy
 Added on 2026-09-27 after comparing an outside write-up (EDM phrasing, sub-bass dropout, spectral
 flux, onset density, an 8-pad cue template) with `Engine/Cueing/CueGenerationService.cs`.
