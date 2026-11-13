@@ -812,16 +812,19 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
     private void RefreshOverlay()
     {
         if (!HasLoadedPair) { Overlay = null; this.RaisePropertyChanged(nameof(OverlaySummary)); return; }
-        Overlay = TransitionOverlayModel.Build(
+        var overlay = TransitionOverlayModel.Build(
             OutgoingBpm, IncomingBpm, EffectiveSourceTriggerSeconds, TargetTriggerSeconds, TransitionWindowSeconds,
             PreviewLeadInSeconds, OutgoingDurationSeconds, IncomingDurationSeconds, IncomingEditor.Session.GridOffset,
             OutgoingAutomationCurve as IReadOnlyList<float>, IncomingAutomationCurve as IReadOnlyList<float>, OverlayMarkers(),
-            IncomingPlaybackRate,
-            SLSKDONET.Engine.Transitions.TransitionSnap.BuildCandidates(
-                IncomingEditor.Session.Cues.Select(c => (c.Timestamp, c.Name)),
-                OutgoingEditor.Session.Cues.Select(c => (c.Timestamp, c.Name)),
-                EffectiveSourceTriggerSeconds,
-                toleranceSeconds: 0.05));
+            IncomingPlaybackRate);
+        // Cue snap targets need the overlay's own tempo ratio, so they're added once it exists.
+        Overlay = overlay with
+        {
+            IncomingSnapCandidates = SLSKDONET.Engine.Transitions.TransitionSnap.BuildCandidates(
+                VisibleCues(IncomingEditor.Session.Cues).Select(c => (c.Timestamp, c.Name)),
+                VisibleCues(OutgoingEditor.Session.Cues).Select(c => (c.Timestamp, c.Name)),
+                overlay.SourceTrigger, overlay.IncomingRate, overlay.IncomingDuration)
+        };
         this.RaisePropertyChanged(nameof(OverlaySummary));
     }
 

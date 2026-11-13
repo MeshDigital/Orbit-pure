@@ -15,7 +15,7 @@ namespace SLSKDONET.Views.Avalonia.Controls;
 /// The transition editor's overlay: the outgoing track A and the incoming track B drawn on top of
 /// each other on one shared, tempo-corrected timeline (<see cref="TransitionOverlayModel"/>), with
 /// the blend window shaded, both gain curves, EQ swap points, bar numbers and the preview playhead.
-/// Drag horizontally to shift where B comes in (snapped to B's bars, Shift = beats); the result goes
+/// Drag horizontally to shift where B comes in (snapped to cues, else B's bars; Shift = beats, Alt = free); the result goes
 /// to <see cref="ShiftIncomingCommand"/> (the same mix-in state as the nudge buttons, undoable).
 ///
 /// Performance: the two waveform envelopes and the two gain curves are built as geometries only

@@ -112,17 +112,23 @@ public sealed record TransitionOverlayModel
     public SnapResult SnapTargetTrigger(double dragSharedSeconds, double pixelsPerSecond, double tolerancePx, bool altHeld, bool shiftHeld)
     {
         double raw = TargetTrigger - dragSharedSeconds * IncomingRate;
-        double beat = 60.0 / (IncomingBpm > 0 ? IncomingBpm : (ProjectBpm > 0 ? ProjectBpm : 128.0));
-        var grid = new BarGrid(IncomingDownbeat, beat);
-        var result = TransitionSnap.Resolve(raw, IncomingSnapCandidates, grid, pixelsPerSecond, tolerancePx,
-            shiftHeld ? SnapMode.Beat : SnapMode.Bar, disabled: altHeld);
+        if (altHeld)
+        {
+            double free = Math.Max(0, raw);
+            if (IncomingDuration > 0) free = Math.Min(free, IncomingDuration);
+            return new SnapResult(free, SnapKind.None, null);
+        }
 
-        // Keep the snapped mix-in point inside B, as the bar/beat path does.
-        double unit = shiftHeld ? beat : 4 * beat;
-        double snapped = Math.Max(0, result.Seconds);
-        if (IncomingDuration > 0)
-            snapped = Math.Min(snapped, Math.Max(0, IncomingDuration - unit));
-        return result with { Seconds = snapped };
+        double beat = 60.0 / (IncomingBpm > 0 ? IncomingBpm : (ProjectBpm > 0 ? ProjectBpm : 128.0));
+        // pixelsPerSecond is shared (screen) time; one second of B spans 1/IncomingRate shared seconds.
+        var result = TransitionSnap.Resolve(raw, IncomingSnapCandidates, new BarGrid(IncomingDownbeat, beat),
+            pixelsPerSecond / IncomingRate, tolerancePx, shiftHeld ? SnapMode.Beat : SnapMode.Bar);
+        if (result.Kind is SnapKind.IncomingCue or SnapKind.AlignedCue)
+            return result; // candidates are built inside B already
+
+        // No cue in reach: the existing bar/beat snap, with its clamping into B.
+        return new SnapResult(ShiftedTargetTrigger(dragSharedSeconds, snapToBar: !shiftHeld),
+            shiftHeld ? SnapKind.Beat : SnapKind.Bar, null);
     }
 
     /// <summary>Builds the overlay for the editor's current state.</summary>
