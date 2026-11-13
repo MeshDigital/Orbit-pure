@@ -18,6 +18,7 @@ using SLSKDONET.Services;
 using SLSKDONET.Services.AudioAnalysis;
 using SLSKDONET.Services.Library;
 using SLSKDONET.Utils;
+using SLSKDONET.Views;
 
 namespace SLSKDONET.ViewModels;
 
@@ -274,9 +275,12 @@ public class AnalysisTrackItem : ReactiveObject
     /// <summary>True when this track is measurable and at least one engine is missing.</summary>
     public bool HasMissingEngines => _coverage is { IsComplete: false };
 
-    /// <summary>"Key, Cues and Fingerprint" for the row chip; empty when complete or unmeasured.</summary>
+    /// <summary>
+    /// "Missing Key and Cues · Waveform outdated" for the row's warning line; empty when complete
+    /// or unmeasured.
+    /// </summary>
     public string MissingEnginesSummary => _coverage is { IsComplete: false } coverage
-        ? AnalysisEngines.Describe(coverage.Missing)
+        ? coverage.MissingSummary
         : string.Empty;
 
     /// <summary>The engines a "run what's missing" action should queue for this row.</summary>
@@ -738,8 +742,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     private readonly ILibraryService? _libraryService;
     private readonly ILifecycleProjectionService _lifecycleProjectionService;
     private readonly IClipboardService? _clipboardService;
-    private readonly LibraryCorruptionScanService? _corruptionScanService;
-    private readonly CorruptFileRemediationService? _remediationService;
+    private readonly ILibraryCorruptionScanService? _corruptionScanService;
+    private readonly ICorruptFileRemediationService? _remediationService;
+    private readonly IDialogService? _dialogService;
     private readonly AnalyzeTrackStructureJob? _cueStructureJob;
     private readonly AppConfig? _config;
     private readonly ConfigManager? _configManager;
@@ -1154,14 +1159,15 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         ILifecycleProjectionService lifecycleProjectionService,
         ILibraryService? libraryService = null,
         IClipboardService? clipboardService = null,
-        LibraryCorruptionScanService? corruptionScanService = null,
-        CorruptFileRemediationService? remediationService = null,
+        ILibraryCorruptionScanService? corruptionScanService = null,
+        ICorruptFileRemediationService? remediationService = null,
         AnalyzeTrackStructureJob? cueStructureJob = null,
         AppConfig? config = null,
         ConfigManager? configManager = null,
         LoudnessBackfillViewModel? loudnessBackfill = null,
         EnrichmentViewModel? enrichment = null,
-        AnalysisCoverageService? coverageService = null)
+        AnalysisCoverageService? coverageService = null,
+        IDialogService? dialogService = null)
     {
         _eventBus = eventBus;
         LoudnessBackfill = loudnessBackfill;
@@ -1172,6 +1178,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         _lifecycleProjectionService = lifecycleProjectionService;
         _corruptionScanService = corruptionScanService;
         _remediationService = remediationService;
+        _dialogService = dialogService;
         _cueStructureJob = cueStructureJob;
         _config = config;
         _configManager = configManager;
@@ -2447,16 +2454,14 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                 $"Scan complete — {result.Clean} clean, {result.Warned} warnings, {result.Fatal - result.Missing} corrupt, {result.Missing} missing";
             AutomixStatusMessage = IntegrityScanStatusText;
 
-            // Auto-remediate fatal issues (genuinely corrupt or missing files) immediately — no
-            // manual "Fix" click required. Warnings are deliberately excluded: those are isolated,
-            // recoverable decode glitches (see AudioCorruptionScannerService) that still analyse
-            // fine, not files that need removing.
+            // Fatal issues are never remediated automatically: deletion is irreversible and the
+            // probe has produced false positives before, so the full list is surfaced for an
+            // explicit confirmation first. Warnings stay untouched (isolated, recoverable decode
+            // glitches — see AudioCorruptionScannerService).
             var fatalIssues = result.Issues.Where(i => i.Status == Data.Entities.CorruptionStatus.Fatal).ToList();
             if (fatalIssues.Count > 0)
             {
-                await RemediateAsync(fatalIssues).ConfigureAwait(true);
-                IntegrityScanStatusText = $"{IntegrityScanStatusText} — {RemediationStatusText}";
-                AutomixStatusMessage = IntegrityScanStatusText;
+                await ConfirmAndRemediateAsync(fatalIssues).ConfigureAwait(true);
             }
         }
         catch (OperationCanceledException)
@@ -2487,10 +2492,74 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         CorruptionStatus.Fatal,
         track.AnalysisError ?? "Corrupt file detected during analysis");
 
+    private async Task ConfirmAndRemediateAsync(IReadOnlyList<CorruptFileScanEntry> fatalIssues)
+    {
+        var corruptCount = fatalIssues.Count(e => !e.IsMissing);
+        var missingCount = fatalIssues.Count(e => e.IsMissing);
+        var items = fatalIssues.Select(e => $"{e.StatusBadge} — {e.FilePath}").ToList();
+        var message =
+            $"{corruptCount} corrupt and {missingCount} missing file(s) will be deleted from disk " +
+            "and re-queued for download. The full list stays available in the File Integrity panel.";
+
+        // Fail safe: without a dialog service (tests / headless) we can't get an explicit
+        // confirmation, so we must not delete anything.
+        var confirmed = _dialogService is not null
+            && await _dialogService.ConfirmListAsync(
+                "Scan library integrity",
+                message,
+                items,
+                confirmLabel: "Delete & re-download",
+                cancelLabel: "Keep files").ConfigureAwait(true);
+
+        if (!confirmed)
+        {
+            IntegrityScanStatusText = $"{IntegrityScanStatusText} — {fatalIssues.Count} file(s) kept";
+            AutomixStatusMessage = IntegrityScanStatusText;
+            _eventBus.Publish(new ToastRequestedEvent(
+                "Files kept",
+                $"{fatalIssues.Count} file(s) left unchanged.",
+                NotificationType.Information,
+                TimeSpan.FromSeconds(6)));
+            return;
+        }
+
+        var result = await RemediateCoreAsync(fatalIssues).ConfigureAwait(true);
+        IntegrityScanStatusText = $"{IntegrityScanStatusText} — {RemediationStatusText}";
+        AutomixStatusMessage = IntegrityScanStatusText;
+
+        if (result is null)
+        {
+            // RemediationStatusText already reports the cancel/failure; don't emit a success toast.
+            return;
+        }
+
+        if (result.HasErrors)
+        {
+            _eventBus.Publish(new ToastRequestedEvent(
+                "Integrity remediation",
+                $"{result.Processed - result.Errors.Count} of {result.Processed} fixed — {result.Errors.Count} failed.",
+                NotificationType.Error,
+                TimeSpan.FromSeconds(8)));
+        }
+        else
+        {
+            _eventBus.Publish(new ToastRequestedEvent(
+                "Integrity remediation",
+                $"{result.FilesDeleted} file(s) deleted and re-queued for download.",
+                NotificationType.Success,
+                TimeSpan.FromSeconds(6)));
+        }
+    }
+
     private async Task RemediateAsync(IReadOnlyList<CorruptFileScanEntry> entries)
     {
+        await RemediateCoreAsync(entries).ConfigureAwait(true);
+    }
+
+    private async Task<RemediationResult?> RemediateCoreAsync(IReadOnlyList<CorruptFileScanEntry> entries)
+    {
         if (_remediationService is null || entries.Count == 0 || _isRemediating)
-            return;
+            return null;
 
         IsRemediating = true;
         RemediationStatusText = $"Fixing {entries.Count} files…";
@@ -2512,15 +2581,18 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
             RemediationStatusText = result.Summary;
             AutomixStatusMessage  = result.Summary;
+            return result;
         }
         catch (OperationCanceledException)
         {
             RemediationStatusText = "Remediation cancelled.";
+            return null;
         }
         catch (Exception ex)
         {
             Serilog.Log.Warning(ex, "AnalysisPage: corrupt-file remediation failed");
             RemediationStatusText = $"Remediation failed: {ex.Message}";
+            return null;
         }
         finally
         {
@@ -2618,7 +2690,10 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         : Coverage switch
         {
             { TotalTracks: 0 } => "No tracks with audio on disk in this selection yet.",
-            { IsComplete: true } => "Nothing missing — every engine has output for every track.",
+            { IsComplete: true } => "Nothing missing — every engine has current output for every track.",
+            { OutdatedWaveformTracks: > 0 } =>
+                $"{Coverage.PartiallyAnalyzedTracks} partially analysed · {Coverage.UnanalysedTracks} not analysed at all · " +
+                $"{Coverage.OutdatedWaveformTracks} with an outdated waveform",
             _ => $"{Coverage.PartiallyAnalyzedTracks} partially analysed · {Coverage.UnanalysedTracks} not analysed at all",
         };
 

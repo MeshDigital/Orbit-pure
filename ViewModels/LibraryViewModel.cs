@@ -63,6 +63,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     private readonly SimilarityIndex? _similarityIndex;
     private readonly TransitionStyleClassifier? _transitionStyleClassifier;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly Services.Library.Maintenance.TrackMetadataWriter? _metadataWriter;
     
     public Library.ProjectListViewModel Projects { get; }
     public Library.TrackListViewModel Tracks { get; }
@@ -560,7 +561,8 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         ISavedDoublesService? savedDoublesService = null,
         TrackSimilarityService? trackSimilarityService = null,
         SimilarityIndex? similarityIndex = null,
-        TransitionStyleClassifier? transitionStyleClassifier = null)
+        TransitionStyleClassifier? transitionStyleClassifier = null,
+        Services.Library.Maintenance.TrackMetadataWriter? metadataWriter = null)
     {
         _dbFactory = dbFactory;
         _logger = logger;
@@ -586,6 +588,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         _exportOrchestrator = exportOrchestrator;
         _playlistIntelligenceService = playlistIntelligenceService;
         _savedDoublesService = savedDoublesService;
+        _metadataWriter = metadataWriter;
         _trackSimilarityService = trackSimilarityService;
         _similarityIndex = similarityIndex;
         _transitionStyleClassifier = transitionStyleClassifier;

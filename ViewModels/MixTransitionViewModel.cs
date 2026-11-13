@@ -26,7 +26,7 @@ namespace SLSKDONET.ViewModels;
 /// style transition editor, loaded for one adjacent track pair at a time via
 /// <see cref="LoadPairAsync"/>.
 /// </summary>
-public class MixTransitionViewModel : ReactiveObject, IDisposable
+public partial class MixTransitionViewModel : ReactiveObject, IDisposable
 {
     private readonly ILogger<MixTransitionViewModel> _logger;
     private readonly ILibraryService _libraryService;
@@ -160,10 +160,16 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
             StatusMessage = $"Mix-in moved to {FormatTimestamp(TargetTriggerSeconds)} · Ctrl+Z to undo";
         });
         UndoMixPointCommand = ReactiveCommand.Create(UndoMixPoint, this.WhenAnyValue(x => x.CanUndoMixPoint));
+        InitDeckControls();
 
         _previewPlayer.PreviewStopped += OnPreviewStopped;
         if (_libraryPreviewPlayer != null) _libraryPreviewPlayer.PreviewStopped += OnLibraryPreviewStopped;
 
+        // The header cue pickers follow every mix-point and cue change (drags, nudges, re-plans, cue edits).
+        this.WhenAnyValue(x => x.SourceTriggerSeconds, x => x.NudgeSeconds, x => x.OutgoingCues)
+            .Subscribe(_ => this.RaisePropertyChanged(nameof(OutgoingMixCue)));
+        this.WhenAnyValue(x => x.TargetTriggerSeconds, x => x.IncomingCues)
+            .Subscribe(_ => this.RaisePropertyChanged(nameof(IncomingMixCue)));
         SelectPresetCommand = ReactiveCommand.Create<string>(preset => SelectedPreset = preset);
         SelectBarsCommand = ReactiveCommand.Create<int>(bars => DurationBars = bars);
         // DurationBars is also set straight on the field by the structure planner and pair loading,
@@ -309,47 +315,74 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         }
     }
 
-    private double _waveformZoomLevel = 4.0;
-    /// <summary>Single source of truth for both waveforms' zoom — MixPreviewComponent.axaml binds
-    /// its two WaveformControls' ZoomLevel here instead of each managing its own, so it can never
-    /// drift out of sync with the OutgoingViewOffset/IncomingViewOffset math below (which needs
-    /// the exact same number), and the two tracks stay directly comparable at the same zoom when
-    /// lined up via their independent pan sliders. User-adjustable via ZoomInCommand/
-    /// ZoomOutCommand (and the zoom slider in MixPreviewComponent.axaml), clamped to
-    /// WaveformControl's own [1,16] range.</summary>
+    private double _outgoingZoomLevel = 4.0;
+    private double _incomingZoomLevel = 4.0;
+
+    /// <summary>Both decks' zoom at once (the toolbar's −/+ and MixPreviewComponent's slider).
+    /// Reads the outgoing deck; setting it zooms both decks to the same level so the two tracks stay
+    /// directly comparable. Each deck can still be zoomed on its own (<see cref="OutgoingZoomLevel"/>,
+    /// <see cref="IncomingZoomLevel"/>: per-deck −/+ and Ctrl+wheel). Clamped to WaveformControl's [1,16].</summary>
     public double WaveformZoomLevel
     {
-        get => _waveformZoomLevel;
+        get => _outgoingZoomLevel;
         set
         {
-            this.RaiseAndSetIfChanged(ref _waveformZoomLevel, Math.Clamp(value, 1.0, 16.0));
+            var z = Math.Clamp(value, 1.0, 16.0);
+            OutgoingZoomLevel = z;
+            IncomingZoomLevel = z;
+            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(WaveformViewOffsetMaximum));
+        }
+    }
+
+    /// <summary>Zoom of the OUTGOING deck only.</summary>
+    public double OutgoingZoomLevel
+    {
+        get => _outgoingZoomLevel;
+        set
+        {
+            var z = Math.Clamp(value, 1.0, 16.0);
+            if (Math.Abs(z - _outgoingZoomLevel) < 1e-9) return;
+            _outgoingZoomLevel = z;
+            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(WaveformZoomLevel));
             this.RaisePropertyChanged(nameof(WaveformViewOffsetMaximum));
             this.RaisePropertyChanged(nameof(OutgoingViewOffset));
+        }
+    }
+
+    /// <summary>Zoom of the INCOMING deck only.</summary>
+    public double IncomingZoomLevel
+    {
+        get => _incomingZoomLevel;
+        set
+        {
+            var z = Math.Clamp(value, 1.0, 16.0);
+            if (Math.Abs(z - _incomingZoomLevel) < 1e-9) return;
+            _incomingZoomLevel = z;
+            this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(IncomingViewOffset));
         }
     }
 
-    /// <summary>Highest valid ViewOffset at the current zoom — the pan slider's Maximum.</summary>
-    public double WaveformViewOffsetMaximum => Math.Max(0.0, 1.0 - (1.0 / WaveformZoomLevel));
+    /// <summary>Highest valid ViewOffset at the shared zoom — MixPreviewComponent's pan slider Maximum.</summary>
+    public double WaveformViewOffsetMaximum => MaxViewOffset(WaveformZoomLevel);
+
+    private static double MaxViewOffset(double zoom) => Math.Max(0.0, 1.0 - (1.0 / zoom));
 
     private double? _outgoingManualOffset;
     /// <summary>Scrolls the zoomed OUTGOING waveform. Defaults to centering on the current mix-out
-    /// trigger point (replacing a binding that bound a bool (ObjectConverters.IsNull on a non-
-    /// nullable float) into this double property — which always evaluated to a fixed 0, showing
-    /// only the track's first 1/ZoomLevel regardless of where the actual trigger point was), but
-    /// the user can drag the pan slider under the waveform (MixPreviewComponent.axaml) to scroll
-    /// it independently and line up a feature against the INCOMING waveform below for a by-eye
-    /// alignment check. Any new trigger point (cue click/Nudge) clears the manual pan so the view
-    /// re-centers rather than leaving a stale scroll position pointing at the old trigger.</summary>
+    /// trigger point; the user can pan it (drag the waveform background, or the pan slider in
+    /// MixPreviewComponent.axaml) to line up a feature against the INCOMING deck. Any new trigger
+    /// point (cue click/Nudge) or "Center on mix point" clears the manual pan so the view re-centers.</summary>
     public double OutgoingViewOffset
     {
         // Re-clamped on read, not just on write: a manual offset set at one zoom level can exceed
-        // WaveformViewOffsetMaximum after the user zooms back out, since ZoomInCommand/
-        // ZoomOutCommand change zoom without touching the stored offset.
-        get => _outgoingManualOffset.HasValue ? Math.Clamp(_outgoingManualOffset.Value, 0.0, WaveformViewOffsetMaximum) : CenteredViewOffset(ProgressA);
+        // the maximum after the user zooms back out.
+        get => _outgoingManualOffset.HasValue ? Math.Clamp(_outgoingManualOffset.Value, 0.0, MaxViewOffset(OutgoingZoomLevel)) : CenteredViewOffset(ProgressA, OutgoingZoomLevel);
         set
         {
-            _outgoingManualOffset = Math.Clamp(value, 0.0, WaveformViewOffsetMaximum);
+            _outgoingManualOffset = Math.Clamp(value, 0.0, MaxViewOffset(OutgoingZoomLevel));
             this.RaisePropertyChanged();
         }
     }
@@ -358,19 +391,18 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     /// <summary>Same as <see cref="OutgoingViewOffset"/>, for the INCOMING waveform.</summary>
     public double IncomingViewOffset
     {
-        get => _incomingManualOffset.HasValue ? Math.Clamp(_incomingManualOffset.Value, 0.0, WaveformViewOffsetMaximum) : CenteredViewOffset(ProgressB);
+        get => _incomingManualOffset.HasValue ? Math.Clamp(_incomingManualOffset.Value, 0.0, MaxViewOffset(IncomingZoomLevel)) : CenteredViewOffset(ProgressB, IncomingZoomLevel);
         set
         {
-            _incomingManualOffset = Math.Clamp(value, 0.0, WaveformViewOffsetMaximum);
+            _incomingManualOffset = Math.Clamp(value, 0.0, MaxViewOffset(IncomingZoomLevel));
             this.RaisePropertyChanged();
         }
     }
 
-    private double CenteredViewOffset(float progress)
+    private static double CenteredViewOffset(float progress, double zoom)
     {
-        var halfWindow = 1.0 / (2.0 * WaveformZoomLevel);
-        var maxOffset = Math.Max(0.0, 1.0 - (1.0 / WaveformZoomLevel));
-        return Math.Clamp(progress - halfWindow, 0.0, maxOffset);
+        var halfWindow = 1.0 / (2.0 * zoom);
+        return Math.Clamp(progress - halfWindow, 0.0, MaxViewOffset(zoom));
     }
 
     private string _statusMessage = "Select a preset to preview the transition.";
@@ -593,6 +625,38 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     private IEnumerable<OrbitCue> _incomingCues = Array.Empty<OrbitCue>();
     public IEnumerable<OrbitCue> IncomingCues { get => _incomingCues; private set => this.RaiseAndSetIfChanged(ref _incomingCues, value); }
 
+    /// <summary>
+    /// The outgoing cue the mix-out sits on (null = between cues, "custom"). Picking one in the
+    /// header puts the mix-out exactly on it — after editing cues in Cue Forge, one pick re-aligns
+    /// the transition instead of nudging beat by beat. Undoable like every mix-point change.
+    /// </summary>
+    public OrbitCue? OutgoingMixCue
+    {
+        get => OutgoingEditor.Session.Cues.FirstOrDefault(c => !c.IsLoop && Math.Abs(c.Timestamp - EffectiveSourceTriggerSeconds) < 0.05);
+        set
+        {
+            if (value == null || !HasLoadedPair || Math.Abs(value.Timestamp - EffectiveSourceTriggerSeconds) < 1e-6) return;
+            RecordMixPointUndo();
+            _nudgeSeconds = 0;
+            this.RaisePropertyChanged(nameof(NudgeSeconds));
+            SourceTriggerSeconds = value.Timestamp;
+            StatusMessage = $"Mix-out on {value.Name} ({FormatTimestamp(value.Timestamp)})";
+        }
+    }
+
+    /// <summary>The incoming cue the mix-in sits on (null = between cues); picking one moves the mix-in there.</summary>
+    public OrbitCue? IncomingMixCue
+    {
+        get => IncomingEditor.Session.Cues.FirstOrDefault(c => !c.IsLoop && Math.Abs(c.Timestamp - TargetTriggerSeconds) < 0.05);
+        set
+        {
+            if (value == null || !HasLoadedPair || Math.Abs(value.Timestamp - TargetTriggerSeconds) < 1e-6) return;
+            RecordMixPointUndo();
+            TargetTriggerSeconds = value.Timestamp;
+            StatusMessage = $"Mix-in on {value.Name} ({FormatTimestamp(value.Timestamp)})";
+        }
+    }
+
     private bool _mixCuesOnly = true;
     /// <summary>Focused transition view: show only shared Mix-In / Mix-Out cues (including legacy
     /// generated labels). All Workstation cues remain intact and return in edit mode or on toggle.</summary>
@@ -613,6 +677,7 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     {
         OutgoingCues = VisibleCues(OutgoingEditor.Session.Cues).ToList();
         IncomingCues = VisibleCues(IncomingEditor.Session.Cues).ToList();
+        RefreshCueRails();
         RefreshMissingCues();
     }
 
@@ -753,11 +818,19 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     private void RefreshOverlay()
     {
         if (!HasLoadedPair) { Overlay = null; this.RaisePropertyChanged(nameof(OverlaySummary)); return; }
-        Overlay = TransitionOverlayModel.Build(
+        var overlay = TransitionOverlayModel.Build(
             OutgoingBpm, IncomingBpm, EffectiveSourceTriggerSeconds, TargetTriggerSeconds, TransitionWindowSeconds,
             PreviewLeadInSeconds, OutgoingDurationSeconds, IncomingDurationSeconds, IncomingEditor.Session.GridOffset,
             OutgoingAutomationCurve as IReadOnlyList<float>, IncomingAutomationCurve as IReadOnlyList<float>, OverlayMarkers(),
             IncomingPlaybackRate);
+        // Cue snap targets need the overlay's own tempo ratio, so they're added once it exists.
+        Overlay = overlay with
+        {
+            IncomingSnapCandidates = SLSKDONET.Engine.Transitions.TransitionSnap.BuildCandidates(
+                VisibleCues(IncomingEditor.Session.Cues).Select(c => (c.Timestamp, c.Name)),
+                VisibleCues(OutgoingEditor.Session.Cues).Select(c => (c.Timestamp, c.Name)),
+                overlay.SourceTrigger, overlay.IncomingRate, overlay.IncomingDuration)
+        };
         this.RaisePropertyChanged(nameof(OverlaySummary));
     }
 
@@ -1309,7 +1382,10 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
                 bpm = f.Bpm;
                 downbeat = f.DownbeatOffsetSeconds;
                 genre = !string.IsNullOrWhiteSpace(f.DetectedSubGenre) ? f.DetectedSubGenre : f.ElectronicSubgenre;
-                phrases = ParsePhrases(f.PhraseSegmentsJson, track.TrackUniqueHash);
+                // The single TrackPhrases store (#225): the user's own map first, then Rekordbox's, then the heuristic.
+                var resolved = Engine.Analysis.PhraseSourceResolver.Resolve(
+                    await _libraryService.GetPhrasesByHashAsync(track.TrackUniqueHash), f.TrackDuration);
+                phrases = resolved.Count > 0 ? resolved : null;
             }
         }
         catch (Exception ex)
@@ -1319,17 +1395,6 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         editor.Load(track.TrackUniqueHash, vm.Title, track.ResolvedFilePath, bpm, downbeat, track.Duration, cues, genre);
         // Phrase analysis (read-only) feeds the deck's Intro end / Outro suggestions.
         editor.Session.SetStructureHints(phrases);
-    }
-
-    private List<PhraseSegment>? ParsePhrases(string? json, string hash)
-    {
-        if (string.IsNullOrWhiteSpace(json) || json == "[]") return null;
-        try { return System.Text.Json.JsonSerializer.Deserialize<List<PhraseSegment>>(json); }
-        catch (System.Text.Json.JsonException ex)
-        {
-            _logger.LogDebug(ex, "Unreadable phrase data for {Hash}; no section suggestions", hash);
-            return null;
-        }
     }
 
     private void RebuildLiveModel()
@@ -1831,7 +1896,7 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         }
     }
 
-    private async Task OpenTrackInCueForgeAsync(PlaylistTrackViewModel? track, bool startFullAnalysis = false)
+    private async Task OpenTrackInCueForgeAsync(PlaylistTrackViewModel? track, bool startFullAnalysis = false, double? focusSeconds = null)
     {
         var hash = track?.Model?.TrackUniqueHash;
         if (string.IsNullOrWhiteSpace(hash)) return;
@@ -1843,14 +1908,20 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         // Cue Forge opens on the playing track by default; this link deliberately targets another
         // side of the mix, so it keeps that track for this visit.
         cueForgeViewModel.KeepLoadedTrackForThisVisit();
+        // "Edit in Cue Forge" on a specific cue lands on that cue.
+        if (focusSeconds is { } focus) cueForgeViewModel.FocusCueAt(focus);
 
         // Gives Cue Forge a "← Back to Mix Transition" link instead of a dead end — both
         // OutgoingTrack/IncomingTrack are already loaded regardless of which side's "Fix in Cue
         // Forge" button was clicked.
-        if (OutgoingTrack != null && IncomingTrack != null)
-        {
-            cueForgeViewModel.SetMixTransitionOrigin(_playlistId, OutgoingTrack.Id, IncomingTrack.Id);
-        }
+        // The host decides where "Back" goes: Flow Builder returns to the same playlist and
+        // transition; the Library Mix sidepanel reopens its pair.
+        var returnPoint = CueForgeReturnFactory?.Invoke();
+        if (returnPoint != null)
+            cueForgeViewModel.SetReturnPoint(returnPoint);
+        else if (OutgoingTrack != null && IncomingTrack != null)
+            cueForgeViewModel.SetMixTransitionOrigin(_playlistId, OutgoingTrack.Id, IncomingTrack.Id,
+                $"mix · {OutgoingTrack.Title} → {IncomingTrack.Title}");
 
         // The "Fix and analyse" path: Cue Forge now has the track loaded, so a full analysis can
         // be queued immediately — its own pending banner then tracks the run and reloads on completion.

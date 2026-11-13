@@ -52,6 +52,9 @@ public class AppDbContext : DbContext
     public DbSet<Entities.PlaylistTrackTransitionEntity> PlaylistTrackTransitions { get; set; } // Mix: saved per-track-pair transition config
     public DbSet<Entities.MetadataLookupCacheEntity> MetadataLookupCache { get; set; } // Enrichment: cached provider lookups
     public DbSet<Entities.MetadataProvenanceEntity> MetadataProvenance { get; set; } // Enrichment: per-field source of stored metadata
+    public DbSet<Entities.MaintenanceRunEntity> MaintenanceRuns { get; set; } // Library Maintenance: one undoable run
+    public DbSet<Entities.TagChangeLogEntity> TagChangeLog { get; set; } // Library Maintenance: per-field change journal
+    public DbSet<Entities.MaintenancePlaylistLogEntity> MaintenancePlaylistLog { get; set; } // Library Maintenance: per-run playlist changes
     public DbSet<Entities.TransitionKnowledgeEntity> TransitionKnowledge { get; set; } // Phase 2: knowledge lifecycle edge (aggregate)
     public DbSet<Entities.TransitionCandidateEntity> TransitionCandidates { get; set; } // Phase 2: auto-discovered transition hypotheses
     public DbSet<Entities.TransitionEvidenceEntity> TransitionEvidence { get; set; } // Phase 2: atomic evidence behind each knowledge edge

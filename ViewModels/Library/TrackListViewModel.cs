@@ -399,10 +399,70 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
                     _isFilterAll = true;
                     this.RaisePropertyChanged(nameof(IsFilterAll));
                 }
-                
+
                 RefreshFilteredTracks();
             }
             finally { _updatingFilters = false; }
+        }
+    }
+
+    private bool _isGridReviewFilter;
+    private HashSet<string>? _gridReviewHashes;
+    /// <summary>
+    /// Shows only tracks whose beat grid is unverified and low-confidence (#221). DB-backed lists apply
+    /// it as a hash filter (<see cref="GridReviewQuery"/>); in-memory lists use the row predicate.
+    /// </summary>
+    public bool IsGridReviewFilter
+    {
+        get => _isGridReviewFilter;
+        set
+        {
+            if (_isGridReviewFilter == value) return;
+            this.RaiseAndSetIfChanged(ref _isGridReviewFilter, value);
+            if (!value)
+            {
+                _gridReviewHashes = null;
+                RefreshFilteredTracks();
+                return;
+            }
+            _ = LoadGridReviewHashesAndRefreshAsync();
+        }
+    }
+
+    private async Task LoadGridReviewHashesAndRefreshAsync()
+    {
+        try
+        {
+            var hashes = await SLSKDONET.Services.AudioAnalysis.GridReviewQuery.GetHashesNeedingReviewAsync();
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (!_isGridReviewFilter) return; // toggled off while loading
+                _gridReviewHashes = hashes;
+                RefreshFilteredTracks();
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Grid review filter: loading the needs-review set failed");
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                _notificationService?.Show("Grid review", "Couldn't load the tracks whose grid needs review. See the log for details.", SLSKDONET.Views.NotificationType.Error);
+                IsGridReviewFilter = false;
+            });
+        }
+    }
+
+    /// <summary>The hash filter for DB-backed lists: duplicates and/or grid review (intersected when both are on).</summary>
+    private HashSet<string>? EffectiveHashFilter
+    {
+        get
+        {
+            var grid = _isGridReviewFilter ? _gridReviewHashes : null;
+            if (grid is null) return DuplicateHashesFilter;
+            if (DuplicateHashesFilter is null) return grid;
+            var both = new HashSet<string>(DuplicateHashesFilter);
+            both.IntersectWith(grid);
+            return both;
         }
     }
 
@@ -1319,7 +1379,7 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
                 job.Id,
                 IsMixModeEnabled ? string.Empty : BuildEffectiveFilter(),
                 IsMixModeEnabled ? true : (IsFilterDownloaded ? true : (IsFilterPending ? false : null)),
-                IsMixModeEnabled ? null : DuplicateHashesFilter,
+                IsMixModeEnabled ? null : EffectiveHashFilter,
                 camelotKeyFilter: IsMixModeEnabled ? null : CamelotKeyFilter,
                 qualityTier: IsMixModeEnabled ? null : QualityTierFilter,
                 sortColumn: SortColumn,
@@ -1481,7 +1541,7 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
             selectedProjectId,
             effectiveFilter,
             IsMixModeEnabled ? true : (IsFilterDownloaded ? true : (IsFilterPending ? false : null)),
-            IsMixModeEnabled ? null : DuplicateHashesFilter,
+            IsMixModeEnabled ? null : EffectiveHashFilter,
             camelotKeyFilter: IsMixModeEnabled ? null : CamelotKeyFilter,
             qualityTier: IsMixModeEnabled ? null : QualityTierFilter,
             sortColumn: SortColumn,
@@ -1553,6 +1613,9 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
         if (!IsFilterAll)
         {
             if (IsFilterNeedsReview && !track.IsReviewNeeded)
+                return false;
+
+            if (IsGridReviewFilter && !track.IsGridReviewNeeded)
                 return false;
 
             if (IsFilterDownloaded && track.State != PlaylistTrackState.Completed)

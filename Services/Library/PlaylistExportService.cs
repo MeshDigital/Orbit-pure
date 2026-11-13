@@ -595,7 +595,37 @@ public class PlaylistExportService
         // downbeat offset. Falls back to a single anchor at 0.000 when no beatgrid data exists.
         var beatTimestamps = ParseBeatGridJson(beatData?.BeatGridJson, t.Name);
         var downbeatOffset = beatData?.DownbeatOffsetSeconds ?? 0.0;
-        var anchors = TempoGridDeriver.DeriveAnchors(beatTimestamps, downbeatOffset, bpm, beatData?.BpmStability);
+        // One BPM source: the grid BPM (audio_features.Bpm), not the library AverageBpm — the two
+        // could disagree after a ×2/÷2 correction before #220.
+        double gridBpm = beatData is not null && beatData.Bpm > 0 ? beatData.Bpm : bpm;
+
+        IReadOnlyList<TempoAnchor> anchors;
+        if (string.Equals(beatData?.GridSource, "Rekordbox", StringComparison.Ordinal))
+        {
+            anchors = TempoGridDeriver.DeriveRekordboxLosslessAnchors(beatTimestamps, downbeatOffset);
+        }
+        else if (beatData?.IsVariableTempo == true)
+        {
+            var sectionAnchors = TempoGridDeriver.DeriveSectionAnchors(beatTimestamps, downbeatOffset);
+            anchors = sectionAnchors.Count > 0
+                ? sectionAnchors
+                : TempoGridDeriver.DeriveAnchors(beatTimestamps, downbeatOffset, gridBpm, beatData?.BpmStability);
+        }
+        else
+        {
+            anchors = TempoGridDeriver.DeriveAnchors(beatTimestamps, downbeatOffset, gridBpm, beatData?.BpmStability);
+        }
+
+        // 2% guard — single-tempo grids only. A lone anchor that disagrees with the grid BPM means the
+        // stored BPM and the beat list are split-brain (a pre-#220 ×2/÷2): export the grid BPM and log
+        // it. Multi-anchor grids (Rekordbox lossless, tempo sections, drift) legitimately change tempo
+        // by more than 2% — guarding those dropped every real tempo change (2026-11-11 regression).
+        if (anchors.Count == 1 && gridBpm > 0 && Math.Abs(anchors[0].Bpm - gridBpm) / gridBpm > 0.02)
+        {
+            _logger.LogWarning("Rekordbox export: TEMPO anchor BPM {Anchor:F2} disagrees with the grid BPM {Grid:F2} for {Track}; exporting the grid BPM.",
+                anchors[0].Bpm, gridBpm, t.Name);
+            anchors = new[] { anchors[0] with { Bpm = gridBpm } };
+        }
 
         foreach (var anchor in anchors)
         {
@@ -603,7 +633,7 @@ public class PlaylistExportService
                 new XAttribute("Inizio", anchor.InizioSeconds.ToString("F3", CultureInfo.InvariantCulture)),
                 new XAttribute("Bpm", anchor.Bpm.ToString("F2", CultureInfo.InvariantCulture)),
                 new XAttribute("Metro", "4/4"),
-                new XAttribute("Battito", "1")
+                new XAttribute("Battito", anchor.Battito.ToString(CultureInfo.InvariantCulture))
             ));
         }
 

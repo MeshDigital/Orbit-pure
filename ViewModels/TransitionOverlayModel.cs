@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using SLSKDONET.Engine.Transitions;
 
 namespace SLSKDONET.ViewModels;
 
@@ -37,6 +38,8 @@ public sealed record TransitionOverlayModel
     public IReadOnlyList<float> OutgoingGain { get; init; } = Array.Empty<float>();
     public IReadOnlyList<float> IncomingGain { get; init; } = Array.Empty<float>();
     public IReadOnlyList<OverlayMarker> Markers { get; init; } = Array.Empty<OverlayMarker>();
+    /// <summary>B's cue/phrase markers (B's own seconds) for magnetic snap during drag (issue #241).</summary>
+    public IReadOnlyList<SnapCandidate> IncomingSnapCandidates { get; init; } = Array.Empty<SnapCandidate>();
 
     public double StartTime => -PreSeconds;
     public double EndTime => WindowSeconds + PostSeconds;
@@ -102,12 +105,38 @@ public sealed record TransitionOverlayModel
     /// (0 for the current one): the ghost position while dragging.</summary>
     public double DrawOffsetFor(double targetTrigger) => (TargetTrigger - targetTrigger) / IncomingRate;
 
+    /// <summary>
+    /// Magnetic snap of B's drag: cue/phrase markers first, then bar, then beat. Alt disables
+    /// snapping for fine adjustment (issue #241).
+    /// </summary>
+    public SnapResult SnapTargetTrigger(double dragSharedSeconds, double pixelsPerSecond, double tolerancePx, bool altHeld, bool shiftHeld)
+    {
+        double raw = TargetTrigger - dragSharedSeconds * IncomingRate;
+        if (altHeld)
+        {
+            double free = Math.Max(0, raw);
+            if (IncomingDuration > 0) free = Math.Min(free, IncomingDuration);
+            return new SnapResult(free, SnapKind.None, null);
+        }
+
+        double beat = 60.0 / (IncomingBpm > 0 ? IncomingBpm : (ProjectBpm > 0 ? ProjectBpm : 128.0));
+        // pixelsPerSecond is shared (screen) time; one second of B spans 1/IncomingRate shared seconds.
+        var result = TransitionSnap.Resolve(raw, IncomingSnapCandidates, new BarGrid(IncomingDownbeat, beat),
+            pixelsPerSecond / IncomingRate, tolerancePx, shiftHeld ? SnapMode.Beat : SnapMode.Bar);
+        if (result.Kind is SnapKind.IncomingCue or SnapKind.AlignedCue)
+            return result; // candidates are built inside B already
+
+        // No cue in reach: the existing bar/beat snap, with its clamping into B.
+        return new SnapResult(ShiftedTargetTrigger(dragSharedSeconds, snapToBar: !shiftHeld),
+            shiftHeld ? SnapKind.Beat : SnapKind.Bar, null);
+    }
+
     /// <summary>Builds the overlay for the editor's current state.</summary>
     public static TransitionOverlayModel Build(
         double outgoingBpm, double incomingBpm, double sourceTrigger, double targetTrigger, double windowSeconds,
         double contextSeconds, double outgoingDuration, double incomingDuration, double incomingDownbeat,
         IReadOnlyList<float>? outgoingGain, IReadOnlyList<float>? incomingGain, IReadOnlyList<OverlayMarker>? markers,
-        double? incomingPlaybackRate = null)
+        double? incomingPlaybackRate = null, IReadOnlyList<SnapCandidate>? incomingSnapCandidates = null)
     {
         double project = outgoingBpm > 0 ? outgoingBpm : 128.0;
         return new TransitionOverlayModel
@@ -127,6 +156,7 @@ public sealed record TransitionOverlayModel
             OutgoingGain = outgoingGain ?? Array.Empty<float>(),
             IncomingGain = incomingGain ?? Array.Empty<float>(),
             Markers = markers ?? Array.Empty<OverlayMarker>(),
+            IncomingSnapCandidates = incomingSnapCandidates ?? Array.Empty<SnapCandidate>(),
         };
     }
 }

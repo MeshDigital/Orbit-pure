@@ -1,0 +1,147 @@
+using System;
+using System.Linq;
+using SLSKDONET.Services.AudioAnalysis;
+using Xunit;
+
+namespace SLSKDONET.Tests.Services.AudioAnalysis;
+
+public class MusicStartDetectorTests
+{
+    private const int Sr = 44100;
+
+    private static float[] Silence(int seconds) => new float[seconds * Sr];
+
+    private static float[] Sine(int seconds, double freq, double amplitude)
+    {
+        var buf = new float[seconds * Sr];
+        for (int i = 0; i < buf.Length; i++)
+            buf[i] = (float)(amplitude * Math.Sin(2 * Math.PI * freq * i / Sr));
+        return buf;
+    }
+
+    private static float[] Concat(params float[][] arrays) => arrays.SelectMany(a => a).ToArray();
+
+    [Fact]
+    public void TwoSecondsSilenceThenMusic_DetectsAboutTwoSeconds()
+    {
+        var pcm = Concat(Silence(2), Sine(1, 440.0, 0.5));
+
+        double? start = MusicStartDetector.Detect(pcm, Sr, thresholdDbFs: -50.0);
+
+        Assert.NotNull(start);
+        Assert.InRange(start!.Value, 1.98, 2.02); // ±20 ms
+    }
+
+    [Fact]
+    public void MinusSixtyDbHiss_IsIgnored()
+    {
+        var rng = new Random(0);
+        var hiss = new float[3 * Sr];
+        double amplitude = Math.Pow(10, -60.0 / 20.0); // -60 dBFS
+        for (int i = 0; i < hiss.Length; i++)
+            hiss[i] = (float)(amplitude * (rng.NextDouble() * 2 - 1));
+
+        Assert.Null(MusicStartDetector.Detect(hiss, Sr, thresholdDbFs: -50.0));
+    }
+
+    [Fact]
+    public void PadsBeforeKick_DetectBeforeTheKick()
+    {
+        // A quiet pad from 0s is "music" and should be detected well before a loud kick at 3s.
+        var pcm = Concat(Sine(3, 220.0, 0.05), Sine(1, 440.0, 1.0));
+
+        double? start = MusicStartDetector.Detect(pcm, Sr, thresholdDbFs: -50.0);
+
+        Assert.NotNull(start);
+        Assert.True(start!.Value < 0.5, $"expected an early music start, got {start:F3}s");
+    }
+
+    [Fact]
+    public void SilentBuffer_ReturnsNull()
+    {
+        Assert.Null(MusicStartDetector.Detect(Silence(2), Sr, thresholdDbFs: -50.0));
+    }
+
+    [Fact]
+    public void ThresholdDbFs_TracksIntegratedLoudness()
+    {
+        Assert.Equal(-50.0, MusicStartDetector.ThresholdDbFs(null), 6);          // no loudness -> floor
+        Assert.Equal(-50.0, MusicStartDetector.ThresholdDbFs(-20.0), 6);         // max(-50, -55)
+        Assert.Equal(-43.0, MusicStartDetector.ThresholdDbFs(-8.0), 6);          // max(-50, -43)
+    }
+
+    [Fact]
+    public void DetectFromWaveformBlob_SkipsLeadingSilence()
+    {
+        int n = 100;
+        var blob = new byte[n * 3];
+        for (int i = 0; i < n; i++)
+        {
+            byte v = i >= 20 ? (byte)200 : (byte)0; // 20% leading silence, then energy
+            blob[i] = v; blob[n + i] = v; blob[2 * n + i] = v;
+        }
+
+        double? start = MusicStartDetector.DetectFromWaveformBlob(blob, n, duration: 10.0);
+
+        Assert.NotNull(start);
+        Assert.InRange(start!.Value, 1.8, 2.2); // 20% of 10 s
+    }
+
+    /// <summary>
+    /// Regression (2026-11-11): a quiet intro in one band (a synth pad at ~4% of the peak) was read as
+    /// silence by the old 5%-of-peak, 3-band-mean threshold (<i>Livin' On A Prayer</i> → 16.9 s).
+    /// </summary>
+    [Fact]
+    public void DetectFromWaveformBlob_QuietSingleBandIntro_IsMusic()
+    {
+        int n = 100;
+        var blob = new byte[n * 3];
+        for (int i = 0; i < n; i++)
+        {
+            bool loud = i >= 50;
+            blob[i] = loud ? (byte)230 : (byte)0;                 // low band: kick from 5 s
+            blob[n + i] = loud ? (byte)200 : (byte)10;            // mid band: quiet pad from 0 s
+            blob[2 * n + i] = loud ? (byte)180 : (byte)0;
+        }
+
+        double? start = MusicStartDetector.DetectFromWaveformBlob(blob, n, duration: 10.0);
+
+        Assert.NotNull(start);
+        Assert.InRange(start!.Value, 0.0, 0.3);
+    }
+
+    [Fact]
+    public void DetectFromWaveformBlob_LaterThanBarOne_IsRejected()
+    {
+        // The beat tracker found Bar 1 at 2 s, so there is sound there: an estimate of 6 s is a miss.
+        int n = 100;
+        var blob = new byte[n * 3];
+        for (int i = 60; i < n; i++) { blob[i] = 200; blob[n + i] = 200; blob[2 * n + i] = 200; }
+
+        Assert.Null(MusicStartDetector.DetectFromWaveformBlob(blob, n, duration: 10.0, latestPlausibleSeconds: 2.0));
+        Assert.NotNull(MusicStartDetector.DetectFromWaveformBlob(blob, n, duration: 10.0, latestPlausibleSeconds: 8.0));
+    }
+}
+
+public class MusicStartIntroAnchorTests
+{
+    [Fact]
+    public void MusicStartMoreThanOneBeatBeforeBarOne_AnchorsOnMusicStart()
+    {
+        // Bar 1 at 2.0 s, music starts at 0.5 s (well over one 0.5s beat before).
+        Assert.Equal(0.5, MusicStartIntroAnchor.Resolve(0.5, 2.0, 120.0), 6);
+    }
+
+    [Fact]
+    public void MusicStartWithinOneBeatOfBarOne_KeepsBarOne()
+    {
+        // Music start 0.4 s before Bar 1 at 120 BPM (0.5s beat) is within one beat.
+        Assert.Equal(2.0, MusicStartIntroAnchor.Resolve(1.6, 2.0, 120.0), 6);
+    }
+
+    [Fact]
+    public void NoMusicStart_KeepsBarOne()
+    {
+        Assert.Equal(2.0, MusicStartIntroAnchor.Resolve(null, 2.0, 120.0), 6);
+    }
+}

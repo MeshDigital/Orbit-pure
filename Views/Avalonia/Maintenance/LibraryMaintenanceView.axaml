@@ -1,0 +1,115 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vmMaintenance="clr-namespace:SLSKDONET.ViewModels.Maintenance"
+             mc:Ignorable="d" d:DesignWidth="720" d:DesignHeight="600"
+             x:Class="SLSKDONET.Views.Avalonia.Maintenance.LibraryMaintenanceView"
+             x:DataType="vmMaintenance:LibraryMaintenanceViewModel">
+
+    <Border Background="{DynamicResource BrushBg2}" Padding="24" CornerRadius="8" MinWidth="640" MaxWidth="760">
+        <Grid RowDefinitions="Auto,Auto,*,Auto">
+
+            <!-- Header -->
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="h2" Text="Library maintenance"/>
+                <Button Grid.Column="1" Classes="ghost small" Content="Close" Command="{Binding FinishCommand}"/>
+            </Grid>
+            <TextBlock Grid.Row="1" Classes="caption" Margin="0,4,0,0" TextWrapping="Wrap"
+                       Text="Fix malformed tags, fill missing metadata and group unclassified tracks into style playlists — previewed before anything is written."/>
+
+            <!-- Step body -->
+            <ScrollViewer Grid.Row="2" Margin="0,16,0,0" VerticalScrollBarVisibility="Auto">
+                <Grid>
+
+                <!-- 1. Choose -->
+                <StackPanel IsVisible="{Binding IsChooseStep}" Spacing="12">
+                    <CheckBox Content="Fix malformed / swapped tags" IsChecked="{Binding FixTags}"/>
+                    <CheckBox Content="Fetch missing online metadata" IsChecked="{Binding Enrich}"
+                              ToolTip.Tip="Queues tracks for background enrichment. Fills empty fields only; BPM, key and energy are never touched."/>
+                    <CheckBox Content="Analyse tracks missing AI style" IsChecked="{Binding StyleBackfill}"
+                              ToolTip.Tip="Runs a cheap style-only (Mood) analysis in the background."/>
+                    <CheckBox Content="Fill empty Genre from AI style" IsChecked="{Binding GenreFill}"/>
+                    <CheckBox Content="Group unclassified tracks into style playlists" IsChecked="{Binding StylePlaylists}"/>
+                </StackPanel>
+
+                <!-- 2. Scan -->
+                <StackPanel IsVisible="{Binding IsScanStep}" Spacing="12">
+                    <ProgressBar IsIndeterminate="True"/>
+                    <TextBlock Classes="body-sm" Text="{Binding StatusText}" TextWrapping="Wrap"/>
+                    <Button Classes="secondary" Content="Cancel" Command="{Binding CancelCommand}" HorizontalAlignment="Left"/>
+                </StackPanel>
+
+                <!-- 3. Review -->
+                <StackPanel IsVisible="{Binding IsReviewStep}" Spacing="12">
+                    <TextBlock Classes="section" Text="TAG FIXES"/>
+                    <ScrollViewer MaxHeight="260" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding TagRows}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vmMaintenance:ProposalRowViewModel">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,4">
+                                        <CheckBox IsChecked="{Binding IsSelected}" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding ChangeText}" Margin="8,0" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Classes="caption" Text="{Binding Rule}" VerticalAlignment="Center"
+                                                   ToolTip.Tip="{Binding Evidence}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <TextBlock Classes="section" Text="GENRE FILL"/>
+                    <ScrollViewer MaxHeight="180" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding GenreRows}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vmMaintenance:ProposalRowViewModel">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,4">
+                                        <CheckBox IsChecked="{Binding IsSelected}" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding ChangeText}" Margin="8,0" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Classes="caption" Text="{Binding Rule}" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </StackPanel>
+
+                <!-- 4. Apply -->
+                <StackPanel IsVisible="{Binding IsApplyStep}" Spacing="12">
+                    <ProgressBar IsIndeterminate="True"/>
+                    <TextBlock Classes="body-sm" Text="{Binding StatusText}" TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <!-- 5. Summary -->
+                <StackPanel IsVisible="{Binding IsSummaryStep}" Spacing="12">
+                    <TextBlock Classes="body" Text="{Binding SummaryText}" TextWrapping="Wrap"/>
+                </StackPanel>
+                </Grid>
+            </ScrollViewer>
+
+            <!-- Footer actions -->
+            <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" Margin="0,20,0,0">
+                <Button Classes="ghost" Content="Back" Command="{Binding BackCommand}"
+                        IsVisible="{Binding IsReviewStep}"/>
+                <Button Grid.Column="2" Classes="primary" Content="Scan" Command="{Binding StartScanCommand}"
+                        IsEnabled="{Binding !IsScanning}" IsVisible="{Binding IsChooseStep}"/>
+                <Button Grid.Column="2" Classes="primary" Content="Apply" Command="{Binding ApplyCommand}"
+                        IsEnabled="{Binding !IsApplying}" IsVisible="{Binding IsReviewStep}"/>
+                <Button Grid.Column="2" Classes="danger" Content="Undo this run" Command="{Binding UndoCommand}"
+                        IsVisible="{Binding IsSummaryStep}"/>
+                <Button Grid.Column="2" Classes="primary" Content="Done" Command="{Binding FinishCommand}"
+                        IsVisible="{Binding IsSummaryStep}"/>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

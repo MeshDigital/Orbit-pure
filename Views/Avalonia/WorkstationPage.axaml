@@ -858,7 +858,6 @@
             </Border>
         </Grid>
 
-
         <GridSplitter Grid.Row="2"
                       Classes="shell-splitter"
                       IsVisible="{Binding IsWaveformMode}"

@@ -3,8 +3,11 @@ using System.Collections.Generic;
 
 namespace SLSKDONET.Services.Library.Rekordbox;
 
-/// <summary>A single Rekordbox TEMPO grid anchor: a BPM value effective from a point in time.</summary>
-public sealed record TempoAnchor(double InizioSeconds, double Bpm);
+/// <summary>
+/// A single Rekordbox TEMPO grid anchor: a BPM value effective from a point in time.
+/// <see cref="Battito"/> is the 1-based position (1–4) of that beat within its bar, relative to Bar 1.
+/// </summary>
+public sealed record TempoAnchor(double InizioSeconds, double Bpm, int Battito = 1);
 
 /// <summary>Tuning knobs for <see cref="TempoGridDeriver.DeriveAnchors"/>. Defaults are conservative.</summary>
 public sealed record TempoGridOptions(
@@ -41,7 +44,7 @@ public static class TempoGridDeriver
         if (fallbackBpm <= 0)
             return Array.Empty<TempoAnchor>();
 
-        var singleAnchor = new[] { new TempoAnchor(downbeatOffsetSeconds, fallbackBpm) };
+        var singleAnchor = new[] { new TempoAnchor(downbeatOffsetSeconds, fallbackBpm, Battito: 1) };
 
         bool hasEnoughBeatData = beatTimestampsSeconds.Count >= options.SmoothingWindowBeats + options.MinSustainedBeats;
         bool isUnstable = bpmStability.HasValue && bpmStability.Value < options.StabilityGateThreshold;
@@ -50,6 +53,7 @@ public static class TempoGridDeriver
             return singleAnchor;
 
         var beats = beatTimestampsSeconds;
+        int downbeatIndex = NearestBeatIndex(beats, downbeatOffsetSeconds);
         var localBpm = new double[beats.Count - 1];
         for (int i = 0; i < localBpm.Length; i++)
         {
@@ -59,7 +63,10 @@ public static class TempoGridDeriver
 
         var smoothed = SmoothRollingMean(localBpm, Math.Max(1, options.SmoothingWindowBeats));
 
-        var anchors = new List<TempoAnchor> { new(downbeatOffsetSeconds, smoothed.Length > 0 ? smoothed[0] : fallbackBpm) };
+        var anchors = new List<TempoAnchor>
+        {
+            new(downbeatOffsetSeconds, smoothed.Length > 0 ? smoothed[0] : fallbackBpm, ComputeBattito(downbeatIndex, downbeatIndex)),
+        };
         double baselineBpm = anchors[0].Bpm;
         double lastAnchorTime = downbeatOffsetSeconds;
         int sustainedCount = 0;
@@ -93,12 +100,96 @@ public static class TempoGridDeriver
                 continue;
             }
 
-            anchors.Add(new TempoAnchor(anchorTime, candidateBpm));
+            anchors.Add(new TempoAnchor(anchorTime, candidateBpm, ComputeBattito(anchorBeatIndex, downbeatIndex)));
             baselineBpm = candidateBpm;
             lastAnchorTime = anchorTime;
         }
 
         return anchors;
+    }
+
+    /// <summary>
+    /// Emits one TEMPO anchor at every point where a Rekordbox-sourced PQTZ grid changes tempo, so
+    /// the export round-trips Rekordbox's own grid losslessly (issue #223). Rekordbox's per-beat BPM
+    /// is not stored — only the beat times — so the section BPMs are recovered from the beat
+    /// intervals and a run is split when the local tempo drifts by more than <paramref name="changeThresholdRatio"/>.
+    /// </summary>
+    public static IReadOnlyList<TempoAnchor> DeriveRekordboxLosslessAnchors(
+        IReadOnlyList<double> beatTimestampsSeconds,
+        double downbeatOffsetSeconds,
+        double changeThresholdRatio = 0.005)
+    {
+        if (beatTimestampsSeconds.Count < 2)
+            return Array.Empty<TempoAnchor>();
+
+        var beats = beatTimestampsSeconds;
+        int n = beats.Count;
+        int downbeatIndex = NearestBeatIndex(beats, downbeatOffsetSeconds);
+
+        var anchors = new List<TempoAnchor>();
+        int runStart = 0;
+        // A tempo change is at beat i (1 <= i <= n-2) when the interval to its successor differs
+        // from the interval to its predecessor by more than the threshold.
+        for (int i = 1; i <= n - 2; i++)
+        {
+            double prevTempo = 60.0 / Math.Max(beats[i] - beats[i - 1], 1e-9);
+            double curTempo = 60.0 / Math.Max(beats[i + 1] - beats[i], 1e-9);
+            if (Math.Abs(curTempo - prevTempo) / prevTempo > changeThresholdRatio)
+            {
+                anchors.Add(new TempoAnchor(beats[runStart], SectionBpm(beats, runStart, i - 1), ComputeBattito(runStart, downbeatIndex)));
+                runStart = i;
+            }
+        }
+
+        anchors.Add(new TempoAnchor(beats[runStart], SectionBpm(beats, runStart, n - 1), ComputeBattito(runStart, downbeatIndex)));
+        return anchors;
+    }
+
+    /// <summary>Median BPM over the intervals of the beats in the inclusive range [startBeat, endBeatInclusive].</summary>
+    private static double SectionBpm(IReadOnlyList<double> beats, int startBeat, int endBeatInclusive)
+    {
+        var bpms = new List<double>();
+        for (int j = startBeat; j < endBeatInclusive; j++)
+        {
+            double interval = beats[j + 1] - beats[j];
+            if (interval > 0) bpms.Add(60.0 / interval);
+        }
+        if (bpms.Count == 0) return 0;
+        bpms.Sort();
+        return bpms[bpms.Count / 2];
+    }
+
+    private static int NearestBeatIndex(IReadOnlyList<double> beats, double time)
+    {
+        int best = 0;
+        double bestDistance = double.MaxValue;
+        for (int i = 0; i < beats.Count; i++)
+        {
+            double d = Math.Abs(beats[i] - time);
+            if (d < bestDistance) { bestDistance = d; best = i; }
+        }
+        return best;
+    }
+
+    /// <summary>1-based beat position within the bar (1–4), relative to Bar 1. Pickup beats before Bar 1 count backwards (beat 4 of the previous bar, etc.).</summary>
+    internal static int ComputeBattito(int anchorBeatIndex, int downbeatBeatIndex) =>
+        (((anchorBeatIndex - downbeatBeatIndex) % 4) + 4) % 4 + 1;
+
+    /// <summary>
+    /// One TEMPO anchor per piecewise-constant section of a variable-tempo grid, with the correct
+    /// Battito (issue #226). Returns empty for a steady grid (the caller falls back to a single anchor).
+    /// </summary>
+    public static IReadOnlyList<TempoAnchor> DeriveSectionAnchors(
+        IReadOnlyList<double> beatTimestampsSeconds,
+        double downbeatOffsetSeconds)
+    {
+        var sections = SLSKDONET.Services.AudioAnalysis.BeatGridFitter.FitSections(beatTimestampsSeconds);
+        if (sections.Count <= 1) return Array.Empty<TempoAnchor>();
+
+        int downbeatIndex = NearestBeatIndex(beatTimestampsSeconds, downbeatOffsetSeconds);
+        return sections
+            .Select(s => new TempoAnchor(s.StartSeconds, s.Bpm, ComputeBattito(s.StartBeatIndex, downbeatIndex)))
+            .ToList();
     }
 
     private static double[] SmoothRollingMean(double[] values, int window)

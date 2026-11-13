@@ -162,6 +162,8 @@
                                   IsVisible="{Binding ShowTierChips}" ToolTip.Tip="Lossy files at 320 kbps or higher"/>
                     <ToggleButton Classes="chip" Content="Low bitrate" IsChecked="{Binding IsTierLowFilter, Mode=TwoWay}"
                                   IsVisible="{Binding ShowTierChips}" ToolTip.Tip="Lossy files under 320 kbps"/>
+                    <ToggleButton Classes="chip" Content="Grid review" IsChecked="{Binding IsGridReviewFilter, Mode=TwoWay}"
+                                  ToolTip.Tip="Tracks whose beat grid is low-confidence and unverified"/>
 
                     <!-- Narrow list: the quality chips (and below 560 px the status segment) live here. -->
                     <Button Classes="icon small" IsVisible="{Binding ShowFilterMenu}" Classes.active="{Binding HasActiveFilters}"
@@ -532,6 +534,13 @@
 
                             <!-- BPM + Camelot key -->
                             <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="8,0" IsVisible="{Binding HasBpm}">
+                                <!-- Grid needs review (#221): fixed-width marker, not a pill; the tooltip carries the confidence. -->
+                                <Panel Width="12" VerticalAlignment="Center">
+                                    <PathIcon Data="{StaticResource icon_alert}" Width="12" Height="12"
+                                              Foreground="{StaticResource BrushWarning}"
+                                              IsVisible="{Binding IsGridReviewNeeded}"
+                                              ToolTip.Tip="{Binding GridReviewTip}"/>
+                                </Panel>
                                 <TextBlock Text="{Binding BpmDisplay}" Classes="mono" Width="28" TextAlignment="Right" VerticalAlignment="Center"/>
                                 <Border Classes="key-badge"
                                         Classes.harmonic-match="{Binding IsHarmonicMatch}"

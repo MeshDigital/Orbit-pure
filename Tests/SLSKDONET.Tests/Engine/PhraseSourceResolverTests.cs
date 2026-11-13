@@ -86,4 +86,24 @@ public class PhraseSourceResolverTests
         Assert.Equal("Drop 1", segments[1].Label);
         Assert.Equal(66, segments[1].Duration, 3);
     }
+
+    [Fact]
+    public void Resolve_SingleStore_PrefersUserOverPssiOverHeuristic()
+    {
+        var rows = new List<TrackPhraseEntity>
+        {
+            new() { Type = PhraseType.Intro, StartTimeSeconds = 0, EndTimeSeconds = 8, Source = "Heuristic" },
+            new() { Type = PhraseType.Drop, StartTimeSeconds = 8, EndTimeSeconds = 16, Source = "Heuristic" },
+            new() { Type = PhraseType.Intro, StartTimeSeconds = 0, EndTimeSeconds = 16, Source = "RekordboxPSSI" },
+            new() { Type = PhraseType.Drop, StartTimeSeconds = 16, EndTimeSeconds = 32, Source = "RekordboxPSSI" },
+            new() { Type = PhraseType.Intro, StartTimeSeconds = 0, EndTimeSeconds = 32, Source = "User" },
+            new() { Type = PhraseType.Drop, StartTimeSeconds = 32, EndTimeSeconds = 64, Source = "User" },
+        };
+
+        var chosen = PhraseSourceResolver.Resolve(rows, duration: 256);
+
+        Assert.Equal(2, chosen.Count);
+        Assert.Equal(32, chosen[1].Start, 3);   // the User drop wins over PSSI (16) and heuristic (8)
+        Assert.Equal(32, chosen[1].Duration, 3);
+    }
 }

@@ -145,6 +145,8 @@ public class LibraryService : ILibraryService
                 existingEntity.Format = entry.Format;
                 existingEntity.Label = entry.Label;
                 existingEntity.Comments = entry.Comments;
+                if (!string.IsNullOrWhiteSpace(entry.AudioContentHash))
+                    existingEntity.AudioContentHash = entry.AudioContentHash;
                 existingEntity.LastUsedAt = DateTime.UtcNow;
                 
                 // Preserve scientific data if input is empty (don't overwrite enrichment with nulls)
@@ -1505,6 +1507,9 @@ public class LibraryService : ILibraryService
             BpmStability = entity.AudioFeatures?.BpmStability,
             TimeTillDropSeconds = entity.AudioFeatures?.TimeTillDropSeconds,
 
+            GridConfidence = entity.AudioFeatures?.GridConfidence,
+            GridVerified = entity.AudioFeatures?.GridVerified ?? false,
+
             SourcePlaylistId   = entity.SourcePlaylistId,
             SourcePlaylistName = entity.SourcePlaylistName,
         };
@@ -1873,6 +1878,7 @@ public class LibraryService : ILibraryService
         entity.IsEnriched = entry.IsEnriched;
         entity.Label = entry.Label;
         entity.Comments = entry.Comments;
+        entity.AudioContentHash = entry.AudioContentHash;
         entity.MoodTag = entry.MoodTag;
         entity.PrimaryGenre = entry.PrimaryGenre;
         
@@ -2328,6 +2334,12 @@ public class LibraryService : ILibraryService
             return new List<PlaylistTrack>();
         }
     }
+
+    public Task ReplacePhrasesForSourceAsync(string trackHash, string source, IReadOnlyList<TrackPhraseEntity> rows) =>
+        _databaseService.ReplacePhrasesForSourceAsync(trackHash, source, rows);
+
+    public Task ReplaceAllPhrasesAsync(string trackHash, IReadOnlyList<TrackPhraseEntity> rows) =>
+        _databaseService.ReplaceAllPhrasesAsync(trackHash, rows);
 
     public async Task<List<TrackPhraseEntity>> GetPhrasesByHashAsync(string trackHash)
     {

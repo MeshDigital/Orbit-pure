@@ -63,6 +63,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>First-run setup wizard and quick tour (null only in tests that build the shell by hand).</summary>
     public SLSKDONET.ViewModels.Setup.SetupShellViewModel? Setup { get; }
 
+    /// <summary>The Library Maintenance wizard overlay (null only in tests).</summary>
+    public SLSKDONET.ViewModels.Maintenance.MaintenanceShellViewModel? Maintenance { get; }
+
     /// <summary>The folder import sheet / top-bar chip (Library folders, Settings and setup "Scan now").</summary>
     public SLSKDONET.ViewModels.LibraryImportViewModel? Import { get; }
 
@@ -137,7 +140,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         SLSKDONET.ViewModels.LibraryImportViewModel? import = null,
         SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? activity = null,
         SLSKDONET.ViewModels.Workstation.WorkstationViewModel? workstation = null,
-        SLSKDONET.ViewModels.Sets.SetsViewModel? sets = null)
+        SLSKDONET.Services.Sets.ISetProjectService? setProjects = null,
+        SLSKDONET.Views.INotificationService? notifications = null,
+        SLSKDONET.ViewModels.Maintenance.MaintenanceShellViewModel? maintenance = null)
 
     {
         _setsViewModel = sets;
@@ -165,6 +170,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         Setup = setup;
         Import = import;
         Activity = activity;
+        Maintenance = maintenance;
         _workstation = workstation;
         _rightPanelService = rightPanelService;
         PerfTracker = perfTracker;
@@ -537,6 +543,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             SearchViewModel?.Dispose();
             SettingsViewModel?.Dispose();
             Setup?.Dispose();
+            Maintenance?.Dispose();
             HomeViewModel?.Dispose();
             _globalHotkeyService?.Dispose();
         }
@@ -982,8 +989,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsPlayerOverlayActive => CurrentPageType == PageType.NowPlaying;
     public bool IsSettingsOverlayActive => CurrentPageType == PageType.Settings;
     public bool IsWorkstationOverlayActive => IsCreativeOverlayPage(CurrentPageType);
-    /// <summary>Nav highlight for the "Set Projects" entry (Workstation page + Story Graph tool).</summary>
-    /// <summary>Nav highlight for the "Workstation" entry.</summary>
+    /// <summary>Nav highlight for the plain "Workstation" entry.</summary>
     public bool IsWorkstationNavActive => IsWorkstationOverlayActive;
     public bool IsCueForgeOverlayActive => CurrentPageType == PageType.CueForge;
     public bool IsEditLabOverlayActive => CurrentPageType == PageType.EditLab;
@@ -1300,13 +1306,42 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     // Lazy-loaded page instances
     // Page instances no longer needed here as they are managed by NavigationService
 
+    /// <summary>A "Back to …" target for a page Cue Forge was opened from; null for pages that are
+    /// not a destination of their own (Now Playing overlays, Theater Mode).</summary>
+    private SLSKDONET.ViewModels.CueForgeReturnPoint? BuildReturnPointTo(PageType page)
+    {
+        string? label = page switch
+        {
+            PageType.Home => "Home",
+            PageType.Search => "Search",
+            PageType.Library => LibraryViewModel.SelectedProject is { } project ? $"Library · {project.SourceTitle}" : "Library",
+            PageType.Projects => "Download Center",
+            PageType.Settings => "Settings",
+            PageType.Import => "Import",
+            PageType.Analysis => "Analysis",
+            PageType.Workstation => "Workstation",
+            PageType.EditLab => "Edit Lab",
+            PageType.Users => "Users",
+            PageType.FlowBuilder => "Flow Builder",
+            PageType.Sets => "Sets",
+            _ => null,
+        };
+        return label == null ? null
+            : new SLSKDONET.ViewModels.CueForgeReturnPoint(label, () => _navigationService.NavigateTo(page.ToString()));
+    }
+
     private void OnNavigated(object? sender, global::Avalonia.Controls.UserControl page)
     {
         if (page != null)
         {
             var previousPageType = CurrentPageType;
+            var nextPageType = ResolvePageType(page.GetType(), CurrentPageType);
+            // Cue Forge offers "← Back to <the page you came from>" (before the page attaches, so
+            // its activation already sees it).
+            if (nextPageType == PageType.CueForge && previousPageType != PageType.CueForge)
+                _eventBus.Publish(new SLSKDONET.Events.CueForgeVisitStartedEvent(BuildReturnPointTo(previousPageType)));
             CurrentPage = page;
-            CurrentPageType = ResolvePageType(page.GetType(), CurrentPageType);
+            CurrentPageType = nextPageType;
 
             if (ShouldCloseInspectorOnRouteTransition(previousPageType, CurrentPageType, _rightPanelService.CurrentPanelVm, PlayerViewModel))
             {

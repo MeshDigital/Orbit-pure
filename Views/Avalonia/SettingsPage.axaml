@@ -980,6 +980,25 @@
                                 <StackPanel>
                                     <Grid Classes="row" ColumnDefinitions="*,Auto">
                                         <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="Library maintenance"/>
+                                            <TextBlock Classes="caption" TextWrapping="Wrap"
+                                                       Text="Fix malformed tags, fill missing metadata and group unclassified tracks into style playlists, with a preview and one-click undo."/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Classes="primary"
+                                                Command="{Binding RunMaintenanceCommand}"
+                                                Content="Run maintenance…"/>
+                                    </Grid>
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto" IsVisible="{Binding CanUndoMaintenance}">
+                                        <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="Undo last maintenance run"/>
+                                            <TextBlock Classes="caption" Text="Reverts the tag and playlist changes from the most recent maintenance run."/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Classes="secondary small" Content="Undo"
+                                                Command="{Binding UndoLastMaintenanceCommand}"/>
+                                    </Grid>
+                                    <Border Classes="divider"/>
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                        <StackPanel Classes="label">
                                             <TextBlock Classes="body" Text="Full library sync"/>
                                             <TextBlock Classes="caption" Text="{Binding FullSyncStatus}"
                                                        IsVisible="{Binding FullSyncStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>

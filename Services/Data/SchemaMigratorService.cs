@@ -1214,6 +1214,67 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // Beat-grid provenance & confidence (issue #221)
+            if (!ColumnExists("audio_features", "GridSource"))
+            {
+                _logger.LogInformation("Patching Schema: Adding GridSource to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""GridSource"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "GridVerified"))
+            {
+                _logger.LogInformation("Patching Schema: Adding GridVerified to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""GridVerified"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "GridEditedAt"))
+            {
+                _logger.LogInformation("Patching Schema: Adding GridEditedAt to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""GridEditedAt"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "GridConfidence"))
+            {
+                _logger.LogInformation("Patching Schema: Adding GridConfidence to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""GridConfidence"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "AnalysedGridJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding AnalysedGridJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""AnalysedGridJson"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "MusicStartSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding MusicStartSeconds to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""MusicStartSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "MusicStartSource"))
+            {
+                _logger.LogInformation("Patching Schema: Adding MusicStartSource to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""MusicStartSource"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "IsVariableTempo"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsVariableTempo to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""IsVariableTempo"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Backfill GridSource for rows that predate the column (issue #221). Idempotent: after the
+            // first run nothing is NULL. A manual BPM edit is the only retroactive evidence of a user
+            // grid; Rekordbox adoption is not recorded on old rows, so everything else is "Analysis".
+            command.CommandText = @"UPDATE ""audio_features""
+                SET ""GridSource"" = 'User'
+                WHERE ""GridSource"" IS NULL
+                  AND ""TrackUniqueHash"" IN (SELECT ""UniqueHash"" FROM ""LibraryEntries"" WHERE ""ManualBPM"" IS NOT NULL);";
+            await command.ExecuteNonQueryAsync();
+            command.CommandText = @"UPDATE ""audio_features"" SET ""GridSource"" = 'Analysis' WHERE ""GridSource"" IS NULL;";
+            await command.ExecuteNonQueryAsync();
+
             // Task 1.6: Waveform blob columns
             if (!ColumnExists("audio_features", "WaveformBlob"))
             {
@@ -1635,6 +1696,22 @@ public class SchemaMigratorService
                 command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""ColorTag"" TEXT NULL;";
                 await command.ExecuteNonQueryAsync();
             }
+            if (!ColumnExists("LibraryEntries", "AudioContentHash"))
+            {
+                _logger.LogInformation("Patching Schema: Adding AudioContentHash to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""AudioContentHash"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            // index
+            try
+            {
+                command.CommandText = @"CREATE INDEX IF NOT EXISTS ""IX_LibraryEntries_AudioContentHash"" ON ""LibraryEntries"" (""AudioContentHash"");";
+                await command.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "AudioContentHash index creation skipped");
+            }
             if (!ColumnExists("LibraryEntries", "EnergyRatio"))
             {
                 _logger.LogInformation("Patching Schema: Adding EnergyRatio to LibraryEntries...");
@@ -1923,6 +2000,25 @@ public class SchemaMigratorService
                 if (!ColumnExists("TrackPhrases", "EmbeddingModel"))
                 {
                     command.CommandText = @"ALTER TABLE ""TrackPhrases"" ADD COLUMN ""EmbeddingModel"" TEXT NOT NULL DEFAULT '';";
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                // Bar-indexed phrase map (issue #225)
+                if (!ColumnExists("TrackPhrases", "StartBar"))
+                {
+                    command.CommandText = @"ALTER TABLE ""TrackPhrases"" ADD COLUMN ""StartBar"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                if (!ColumnExists("TrackPhrases", "BarCount"))
+                {
+                    command.CommandText = @"ALTER TABLE ""TrackPhrases"" ADD COLUMN ""BarCount"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                if (!ColumnExists("TrackPhrases", "Source"))
+                {
+                    command.CommandText = @"ALTER TABLE ""TrackPhrases"" ADD COLUMN ""Source"" TEXT NULL;";
                     await command.ExecuteNonQueryAsync();
                 }
             }
@@ -3170,6 +3266,92 @@ public class SchemaMigratorService
                     CREATE UNIQUE INDEX ""IX_SetTrackTransitions_Pair"" ON ""SetTrackTransitions"" (""OutgoingSlotId"", ""IncomingSlotId"");
                     CREATE INDEX ""IX_SetTrackTransitions_SetId"" ON ""SetTrackTransitions"" (""SetId"");
                     CREATE INDEX ""IX_SetTrackTransitions_IncomingSlotId"" ON ""SetTrackTransitions"" (""IncomingSlotId"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 39. Library Maintenance wizard (#211): reversible tag-write foundation. The three
+            // tables are the run header, the per-field change journal, and the per-run playlist
+            // changes. No FOREIGN KEY clauses — connections run with PRAGMA foreign_keys=OFF, so
+            // the RunId relationships are enforced in code.
+            if (!TableExists("MaintenanceRuns"))
+            {
+                _logger.LogInformation("Patching Schema: Creating MaintenanceRuns table...");
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS ""MaintenanceRuns"" (
+                        ""Id""          TEXT NOT NULL PRIMARY KEY,
+                        ""StartedAt""   TEXT NOT NULL,
+                        ""CompletedAt"" TEXT NULL,
+                        ""OptionsJson"" TEXT NULL,
+                        ""SummaryJson"" TEXT NULL,
+                        ""Status""      TEXT NOT NULL,
+                        ""RevertedAt""  TEXT NULL
+                    );";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!TableExists("TagChangeLog"))
+            {
+                _logger.LogInformation("Patching Schema: Creating TagChangeLog table...");
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS ""TagChangeLog"" (
+                        ""Id""              TEXT NOT NULL PRIMARY KEY,
+                        ""RunId""           TEXT NOT NULL,
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""FilePath""        TEXT NULL,
+                        ""Field""           TEXT NOT NULL,
+                        ""OldValue""        TEXT NULL,
+                        ""NewValue""        TEXT NULL,
+                        ""Rule""            TEXT NOT NULL,
+                        ""Applied""         INTEGER NOT NULL DEFAULT 0,
+                        ""FileWritten""     INTEGER NOT NULL DEFAULT 0,
+                        ""Error""           TEXT NULL,
+                        ""RevertedAt""      TEXT NULL,
+                        ""RevertSkipReason"" TEXT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_TagChangeLog_RunId"" ON ""TagChangeLog"" (""RunId"");
+                    CREATE INDEX IF NOT EXISTS ""IX_TagChangeLog_TrackUniqueHash"" ON ""TagChangeLog"" (""TrackUniqueHash"");";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!TableExists("MaintenancePlaylistLog"))
+            {
+                _logger.LogInformation("Patching Schema: Creating MaintenancePlaylistLog table...");
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS ""MaintenancePlaylistLog"" (
+                        ""Id""                TEXT NOT NULL PRIMARY KEY,
+                        ""RunId""             TEXT NOT NULL,
+                        ""PlaylistId""        TEXT NOT NULL,
+                        ""Created""           INTEGER NOT NULL DEFAULT 0,
+                        ""AddedTrackIdsJson"" TEXT NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_MaintenancePlaylistLog_RunId"" ON ""MaintenancePlaylistLog"" (""RunId"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 40. Discogs-400 style scores (P3). Persists the full multi-label style vector so the
+            // style playlists and genre fill can use the explainable top-style label instead of the
+            // collapsed 7-label electronic genre. Guarded per-column because SchemaReconciler may
+            // already have added these on installs that ran the EF model before this patch shipped.
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "StyleScoresBlob"))
+            {
+                _logger.LogInformation("Patching Schema: Adding StyleScoresBlob to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""StyleScoresBlob"" BLOB NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "StyleModelTag"))
+            {
+                _logger.LogInformation("Patching Schema: Adding StyleModelTag to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""StyleModelTag"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "TopStyle"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TopStyle to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""TopStyle"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "TopStyleConfidence"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TopStyleConfidence to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""TopStyleConfidence"" REAL NULL;";
                 await command.ExecuteNonQueryAsync();
             }
 

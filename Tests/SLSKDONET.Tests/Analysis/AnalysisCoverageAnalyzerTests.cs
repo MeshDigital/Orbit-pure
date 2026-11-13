@@ -22,6 +22,7 @@ public sealed class AnalysisCoverageAnalyzerTests
         TrackUniqueHash = "artist-title",
         WaveformBlob = new byte[] { 1, 2, 3 },
         WaveformBlobSampleCount = 900,
+        AnalysisVersion = WaveformExtractionService.CurrentWaveformVersion,
         LoudnessLUFS = -8.4f,
         Bpm = 128.0f,
         BeatGridJson = "[0.0,0.468,0.937]",
@@ -31,6 +32,7 @@ public sealed class AnalysisCoverageAnalyzerTests
         EnergyScore = 7,
         GenreDistributionJson = "{\"house\":0.9}",
         PhraseSegmentsJson = "[{\"type\":\"Intro\"}]",
+        PhraseSegmentsSource = "Heuristic",
         EnergyCurveJson = "[0.1,0.4]",
         CuePointsJson = "[{\"position\":12.5}]",
         Fingerprint = "abc123",
@@ -111,6 +113,100 @@ public sealed class AnalysisCoverageAnalyzerTests
 
         row.WaveformBlob = new byte[] { 1 };
         Assert.True(AnalysisCoverageAnalyzer.HasWaveform(row));
+    }
+
+    [Theory]
+    [InlineData("", true)]
+    [InlineData("2026.01.01-legacy", true)]
+    [InlineData(WaveformExtractionService.CurrentWaveformVersion, false)]
+    public void Detect_OldWaveformVersion_IsPresentButOutdated(string version, bool expectedOutdated)
+    {
+        var row = FullRow();
+        row.AnalysisVersion = version;
+
+        var coverage = AnalysisCoverageAnalyzer.Analyze(row, AnalysisEngine.Pipeline);
+
+        Assert.True(coverage.Has(AnalysisEngine.Waveform));
+        Assert.Equal(AnalysisEngine.None, coverage.Missing);
+        Assert.Equal(expectedOutdated, coverage.HasOutdated);
+        Assert.Equal(!expectedOutdated, coverage.IsComplete);
+        Assert.Equal(expectedOutdated ? AnalysisEngine.Waveform : AnalysisEngine.None, coverage.RunnableMissing);
+        Assert.Equal(expectedOutdated, AnalysisCoverageAnalyzer.IsWaveformOutdated(row));
+    }
+
+    [Fact]
+    public void Detect_NoWaveform_IsMissingNotOutdated()
+    {
+        var row = FullRow();
+        row.WaveformBlob = null;
+        row.AnalysisVersion = string.Empty;
+
+        var coverage = AnalysisCoverageAnalyzer.Analyze(row, AnalysisEngine.Pipeline);
+
+        Assert.Equal(AnalysisEngine.Waveform, coverage.Missing);
+        Assert.False(coverage.HasOutdated);
+    }
+
+    [Fact]
+    public void MissingSummary_NamesMissingAndOutdatedSeparately()
+    {
+        var row = FullRow();
+        row.AnalysisVersion = "old";
+        row.CamelotKey = string.Empty;
+        row.Key = string.Empty;
+
+        var coverage = AnalysisCoverageAnalyzer.Analyze(row, AnalysisEngine.Pipeline);
+
+        Assert.Equal("Missing Key · Waveform outdated", coverage.MissingSummary);
+    }
+
+    [Fact]
+    public void Summarize_CountsOutdatedWaveformsSeparatelyFromCompleteAndMissing()
+    {
+        var current = FullRow();
+        var old = FullRow();
+        old.AnalysisVersion = "old";
+        var none = FullRow();
+        none.WaveformBlob = null;
+
+        var rows = AnalysisCoverageAnalyzer.Summarize(
+            new[] { current, old, old, none }.Select(r => AnalysisCoverageAnalyzer.Analyze(r, AnalysisEngine.Pipeline)),
+            AnalysisEngine.Pipeline);
+
+        var waveform = rows.Single(r => r.Engine == AnalysisEngine.Waveform);
+        Assert.Equal(4, waveform.Total);
+        Assert.Equal(1, waveform.Complete);
+        Assert.Equal(2, waveform.Outdated);
+        Assert.Equal(1, waveform.Missing);
+        Assert.False(waveform.IsComplete);
+
+        var row = new SLSKDONET.ViewModels.EngineCoverageRow(waveform);
+        Assert.Equal("1 missing", row.MissingLabel);
+        Assert.True(row.ShowOutdatedLine);
+        Assert.Equal("2 outdated", row.OutdatedLabel);
+
+        var onlyOutdated = new SLSKDONET.ViewModels.EngineCoverageRow(waveform with { Missing = 0 });
+        Assert.Equal("2 outdated", onlyOutdated.MissingLabel);
+        Assert.False(onlyOutdated.ShowOutdatedLine);
+    }
+
+    [Fact]
+    public void PlaylistCoverage_OutdatedWaveformsAreQueuedForAWaveformRun()
+    {
+        var old = FullRow();
+        old.AnalysisVersion = "old";
+        var coverage = new PlaylistAnalysisCoverage(null, "Set", new[]
+        {
+            new TrackCoverageEntry("old-hash", "A", "Old", AnalysisCoverageAnalyzer.Analyze(old, AnalysisEngine.Pipeline)),
+            new TrackCoverageEntry("new-hash", "A", "New", AnalysisCoverageAnalyzer.Analyze(FullRow(), AnalysisEngine.Pipeline)),
+        });
+
+        Assert.Equal(1, coverage.OutdatedWaveformTracks);
+        Assert.Equal(1, coverage.FullyAnalyzedTracks);
+        Assert.Equal(AnalysisEngine.Waveform, coverage.MissingAnywhere);
+        var request = Assert.Single(coverage.GetRequests(AnalysisEngine.Waveform));
+        Assert.Equal("old-hash", request.TrackHash);
+        Assert.Equal(AnalysisEngine.Waveform, request.Engines);
     }
 
     [Fact]

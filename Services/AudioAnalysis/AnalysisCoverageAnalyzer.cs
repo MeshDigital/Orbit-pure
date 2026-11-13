@@ -56,7 +56,18 @@ public static class AnalysisCoverageAnalyzer
         AnalysisEngine mask = DefaultMask,
         int cuePointCount = -1,
         bool hasFingerprint = false) =>
-        new(mask, Detect(features, cuePointCount, hasFingerprint));
+        new(mask, Detect(features, cuePointCount, hasFingerprint), DetectOutdated(features));
+
+    /// <summary>
+    /// Engines whose output exists but came from an older engine version. Only the waveform is
+    /// versioned today; Cue Forge uses <see cref="IsWaveformOutdated"/> for its refresh notice,
+    /// so both pages agree on which waveforms are old.
+    /// </summary>
+    public static AnalysisEngine DetectOutdated(AudioFeaturesEntity? features)
+    {
+        if (features is null) return AnalysisEngine.None;
+        return IsWaveformOutdated(features) ? AnalysisEngine.Waveform : AnalysisEngine.None;
+    }
 
     /// <summary>
     /// Waveform counts only when the extracted blob exists. A positive sample count without its
@@ -64,6 +75,15 @@ public static class AnalysisCoverageAnalyzer
     /// </summary>
     public static bool HasWaveform(AudioFeaturesEntity features) =>
         features.WaveformBlob is { Length: > 0 };
+
+    /// <summary>
+    /// A stored waveform drawn by an older extractor (different or empty
+    /// <see cref="AudioFeaturesEntity.AnalysisVersion"/>): it still renders, but its timing, bass
+    /// detail and drop contrast are less accurate than a current one.
+    /// </summary>
+    public static bool IsWaveformOutdated(AudioFeaturesEntity features) =>
+        HasWaveform(features) &&
+        !string.Equals(features.AnalysisVersion, WaveformExtractionService.CurrentWaveformVersion, StringComparison.Ordinal);
 
     /// <summary>
     /// Integrated loudness. 0 is the "not measured" sentinel (the column is NOT NULL) — a measured
@@ -100,7 +120,7 @@ public static class AnalysisCoverageAnalyzer
     /// </summary>
     public static bool HasStructure(AudioFeaturesEntity features) =>
         features.StructuralVersion > 0 ||
-        !IsEmptyJson(features.PhraseSegmentsJson) ||
+        !string.IsNullOrWhiteSpace(features.PhraseSegmentsSource) ||
         features.DropTimeSeconds is not null;
 
     /// <summary>
@@ -130,15 +150,20 @@ public static class AnalysisCoverageAnalyzer
 
         foreach (var engine in AnalysisEngines.ToList(mask))
         {
-            var withOutput = 0;
+            var current = 0;
             var missing = 0;
+            var outdated = 0;
             foreach (var track in all)
             {
-                if (track.Has(engine)) withOutput++;
+                if (track.Has(engine))
+                {
+                    if ((track.Outdated & engine) != 0) outdated++;
+                    else current++;
+                }
                 else if ((track.Requested & engine) != 0) missing++;
             }
 
-            rows.Add(new EngineCoverageSummary(engine, all.Count, withOutput, missing));
+            rows.Add(new EngineCoverageSummary(engine, all.Count, current, missing, outdated));
         }
 
         return rows;
@@ -168,11 +193,12 @@ public static class AnalysisCoverageAnalyzer
 /// <summary>One row of the playlist coverage table: how many tracks have this engine's output.</summary>
 /// <param name="Engine">Which engine.</param>
 /// <param name="Total">Tracks considered.</param>
-/// <param name="Complete">Tracks with output for this engine.</param>
+/// <param name="Complete">Tracks with current output for this engine.</param>
 /// <param name="Missing">Tracks without it.</param>
-public sealed record EngineCoverageSummary(AnalysisEngine Engine, int Total, int Complete, int Missing)
+/// <param name="Outdated">Tracks whose output exists but came from an older engine version.</param>
+public sealed record EngineCoverageSummary(AnalysisEngine Engine, int Total, int Complete, int Missing, int Outdated = 0)
 {
-    public bool IsComplete => Missing == 0;
+    public bool IsComplete => Missing == 0 && Outdated == 0;
 
     public double Fraction => Total == 0 ? 1 : (double)Complete / Total;
 

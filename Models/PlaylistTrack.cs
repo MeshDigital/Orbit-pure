@@ -180,6 +180,10 @@ public class PlaylistTrack
     // Phase 13: BPM Analysis Quality
     public float? BpmStability { get; set; } // 0-1; <0.7 = unstable/drifting tempo
 
+    // Beat-grid provenance (#221)
+    public float? GridConfidence { get; set; } // 0-1; null = not computed
+    public bool GridVerified { get; set; }
+
     // Phase 3A: Dual-Truth Metadata
     public double? SpotifyBPM { get; set; }
     public string? SpotifyKey { get; set; }

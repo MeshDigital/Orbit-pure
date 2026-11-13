@@ -48,7 +48,10 @@ public static class FirstRunDetector
     /// Bump when the wizard gains steps or content an existing user should be offered. On startup,
     /// any install whose saved <see cref="Configuration.AppConfig.SetupVersion"/> is below this is re-onboarded.
     /// </summary>
-    public const int CurrentSetupVersion = 9;
+    // 10 = beat-grid editing epic (#219). 11 = Sets phase 3 (#198). 12 = Library maintenance
+    // wizard (#210). 13 = Flow Builder deck controls + Cue Forge "Back to". Coordinated so each
+    // unmerged branch takes the next free number above 10.
+    public const int CurrentSetupVersion = 13;
 
     /// <param name="fallbackDownloadDirectory">
     /// The folder ORBIT fills in when config.ini has none (<see cref="Configuration.AppConfig.FallbackDownloadDirectory"/>).

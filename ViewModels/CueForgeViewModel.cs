@@ -7,6 +7,7 @@ using System.Reactive;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -34,7 +35,7 @@ namespace SLSKDONET.ViewModels;
 ///   • Grid: snapping, bar numbers and the drawn beat grid all use the precise BPM anchored at the
 ///     downbeat (<see cref="CueForgeGrid"/>).
 /// </summary>
-public sealed class CueForgeViewModel : ReactiveObject, IDisposable
+public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
 {
     private readonly ICuePointService _cueService;
     private readonly ILibraryService? _libraryService;
@@ -47,6 +48,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private readonly IDialogService? _dialogService;
     private readonly IEventBus? _eventBus;
     private readonly Services.Rekordbox.RekordboxLibraryService? _rekordbox;
+    private readonly Services.AudioAnalysis.IBeatGridEditService? _gridEditService;
     private readonly Func<Action, Task> _ui;
     private readonly CompositeDisposable _disposables = new();
 
@@ -236,6 +238,53 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private double _downbeat;
     /// <summary>Downbeat offset (seconds) the grid is anchored at.</summary>
     public double GridOffset => _downbeat;
+
+    private IReadOnlyList<double> _beatGrid = Array.Empty<double>();
+
+    private double? _musicStartSeconds;
+    /// <summary>First audible sound (seconds), for the waveform shading and the Intro anchor (#224).</summary>
+    public double? MusicStartSeconds
+    {
+        get => _musicStartSeconds;
+        private set => this.RaiseAndSetIfChanged(ref _musicStartSeconds, value);
+    }
+
+    private bool _metronomeEnabled;
+    /// <summary>Mixes a metronome click into Cue Forge playback, scheduled from the beat grid (#222).</summary>
+    public bool MetronomeEnabled
+    {
+        get => _metronomeEnabled;
+        set
+        {
+            if (_metronomeEnabled == value) return;
+            this.RaiseAndSetIfChanged(ref _metronomeEnabled, value);
+            _transport.SetMetronome(_beatGrid, _downbeat, value);
+        }
+    }
+
+    private string? _gridSource;
+    private float? _gridConfidence;
+    private bool _hasGridSuggestion;
+    private string _gridSuggestionSource = "";
+
+    /// <summary>True when a not-applied analysis/Rekordbox grid suggestion is available (#221).</summary>
+    public bool HasGridSuggestion => _hasGridSuggestion;
+
+    /// <summary>Human description of the pending grid suggestion (#221).</summary>
+    public string GridSuggestionDisplay => _gridSuggestionSource == "Rekordbox"
+        ? "Rekordbox has a different grid for this track."
+        : "Analysis suggests a different grid for this track.";
+
+    /// <summary>Grid provenance + confidence, shown in the grid tools (#221).</summary>
+    public string GridStatusDisplay => _gridSource switch
+    {
+        "User" => "Grid: edited by you",
+        "Rekordbox" => "Grid: from Rekordbox",
+        _ => _gridConfidence is { } c
+            ? "Grid: analysis · " + SLSKDONET.Utils.NumFormat.Percent(c) + " confidence"
+              + (c < SLSKDONET.Services.AudioAnalysis.GridWriteRules.ReviewThreshold ? " · needs review" : "")
+            : "Grid: analysis",
+    };
 
     public string BpmDisplay => !HasTrackLoaded || GridBpm <= 0 ? "—"
         : Math.Abs(GridBpm - Math.Round(GridBpm)) < 0.05
@@ -544,33 +593,75 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             _ = LoadPlaylistBrowserAsync(playlist.Id);
     }
 
-    // ── Mix Transition origin (for the "Back to mix" link) ─────────────────
+    // ── Where this visit came from (the "← Back to …" link) ───────────────
 
-    private Guid? _mixOriginPlaylistId;
-    private Guid? _mixOriginOutgoingTrackId;
-    private Guid? _mixOriginIncomingTrackId;
+    private CueForgeReturnPoint? _returnPoint;
+    /// <summary>Set until this is the instant of the matching page open, so a return point set right
+    /// before navigating here survives that open, while a later plain visit (sidebar) drops it.</summary>
+    private DateTime _returnPointArmedUntilUtc;
 
-    public bool HasMixOrigin => _mixOriginPlaylistId.HasValue;
-
-    /// <summary>Called by MixTransitionViewModel.OpenTrackInCueForgeAsync right after LoadTrackAsync,
-    /// so the Mix Editor → Cue Forge link has a way back.</summary>
-    public void SetMixTransitionOrigin(Guid playlistId, Guid outgoingTrackId, Guid incomingTrackId)
+    /// <summary>The page this track was opened from, if any. Shown as "← Back to …".</summary>
+    public CueForgeReturnPoint? ReturnPoint
     {
-        _mixOriginPlaylistId = playlistId;
-        _mixOriginOutgoingTrackId = outgoingTrackId;
-        _mixOriginIncomingTrackId = incomingTrackId;
-        this.RaisePropertyChanged(nameof(HasMixOrigin));
+        get => _returnPoint;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _returnPoint, value);
+            this.RaisePropertyChanged(nameof(HasReturnPoint));
+            this.RaisePropertyChanged(nameof(ReturnLabel));
+            this.RaisePropertyChanged(nameof(HasMixOrigin));
+        }
     }
 
-    private void BackToMixTransition()
+    /// <summary>The page navigation came from (CueForgeVisitStartedEvent), used when no explicit
+    /// return point was set for this visit.</summary>
+    private CueForgeReturnPoint? _previousPageReturn;
+
+    public bool HasReturnPoint => _returnPoint != null;
+    public string ReturnLabel => _returnPoint is { } r ? $"Back to {r.Label}" : string.Empty;
+
+    /// <summary>Kept for older callers: true while a way back exists.</summary>
+    public bool HasMixOrigin => HasReturnPoint;
+
+    /// <summary>
+    /// Records where this visit came from. Call right before navigating to Cue Forge; the next page
+    /// open keeps it, and leaving Cue Forge (or a later plain visit) drops it.
+    /// </summary>
+    public void SetReturnPoint(CueForgeReturnPoint? returnPoint)
     {
-        if (_mixOriginPlaylistId is not { } playlistId ||
-            _mixOriginOutgoingTrackId is not { } outgoingId ||
-            _mixOriginIncomingTrackId is not { } incomingId)
+        ReturnPoint = returnPoint;
+        _returnPointArmedUntilUtc = returnPoint != null ? DateTime.UtcNow.AddSeconds(15) : default;
+    }
+
+    /// <summary>The Library Mix sidepanel's way back: reopen that playlist and pair.</summary>
+    public void SetMixTransitionOrigin(Guid playlistId, Guid outgoingTrackId, Guid incomingTrackId, string? label = null) =>
+        SetReturnPoint(new CueForgeReturnPoint(label ?? "mix transition",
+            () => _eventBus?.Publish(new OpenLibraryForPlaylistEvent(playlistId, outgoingTrackId, incomingTrackId))));
+
+    private void ReturnToOrigin()
+    {
+        var target = _returnPoint;
+        if (target == null) return;
+        ReturnPoint = null;
+        _returnPointArmedUntilUtc = default;
+        try { target.Return(); }
+        catch (Exception ex)
         {
-            return;
+            _logger.LogWarning(ex, "Cue Forge: going back to {Origin} failed", target.Label);
+            _eventBus?.Publish(new NotificationEvent("Cue Forge", $"Couldn't go back to {target.Label}: {ex.Message}", SLSKDONET.Views.NotificationType.Error));
         }
-        _eventBus?.Publish(new OpenLibraryForPlaylistEvent(playlistId, outgoingId, incomingId));
+    }
+
+    /// <summary>Selects the cue at <paramref name="seconds"/> (within 50 ms) and moves the playhead
+    /// there — "Edit in Cue Forge" on a specific cue lands on that cue.</summary>
+    public void FocusCueAt(double seconds)
+    {
+        var cue = Session.Cues
+            .Where(c => Math.Abs(c.Timestamp - seconds) < 0.05)
+            .OrderBy(c => Math.Abs(c.Timestamp - seconds))
+            .FirstOrDefault();
+        if (cue != null) Session.SelectedCue = cue;
+        SetPlayhead(seconds);
     }
 
     private async Task LoadAllPlaylistsAsync()
@@ -727,6 +818,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> SetDownbeatAtPlayheadCommand { get; }
     /// <summary>Slips the whole grid by 10 ms ("-" earlier, "+" later).</summary>
     public ReactiveCommand<string, Unit> SlipGridCommand { get; }
+    /// <summary>Slips the whole grid by 1 ms ("-" earlier, "+" later) — fine control.</summary>
+    public ReactiveCommand<string, Unit> SlipGridFineCommand { get; }
     /// <summary>Puts the downbeat back where the analysis had it when the track was opened.</summary>
     public ReactiveCommand<Unit, Unit> ResetGridCommand { get; }
     /// <summary>Corrects a wrong detected tempo: double / halve the grid BPM.</summary>
@@ -734,10 +827,64 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> HalveBpmCommand { get; }
     /// <summary>Applies the manually-typed BPM in <see cref="ManualBpmInput"/>.</summary>
     public ReactiveCommand<Unit, Unit> ApplyManualBpmCommand { get; }
+    /// <summary>Registers a tap for tap tempo.</summary>
+    public ReactiveCommand<Unit, Unit> TapTempoCommand { get; }
+    /// <summary>Applies the tapped BPM through the grid edit service.</summary>
+    public ReactiveCommand<Unit, Unit> ApplyTappedBpmCommand { get; }
+    /// <summary>Marks the current playhead as the first or second downbeat for two-point BPM.</summary>
+    public ReactiveCommand<Unit, Unit> TwoPointBpmMarkCommand { get; }
+    /// <summary>Applies the BPM computed from the two marked downbeats.</summary>
+    public ReactiveCommand<Unit, Unit> ApplyTwoPointBpmCommand { get; }
+    /// <summary>Marks the current grid as verified without changing it (#221).</summary>
+    public ReactiveCommand<Unit, Unit> MarkGridCorrectCommand { get; }
+    /// <summary>Sets the "music starts here" marker at the playhead (#224).</summary>
+    public ReactiveCommand<Unit, Unit> SetMusicStartAtPlayheadCommand { get; }
+    /// <summary>Applies the stored grid suggestion (#221).</summary>
+    public ReactiveCommand<Unit, Unit> UseGridSuggestionCommand { get; }
+    /// <summary>Discards the stored grid suggestion (#221).</summary>
+    public ReactiveCommand<Unit, Unit> DismissGridSuggestionCommand { get; }
 
     private double _analysedDownbeat;
+    private double _analysedBpm;
     private bool _isGridEdited;
     public bool IsGridEdited { get => _isGridEdited; private set => this.RaiseAndSetIfChanged(ref _isGridEdited, value); }
+
+    private readonly Services.AudioAnalysis.TapTempoTracker _tapTempo = new();
+    private double? _tappedBpm;
+    private double? _twoPointBarOneSeconds;
+    private double? _twoPointSecondBarOneSeconds;
+
+    /// <summary>The current tapped BPM, or "—" before the first two taps.</summary>
+    public string TappedBpmDisplay => _tappedBpm is { } b
+        ? b.ToString("0.#", CultureInfo.InvariantCulture)
+        : "—";
+    public bool HasTappedBpm => _tappedBpm.HasValue;
+
+    /// <summary>Cumulative grid offset versus the analysed grid, in milliseconds (e.g. "+23 ms").</summary>
+    public string GridOffsetDisplay => Math.Abs(GridOffset - _analysedDownbeat) < 1e-4
+        ? "0 ms"
+        : SLSKDONET.Utils.NumFormat.Signed((GridOffset - _analysedDownbeat) * 1000, 0) + " ms";
+
+    /// <summary>Two-point BPM workflow status.</summary>
+    public string TwoPointBpmStatus =>
+        _twoPointBarOneSeconds is null ? "Mark Bar 1 at the playhead"
+        : _twoPointSecondBarOneSeconds is null ? "Jump N bars, then mark that bar's 1"
+        : "BPM from two downbeats: " + SLSKDONET.Utils.NumFormat.F(TwoPointBpmValue, 2);
+
+    /// <summary>Both downbeats are marked and they give a usable BPM: shows the Set BPM action.</summary>
+    public bool HasTwoPointBpm => TwoPointBpmValue > 0;
+
+    public double TwoPointBpmValue =>
+        _twoPointBarOneSeconds is { } t1 && _twoPointSecondBarOneSeconds is { } t2
+            ? Services.AudioAnalysis.TwoPointBpm.Calculate(t1, t2, BarsBetweenMarkedDownbeats(t1, t2))
+            : 0;
+
+    private int BarsBetweenMarkedDownbeats(double t1, double t2)
+    {
+        if (GridBpm <= 0) return 0;
+        double bar = 240.0 / GridBpm;
+        return Math.Max(1, (int)Math.Round((t2 - t1) / bar));
+    }
 
     public ReactiveCommand<Unit, Unit> ZoomInCommand { get; }
     public ReactiveCommand<Unit, Unit> ZoomOutCommand { get; }
@@ -747,6 +894,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<double, Unit> SeekPlayheadCommand { get; }
     public ReactiveCommand<OrbitCue, Unit> AuditionCueCommand { get; }
     public ReactiveCommand<Unit, Unit> BackToMixTransitionCommand { get; }
+    /// <summary>"← Back to …": returns to the page this track was opened from.</summary>
+    public ReactiveCommand<Unit, Unit> ReturnToOriginCommand => BackToMixTransitionCommand;
     public ReactiveCommand<Unit, Unit> PlayPauseCommand { get; }
     /// <summary>CDJ-style CUE: playing → back to the cue point and pause; paused → set the cue point here.</summary>
     public ReactiveCommand<Unit, Unit> CueButtonCommand { get; }
@@ -829,10 +978,11 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         IDialogService dialogService,
         IEventBus eventBus,
         CueSessionRegistry cueSessions,
-        Services.Rekordbox.RekordboxLibraryService rekordbox)
+        Services.Rekordbox.RekordboxLibraryService rekordbox,
+        Services.AudioAnalysis.IBeatGridEditService gridEditService)
         : this(cueService, new PlayerViewModelCueForgeTransport(playerViewModel, databaseService), config,
                libraryService, engineCueService, camelotKeyService, logger, configManager, dialogService, eventBus,
-               cueSessions, ui: null, restoreSession: true, rekordbox: rekordbox)
+               cueSessions, ui: null, restoreSession: true, rekordbox: rekordbox, gridEditService: gridEditService)
     {
     }
 
@@ -852,7 +1002,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         CueSessionRegistry? cueSessions = null,
         Func<Action, Task>? ui = null,
         bool restoreSession = false,
-        Services.Rekordbox.RekordboxLibraryService? rekordbox = null)
+        Services.Rekordbox.RekordboxLibraryService? rekordbox = null,
+        Services.AudioAnalysis.IBeatGridEditService? gridEditService = null)
     {
         _cueService = cueService;
         _transport = transport;
@@ -865,6 +1016,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         _dialogService = dialogService;
         _eventBus = eventBus;
         _rekordbox = rekordbox;
+        _gridEditService = gridEditService;
         _ui = ui ?? RunOnUiThread;
         _selectedCueGenerationProfile = CueGenerationProfiles.Find(config.CueGenerationProfile);
         foreach (var profile in CueGenerationProfiles.All)
@@ -905,11 +1057,22 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
         BeatJumpCommand = ReactiveCommand.Create<int>(dir => BeatJump(dir), hasTrack);
         SetDownbeatAtPlayheadCommand = ReactiveCommand.CreateFromTask(SetDownbeatAtPlayheadAsync, canAct);
-        SlipGridCommand = ReactiveCommand.CreateFromTask<string>(SlipGridAsync, canAct);
+        SlipGridCommand = ReactiveCommand.CreateFromTask<string>(dir => SlipGridByAsync(dir == "-" ? -0.010 : 0.010), canAct);
+        SlipGridFineCommand = ReactiveCommand.CreateFromTask<string>(dir => SlipGridByAsync(dir == "-" ? -0.001 : 0.001), canAct);
         ResetGridCommand = ReactiveCommand.CreateFromTask(ResetGridAsync, this.WhenAnyValue(x => x.IsGridEdited));
-        DoubleBpmCommand = ReactiveCommand.CreateFromTask(() => ApplyBpmAsync(GridBpm * 2), hasTrack);
-        HalveBpmCommand = ReactiveCommand.CreateFromTask(() => ApplyBpmAsync(GridBpm / 2), hasTrack);
+        DoubleBpmCommand = ReactiveCommand.CreateFromTask(() => ScaleTempoAsync(2.0), hasTrack);
+        HalveBpmCommand = ReactiveCommand.CreateFromTask(() => ScaleTempoAsync(0.5), hasTrack);
         ApplyManualBpmCommand = ReactiveCommand.CreateFromTask(ApplyManualBpmAsync, hasTrack);
+        TapTempoCommand = ReactiveCommand.Create(TapTempo, hasTrack);
+        ApplyTappedBpmCommand = ReactiveCommand.CreateFromTask(ApplyTappedBpmAsync, this.WhenAnyValue(x => x.HasTappedBpm));
+        TwoPointBpmMarkCommand = ReactiveCommand.Create(TwoPointBpmMark, canAct);
+        ApplyTwoPointBpmCommand = ReactiveCommand.CreateFromTask(ApplyTwoPointBpmAsync, this.WhenAnyValue(x => x.TwoPointBpmValue, bpm => bpm is > 40 and < 400));
+        MarkGridCorrectCommand = ReactiveCommand.CreateFromTask(MarkGridCorrectAsync, hasTrack);
+        InitGridCommands(hasTrack);
+        InitPhraseCommands(hasTrack);
+        SetMusicStartAtPlayheadCommand = ReactiveCommand.CreateFromTask(SetMusicStartAtPlayheadAsync, canAct);
+        UseGridSuggestionCommand = ReactiveCommand.CreateFromTask(UseGridSuggestionAsync, this.WhenAnyValue(x => x.HasGridSuggestion));
+        DismissGridSuggestionCommand = ReactiveCommand.CreateFromTask(DismissGridSuggestionAsync, this.WhenAnyValue(x => x.HasGridSuggestion));
 
         ZoomInCommand     = ReactiveCommand.Create(() => ZoomAroundPlayhead(1.5));
         ZoomOutCommand    = ReactiveCommand.Create(() => ZoomAroundPlayhead(1 / 1.5));
@@ -917,7 +1080,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
         PreviousCueCommand = ReactiveCommand.Create(NavigateToPreviousCue, canAct);
         NextCueCommand     = ReactiveCommand.Create(NavigateToNextCue, canAct);
-        BackToMixTransitionCommand = ReactiveCommand.Create(BackToMixTransition, this.WhenAnyValue(x => x.HasMixOrigin));
+        BackToMixTransitionCommand = ReactiveCommand.Create(ReturnToOrigin, this.WhenAnyValue(x => x.HasReturnPoint));
         SeekPlayheadCommand = ReactiveCommand.Create<double>(SetPlayhead);
         AuditionCueCommand = ReactiveCommand.Create<OrbitCue>(AuditionCue);
         PlayPauseCommand = ReactiveCommand.Create(TogglePlayPause, hasTrack);
@@ -958,6 +1121,10 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
         if (_eventBus != null)
         {
+            // Synchronous on purpose: it arrives before the page attaches and activates.
+            _eventBus.GetEvent<SLSKDONET.Events.CueForgeVisitStartedEvent>()
+                .Subscribe(evt => _previousPageReturn = evt.PreviousPage)
+                .DisposeWith(_disposables);
             _eventBus.GetEvent<TrackAnalysisUpdatedEvent>()
                 .ObserveOn(RxApp.MainThreadScheduler)
                 .Subscribe(evt => _ = OnWaveformRefreshCompletedAsync(evt))
@@ -1118,6 +1285,15 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     public async Task LoadTrackAsync(string trackHash, string? title = null, string? artist = null)
     {
+        // Reopening the track that is already open (Flow Builder's or the Library's "Open in Cue
+        // Forge") must not reload the stored cues over an unsaved draft — that silently threw the
+        // user's edits away. Keep the draft; Save stays highlighted as the reminder.
+        if (Session.IsDirty && string.Equals(Session.TrackHash, trackHash, StringComparison.OrdinalIgnoreCase))
+        {
+            Session.SetStatus("Your unsaved edits for this track are still here. Press Save (Ctrl+S) to keep them.");
+            return;
+        }
+
         // If Cue Forge borrowed the shared player for the track being left, give it back before
         // opening the next track. Otherwise the player keeps playing the auditioned file while the
         // page shows a different track, and the next cue click seeks/plays the wrong audio.
@@ -1193,7 +1369,17 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 _preciseBpm = features.Bpm > 0 ? features.Bpm : Bpm;
                 _downbeat = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
                 _analysedDownbeat = _downbeat;
+                _analysedBpm = _preciseBpm;
                 IsGridEdited = false;
+                MusicStartSeconds = features.MusicStartSeconds is { } ms && ms >= 0 ? ms : null;
+                _gridSource = features.GridSource;
+                _gridConfidence = features.GridConfidence;
+                this.RaisePropertyChanged(nameof(GridStatusDisplay));
+                var suggestion = Services.AudioAnalysis.GridWriteRules.ParseSuggestion(features.AnalysedGridJson);
+                _hasGridSuggestion = suggestion is not null;
+                _gridSuggestionSource = suggestion?.Source ?? "";
+                this.RaisePropertyChanged(nameof(HasGridSuggestion));
+                this.RaisePropertyChanged(nameof(GridSuggestionDisplay));
                 genre = !string.IsNullOrWhiteSpace(features.DetectedSubGenre) ? features.DetectedSubGenre : features.ElectronicSubgenre;
                 _durationKnown = features.TrackDuration > 0;
                 TrackDuration = features.TrackDuration > 0 ? features.TrackDuration : 300.0;
@@ -1206,10 +1392,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 if (features.WaveformBlob is { Length: > 0 } blob && features.WaveformBlobSampleCount > 0 &&
                     blob.Length >= features.WaveformBlobSampleCount * 3)
                 {
-                    IsWaveformOutdated = !string.Equals(
-                        features.AnalysisVersion,
-                        Services.AudioAnalysis.WaveformExtractionService.CurrentWaveformVersion,
-                        StringComparison.Ordinal);
+                    // Same rule the Analysis page's coverage card counts "outdated" waveforms by.
+                    IsWaveformOutdated = Services.AudioAnalysis.AnalysisCoverageAnalyzer.IsWaveformOutdated(features);
                     int n = features.WaveformBlobSampleCount;
                     var low = new byte[n]; var mid = new byte[n]; var high = new byte[n];
                     Buffer.BlockCopy(blob, 0, low, 0, n);
@@ -1224,28 +1408,29 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
                 var beatGrid = ParseJsonFloatArray(features.BeatGridJson)?.Select(f => (double)f).ToList()
                                ?? new List<double>();
+                _beatGrid = beatGrid;
+                ApplyDerivedGridState(features);
+                if (_metronomeEnabled) _transport.SetMetronome(_beatGrid, _downbeat, true);
                 OnsetDensityCurveData = beatGrid.Count > 0
                     ? new OnsetDensityEngine().ComputeOnsetDensityCurve(beatGrid, TrackDuration)
                     : null;
 
-                List<PhraseSegment> storedPhrases = new();
+                // The phrase map, the section suggestions and Auto-generate all read this one list,
+                // resolved from the single TrackPhrases store (User > RekordboxPSSI > Heuristic).
+                _resolvedPhrases = new List<PhraseSegment>();
+                SelectedPhraseIndex = -1;
+                HasUserPhrases = false;
                 if (_libraryService is not null)
                 {
-                    try { storedPhrases = PhraseSourceResolver.FromTrackPhrases(await _libraryService.GetPhrasesByHashAsync(trackHash)); }
+                    try
+                    {
+                        var phraseRows = await _libraryService.GetPhrasesByHashAsync(trackHash);
+                        _resolvedPhrases = PhraseSourceResolver.Resolve(phraseRows, features.TrackDuration);
+                        HasUserPhrases = phraseRows.Count(r => string.Equals(r.Source, UserPhraseSource, StringComparison.Ordinal)) >= 2;
+                    }
                     catch (Exception ex) { _logger.LogWarning(ex, "CueForge: couldn't load stored phrase data for {Hash}", trackHash); }
                     if (version != _loadVersion) return;
                 }
-
-                // The phrase map, the section suggestions and Auto-generate all read this one list.
-                // TrackPhrases is the fresher store: the legacy PhraseSegmentsJson column is only
-                // written when empty, so older tracks keep boundaries from an analysis run on the
-                // pre-correction (half-time) grid forever — exactly the stale "intro ends 1:27"
-                // suggestion and mis-placed drop seen on Against The Grain.
-                _resolvedPhrases = PhraseSourceResolver.Resolve(
-                    features.PhraseSegmentsSource,
-                    ParsePhraseSegments(features.PhraseSegmentsJson),
-                    storedPhrases,
-                    features.TrackDuration);
 
                 var segments = _resolvedPhrases;
                 await _ui(() =>
@@ -1260,6 +1445,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             {
                 IsWaveformMissing = true;
                 _preciseBpm = 0; _downbeat = 0; Bpm = 120;
+                _analysedBpm = 0; _analysedDownbeat = 0;
                 TrackDuration = 300.0;
                 UpdateCamelotKeyDisplay("");
                 EnergyCurveData = null; VocalDensityCurveData = null; OnsetDensityCurveData = null;
@@ -1301,6 +1487,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     {
         this.RaisePropertyChanged(nameof(GridBpm));
         this.RaisePropertyChanged(nameof(GridOffset));
+        this.RaisePropertyChanged(nameof(GridOffsetDisplay));
         this.RaisePropertyChanged(nameof(BpmDisplay));
         this.RaisePropertyChanged(nameof(CurrentBarBeatDisplay));
         this.RaisePropertyChanged(nameof(TimeTillDropBars));
@@ -1308,25 +1495,96 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(HasTimeTillDrop));
     }
 
-    /// <summary>Applies a corrected tempo, rescales the grid, and persists ManualBPM so it survives re-analysis.</summary>
+    /// <summary>Applies a corrected tempo through the beat-grid edit service so the grid BPM, the beat
+    /// list and the library BPM stay in agreement (regenerates a constant grid from Bar 1).</summary>
     private async Task ApplyBpmAsync(double newBpm)
     {
         if (newBpm is < 40 or > 400) return; // sanity bound
+        if (TrackHash is not { } hash) return;
+
+        if (_gridEditService is not null)
+        {
+            var result = await EditGridAsync(hash, "BPM change", g => g.SetBpmAsync(hash, newBpm, CancellationToken.None));
+            if (!result.Success)
+            {
+                Session.SetStatus(result.Reason ?? "Couldn't save the BPM; nothing was changed.", isError: true);
+                return;
+            }
+        }
+        else if (_libraryService is not null)
+        {
+            // Unit-test fallback when the edit service is not wired in (production always wires it).
+            try
+            {
+                await _libraryService.UpdateBpmAsync(hash, newBpm);
+                _eventBus?.Publish(new TrackMetadataUpdatedEvent(hash));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "CueForge: failed to save BPM for {Hash}", hash);
+                Session.SetStatus("Couldn't save the BPM; nothing was changed. See the log for details.", isError: true);
+                return;
+            }
+        }
+        else
+        {
+            Session.SetStatus("The beat-grid editor is unavailable.", isError: true);
+            return;
+        }
+
         _preciseBpm = newBpm;
         Bpm = (int)Math.Round(newBpm);
         RaiseGridChanged();
         ManualBpmInput = newBpm.ToString("0.#", CultureInfo.InvariantCulture);
+        IsGridEdited = Math.Abs(newBpm - _analysedBpm) > 1e-4 || Math.Abs(_downbeat - _analysedDownbeat) > 1e-4;
+        if (_gridEditService is not null) await ReloadGridFromStoreAsync(hash);
+        Session.SetStatus("Tempo updated. Re-run Auto-generate to re-place the auto cues.");
+    }
 
-        if (TrackHash is not { } hash || _libraryService is null) return;
-        try
+    /// <summary>Doubles or halves the grid tempo, keeping Bar 1 on a beat (the beat list changes, not
+    /// just the number).</summary>
+    private async Task ScaleTempoAsync(double factor)
+    {
+        if (TrackHash is not { } hash) return;
+        double newBpm = GridBpm * factor;
+        if (newBpm is < 40 or > 400) return;
+
+        if (_gridEditService is not null)
         {
-            await _libraryService.UpdateBpmAsync(hash, newBpm);
-            _eventBus?.Publish(new TrackMetadataUpdatedEvent(hash));
+            var result = await EditGridAsync(hash, factor > 1.0 ? "×2" : "÷2", g => g.ScaleTempoAsync(hash, factor, CancellationToken.None));
+            if (!result.Success)
+            {
+                Session.SetStatus(result.Reason ?? "Couldn't save the tempo change; nothing was changed.", isError: true);
+                return;
+            }
         }
-        catch (Exception ex)
+        else if (_libraryService is not null)
         {
-            _logger.LogError(ex, "CueForge: failed to save BPM for {Hash}", hash);
+            try
+            {
+                await _libraryService.UpdateBpmAsync(hash, newBpm);
+                _eventBus?.Publish(new TrackMetadataUpdatedEvent(hash));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "CueForge: failed to scale BPM for {Hash}", hash);
+                Session.SetStatus("Couldn't save the tempo change; nothing was changed. See the log for details.", isError: true);
+                return;
+            }
         }
+        else
+        {
+            Session.SetStatus("The beat-grid editor is unavailable.", isError: true);
+            return;
+        }
+
+        _preciseBpm = newBpm;
+        Bpm = (int)Math.Round(newBpm);
+        RaiseGridChanged();
+        ManualBpmInput = newBpm.ToString("0.#", CultureInfo.InvariantCulture);
+        IsGridEdited = Math.Abs(newBpm - _analysedBpm) > 1e-4 || Math.Abs(_downbeat - _analysedDownbeat) > 1e-4;
+        if (_gridEditService is not null) await ReloadGridFromStoreAsync(hash);
+        Session.SetStatus($"Tempo {(factor > 1.0 ? "doubled" : "halved")}. Re-run Auto-generate to re-place the auto cues.");
     }
 
     private async Task ApplyManualBpmAsync()
@@ -1334,6 +1592,130 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         if (!double.TryParse(ManualBpmInput, NumberStyles.Float, CultureInfo.InvariantCulture, out var bpm))
             return;
         await ApplyBpmAsync(bpm);
+    }
+
+    private void TapTempo()
+    {
+        var tapped = _tapTempo.Tap(DateTime.UtcNow);
+        if (tapped is { } bpm && bpm is >= 40 and <= 400)
+        {
+            _tappedBpm = bpm;
+            this.RaisePropertyChanged(nameof(TappedBpmDisplay));
+            this.RaisePropertyChanged(nameof(HasTappedBpm));
+        }
+    }
+
+    private async Task ApplyTappedBpmAsync()
+    {
+        if (_tappedBpm is not { } bpm) return;
+        await ApplyBpmAsync(bpm);
+        _tapTempo.Reset();
+        _tappedBpm = null;
+        this.RaisePropertyChanged(nameof(TappedBpmDisplay));
+        this.RaisePropertyChanged(nameof(HasTappedBpm));
+    }
+
+    private void TwoPointBpmMark()
+    {
+        if (_twoPointBarOneSeconds is null)
+        {
+            _twoPointBarOneSeconds = CurrentPlayPosition;
+        }
+        else if (_twoPointSecondBarOneSeconds is null && CurrentPlayPosition > _twoPointBarOneSeconds)
+        {
+            _twoPointSecondBarOneSeconds = CurrentPlayPosition;
+        }
+        else
+        {
+            // Start over.
+            _twoPointBarOneSeconds = CurrentPlayPosition;
+            _twoPointSecondBarOneSeconds = null;
+        }
+        this.RaisePropertyChanged(nameof(TwoPointBpmStatus));
+        this.RaisePropertyChanged(nameof(HasTwoPointBpm));
+        this.RaisePropertyChanged(nameof(TwoPointBpmValue));
+    }
+
+    private async Task ApplyTwoPointBpmAsync()
+    {
+        double bpm = TwoPointBpmValue;
+        if (bpm is < 40 or > 400) return;
+        await ApplyBpmAsync(bpm);
+        _twoPointBarOneSeconds = null;
+        _twoPointSecondBarOneSeconds = null;
+        this.RaisePropertyChanged(nameof(TwoPointBpmStatus));
+        this.RaisePropertyChanged(nameof(HasTwoPointBpm));
+    }
+
+    private async Task MarkGridCorrectAsync()
+    {
+        if (TrackHash is not { } hash) return;
+        if (_gridEditService is null)
+        {
+            Session.SetStatus("The beat-grid editor is unavailable.", isError: true);
+            return;
+        }
+        var result = await EditGridAsync(hash, "Mark grid correct", g => g.MarkGridCorrectAsync(hash, CancellationToken.None));
+        if (!result.Success)
+        {
+            Session.SetStatus(result.Reason ?? "Couldn't mark the grid correct.", isError: true);
+            return;
+        }
+        Session.SetStatus("Grid marked correct — re-analysis and Rekordbox will keep it.");
+    }
+
+    private async Task SetMusicStartAtPlayheadAsync()
+    {
+        if (TrackHash is not { } hash || _libraryService is null) return;
+        try
+        {
+            var features = await _libraryService.GetAudioFeaturesByHashAsync(hash);
+            if (features is null)
+            {
+                Session.SetStatus("This track has no analysis to store the music start in. Analyse it first.", isError: true);
+                return;
+            }
+            features.MusicStartSeconds = (float)Math.Max(0, CurrentPlayPosition);
+            features.MusicStartSource = "User";
+            await _libraryService.UpdateAudioFeaturesAsync(features);
+            MusicStartSeconds = features.MusicStartSeconds;
+            Session.SetStatus($"Music starts at {CueForgeGrid.FormatTime((double)features.MusicStartSeconds)}.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "CueForge: saving music start failed for {Hash}", hash);
+            Session.SetStatus("Couldn't save the music start; nothing was changed.", isError: true);
+        }
+    }
+
+    private async Task UseGridSuggestionAsync()
+    {
+        if (TrackHash is not { } hash) return;
+        if (_gridEditService is null) { Session.SetStatus("The beat-grid editor is unavailable.", isError: true); return; }
+        var result = await EditGridAsync(hash, "use grid suggestion", g => g.UseSuggestionAsync(hash, CancellationToken.None));
+        if (!result.Success) { Session.SetStatus(result.Reason ?? "Couldn't apply the grid suggestion.", isError: true); return; }
+
+        _hasGridSuggestion = false;
+        _gridSuggestionSource = "";
+        this.RaisePropertyChanged(nameof(HasGridSuggestion));
+        this.RaisePropertyChanged(nameof(GridSuggestionDisplay));
+        // Reload the grid from the newly-applied values (in place, so the step stays undoable).
+        await ReloadGridFromStoreAsync(hash);
+        Session.SetStatus("Suggested grid applied. Ctrl+Z puts your grid back.");
+    }
+
+    private async Task DismissGridSuggestionAsync()
+    {
+        if (TrackHash is not { } hash) return;
+        if (_gridEditService is null) { Session.SetStatus("The beat-grid editor is unavailable.", isError: true); return; }
+        var result = await EditGridAsync(hash, "keep my grid", g => g.DismissSuggestionAsync(hash, CancellationToken.None));
+        if (!result.Success) { Session.SetStatus(result.Reason ?? "Couldn't dismiss the grid suggestion.", isError: true); return; }
+
+        _hasGridSuggestion = false;
+        _gridSuggestionSource = "";
+        this.RaisePropertyChanged(nameof(HasGridSuggestion));
+        this.RaisePropertyChanged(nameof(GridSuggestionDisplay));
+        Session.SetStatus("Grid suggestion dismissed.");
     }
 
     public void UpdateCamelotKeyDisplay(string camelotKey)
@@ -1386,13 +1768,12 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             // track. Trusting the hash first made the outgoing track look attached while the player
             // actually held the incoming file, so clicking an outgoing cue seeked and played the
             // incoming track instead of the one on screen.
-            if (_transport.CurrentFilePath is { Length: > 0 } loaded)
-                return SameAudioFile(loaded, _trackFilePath);
-
-            // No loaded path reported yet (the player was just opened): fall back to queue
-            // identity. Cue Forge also borrows the player for a track the queue is not on, and in
-            // that case the path check above is the one that identifies it.
-            return string.Equals(_transport.CurrentTrackHash, TrackHash, StringComparison.OrdinalIgnoreCase);
+            // Only a file the audio engine really has open counts. Right after startup the player
+            // shows the restored queue track without having opened it: treating that as attached
+            // made the first cue click seek an empty engine (ignored) and then Play loaded the file
+            // from 0:00 — "the first cue I click plays from the start". Not attached → the click
+            // borrows the player: load, seek, then play.
+            return _transport.LoadedFilePath is { Length: > 0 } loaded && SameAudioFile(loaded, _trackFilePath);
         }
     }
 
@@ -1423,6 +1804,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             Session.SetStatus("Can't play this track: its audio file wasn't found on disk.", isError: true);
             return false;
         }
+        // Remember where the playlist was before taking the player over ("Resume playlist").
+        _transport.MarkInterrupted();
         if (_borrow == null)
         {
             var prev = _transport.CurrentFilePath;
@@ -1454,6 +1837,11 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     {
         bool pinned = DateTime.UtcNow < _keepExplicitTrackUntilUtc;
         _keepExplicitTrackUntilUtc = default;
+        // A return point is only valid for the visit it was set for; a plain visit gets the
+        // generic "Back to <previous page>" (see CueForgeVisitStartedEvent).
+        if (DateTime.UtcNow >= _returnPointArmedUntilUtc) ReturnPoint = _previousPageReturn;
+        _returnPointArmedUntilUtc = default;
+        _previousPageReturn = null;
 
         if (!pinned &&
             _transport.CurrentTrackHash is { Length: > 0 } playing &&
@@ -1491,8 +1879,18 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public void OnViewDeactivated()
     {
         _keepExplicitTrackUntilUtc = default;
+        _returnPointArmedUntilUtc = default;
+        ReturnPoint = null;
         IsAuditioningLoop = false;
         HandBackPlayer(resumePlayback: true);
+        // Leaving with unsaved edits: they are kept (the view model outlives the page), but say so,
+        // so the user comes back and saves instead of assuming they were saved.
+        if (Session.IsDirty && Session.TrackHash != null)
+        {
+            _eventBus?.Publish(new NotificationEvent("Cue Forge: unsaved edits",
+                $"Your cue edits for \"{TrackTitle}\" are not saved yet. They are kept; open Cue Forge and press Save (Ctrl+S).",
+                SLSKDONET.Views.NotificationType.Warning) { OpenPage = "CueForge" });
+        }
     }
 
     /// <summary>
@@ -1507,6 +1905,13 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         if (_borrow is not { } borrow) return;
         _borrow = null;
         if (!IsAttachedToPlayer) return; // someone else already took the player over
+        // Through the queue when the player remembered the interrupted playlist: that also re-arms
+        // the next transition with the cues just edited.
+        if (_transport.TryResumeInterrupted(resumePlayback))
+        {
+            this.RaisePropertyChanged(nameof(IsPlaying));
+            return;
+        }
         _transport.Pause();
         if (!string.IsNullOrEmpty(borrow.PreviousPath))
         {
@@ -1576,21 +1981,93 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         await ApplyGridAsync(barOne, $"The beat at {CueForgeGrid.FormatTime(nearestBeat)} is now the 1 of its bar. Re-run Auto-generate to re-place the auto cues.");
     }
 
-    internal Task SlipGridAsync(string direction)
+    private async Task SlipGridByAsync(double delta)
     {
-        double delta = direction == "-" ? -0.010 : 0.010;
+        if (TrackHash is not { } hash) return;
         double next = _downbeat + delta;
         if (next < 0) next += BarSeconds;
-        return ApplyGridAsync(next, $"Grid moved {(delta < 0 ? "10 ms earlier" : "10 ms later")}.");
+        string message = $"Grid moved {Math.Abs(delta) * 1000:0} ms {(delta < 0 ? "earlier" : "later")}.";
+
+        if (_gridEditService is not null)
+        {
+            var result = await EditGridAsync(hash, "grid slip", g => g.SlipAsync(hash, delta, CancellationToken.None));
+            if (!result.Success)
+            {
+                Session.SetStatus(result.Reason ?? "Couldn't save the grid slip; nothing was changed.", isError: true);
+                return;
+            }
+            await _ui(() =>
+            {
+                _downbeat = next;
+                IsGridEdited = Math.Abs(next - _analysedDownbeat) > 1e-4;
+                RaiseGridChanged();
+                Session.UpdateGrid(next);
+                Session.SetStatus(message);
+            });
+            await ReloadGridFromStoreAsync(hash);
+            return;
+        }
+
+        // Unit-test fallback: the legacy path only moves the downbeat, not the beat list.
+        await ApplyGridAsync(next, message);
     }
 
-    internal Task ResetGridAsync() => ApplyGridAsync(_analysedDownbeat, "Beat grid back to the analysed downbeat.");
+    internal async Task ResetGridAsync()
+    {
+        if (TrackHash is not { } hash) return;
+
+        if (_gridEditService is not null)
+        {
+            var result = await EditGridAsync(hash, "grid reset", g => g.ResetToAnalysedAsync(hash, _analysedBpm, _analysedDownbeat, CancellationToken.None));
+            if (!result.Success)
+            {
+                Session.SetStatus(result.Reason ?? "Couldn't reset the beat grid; nothing was changed.", isError: true);
+                return;
+            }
+            await _ui(() =>
+            {
+                _preciseBpm = _analysedBpm;
+                Bpm = (int)Math.Round(Math.Max(60, _analysedBpm));
+                _downbeat = _analysedDownbeat;
+                IsGridEdited = false;
+                RaiseGridChanged();
+                Session.UpdateGrid(_analysedDownbeat);
+                Session.SetStatus("Beat grid back to the analysed BPM and downbeat.");
+            });
+            await ReloadGridFromStoreAsync(hash);
+            return;
+        }
+
+        await ApplyGridAsync(_analysedDownbeat, "Beat grid back to the analysed downbeat.");
+    }
 
     /// <summary>Saves the corrected downbeat to the track's analysis, so exports, mixing and the next
     /// auto-generate all use it. Cues are left where they are.</summary>
     private async Task ApplyGridAsync(double downbeat, string status)
     {
-        if (TrackHash is not { } hash || _libraryService == null) return;
+        if (TrackHash is not { } hash) return;
+
+        if (_gridEditService is not null)
+        {
+            var result = await EditGridAsync(hash, "Bar 1 move", g => g.SetDownbeatAsync(hash, downbeat, CancellationToken.None));
+            if (!result.Success)
+            {
+                Session.SetStatus(result.Reason ?? "Couldn't save the beat grid change; nothing was changed.", isError: true);
+                return;
+            }
+            await _ui(() =>
+            {
+                _downbeat = downbeat;
+                IsGridEdited = Math.Abs(downbeat - _analysedDownbeat) > 1e-4;
+                RaiseGridChanged();
+                Session.UpdateGrid(downbeat);
+                Session.SetStatus(status);
+            });
+            await ReloadGridFromStoreAsync(hash);
+            return;
+        }
+
+        if (_libraryService == null) return;
         try
         {
             var features = await _libraryService.GetAudioFeaturesByHashAsync(hash);
@@ -1629,6 +2106,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     private void SeekPlayer(double seconds)
     {
+        // Seeking the playlist's own track moves the mix: remember where it was first.
+        _transport.MarkInterrupted();
         seconds = Math.Clamp(seconds, 0, TrackDuration);
         double length = EffectiveLength(_transport.LengthSeconds);
         if (length > 0) _transport.SeekFraction(seconds / length);
@@ -1896,13 +2375,6 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         if (string.IsNullOrWhiteSpace(json) || json == "[]") return null;
         try { return JsonSerializer.Deserialize<float[]>(json); }
         catch (Exception ex) { _logger.LogWarning(ex, "CueForge: ignoring unreadable curve data"); return null; }
-    }
-
-    private List<PhraseSegment> ParsePhraseSegments(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json) || json == "[]") return new();
-        try { return JsonSerializer.Deserialize<List<PhraseSegment>>(json) ?? new(); }
-        catch (Exception ex) { _logger.LogWarning(ex, "CueForge: ignoring unreadable phrase data"); return new(); }
     }
 
     // ── Transport navigation ───────────────────────────────────────────────

@@ -4,6 +4,10 @@ namespace SLSKDONET.Services
 {
     public interface IAudioPlayerService : IDisposable
     {
+        /// <summary>The file the audio engine actually has open (its current deck), or null when nothing is
+        /// loaded — unlike the player's queue track, which is restored at startup before any file is opened.</summary>
+        string? LoadedFilePath => null;
+
         bool IsPlaying { get; }
         bool IsInitialized { get; } // Check if LibVLC native libraries loaded successfully
         long Length { get; } // Duration in ms
@@ -31,6 +35,9 @@ namespace SLSKDONET.Services
 
         /// <summary>Moves playback onto the output device currently selected in Settings, without stopping.</summary>
         void ApplyOutputSettings();
+
+        /// <summary>Enables/disables the Cue Forge metronome click, scheduled from the beat grid (issue #222).</summary>
+        void SetMetronome(System.Collections.Generic.IReadOnlyList<double>? beatTimes, double downbeatSeconds, bool enabled);
 
         event EventHandler EndReached;
         event EventHandler PausableChanged;

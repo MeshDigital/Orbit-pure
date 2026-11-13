@@ -111,13 +111,20 @@ public sealed class BeatGridRecomputeService
         string backup = BackupLibrary();
         _logger.LogInformation("[BeatGridRecompute] Re-fitting {Count} tracks (backup: {Backup})", hashes.Count, backup);
 
-        int changed = 0, unchanged = 0, unfittable = 0, cueFailures = 0, fromRekordbox = 0;
+        int changed = 0, unchanged = 0, unfittable = 0, cueFailures = 0, fromRekordbox = 0, protected_ = 0;
         var started = DateTime.UtcNow;
         for (int i = 0; i < hashes.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
             var features = await _database.GetAudioFeaturesByHashAsync(hashes[i]).ConfigureAwait(false);
             if (features is null) continue;
+
+            // A grid the user owns is never re-fitted, adopted or recomputed over (issue #221).
+            if (GridWriteRules.IsUserOwned(features))
+            {
+                protected_++;
+                continue;
+            }
 
             float oldBpm = features.Bpm;
             double oldAnchor = features.DownbeatOffsetSeconds;
@@ -135,6 +142,14 @@ public sealed class BeatGridRecomputeService
 
             if (!fitted)
             {
+                // No single steady tempo: mark genuinely variable-tempo tracks (issue #226) so the UI
+                // can render them from the beat list instead of one BPM. The beat list is kept as-is.
+                var sections = BeatGridFitter.FitSections(ticks);
+                if (sections.Count > 1 && !features.IsVariableTempo)
+                {
+                    features.IsVariableTempo = true;
+                    await _database.UpdateAudioFeaturesAsync(features).ConfigureAwait(false);
+                }
                 unfittable++;
                 continue;
             }
@@ -158,7 +173,7 @@ public sealed class BeatGridRecomputeService
         }
 
         string summary = $"{changed} updated ({fromRekordbox} from Rekordbox's own grid), {unchanged} already correct, {unfittable} kept (no steady tempo), " +
-                         $"{cueFailures} cue regenerations failed, {(DateTime.UtcNow - started).TotalSeconds:F0}s";
+                         $"{protected_} kept (user grid), {cueFailures} cue regenerations failed, {(DateTime.UtcNow - started).TotalSeconds:F0}s";
         _logger.LogInformation("[BeatGridRecompute] Done: {Summary}", summary);
         WriteMarker(summary);
 

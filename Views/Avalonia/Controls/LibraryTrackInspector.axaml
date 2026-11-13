@@ -259,6 +259,20 @@
                                        IsVisible="{Binding GenresDisplay, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                         </StackPanel>
 
+                        <!-- AI style (top Discogs style) + Use as genre -->
+                        <StackPanel Spacing="6" IsVisible="{Binding HasStyleScores}">
+                            <TextBlock Classes="section" Text="AI STYLE"/>
+                            <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
+                                <TextBlock Classes="caption" Text="{Binding TopStyleDisplay}" Foreground="{StaticResource BrushText1}"
+                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding TopStyleDisplay}"/>
+                                <ProgressBar Grid.Column="1" Classes="meter" Maximum="1" Value="{Binding TopStyleConfidence}"/>
+                                <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding TopStyleConfidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                            </Grid>
+                            <Button Classes="secondary small" Content="Use as genre" Command="{Binding UseAsGenreCommand}"
+                                    HorizontalAlignment="Left"
+                                    ToolTip.Tip="Set this track's Genre to its top AI-detected style, in the file and the library (undoable)."/>
+                        </StackPanel>
+
                         <!-- AI mood (ranked) -->
                         <StackPanel Spacing="6" IsVisible="{Binding HasMoodBreakdown}">
                             <TextBlock Classes="section" Text="MOOD"/>

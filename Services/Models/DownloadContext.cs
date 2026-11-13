@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using SLSKDONET.Models;
+using SLSKDONET.Services.Downloads;
 
 namespace SLSKDONET.Services.Models;
 
@@ -27,6 +28,7 @@ public class DownloadContext
     // Phase 3B: Peer Blacklisting for Health Monitor
     public HashSet<string> BlacklistedUsers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public string? CurrentUsername { get; set; } // Track active peer for Health Monitor
+    public ActiveTransferRegistry.TransferKey? ActiveTransferKey { get; set; }
     public Track? HedgeMatch { get; set; }
     public Track? OverrideCandidate { get; set; }
     public bool HedgeAttempted { get; set; }

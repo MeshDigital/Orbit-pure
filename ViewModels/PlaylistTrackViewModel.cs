@@ -1989,6 +1989,17 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
         }
     }
 
+    /// <summary>True when the beat grid is unverified and low-confidence — the "Grid: needs review" state (#221).</summary>
+    public bool IsGridReviewNeeded =>
+        SLSKDONET.Services.AudioAnalysis.GridReviewQuery.NeedsReview(Model.GridVerified, Model.GridConfidence);
+
+    public const float GridReviewConfidenceThreshold = SLSKDONET.Services.AudioAnalysis.GridWriteRules.ReviewThreshold;
+
+    /// <summary>Tooltip for the BPM-column marker (#221).</summary>
+    public string GridReviewTip => Model.GridConfidence is { } c
+        ? "Beat grid needs review: " + SLSKDONET.Utils.NumFormat.Percent(c) + " confidence. Check Bar 1 in Cue Forge, then Mark grid correct."
+        : "";
+
     public string MetadataStatus
     {
         get

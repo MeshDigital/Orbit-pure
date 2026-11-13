@@ -352,6 +352,46 @@ namespace SLSKDONET.Views.Avalonia.Controls
             set => SetValue(CueUpdatedCommandProperty, value);
         }
 
+        /// <summary>When set, the trigger-point marker (<see cref="TriggerPointSeconds"/>) can be
+        /// dragged; on release it executes with the new time in seconds — snapped onto a cue flag when
+        /// dropped within the hit radius of one. Null (the default) keeps the marker fixed.</summary>
+        public static readonly StyledProperty<System.Windows.Input.ICommand?> TriggerPointMovedCommandProperty =
+            AvaloniaProperty.Register<WaveformControl, System.Windows.Input.ICommand?>(nameof(TriggerPointMovedCommand));
+        public System.Windows.Input.ICommand? TriggerPointMovedCommand
+        {
+            get => GetValue(TriggerPointMovedCommandProperty);
+            set => SetValue(TriggerPointMovedCommandProperty, value);
+        }
+
+        /// <summary>Name of the trigger point in menus, e.g. "Mix out" → "Mix out here".</summary>
+        public static readonly StyledProperty<string?> TriggerPointLabelProperty =
+            AvaloniaProperty.Register<WaveformControl, string?>(nameof(TriggerPointLabel));
+        public string? TriggerPointLabel
+        {
+            get => GetValue(TriggerPointLabelProperty);
+            set => SetValue(TriggerPointLabelProperty, value);
+        }
+
+        /// <summary>Right-click on a cue flag offers "Edit in Cue Forge" wired to this (the cue's seconds).</summary>
+        public static readonly StyledProperty<System.Windows.Input.ICommand?> EditCueCommandProperty =
+            AvaloniaProperty.Register<WaveformControl, System.Windows.Input.ICommand?>(nameof(EditCueCommand));
+        public System.Windows.Input.ICommand? EditCueCommand
+        {
+            get => GetValue(EditCueCommandProperty);
+            set => SetValue(EditCueCommandProperty, value);
+        }
+
+        /// <summary>With <see cref="EnableScrollZoom"/> off, Ctrl+wheel still zooms around the pointer
+        /// (plain wheel keeps scrolling the page). Bind <see cref="ZoomLevel"/> and
+        /// <see cref="ViewOffset"/> TwoWay so the host sees the change.</summary>
+        public static readonly StyledProperty<bool> CtrlWheelZoomsProperty =
+            AvaloniaProperty.Register<WaveformControl, bool>(nameof(CtrlWheelZooms));
+        public bool CtrlWheelZooms
+        {
+            get => GetValue(CtrlWheelZoomsProperty);
+            set => SetValue(CtrlWheelZoomsProperty, value);
+        }
+
         /// <summary>Tooltip shown while hovering a cue marker (e.g. "Click to play from here · drag to
         /// move"); null = none (the default, so existing hosts are unchanged).</summary>
         public static readonly StyledProperty<string?> CueHoverTipProperty =
@@ -376,6 +416,11 @@ namespace SLSKDONET.Views.Avalonia.Controls
         private bool _isDraggingProgress;
         private bool _isDraggingSegment;
         private bool _isDraggingPan;
+        // Trigger-point marker drag (Mix editor): pressed X, whether it moved, and the live time.
+        private bool _triggerPressed;
+        private bool _isDraggingTrigger;
+        private double _triggerPressX;
+        private double _triggerDragSeconds = -1;
         private double _panDragStartX;
         private double _panDragStartOffset;
         private double _hoverX = -1; // -1 = not hovering
@@ -577,7 +622,8 @@ namespace SLSKDONET.Views.Avalonia.Controls
         {
             base.OnPointerWheelChanged(e);
 
-            if (!EnableScrollZoom)
+            bool ctrl = (e.KeyModifiers & global::Avalonia.Input.KeyModifiers.Control) != 0;
+            if (!EnableScrollZoom && !(CtrlWheelZooms && ctrl))
             {
                 // Leave e.Handled false so the wheel event bubbles to a containing ScrollViewer.
                 return;
@@ -621,11 +667,27 @@ namespace SLSKDONET.Views.Avalonia.Controls
             // null/unbound everywhere else, so nothing shows).
             if (e.GetCurrentPoint(this).Properties.IsRightButtonPressed)
             {
-                if ((AddCueAtCommand != null || SetDropAtCommand != null) && data != null && data.DurationSeconds > 0)
+                if ((AddCueAtCommand != null || SetDropAtCommand != null || TriggerPointMovedCommand != null || EditCueCommand != null)
+                    && data != null && data.DurationSeconds > 0)
                 {
                     double clickedSeconds = XToFraction(point.X, Bounds.Width) * data.DurationSeconds;
-                    ShowAddCueContextMenu(clickedSeconds);
+                    ShowAddCueContextMenu(clickedSeconds, HitCue(point.X, data));
                 }
+                e.Handled = true;
+                return;
+            }
+
+            // 0b. The draggable mix marker wins over a cue flag under it: grabbing the marker moves
+            // the mix point; a click without moving still acts on the cue (see OnPointerReleased).
+            if (TriggerPointMovedCommand != null && !IsRolling && TriggerPointSeconds is { } trigger &&
+                data != null && data.DurationSeconds > 0 &&
+                Math.Abs(point.X - FractionToX(trigger / data.DurationSeconds, Bounds.Width)) <= CueHitThreshold)
+            {
+                _triggerPressed = true;
+                _isDraggingTrigger = false;
+                _triggerPressX = point.X;
+                _triggerDragSeconds = trigger;
+                e.Pointer.Capture(this);
                 e.Handled = true;
                 return;
             }
@@ -709,22 +771,52 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
         private const double ClickMovementThreshold = 4.0;
 
-        private void ShowAddCueContextMenu(double seconds)
+        private OrbitCue? HitCue(double x, WaveformAnalysisData data)
         {
-            var span = TimeSpan.FromSeconds(Math.Max(0, seconds));
+            var cues = Cues;
+            if (cues == null) return null;
+            OrbitCue? best = null;
+            double bestDist = CueHitThreshold;
+            foreach (var cue in cues)
+            {
+                double d = Math.Abs(x - GetCueX(cue, data));
+                if (d <= bestDist) { best = cue; bestDist = d; }
+            }
+            return best;
+        }
+
+        private static void AddItem(ContextMenu menu, string header, System.Windows.Input.ICommand? command, object? parameter)
+        {
+            if (command == null) return;
+            var item = new MenuItem { Header = header, IsEnabled = command.CanExecute(parameter) };
+            item.Click += (_, _) => { if (command.CanExecute(parameter)) command.Execute(parameter); };
+            menu.Items.Add(item);
+        }
+
+        private void ShowAddCueContextMenu(double seconds, OrbitCue? cue = null)
+        {
             var menu = new ContextMenu();
-            if (SetDropAtCommand != null)
+            string what = string.IsNullOrWhiteSpace(TriggerPointLabel) ? "Mix point" : TriggerPointLabel!;
+            if (cue != null)
             {
-                var drop = new MenuItem { Header = $"◆ Drop here ({span:mm\\:ss})" };
-                drop.Click += (_, _) => { if (SetDropAtCommand?.CanExecute(seconds) == true) SetDropAtCommand.Execute(seconds); };
-                menu.Items.Add(drop);
+                // A cue flag: act on that cue.
+                string name = string.IsNullOrWhiteSpace(cue.Name) ? cue.KindDisplay : cue.Name;
+                var cueSpan = TimeSpan.FromSeconds(Math.Max(0, cue.Timestamp));
+                menu.Items.Add(new MenuItem { Header = $"{name} ({cueSpan:mm\\:ss})", IsEnabled = false });
+                AddItem(menu, $"{what} here", TriggerPointMovedCommand, cue.Timestamp);
+                AddItem(menu, "Play from here", PreviewSeekCommand, cue.Timestamp);
+                AddItem(menu, "Edit in Cue Forge", EditCueCommand, cue.Timestamp);
             }
-            if (AddCueAtCommand != null)
+            else
             {
-                var add = new MenuItem { Header = $"➕ Add cue here ({span:mm\\:ss})" };
-                add.Click += (_, _) => { if (AddCueAtCommand?.CanExecute(seconds) == true) AddCueAtCommand.Execute(seconds); };
-                menu.Items.Add(add);
+                var span = TimeSpan.FromSeconds(Math.Max(0, seconds));
+                AddItem(menu, $"{what} here ({span:mm\\:ss}, on the beat)", TriggerPointMovedCommand, seconds);
+                AddItem(menu, $"Play from here ({span:mm\\:ss})", PreviewSeekCommand, seconds);
+                if (menu.Items.Count > 0 && (SetDropAtCommand != null || AddCueAtCommand != null)) menu.Items.Add(new Separator());
+                AddItem(menu, $"Drop here ({span:mm\\:ss})", SetDropAtCommand, seconds);
+                AddItem(menu, $"Add cue here ({span:mm\\:ss})", AddCueAtCommand, seconds);
             }
+            if (menu.Items.Count == 0) return;
             ContextMenu = menu;
             menu.Open(this);
         }
@@ -754,6 +846,23 @@ namespace SLSKDONET.Views.Avalonia.Controls
             {
                 _cueTipShown = showTip;
                 ToolTip.SetTip(this, showTip ? CueHoverTip : null);
+            }
+
+            if (_triggerPressed && data != null && data.DurationSeconds > 0)
+            {
+                if (!_isDraggingTrigger && Math.Abs(point.X - _triggerPressX) >= ClickMovementThreshold)
+                    _isDraggingTrigger = true;
+                if (_isDraggingTrigger)
+                {
+                    double x = Math.Clamp(point.X, 0, Bounds.Width);
+                    var snapCue = HitCue(x, data);
+                    _triggerDragSeconds = snapCue != null && !snapCue.IsLoop
+                        ? snapCue.Timestamp
+                        : Math.Clamp(XToFraction(x, Bounds.Width) * data.DurationSeconds, 0, data.DurationSeconds);
+                    Cursor = new global::Avalonia.Input.Cursor(global::Avalonia.Input.StandardCursorType.SizeWestEast);
+                    InvalidateVisual();
+                    return;
+                }
             }
 
             // A pressed cue only starts moving once the pointer passed the drag threshold.
@@ -853,6 +962,34 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
         protected override void OnPointerReleased(global::Avalonia.Input.PointerReleasedEventArgs e)
         {
+            if (_triggerPressed)
+            {
+                bool dragged = _isDraggingTrigger;
+                double dropped = _triggerDragSeconds;
+                _triggerPressed = false;
+                _isDraggingTrigger = false;
+                _triggerDragSeconds = -1;
+                e.Pointer.Capture(null);
+                var data = WaveformData;
+                if (dragged)
+                {
+                    if (TriggerPointMovedCommand?.CanExecute(dropped) == true) TriggerPointMovedCommand.Execute(dropped);
+                }
+                else if (data is { DurationSeconds: > 0 })
+                {
+                    // A click on the marker: same as clicking what is under it.
+                    var cue = HitCue(_triggerPressX, data);
+                    if (cue != null) { if (CueClickedCommand?.CanExecute(cue.Timestamp) == true) CueClickedCommand.Execute(cue.Timestamp); }
+                    else
+                    {
+                        double clicked = XToFraction(_triggerPressX, Bounds.Width) * data.DurationSeconds;
+                        if (PreviewSeekCommand?.CanExecute(clicked) == true) PreviewSeekCommand.Execute(clicked);
+                    }
+                }
+                InvalidateVisual();
+                return;
+            }
+
             if (_draggedCue != null && !_isDraggingCue)
             {
                 // Pressed a draggable cue and let go without dragging: a click.
@@ -1092,9 +1229,10 @@ namespace SLSKDONET.Views.Avalonia.Controls
             // Trigger-point marker (Mix Transition Editor) — a persistent flag distinct from the
             // playhead, so "where does this side's mix start/end" stays visible regardless of
             // playback state.
-            if (!IsRolling && TriggerPointSeconds.HasValue && data.DurationSeconds > 0)
+            double? shownTrigger = _isDraggingTrigger && _triggerDragSeconds >= 0 ? _triggerDragSeconds : TriggerPointSeconds;
+            if (!IsRolling && shownTrigger.HasValue && data.DurationSeconds > 0)
             {
-                double triggerX = FractionToX(TriggerPointSeconds.Value / data.DurationSeconds, width);
+                double triggerX = FractionToX(shownTrigger.Value / data.DurationSeconds, width);
                 if (triggerX >= -1 && triggerX <= width + 1)
                 {
                     var markerBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0xD7, 0x00)); // amber — distinct from the white playhead

@@ -530,6 +530,49 @@ public class AudioFeaturesEntity
     public double DownbeatOffsetSeconds { get; set; }
 
     // ============================================
+    // Beat-grid provenance & confidence (issue #221)
+    // ============================================
+
+    /// <summary>
+    /// Where the current grid came from: <c>"Analysis"</c> (ORBIT's fitter), <c>"Rekordbox"</c>
+    /// (adopted from a PQTZ grid) or <c>"User"</c> (edited in Cue Forge). Null on older rows means
+    /// "Analysis" — the migration backfills it from available evidence.
+    /// </summary>
+    public string? GridSource { get; set; }
+
+    /// <summary>
+    /// True when the user has confirmed the grid (with or without changing it). A verified grid is
+    /// protected from re-analysis and Rekordbox overwrite exactly like a <c>User</c> grid.
+    /// </summary>
+    public bool GridVerified { get; set; }
+
+    /// <summary>ISO-8601 timestamp of the last user grid edit (or verification), if any.</summary>
+    public string? GridEditedAt { get; set; }
+
+    /// <summary>0–1 confidence in the current grid (fit inlier fraction + residual RMS). Rekordbox and
+    /// user grids get a fixed 1.0. Null means "not computed yet".</summary>
+    public float? GridConfidence { get; set; }
+
+    /// <summary>
+    /// The most recent analysis suggestion that was <b>not</b> applied because the user owns the grid,
+    /// serialised as <c>{"bpm":..,"downbeat":..,"beats":[..],"source":"Analysis"|"Rekordbox"}</c>.
+    /// </summary>
+    public string? AnalysedGridJson { get; set; }
+
+    // ============================================
+    // Music start (issue #224) — marker only, the audio is never trimmed
+    // ============================================
+
+    /// <summary>Time (seconds) of the first audible sound, after vinyl run-in / encoder padding / silence.</summary>
+    public float? MusicStartSeconds { get; set; }
+
+    /// <summary>Where <see cref="MusicStartSeconds"/> came from: <c>"Analysis"</c> or <c>"User"</c>.</summary>
+    public string? MusicStartSource { get; set; }
+
+    /// <summary>True when the track has multiple piecewise-constant tempo sections (issue #226).</summary>
+    public bool IsVariableTempo { get; set; }
+
+    // ============================================
     // Task 1.6 — Waveform Data Extraction
     // ============================================
 
@@ -644,6 +687,43 @@ public class AudioFeaturesEntity
     /// Used to invalidate cached embeddings when the model is updated.
     /// </summary>
     public string? EmbeddingModelTag { get; set; }
+
+    // ============================================
+    // Discogs-400 Style Scores (P3)
+    // ============================================
+
+    /// <summary>
+    /// The full 400-D Discogs style prediction vector (sigmoid, multi-label, 0–1), stored as a
+    /// byte blob. Layout: 400 × float32 little-endian = 1 600 bytes.
+    /// </summary>
+    [Column("StyleScoresBlob")]
+    public byte[]? StyleScoresBlob { get; set; }
+
+    /// <summary>Friendly float[] accessor for the 400 style scores (one-copy on read, zero-alloc on write).</summary>
+    [NotMapped]
+    public float[]? StyleScores
+    {
+        get
+        {
+            if (StyleScoresBlob == null || StyleScoresBlob.Length < 4) return null;
+            return MemoryMarshal.Cast<byte, float>(StyleScoresBlob.AsSpan()).ToArray();
+        }
+        set
+        {
+            StyleScoresBlob = value == null
+                ? null
+                : MemoryMarshal.AsBytes(value.AsSpan()).ToArray();
+        }
+    }
+
+    /// <summary>Model tag for the run that produced <see cref="StyleScoresBlob"/>.</summary>
+    public string? StyleModelTag { get; set; }
+
+    /// <summary>Top style key (full <c>Parent---Name</c>), e.g. "Electronic---Deep House".</summary>
+    public string? TopStyle { get; set; }
+
+    /// <summary>Confidence of <see cref="TopStyle"/> (0–1).</summary>
+    public float? TopStyleConfidence { get; set; }
 }
 
 

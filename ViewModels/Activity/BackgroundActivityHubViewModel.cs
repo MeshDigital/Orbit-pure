@@ -17,7 +17,7 @@ using SLSKDONET.Views;
 
 namespace SLSKDONET.ViewModels.Activity;
 
-public enum BackgroundActivityKind { Import, Analysis, Enrichment, Loudness }
+public enum BackgroundActivityKind { Import, Analysis, Enrichment, Loudness, Maintenance }
 
 /// <summary>Minimal INotifyPropertyChanged base (no dispatcher, so the hub is tested headless).</summary>
 public abstract class ActivityObservable : INotifyPropertyChanged
@@ -188,7 +188,9 @@ public sealed class BackgroundActivityHubViewModel : ActivityObservable, IDispos
         Loudness = new BackgroundActivityItemViewModel(BackgroundActivityKind.Loudness, "Loudness", "Open",
             null, null, navigate == null ? null : () => navigate("Analysis"));
         // Loudness is stopped from its Analysis-page card; the flyout only opens it.
-        Items = new[] { Import, Enrichment, Analysis, Loudness };
+        Maintenance = new BackgroundActivityItemViewModel(BackgroundActivityKind.Maintenance, "Maintenance", "Open",
+            null, null, navigate == null ? null : () => navigate("Library"));
+        Items = new[] { Import, Enrichment, Analysis, Loudness, Maintenance };
 
         try
         {
@@ -216,6 +218,7 @@ public sealed class BackgroundActivityHubViewModel : ActivityObservable, IDispos
     public BackgroundActivityItemViewModel Analysis { get; }
     public BackgroundActivityItemViewModel Enrichment { get; }
     public BackgroundActivityItemViewModel Loudness { get; }
+    public BackgroundActivityItemViewModel Maintenance { get; }
 
     /// <summary>Flyout rows in display order (each hides itself when idle).</summary>
     public IReadOnlyList<BackgroundActivityItemViewModel> Items { get; }

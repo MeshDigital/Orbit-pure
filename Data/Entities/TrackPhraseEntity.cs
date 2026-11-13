@@ -87,6 +87,19 @@ public class TrackPhraseEntity
     /// Version tag of the section embedding generator.
     /// </summary>
     public string EmbeddingModel { get; set; } = string.Empty;
+
+    // ============================================
+    // Bar-indexed phrase map (issue #225)
+    // ============================================
+
+    /// <summary>Bar index (0-based) of the phrase start, counted from Bar 1. Seconds are derived from the grid.</summary>
+    public int StartBar { get; set; }
+
+    /// <summary>Length of the phrase in bars.</summary>
+    public int BarCount { get; set; }
+
+    /// <summary>Where the phrase came from: <c>"RekordboxPSSI"</c>, <c>"Heuristic"</c> or <c>"User"</c>.</summary>
+    public string? Source { get; set; }
 }
 
 /// <summary>

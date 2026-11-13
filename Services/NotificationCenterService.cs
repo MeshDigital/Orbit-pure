@@ -216,6 +216,17 @@ public sealed class NotificationCenterService : ReactiveObject, IDisposable
         UnreadCount++;
     }
 
+    /// <summary>Adds a persistent Library Maintenance result to the notification bell.</summary>
+    public void AddMaintenanceResult(string title, string detail)
+    {
+        Add(new NotificationItem
+        {
+            Kind = global::SLSKDONET.Models.NotificationKind.Maintenance,
+            Title = title,
+            Detail = detail,
+        });
+    }
+
     public void MarkAllRead()
     {
         foreach (var item in Notifications)

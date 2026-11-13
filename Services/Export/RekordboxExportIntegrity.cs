@@ -146,6 +146,22 @@ public static class RekordboxExportIntegrity
             }
         }
 
+        // Split-brain grid: the beat list's own tempo disagrees with the stored BPM by more than 2%
+        // (a pre-#220 ×2/÷2 that changed the number but not the beats). The export then writes the
+        // grid BPM — say so up front. Variable-tempo grids are judged per section by the export, and
+        // a drifting tempo is expected to stray from the single stored BPM, so only steady grids are
+        // checked, against the overall beat spacing (immune to per-beat frame quantisation).
+        if (beats is { Count: > 16 } && beatData != null && beatData.Bpm > 0 && !beatData.IsVariableTempo)
+        {
+            double gridBpm = beatData.Bpm;
+            double span = beats[^1] - beats[0];
+            double beatsBpm = span > 0 ? 60.0 * (beats.Count - 1) / span : 0;
+            if (beatsBpm > 0 && Math.Abs(beatsBpm - gridBpm) / gridBpm > 0.02)
+            {
+                warnings.Add(SLSKDONET.Utils.NumFormat.Ui($"{label}: the beat grid runs at {beatsBpm:0.00} BPM but the track's BPM is {gridBpm:0.00}; the export writes {gridBpm:0.00}. Re-open the track in Cue Forge or re-analyse it."));
+            }
+        }
+
         var durationSeconds = GetDurationSeconds(track, beatData);
         if (beatData != null)
         {

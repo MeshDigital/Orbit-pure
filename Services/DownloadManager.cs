@@ -20,6 +20,7 @@ using SLSKDONET.Services.InputParsers;
 using SLSKDONET.Services.AutoDownload;
 using SLSKDONET.Utils;
 using SLSKDONET.Services.Models;
+using SLSKDONET.Services.Downloads;
 using SLSKDONET.Data.Essentia;
 using Microsoft.EntityFrameworkCore;
 using SLSKDONET.Services.Repositories; // [NEW] Namespace
@@ -58,18 +59,16 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     private readonly PrefetchVerifier _prefetchVerifier;
     private readonly INetworkHealthService _networkHealth;
     private readonly SLSKDONET.Services.Diagnostics.ITrackAuditLogger _auditLogger;
+    private readonly SLSKDONET.Services.Library.AudioContentHasher? _contentHasher;
 
 
     private readonly List<IDisposable> _eventBusSubs = new();
 
     // Phase 2: Parallel Pre-Search Cache
     private readonly ConcurrentDictionary<string, Task<DownloadDiscoveryService.DiscoveryResult>> _preSearchTasks = new();
-    private readonly ConcurrentDictionary<string, long> _lastBytesByUsername = new(StringComparer.OrdinalIgnoreCase);
-
-    // Opt-P1: O(1) progress lookup — keyed by Soulseek username, updated on transfer start/end.
-    // Eliminates the O(N) _downloads.FirstOrDefault scan inside OnDownloadProgressChanged
-    // which was holding _collectionLock on every incoming data packet.
-    private readonly ConcurrentDictionary<string, DownloadContext> _activeByUsername = new(StringComparer.OrdinalIgnoreCase);
+    // Issue #233: per-(peer, remote path) registry so two tracks from the same peer never share
+    // progress/stall bookkeeping. A queued track is never registered.
+    private readonly ActiveTransferRegistry _activeTransfers = new();
 
     // Epic 4.1: Per-peer connection gate — limits simultaneous TCP connections to any one
     // Soulseek peer to exactly 1.  Without this, 3 concurrent downloads from the same user
@@ -169,7 +168,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     public string? DownloadDirectory => _config.DownloadDirectory;
 
     /// <summary>Whether a transfer is currently in flight against this peer — used to gate features that should only react to peers we're actively downloading from (e.g. auto-solving their "reply to unlock" gate-bot challenges).</summary>
-    public bool HasActiveTransferWithPeer(string username) => _activeByUsername.ContainsKey(username);
+    public bool HasActiveTransferWithPeer(string username) => _activeTransfers.HasAnyForUser(username);
 
     public int ActiveWorkerSlots => _maxActiveDownloads - _downloadSemaphore.CurrentCount;
     public int TotalWorkerSlots => _maxActiveDownloads;
@@ -209,7 +208,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         CrashRecoveryJournal crashJournal,
         PeerReliabilityService peerReliability,
         INetworkHealthService networkHealth,
-        SLSKDONET.Services.Diagnostics.ITrackAuditLogger auditLogger) // Phase 1: Engine Overhaul
+        SLSKDONET.Services.Diagnostics.ITrackAuditLogger auditLogger, // Phase 1: Engine Overhaul
+        SLSKDONET.Services.Library.AudioContentHasher? contentHasher = null)
 
     {
         _logger = logger;
@@ -229,6 +229,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         _prefetchVerifier = prefetchVerifier;
         _networkHealth = networkHealth;
         _auditLogger = auditLogger;
+        _contentHasher = contentHasher;
 
         System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
 
@@ -1601,7 +1602,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             if (_processingTask != null)
                 await _processingTask;
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            // intentional: stopping the processing loop is expected to be cancelled
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error while stopping processing loop");
@@ -2038,11 +2042,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         ctx.CancellationTokenSource?.Dispose();
         ctx.CancellationTokenSource = new CancellationTokenSource();
 
-        if (!string.IsNullOrWhiteSpace(ctx.CurrentUsername))
-        {
-            _activeByUsername.TryRemove(ctx.CurrentUsername, out _);
-            _lastBytesByUsername.TryRemove(ctx.CurrentUsername, out _);
-        }
+        if (ctx.ActiveTransferKey is { } cancelKey)
+            _activeTransfers.Remove(cancelKey);
 
         var resolvedFormat = !string.IsNullOrWhiteSpace(format)
             ? format.Trim().TrimStart('.').ToLowerInvariant()
@@ -3470,10 +3471,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         // Phase 3B: Track current peer for Health Monitor blacklisting
         ctx.CurrentUsername = bestMatch.Username;
 
-        // Opt-P1: Register in O(1) active-username index so OnDownloadProgressChanged
-        // doesn't have to scan all downloads on every progress packet.
-        if (!string.IsNullOrEmpty(bestMatch.Username))
-            _activeByUsername[bestMatch.Username] = ctx;
+        // Issue #233: registration happens only after the peer gate is acquired (see below),
+        // so a track that is merely queued for a busy peer is never in the active registry.
         
         // Phase 0.3: Reset Health Metrics for new attempt
         ctx.StallCount = 0;
@@ -3771,6 +3770,16 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         // rather than open a second simultaneous connection (which often causes queue rejection).
         var peerGate = GetOrCreatePeerGate(bestMatch.Username!);
         await peerGate.WaitAsync(ct);
+
+        // Issue #233: only the track that actually holds the peer gate is registered, keyed by
+        // (peer, remote path) so a second track from the same peer can't steal its progress.
+        if (!string.IsNullOrEmpty(bestMatch.Username) && !string.IsNullOrEmpty(bestMatch.Filename))
+        {
+            var key = new ActiveTransferRegistry.TransferKey(bestMatch.Username!, bestMatch.Filename!);
+            ctx.ActiveTransferKey = key;
+            _activeTransfers.Register(key, ctx);
+        }
+
         bool success = false;
         // We already found and vetted this peer — a single dropped/cancelled transfer doesn't mean
         // they're bad, it's often just a transient hiccup. Give the SAME peer a couple of immediate
@@ -3792,6 +3801,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     // throws (uncatchable from here — surfaces as an unobserved task exception).
                     startPosition = File.Exists(partPath) ? new FileInfo(partPath).Length : 0;
                     ctx.BytesReceived = startPosition;
+                    if (ctx.ActiveTransferKey is { } activeKey) // also 0: reset a failed attempt's count
+                        _activeTransfers.Seed(activeKey, startPosition);
 
                     success = await _soulseek.DownloadAsync(
                         bestMatch.Username!,
@@ -4007,6 +4018,43 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     CanonicalDuration = ctx.Model.CanonicalDuration,
                     ReleaseDate = ctx.Model.ReleaseDate,
                 };
+
+                // Issue #235/#239: hash the audio payload (ignores tags). Failure is non-fatal.
+                if (_contentHasher is not null)
+                {
+                    var contentHash = await _contentHasher.ComputeAsync(finalPath, ct).ConfigureAwait(false);
+                    if (contentHash is not null)
+                    {
+                        libraryEntry.AudioContentHash = contentHash.Value;
+
+                        // Already in library by content hash? Link to the existing entry instead of
+                        // creating a silent second one. The downloaded file is kept on disk.
+                        var duplicate = await _databaseService
+                            .FindLibraryEntryByContentHashAsync(contentHash.Value)
+                            .ConfigureAwait(false);
+                        // Only when the existing file is really there: re-downloading a track whose
+                        // file was deleted/moved must replace it, not link to the missing path.
+                        if (duplicate != null &&
+                            !string.Equals(duplicate.UniqueHash, ctx.Model.TrackUniqueHash, StringComparison.OrdinalIgnoreCase) &&
+                            !string.IsNullOrWhiteSpace(duplicate.FilePath) && File.Exists(duplicate.FilePath))
+                        {
+                            ctx.Model.TrackUniqueHash = duplicate.UniqueHash;
+                            ctx.Model.ResolvedFilePath = duplicate.FilePath;
+                            await _libraryService.UpdatePlaylistTrackAsync(ctx.Model).ConfigureAwait(false);
+                            // Neutral row status — not IsFlagged, which marks a fake/high-risk file.
+                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(
+                                ctx.GlobalId, $"Already in library — same audio as {duplicate.FilePath}", false, ctx.CorrelationId));
+                            _eventBus.Publish(new NotificationEvent(
+                                "Already in library",
+                                $"'{ctx.Model.Artist} – {ctx.Model.Title}' is a duplicate of '{duplicate.Artist} – {duplicate.Title}'.",
+                                NotificationType.Information));
+                            _auditLogger.Log(ctx.GlobalId,
+                                $"• Duplicate: same audio as {duplicate.FilePath} (kept {finalPath})", isError: false);
+                            return;
+                        }
+                    }
+                }
+
                 await _libraryService.SaveOrUpdateLibraryEntryAsync(libraryEntry);
                 _logger.LogInformation("📚 Added to library: {Artist} - {Title}", ctx.Model.Artist, ctx.Model.Title);
                 _auditLogger.Log(ctx.GlobalId, $"📚 Added to library: {ctx.Model.Artist} - {ctx.Model.Title} | Format: {libraryEntry.Format} | Bitrate: {libraryEntry.Bitrate}kbps");
@@ -4061,12 +4109,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
     finally
     {
-        // Opt-P1: Ensure username index is cleaned up even on failures / cancellation.
-        if (!string.IsNullOrEmpty(bestMatch.Username))
-        {
-            _activeByUsername.TryRemove(bestMatch.Username, out _);
-            _lastBytesByUsername.TryRemove(bestMatch.Username, out _);
-        }
+        // Issue #233: remove the exact transfer that held the gate.
+        if (ctx.ActiveTransferKey is { } key)
+            _activeTransfers.Remove(key);
+        else if (!string.IsNullOrEmpty(bestMatch.Username) && !string.IsNullOrEmpty(bestMatch.Filename))
+            _activeTransfers.Remove(new ActiveTransferRegistry.TransferKey(bestMatch.Username!, bestMatch.Filename!));
 
         // Phase 2A: CRITICAL CLEANUP - Stop heartbeat timer
         heartbeatCts.Cancel(); // Signal heartbeat to stop
@@ -4462,29 +4509,25 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         // populated/cleared) instead of a locked linear scan of every download on every progress
         // packet. Guard the State check since the index and _downloads can theoretically be
         // observed a moment out of sync across threads (e.g. entry not yet removed post-completion).
-        DownloadContext? ctx;
-        if (!_activeByUsername.TryGetValue(e.Username, out var found) ||
+        // Issue #233: key by (peer, remote path) so a queued second track never receives a
+        // transferring first track's packets.
+        var key = new ActiveTransferRegistry.TransferKey(e.Username, e.Filename);
+        if (!_activeTransfers.TryGet(key, out var found) || found is null ||
             found.State != PlaylistTrackState.Downloading)
         {
-            ctx = null;
+            return;
         }
-        else
+        var ctx = found;
+
+        ctx.Progress = e.Progress * 100;
+        ctx.BytesReceived = e.BytesReceived;
+        ctx.TotalBytes = e.TotalBytes;
+
+        var delta = _activeTransfers.RecordBytes(key, e.BytesReceived);
+        if (delta > 0)
         {
-            ctx = found;
+            _peerReliability.RecordProgress(e.Username, delta);
         }
-
-        if (ctx != null)
-        {
-            ctx.Progress = e.Progress * 100;
-            ctx.BytesReceived = e.BytesReceived;
-            ctx.TotalBytes = e.TotalBytes;
-
-            var previous = _lastBytesByUsername.AddOrUpdate(e.Username, e.BytesReceived, (_, old) => e.BytesReceived);
-            var delta = e.BytesReceived - previous;
-            if (delta > 0)
-            {
-                _peerReliability.RecordProgress(e.Username, delta);
-            }
 
             // Phase 9: Stall Detection
             var now = DateTime.Now;
@@ -4524,13 +4567,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 }
             }
             ctx.LastSpeedUpdate = now;
-        }
     }
 
     private void OnDownloadCompleted(object? sender, DownloadCompletedEventArgs e)
     {
         _logger.LogDebug("Adapter download completed event: {File} ({Success})", e.Filename, e.Success);
-        _lastBytesByUsername.TryRemove(e.Username, out _);
+        _activeTransfers.Remove(new ActiveTransferRegistry.TransferKey(e.Username, e.Filename));
 
         if (e.Success)
         {

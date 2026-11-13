@@ -19,6 +19,11 @@ namespace SLSKDONET.Services
         /// the next track already open and ready (preloaded) while the current one is still
         /// playing, which is what makes gapless transitions and crossfading possible.
         /// </summary>
+        public string? LoadedFilePath
+        {
+            get { lock (_deckLock) return _current is { IsDisposed: false } d && !string.IsNullOrEmpty(d.FilePath) ? d.FilePath : null; }
+        }
+
         private class Deck : IDisposable
         {
             public AudioFileReader? AudioFile;
@@ -26,6 +31,9 @@ namespace SLSKDONET.Services
             public MeteringSampleProvider? Metering;
             public VariSpeedSampleProvider? VariSpeed;
             public ThreeBandGainProvider? Eq;
+            /// <summary>Optional metronome click mixed in before the gain stage (Cue Forge audition).
+            /// A pass-through when disabled, so it is always in the chain.</summary>
+            public SLSKDONET.Services.Audio.MetronomeSampleProvider? Metronome;
             /// <summary>In-process gain stage for master volume/crossfade/loudness automation.
             /// Deliberately NOT <see cref="IWavePlayer.Volume"/> — on WASAPI that setter writes
             /// through to the OS-level per-app session volume (the same control behind the
@@ -107,6 +115,7 @@ namespace SLSKDONET.Services
                     WaitForSeek();
                     file.CurrentTime = TimeSpan.FromSeconds(seconds);
                     VariSpeed?.Reset();
+                    Metronome?.Seek(seconds);
                     return;
                 }
                 var previous = SeekTask;
@@ -115,6 +124,7 @@ namespace SLSKDONET.Services
                     if (previous != null) { try { await previous; } catch { } }
                     SLSKDONET.Services.Audio.ExactSeek.Seek(file, FilePath, seconds);
                     VariSpeed?.Reset();
+                    Metronome?.Seek(seconds);
                 });
             }
 
@@ -625,6 +635,7 @@ namespace SLSKDONET.Services
                             {
                                 SLSKDONET.Services.Audio.ExactSeek.Seek(deck.AudioFile, deck.FilePath, seconds);
                                 deck.VariSpeed?.Reset();
+                                deck.Metronome?.Seek(seconds);
                             }
                             catch (Exception ex)
                             {
@@ -654,6 +665,19 @@ namespace SLSKDONET.Services
                     _current.Gain.Volume = _masterVolumeFraction * _current.LoudnessGain;
                 }
             }
+        }
+
+        /// <summary>
+        /// Enables/disables the Cue Forge metronome click on the current deck, scheduled from the
+        /// beat grid (issue #222). A pass-through when disabled.
+        /// </summary>
+        public void SetMetronome(IReadOnlyList<double>? beatTimes, double downbeatSeconds, bool enabled)
+        {
+            Deck? current;
+            lock (_deckLock) { current = _current; }
+            if (current?.Metronome == null) return;
+            if (beatTimes is { Count: > 0 }) current.Metronome.SetGrid(beatTimes, downbeatSeconds);
+            current.Metronome.Enabled = enabled;
         }
 
         public bool IsVisualizerActive { get; private set; }
@@ -1005,9 +1029,12 @@ namespace SLSKDONET.Services
             // more than a plain volume crossfade (Blend/Wave/Melt).
             deck.Eq = new ThreeBandGainProvider(deck.VariSpeed);
 
+            // 0.6. Metronome click (Cue Forge audition) — always in the chain, pass-through until enabled.
+            deck.Metronome = new SLSKDONET.Services.Audio.MetronomeSampleProvider(deck.Eq, Array.Empty<double>(), 0);
+
             // 0.75. In-process gain stage — see the Deck.Gain field doc for why this, and not
             // Output.Volume, is what master volume/crossfade/loudness-normalization drive.
-            deck.Gain = new NAudio.Wave.SampleProviders.VolumeSampleProvider(deck.Eq) { Volume = 1f };
+            deck.Gain = new NAudio.Wave.SampleProviders.VolumeSampleProvider(deck.Metronome) { Volume = 1f };
 
             // 1. Intercept for FFT (Spectrum). Only forwarded upstream while this deck is the
             // active one, so a preloaded/promoted deck seamlessly takes over the visualizer.

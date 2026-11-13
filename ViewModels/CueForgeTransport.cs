@@ -23,6 +23,9 @@ public interface ICueForgeTransport
     string Artist { get; }
     /// <summary>Playback position as a fraction of the loaded file (0..1).</summary>
     double PositionFraction { get; }
+    /// <summary>The file the audio engine actually has open; null when nothing is loaded (e.g. the queue
+    /// track restored at startup). Seeking only works on this file.</summary>
+    string? LoadedFilePath => CurrentFilePath;
     /// <summary>Length of the loaded file in seconds; 0 when unknown.</summary>
     double LengthSeconds { get; }
 
@@ -35,7 +38,17 @@ public interface ICueForgeTransport
     void Play();
     void Pause();
     void SeekFraction(double fraction);
+    /// <summary>Enables/disables the metronome click, scheduled from the beat grid (issue #222).</summary>
+    void SetMetronome(IReadOnlyList<double>? beatTimes, double downbeatSeconds, bool enabled);
     Task<string?> ResolveFilePathAsync(string trackHash);
+
+    /// <summary>Remembers where playback is before Cue Forge takes the player over (the top bar then
+    /// offers "Resume playlist"). The first interruption wins.</summary>
+    void MarkInterrupted() { }
+
+    /// <summary>Returns the player to the remembered point through the queue (re-arming the next
+    /// transition). False when nothing was remembered.</summary>
+    bool TryResumeInterrupted(bool play) => false;
 }
 
 /// <summary>Production <see cref="ICueForgeTransport"/> over the shared <see cref="PlayerViewModel"/>.</summary>
@@ -58,6 +71,7 @@ public sealed class PlayerViewModelCueForgeTransport : ICueForgeTransport
 
     public bool IsPlaying => _player.IsPlaying;
     public string? CurrentFilePath => _player.CurrentFilePath;
+    public string? LoadedFilePath => _player.LoadedFilePath;
     public string? CurrentTrackHash => _player.CurrentTrack?.GlobalId;
     public string Title => _player.TrackTitle;
     public string Artist => _player.TrackArtist;
@@ -81,6 +95,18 @@ public sealed class PlayerViewModelCueForgeTransport : ICueForgeTransport
     }
 
     public void SeekFraction(double fraction) => _player.Seek((float)Math.Clamp(fraction, 0.0, 1.0));
+
+    public void SetMetronome(IReadOnlyList<double>? beatTimes, double downbeatSeconds, bool enabled) =>
+        _player.SetMetronome(beatTimes, downbeatSeconds, enabled);
+
+    public void MarkInterrupted() => _player.MarkInterrupted();
+
+    public bool TryResumeInterrupted(bool play)
+    {
+        if (!_player.HasResumePoint) return false;
+        _player.ResumeInterrupted(play);
+        return true;
+    }
 
     public async Task<string?> ResolveFilePathAsync(string trackHash) =>
         _database == null ? null : await _database.GetLocalFilePathByHashAsync(trackHash);

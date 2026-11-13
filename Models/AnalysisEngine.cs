@@ -225,23 +225,33 @@ public static class AnalysisEngines
 /// </summary>
 public sealed class TrackAnalysisCoverage
 {
-    public TrackAnalysisCoverage(AnalysisEngine requested, AnalysisEngine present)
+    public TrackAnalysisCoverage(AnalysisEngine requested, AnalysisEngine present, AnalysisEngine outdated = AnalysisEngine.None)
     {
         Requested = requested;
         Present = present & requested;
         Missing = requested & ~present;
+        Outdated = outdated & Present;
     }
 
     /// <summary>The engines that were asked about (normally <see cref="AnalysisEngine.All"/>).</summary>
     public AnalysisEngine Requested { get; }
 
-    /// <summary>Engines whose output was found.</summary>
+    /// <summary>Engines whose output was found (current or outdated).</summary>
     public AnalysisEngine Present { get; }
 
     /// <summary>Engines whose output is absent.</summary>
     public AnalysisEngine Missing { get; }
 
-    public bool IsComplete => Missing == AnalysisEngine.None;
+    /// <summary>
+    /// Engines whose output exists but was produced by an older version of that engine — today
+    /// only a waveform drawn before <c>WaveformExtractionService.CurrentWaveformVersion</c>. Such
+    /// output still renders, so it is not missing, but it is not complete either.
+    /// </summary>
+    public AnalysisEngine Outdated { get; }
+
+    public bool IsComplete => Missing == AnalysisEngine.None && Outdated == AnalysisEngine.None;
+
+    public bool HasOutdated => Outdated != AnalysisEngine.None;
 
     public bool HasAnyOutput => Present != AnalysisEngine.None;
 
@@ -251,11 +261,20 @@ public sealed class TrackAnalysisCoverage
     /// <summary>Engines in display order, for a chip row.</summary>
     public IReadOnlyList<AnalysisEngine> PresentEngines => AnalysisEngines.ToList(Present);
 
-    /// <summary>"Missing Key, Cues and Fingerprint", or "Complete".</summary>
-    public string MissingSummary =>
-        IsComplete ? "Complete" : $"Missing {AnalysisEngines.Describe(Missing)}";
+    /// <summary>"Missing Key and Cues · Waveform outdated", or "Complete".</summary>
+    public string MissingSummary
+    {
+        get
+        {
+            if (IsComplete) return "Complete";
+            var parts = new List<string>(2);
+            if (Missing != AnalysisEngine.None) parts.Add($"Missing {AnalysisEngines.Describe(Missing)}");
+            if (Outdated != AnalysisEngine.None) parts.Add($"{AnalysisEngines.Describe(Outdated)} outdated");
+            return string.Join(" · ", parts);
+        }
+    }
 
-    /// <summary>How far through the requested engines this track is, 0–1.</summary>
+    /// <summary>How far through the requested engines this track has output (current or outdated), 0–1.</summary>
     public double CompletionFraction
     {
         get
@@ -270,9 +289,10 @@ public sealed class TrackAnalysisCoverage
     public bool Has(AnalysisEngine engine) => (Present & engine) != 0;
 
     /// <summary>
-    /// The pipeline mask that would fill this track's gaps. Excludes engines that cannot be
-    /// run in the pipeline (stems), so the caller never queues a run that would do nothing.
+    /// The pipeline mask that would fill this track's gaps: missing engines plus outdated ones,
+    /// since re-running an engine is how its output is brought up to date. Excludes engines that
+    /// cannot be run in the pipeline (stems), so the caller never queues a run that would do nothing.
     /// </summary>
     public AnalysisEngine RunnableMissing =>
-        Missing & AnalysisEngine.Pipeline;
+        (Missing | Outdated) & AnalysisEngine.Pipeline;
 }
