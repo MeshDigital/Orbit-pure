@@ -686,7 +686,19 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             ? prediction.JamendoGenres.Select(g => new GenreLabelScore(g.Label, g.Probability)).ToArray()
             : Array.Empty<GenreLabelScore>();
 
-        var result = GenreFusionEngine.Fuse(new GenreFusionInput(jamendo, features.Bpm));
+        // GA5 (#250): the 400 Discogs style sigmoids from the same EffNet run. Rows analysed before
+        // they were persisted, or with a labels/model mismatch, fuse on Jamendo alone.
+        IReadOnlyList<GenreLabelScore>? discogs = null;
+        if (features.StyleScores is { } styleScores && _styleLabels is { IsUsable: true } labels &&
+            styleScores.Length == labels.All.Count)
+        {
+            var all = labels.All;
+            var votes = new GenreLabelScore[styleScores.Length];
+            for (var i = 0; i < votes.Length; i++) votes[i] = new GenreLabelScore(all[i].Key, styleScores[i]);
+            discogs = votes;
+        }
+
+        var result = GenreFusionEngine.Fuse(new GenreFusionInput(jamendo, features.Bpm, discogs));
         if (result is null)
         {
             return;
