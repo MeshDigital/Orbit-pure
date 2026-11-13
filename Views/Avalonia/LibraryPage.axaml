@@ -167,6 +167,8 @@
                             <MenuFlyout Placement="BottomEdgeAlignedRight">
                                 <MenuItem Header="Library maintenance…" Command="{Binding OpenLibraryMaintenanceCommand}"
                                           ToolTip.Tip="Fix malformed tags, fill missing metadata and group unclassified tracks into style playlists, with a preview and one-click undo"/>
+                                <MenuItem Header="Find exact duplicates…" Command="{Binding FindExactDuplicatesCommand}"
+                                          ToolTip.Tip="Find the same audio stored more than once (even under different tags or file names) and merge the copies"/>
                                 <Separator/>
                                 <MenuItem Header="New smart playlist (custom criteria)…" Command="{Binding SmartPlaylists.CreateCustomSmartPlaylistCommand}" InputGesture="Ctrl+Shift+N"
                                           ToolTip.Tip="Filter by BPM, energy, valence, danceability, rating or liked status"/>

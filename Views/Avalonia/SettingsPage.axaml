@@ -988,6 +988,16 @@
                                                 Command="{Binding RunMaintenanceCommand}"
                                                 Content="Run maintenance…"/>
                                     </Grid>
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                        <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="Exact duplicates"/>
+                                            <TextBlock Classes="caption" TextWrapping="Wrap"
+                                                       Text="Find the same audio stored more than once, even under different tags or file names, and merge the copies into one."/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Classes="secondary"
+                                                Command="{Binding FindExactDuplicatesCommand}"
+                                                Content="Find duplicates…"/>
+                                    </Grid>
                                     <Grid Classes="row" ColumnDefinitions="*,Auto" IsVisible="{Binding CanUndoMaintenance}">
                                         <StackPanel Classes="label">
                                             <TextBlock Classes="body" Text="Undo last maintenance run"/>

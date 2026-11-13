@@ -953,10 +953,18 @@
             <setupViews:SetupWizardView DataContext="{Binding Setup.Wizard}"/>
         </Panel>
 
-        <!-- Library Maintenance wizard: same overlay tier as the setup wizard. -->
-        <Panel Grid.RowSpan="3" ZIndex="1500" IsVisible="{Binding Maintenance.IsOpen, FallbackValue=False}">
-            <maintenanceViews:LibraryMaintenanceView DataContext="{Binding Maintenance.Wizard}"/>
-        </Panel>
+        <!-- Library Maintenance wizard and exact-duplicate review: same overlay tier as the setup
+             wizard, over a scrim so the shell behind can't be clicked while one is open. -->
+        <Grid Grid.RowSpan="3" ZIndex="1500" Background="{StaticResource BrushScrim}"
+              IsVisible="{Binding Maintenance.IsAnyOpen, FallbackValue=False}">
+            <Panel IsVisible="{Binding Maintenance.IsOpen, FallbackValue=False}">
+                <maintenanceViews:LibraryMaintenanceView DataContext="{Binding Maintenance.Wizard}" Margin="16"/>
+            </Panel>
+            <Panel IsVisible="{Binding Maintenance.IsDuplicatesOpen, FallbackValue=False}">
+                <maintenanceViews:ExactDuplicatesView DataContext="{Binding Maintenance.Duplicates}"
+                                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Panel>
+        </Grid>
 
         <!-- Folder import sheet: over the shell and the setup wizard (its "Scan now" opens it),
              below the tour and toasts. The scrim plus the disabled shell lock the app while the

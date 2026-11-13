@@ -69,6 +69,7 @@ public partial class LibraryViewModel
     public ICommand OpenLibraryHealthCommand { get; set; } = null!;
     public ICommand CloseLibraryHealthCommand { get; set; } = null!;
     public ICommand OpenLibraryMaintenanceCommand { get; set; } = null!;
+    public ICommand FindExactDuplicatesCommand { get; set; } = null!;
     public ICommand SyncProjectCommand { get; set; } = null!;
     public ICommand OpenSourceUrlCommand { get; set; } = null!;
     public ICommand ExportPlaylistCommand { get; set; } = null!;
@@ -164,6 +165,7 @@ public partial class LibraryViewModel
         });
         CloseLibraryHealthCommand = new RelayCommand(() => IsLibraryHealthVisible = false);
         OpenLibraryMaintenanceCommand = new RelayCommand(() => _eventBus.Publish(new OpenLibraryMaintenanceRequestedEvent()));
+        FindExactDuplicatesCommand = new RelayCommand(() => _eventBus.Publish(new OpenExactDuplicatesRequestedEvent()));
         CloseImportHistoryCommand = new RelayCommand(() => IsImportHistoryVisible = false);
         ExportPlaylistCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistAsync);
         InitiateMp3SearchCommand = new AsyncRelayCommand<object>(ExecuteInitiateMp3SearchAsync);
