@@ -21,7 +21,7 @@ public sealed record TransitionWaveformData(
 /// <summary>
 /// Slice K6: pure transition-overlap geometry. Computes the mix window (from
 /// <see cref="TransitionWaveformData.BarsBeforeMix"/> and BPM) and the time→pixel / beat-grid
-/// mapping. The Avalonia <c>TransitionWaveformCanvas</c> only paints this geometry.
+/// mapping. Used by the Copilot's clash detector for its overlap window.
 /// </summary>
 public static class TransitionWaveformLayout
 {

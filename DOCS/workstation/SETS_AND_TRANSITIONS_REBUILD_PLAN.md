@@ -357,6 +357,46 @@ Each phase is a separate branch and PR. Each commit builds with 0 errors and kee
 | P2.11 | Delete `StoryGraphPanel`, `StoryGraphView`, `TrackPickerWindow`, `SetProjectPickerWindow`, `AddToSetWindow` + their VMs (keep `StoryGraphLayout` only if D3 = B) |
 | P2.12 | Design tokens for role colours; screenshots of every empty / loading / error state checked before merge |
 
+**Phase 2 status (2026-11-02, `feat/phase-2-sets-page`):**
+- **P2.1 done**, except alternates. `ISetProjectService` covers listing, slot details (library +
+  analysis joined; missing BPM/key stay null), rename, duplicate (slots + story edges remapped,
+  new Draft), delete (children removed explicitly), insert/move/remove with contiguous positions,
+  and notes. **Alternates moved to P2.6:** `SetStoryEdges` can't express "Plan B for this slot"
+  without the alternate polluting the spine order, so they need a small schema addition
+  (`SetTracks.AlternateForSlotId`, raw SQL). That's decided together with the inspector UI.
+- **P2.2 done** (shell): `SetsPage` + `SetsViewModel`, nav entry **Sets**. The old **Set Projects**
+  entry, its overlay and the `OpenSetProjectsRequestedEvent` routing deliberately stay until the
+  P2.10 checkpoint.
+- **P2.3 done:** set rail with New (prompt), Rename (prompt), Duplicate, Delete (confirm), via the
+  rail's context menu and the header "…" menu; empty / loading / error states. The selected set
+  shows an interim slot list (role, title, artist, BPM, key, "Not in library") until the lane (P2.4).
+- Verified in the compiled app on an isolated `--profile`: rail, selection, slot list, duplicate,
+  delete-with-confirm and rename all work.
+
+**Phase 2 complete (2026-11-02).** Everything below was also checked in the compiled app on an
+isolated profile with a copy of the real library.
+- **P2.4 lane:** slot cards (role stripe from `BrushRole*` tokens, mono BPM/key, energy target vs
+  analysed energy) joined by transition chips (`TrackPairCompatibilityScorer`, evidence dot,
+  warnings). Click/arrows select; Ctrl+arrows, drag, Delete and a context menu edit; a Sets-local
+  async undo stack covers every edit (remove snapshots the slot and its alternates).
+- **P2.5 pool:** library search with Analysed / Fits key (Camelot neighbours) / BPM ±4% chips
+  relative to the selected slot; drag, double-click or + to add; "Add playlist…" appends a
+  playlist's library tracks in order as one undoable step and reports what it skipped.
+- **P2.6 inspector:** role chips, energy target (saved on release, clearable), notes (saved on
+  focus loss), transition breakdown bars, and **Plan B** alternates in a new `SetSlotAlternates`
+  table (raw-SQL patch): add from the pool, swap in (role/energy/notes stay with the slot), remove.
+- **P2.7/P2.8 health:** `SetHealthService` formulas on real inputs only (no neutral 50s), "—" plus
+  a hint when a metric has no data, an issues list that jumps to the slot, and the energy arc as a
+  sparkline inside the strip (a separate row above the lane couldn't stay aligned with scrolling).
+- **P2.9:** Library "Add to Set" is a submenu of recent sets + "New set…", for a whole selection.
+- **P2.10/P2.11:** overlay, Story Graph, Set Projects nav and picker windows deleted.
+- **P2.12:** role colours are tokens; empty / loading / error states exist for rail, lane, pool,
+  inspector and health; screenshots checked.
+- Found live and fixed: sets with differently formatted timestamps sorted wrongly (text ordering in
+  SQLite); pool rows were 52px; the health strip clipped its issues button.
+- `CurrentSetupVersion` 7 → 8 with new What's New copy.
+- Not done here: "Edit transition" from a chip (needs the shared editor, Phase 3); intent tags (P3.5).
+
 ### Phase 3: One transition editor
 | ID | Work |
 |---|---|
@@ -368,7 +408,51 @@ Each phase is a separate branch and PR. Each commit builds with 0 errors and kee
 | P3.6 | Library context "Edit transition…" for two selected tracks (AdHoc context) |
 | P3.7 | Delete `TransitionLabPanel`, `TransitionWaveformCanvas`, `TrackPairPicker*`, `TransitionLabViewModel` + nav entry |
 
+**Phase 3 status (2026-11-02, `feat/phase-3-transition-editor`, stacked on Phase 2):**
+- **P3.1 done.** `MixTransitionViewModel` saves through a switchable `ITransitionRepository`;
+  `LoadSetPairAsync` builds track models from library entries (slot ids as keys, waveform bands
+  included). The Sets page opens it as a dialog (inspector "Edit transition…" or double-click a
+  chip); chips show a check when the set has a saved transition. "Open in Flow Builder" is hidden
+  for set pairs. Playlist behaviour is unchanged.
+- **P3.2 done.** `SetTrackTransitions` mirror table (raw SQL, FK cascade from set and both slots,
+  unique slot pair) + `SetTransitionRepository`. Slot removal snapshots transitions for undo;
+  duplicate copies them; delete clears them.
+- **P3.3 done.** "Rate this transition" in every editor host: 0–100 + "played it live" →
+  append-only `ManualRating` / `LivePerformance` evidence (`TransitionRatingService`), edge recomputed.
+- **P3.4 done.** A pair without a saved transition here starts from the newest one saved for the
+  same tracks in any playlist or set, with a note saying where from; stored only on Save.
+- **P3.5 deferred.** With Transition Lab gone nothing writes `TransitionTemplates`, and Flow
+  Builder's presets are a fixed list. User presets and intent tags each need a UI decision first
+  (where a preset is named/managed; whether the intent tag is picked or inferred).
+- **P3.6 already covered.** The Library's Mix mode (toggle above a playlist, click two tracks)
+  opens this same editor, now with rating.
+- **P3.7 done.** Transition Lab view models, panel, canvas, picker, template VM and its event are
+  deleted; `TransitionWaveformLayout` stays (the Copilot's clash detector uses it).
+- Verified in the compiled app: the editor opens from a set with waveforms and an Auto plan from
+  the cues, saves into the set, saves a rating, and the chip/inspector reflect both on close.
+- `CurrentSetupVersion` 8 → 9 with combined Phase 2 + 3 What's New copy.
+
 ### Phase 4: Copilot in Sets (DJ-initiated only)
+
+**P4.1 benchmark result (2026-11-02, on a copy of the owner's library):** the comparison is decided
+by data, not by maths.
+
+| | Copilot `BridgeFinder` | Flow Builder engine (`SectionVectorService.FindBridgeCandidatesAsync`) |
+|---|---|---|
+| Walks | `TransitionKnowledge` edges with `Verified = 1`, BpmScore ≥ 70, HarmonicScore ≥ 60 | phrase sections + embeddings of library tracks |
+| Available in the library | **1 edge, 0 verified, 0 candidates** | **4,481** tracks with phrase data (5,867 analysed) |
+| Bridges it can return now | none, for any pair | yes (live test: 8 suggestions; inserting the top one raised the set's transition score 60 → 72) |
+
+The Copilot finder is cold-start-bound: it needs a chain of verified edges, and ratings alone
+don't fill the BPM/harmonic score fields it filters on. **Decision taken:** Sets' "Find a bridge
+track" (P4.3) uses the section-vector engine. **Not deleted yet (owner's call):** the Copilot
+`BridgeFinder` is also used by `AlternativeRouteFinder`, and could become the better source once
+evidence accumulates (re-rank the section-vector results by knowledge evidence instead?).
+
+**P4.3 done:** inspector → transition → "Find a bridge track": analysed library tracks within ±6%
+BPM of both ends (not already in the set) ranked by outro→intro section fit, each with its two
+section scores; "Insert" puts it between the slots (undoable). Status text says what was searched
+or why nothing fits.
 | ID | Work |
 |---|---|
 | P4.1 | **Pick one engine.** Flow Builder has its own bridge finder and A10 flow suggestion; the Copilot has `BridgeFinder` / `SetBuilder`. Benchmark both on the same library with `Tools/CopilotBattleTest` + the existing Flow Builder tests, keep the better one, delete the other |

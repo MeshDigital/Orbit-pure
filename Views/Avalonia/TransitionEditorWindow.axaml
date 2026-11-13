@@ -1,0 +1,14 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+        xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
+        x:Class="SLSKDONET.Views.Avalonia.TransitionEditorWindow"
+        x:DataType="vm:MixTransitionViewModel"
+        Width="560" Height="860" MinWidth="480" MinHeight="600"
+        Title="Transition editor"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource BrushBg1}">
+    <!-- The shared transition editor (rebuild plan P3.1/D4): the same MixTransitionPanel as the
+         player's Mix tab, here loaded with two set slots and saving into the set. -->
+    <views:MixTransitionPanel />
+</Window>

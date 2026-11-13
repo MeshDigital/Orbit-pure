@@ -40,6 +40,7 @@
             <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="280"
                        Text="Turn on Mix above a playlist's track list, then click two tracks to build a transition between them. Or expand Mix in Now Playing to tune the current hop."/>
             <Button Classes="ghost small" Command="{Binding OpenInFlowBuilderCommand}"
+                    IsVisible="{Binding !IsSetContext}"
                     ToolTip.Tip="Open the full Flow Builder editor instead">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <PathIcon Data="{StaticResource icon_open_external}" Width="14" Height="14"/>
@@ -289,6 +290,27 @@
                         </Border>
                     </StackPanel>
                 </Expander>
+
+                <!-- Rating (rebuild plan P3.3): teaches the knowledge graph which transitions work.
+                     Stored by track pair, so it counts wherever these two tracks meet again. -->
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="section" Text="RATE THIS TRANSITION"/>
+                    <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding RatingSummaryText}"/>
+                    <Border Classes="param-row">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <TextBlock Classes="label" Text="How well it works"/>
+                            <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding RatingDraft, Mode=TwoWay}" Margin="12,0"
+                                    VerticalAlignment="Center" ToolTip.Tip="0 = never again, 100 = a go-to blend"/>
+                            <TextBlock Grid.Column="2" Classes="mono" Width="32" TextAlignment="Right"
+                                       VerticalAlignment="Center" Text="{Binding RatingDraftText}"/>
+                        </Grid>
+                    </Border>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <CheckBox Content="I played this live and it worked" IsChecked="{Binding RatingWorkedLive, Mode=TwoWay}"
+                                  ToolTip.Tip="Live plays weigh more than ratings when ORBIT suggests transitions"/>
+                        <Button Grid.Column="1" Classes="secondary small" Content="Save rating" Command="{Binding SaveRatingCommand}"/>
+                    </Grid>
+                </StackPanel>
             </StackPanel>
             </ScrollViewer>
 

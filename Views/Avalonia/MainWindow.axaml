@@ -479,11 +479,11 @@
                                     </StackPanel>
                                 </Button>
 
-                                <Button x:Name="NavSetProjects" Classes="nav" Command="{Binding NavigateSetProjectsCommand}"
-                                        ToolTip.Tip="Sets — Plan your set, order tracks and manage transitions"
-                                        Classes.selected="{Binding IsSetProjectsNavActive}">
+                                <Button x:Name="NavSets" Classes="nav" Command="{Binding NavigateSetsCommand}"
+                                        ToolTip.Tip="Sets — Plan gigs as slots with roles and energy targets"
+                                        Classes.selected="{Binding IsSetsOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <PathIcon Data="{StaticResource icon_waves}"/>
+                                        <PathIcon Data="{StaticResource icon_queue}"/>
                                         <TextBlock Text="Sets" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>

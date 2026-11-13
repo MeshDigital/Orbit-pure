@@ -7,6 +7,7 @@
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
              xmlns:conv="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
+             xmlns:lib="clr-namespace:SLSKDONET.ViewModels.Library"
              mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="600"
              x:Class="SLSKDONET.Views.Avalonia.TrackListView"
              x:DataType="vm:Library.TrackListViewModel" x:CompileBindings="True">
@@ -366,7 +367,7 @@
                               IsVisible="{Binding !HasTrackLoadError}"
                               SelectionMode="Multiple">
             <controls:VirtualGrid.ContextMenu>
-                <ContextMenu>
+                <ContextMenu Opened="OnTrackContextMenuOpened">
                     <MenuItem Header="Play" Command="{Binding Operations.PlayTrackCommand}"/>
                     <MenuItem Header="Add to queue" Command="{Binding Operations.AddToQueueCommand}"/>
                     <MenuItem Header="Add selected to queue" Command="{Binding Operations.AddSelectedToQueueCommand}"/>
@@ -384,8 +385,15 @@
                     </MenuItem>
                     <MenuItem Header="Prepare in Workstation" Command="{Binding Operations.OpenInWorkstationCommand}"
                               ToolTip.Tip="Open this track in the focused Workstation deck without starting playback; missing files can be relinked there"/>
-                    <MenuItem Header="Add to Set" Command="{Binding Operations.AddToSetCommand}"
-                              ToolTip.Tip="Append this track to a recent set, or create a new one"/>
+                    <MenuItem Header="Add to Set" ItemsSource="{Binding Operations.SetMenuEntries}"
+                              ToolTip.Tip="Append this track (or the selected ones) to a recent set, or a new one">
+                        <MenuItem.ItemContainerTheme>
+                            <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="lib:SetMenuEntry">
+                                <Setter Property="Header" Value="{Binding Name}"/>
+                                <Setter Property="Command" Value="{Binding Command}"/>
+                            </ControlTheme>
+                        </MenuItem.ItemContainerTheme>
+                    </MenuItem>
                     <MenuItem Header="Edit cues in Cue Forge" Command="{Binding Operations.OpenInCueForgeCommand}"/>
                     <MenuItem Header="Open in Edit Lab" Command="{Binding Operations.OpenInEditLabCommand}"
                               ToolTip.Tip="Start a new edit with this track as the base: cut it up, combine it with other tracks' stems, render it"/>

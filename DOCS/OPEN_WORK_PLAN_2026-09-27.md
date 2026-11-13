@@ -35,6 +35,18 @@ Each item is a self-contained issue.
 - [ ] #256 GA11: personal genre head from user corrections (Wave 3)
 - [ ] #257 GA12: spike, MAEST-30s-519 decision doc (Wave 4)
 - [ ] #258 GA13: release, `CurrentSetupVersion` bump plus What's New (Wave 4)
+## S. Sets & Transitions rebuild (added 2026-11-02)
+
+Tracked in its own ratified plan, `DOCS/workstation/SETS_AND_TRANSITIONS_REBUILD_PLAN.md`
+(decisions D1–D9, work items P0–P6). Status lives there; this is the pointer.
+
+- [x] Phase 0: hardening of the 0.3.x Story Graph / Transition Lab / swarm (PR #196)
+- [x] Phase 1: ratify decisions, update the foundation spec and vNext doc status
+- [x] Phase 2: Sets page (lane, pool, inspector, Plan B, Set Health, Add to Set submenu)
+- [x] Phase 3: one shared transition editor; `SetTrackTransitions` mirror table; ratings → knowledge (P3.5 user presets / intent tags deferred)
+- [ ] Phase 4: Copilot actions in Sets (benchmark Copilot vs Flow Builder A10 first)
+- [ ] Phase 5: export a set (Rekordbox XML / USB)
+- [ ] Phase 6: evidence from Rekordbox history
 
 ---
 

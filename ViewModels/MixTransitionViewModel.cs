@@ -33,6 +33,9 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
     private readonly IEventBus _eventBus;
     private readonly ArtworkCacheService _artworkCache;
     private readonly ITransitionRepository _transitionRepository;
+    // Where the loaded pair's transition is read from and saved to: the playlist store, or a set's
+    // (SetTransitionRepository) when the pair came from the Sets page (rebuild plan P3.1).
+    private ITransitionRepository _store;
     private readonly ITransitionPreviewPlayer _previewPlayer;
     private readonly SLSKDONET.Services.Repositories.ITrackRepository _trackRepository;
     private readonly ICuePointService _cuePointService;
@@ -69,6 +72,7 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
         _eventBus = eventBus;
         _artworkCache = artworkCache;
         _transitionRepository = transitionRepository;
+        _store = transitionRepository;
         _previewPlayer = previewPlayer;
         _trackRepository = trackRepository;
         _cuePointService = cuePointService;
@@ -201,7 +205,9 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
         OpenInFlowBuilderCommand = ReactiveCommand.Create(() =>
         {
             _eventBus.Publish(new OpenFlowBuilderForPlaylistEvent(_playlistId));
-        });
+        }, this.WhenAnyValue(x => x.IsSetContext, isSet => !isSet)); // a set pair has no playlist to open
+        SaveRatingCommand = ReactiveCommand.CreateFromTask(SaveRatingAsync,
+            this.WhenAnyValue(x => x.HasLoadedPair));
         // "Fix in Cue Forge" — same load-then-navigate sequence TrackOperationsViewModel uses to
         // jump into Cue Forge for a specific track (ExecuteOpenInCueForge), so a mix that looks
         // wrong here has a one-click path back to the tool that actually edits cue points.
@@ -944,9 +950,145 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
     /// id overload this also works when the two tracks belong to different playlists, e.g. a
     /// bridge track pulled in from another playlist that isn't saved into this one yet.
     /// </summary>
-    public async Task LoadPairAsync(Guid playlistId, PlaylistTrack outgoing, PlaylistTrack incoming)
+    public Task LoadPairAsync(Guid playlistId, PlaylistTrack outgoing, PlaylistTrack incoming)
+        => LoadPairCoreAsync(playlistId, outgoing, incoming, _transitionRepository, isSet: false);
+
+    /// <summary>
+    /// Loads two adjacent set slots (Sets page). The transition is read from and saved to the
+    /// set's own store, keyed by slot id. Returns false when either track isn't in the library.
+    /// </summary>
+    public async Task<bool> LoadSetPairAsync(Guid setId, Guid fromSlotId, string fromHash, Guid toSlotId, string toHash)
+    {
+        if (_serviceProvider.GetService(typeof(SLSKDONET.Services.Sets.SetTransitionRepository)) is not ITransitionRepository setStore)
+        {
+            _logger.LogError("SetTransitionRepository is not registered; can't edit set transitions");
+            StatusMessage = "Set transitions are unavailable right now.";
+            return false;
+        }
+
+        var fromEntry = await _libraryService.FindLibraryEntryAsync(fromHash);
+        var toEntry = await _libraryService.FindLibraryEntryAsync(toHash);
+        if (fromEntry is null || toEntry is null)
+        {
+            StatusMessage = "Both tracks need to be in your library to edit their transition.";
+            return false;
+        }
+
+        await LoadPairCoreAsync(setId, ToTrackModel(fromEntry, fromSlotId, setId), ToTrackModel(toEntry, toSlotId, setId), setStore, isSet: true);
+        return true;
+    }
+
+    /// <summary>A track model for a set slot: the slot id stands in for the playlist-track id.</summary>
+    private static PlaylistTrack ToTrackModel(LibraryEntry entry, Guid slotId, Guid setId) => new()
+    {
+        Id = slotId,
+        PlaylistId = setId,
+        TrackUniqueHash = entry.UniqueHash,
+        Title = entry.Title,
+        Artist = entry.Artist,
+        Album = entry.Album,
+        ResolvedFilePath = entry.FilePath,
+        Status = TrackStatus.Downloaded,
+        Format = entry.Format,
+        Bitrate = entry.Bitrate,
+        BPM = entry.BPM,
+        MusicalKey = entry.MusicalKey,
+        Energy = entry.Energy,
+        CanonicalDuration = entry.CanonicalDuration,
+        // The decks draw from these bands (resolved from analysis by the library service).
+        WaveformData = entry.WaveformData,
+        RmsData = entry.RmsData,
+        LowData = entry.LowData,
+        MidData = entry.MidData,
+        HighData = entry.HighData,
+    };
+
+    // ── Rating (rebuild plan P3.3): what the DJ thinks of this pair, into the knowledge graph ──
+
+    public ReactiveCommand<Unit, Unit> SaveRatingCommand { get; }
+
+    private string _ratingFromHash = string.Empty;
+    private string _ratingToHash = string.Empty;
+
+    private double _ratingDraft = 70;
+    /// <summary>0-100: how well this transition works.</summary>
+    public double RatingDraft
+    {
+        get => _ratingDraft;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _ratingDraft, Math.Round(Math.Clamp(value, 0, 100)));
+            this.RaisePropertyChanged(nameof(RatingDraftText));
+        }
+    }
+
+    public string RatingDraftText => RatingDraft.ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+
+    private bool _ratingWorkedLive;
+    /// <summary>Also record that this transition was played in front of a crowd.</summary>
+    public bool RatingWorkedLive { get => _ratingWorkedLive; set => this.RaiseAndSetIfChanged(ref _ratingWorkedLive, value); }
+
+    private string _ratingSummaryText = SLSKDONET.Services.KnowledgeLifecycle.TransitionRatingSummary.None.Text;
+    public string RatingSummaryText { get => _ratingSummaryText; private set => this.RaiseAndSetIfChanged(ref _ratingSummaryText, value); }
+
+    private SLSKDONET.Services.KnowledgeLifecycle.ITransitionRatingService? RatingService =>
+        _serviceProvider.GetService(typeof(SLSKDONET.Services.KnowledgeLifecycle.ITransitionRatingService))
+            as SLSKDONET.Services.KnowledgeLifecycle.ITransitionRatingService;
+
+    private async Task LoadRatingAsync(int generation)
+    {
+        if (RatingService is not { } ratings)
+            return;
+        try
+        {
+            var summary = await ratings.GetAsync(_ratingFromHash, _ratingToHash);
+            if (generation != _loadGeneration)
+                return;
+            RatingSummaryText = summary.Text;
+            if (summary.LastRating is double last)
+                RatingDraft = last;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Couldn't read ratings for {From}->{To}", _ratingFromHash, _ratingToHash);
+            RatingSummaryText = "Couldn't load earlier ratings.";
+        }
+    }
+
+    private async Task SaveRatingAsync()
+    {
+        if (RatingService is not { } ratings)
+        {
+            StatusMessage = "Rating isn't available right now.";
+            return;
+        }
+        try
+        {
+            var summary = await ratings.RateAsync(_ratingFromHash, _ratingToHash, RatingDraft, RatingWorkedLive);
+            RatingSummaryText = summary.Text;
+            RatingWorkedLive = false;
+            StatusMessage = $"Rating {RatingDraftText} saved.";
+            RatingSaved?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save rating for {From}->{To}", _ratingFromHash, _ratingToHash);
+            StatusMessage = $"Couldn't save the rating: {ex.Message}";
+        }
+    }
+
+    /// <summary>Raised after a rating is stored (hosts refresh their evidence badges).</summary>
+    public event EventHandler? RatingSaved;
+
+    private bool _isSetContext;
+    /// <summary>True when the loaded pair belongs to a set (Sets page) rather than a playlist.</summary>
+    public bool IsSetContext { get => _isSetContext; private set => this.RaiseAndSetIfChanged(ref _isSetContext, value); }
+
+    private async Task LoadPairCoreAsync(Guid playlistId, PlaylistTrack outgoing, PlaylistTrack incoming, ITransitionRepository store, bool isSet)
     {
         var generation = ++_loadGeneration;
+        _store = store;
+        IsSetContext = isSet;
         ClearMixPointUndo();
         // Leaving the previous pair keeps its cue edits; a running preview belongs to the old pair.
         if (IsPlaying) _previewPlayer.StopPreview();
@@ -961,6 +1103,11 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(OutgoingTrack));
         this.RaisePropertyChanged(nameof(IncomingTrack));
         this.RaisePropertyChanged(nameof(HasLoadedPair));
+
+        _ratingFromHash = outgoing.TrackUniqueHash;
+        _ratingToHash = incoming.TrackUniqueHash;
+        RatingWorkedLive = false;
+        _ = LoadRatingAsync(generation); // reports its own failures
 
         await Task.WhenAll(OutgoingTrack.LoadAnalysisDataAsync(), IncomingTrack.LoadAnalysisDataAsync());
         if (generation != _loadGeneration) return;
@@ -999,29 +1146,45 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
         PlaylistTrackTransition? saved = null;
         try
         {
-            saved = await _transitionRepository.GetTransitionAsync(outgoing.Id, incoming.Id);
+            saved = await _store.GetTransitionAsync(outgoing.Id, incoming.Id);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Couldn't read the saved transition for {Outgoing}->{Incoming}", outgoing.Id, incoming.Id);
         }
         if (generation != _loadGeneration) return;
+        // Nothing saved here yet: start from the latest transition saved for these two tracks
+        // anywhere else (rebuild plan P3.4). It isn't stored here until the DJ presses Save.
+        SLSKDONET.Services.Sets.TransitionFromHistory? fromHistory = null;
+        if (saved == null && _serviceProvider.GetService(typeof(SLSKDONET.Services.Sets.ITransitionHistoryService)) is SLSKDONET.Services.Sets.ITransitionHistoryService history)
+        {
+            try
+            {
+                fromHistory = await history.FindLatestAsync(outgoing.TrackUniqueHash, incoming.TrackUniqueHash, outgoing.Id, incoming.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Couldn't look up earlier transitions for {Outgoing}->{Incoming}", outgoing.TrackUniqueHash, incoming.TrackUniqueHash);
+            }
+            if (generation != _loadGeneration) return;
+        }
+        var applied = saved ?? fromHistory?.Transition;
         HasSavedTransition = saved != null;
-        _customEchoDecayFactor = saved?.EchoDecayFactor;
-        _customFilterStartFrequency = saved?.FilterStartFrequency;
-        _customFilterEndFrequency = saved?.FilterEndFrequency;
-        _customWaveDuckDepth = saved?.WaveDuckDepth;
-        _customFilterSweepRising = saved?.FilterSweepRising;
-        _customEqSwapLow = saved?.EqSwapLow;
-        _customEqSwapMid = saved?.EqSwapMid;
-        _customEqSwapHigh = saved?.EqSwapHigh;
-        _customEqLowCrossoverHz = saved?.EqLowCrossoverHz;
-        _customEqHighCrossoverHz = saved?.EqHighCrossoverHz;
+        _customEchoDecayFactor = applied?.EchoDecayFactor;
+        _customFilterStartFrequency = applied?.FilterStartFrequency;
+        _customFilterEndFrequency = applied?.FilterEndFrequency;
+        _customWaveDuckDepth = applied?.WaveDuckDepth;
+        _customFilterSweepRising = applied?.FilterSweepRising;
+        _customEqSwapLow = applied?.EqSwapLow;
+        _customEqSwapMid = applied?.EqSwapMid;
+        _customEqSwapHigh = applied?.EqSwapHigh;
+        _customEqLowCrossoverHz = applied?.EqLowCrossoverHz;
+        _customEqHighCrossoverHz = applied?.EqHighCrossoverHz;
         // LoopEnabled isn't its own saved field — Type=="DoubleDrop" IS the saved "loop was on"
         // signal, same as every other preset here.
-        _customLoopEnabled = saved?.Type == SLSKDONET.Models.Timeline.TransitionType.DoubleDrop;
-        _customLoopBars = saved?.LoopBars;
-        _customLoopRepeats = saved?.LoopRepeats;
+        _customLoopEnabled = applied?.Type == SLSKDONET.Models.Timeline.TransitionType.DoubleDrop;
+        _customLoopBars = applied?.LoopBars;
+        _customLoopRepeats = applied?.LoopRepeats;
         this.RaisePropertyChanged(nameof(CustomWaveDuckDepth));
         this.RaisePropertyChanged(nameof(CustomFilterSweepRising));
         this.RaisePropertyChanged(nameof(CustomEqSwapLow));
@@ -1032,9 +1195,9 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(CustomLoopEnabled));
         this.RaisePropertyChanged(nameof(CustomLoopBars));
         this.RaisePropertyChanged(nameof(CustomLoopRepeats));
-        _durationBars = saved?.DurationBars ?? 16;
+        _durationBars = applied?.DurationBars ?? 16;
         this.RaisePropertyChanged(nameof(DurationBars));
-        _selectedPreset = saved?.PresetName ?? "Auto";
+        _selectedPreset = applied?.PresetName ?? "Auto";
         this.RaisePropertyChanged(nameof(SelectedPreset));
         this.RaisePropertyChanged(nameof(IsCustomMode));
         _nudgeSeconds = 0;
@@ -1054,11 +1217,11 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
             }
         }
 
-        if (saved?.SourceTriggerSeconds is double savedSource && saved.TargetTriggerSeconds is double savedTarget)
+        if (applied?.SourceTriggerSeconds is double savedSource && applied.TargetTriggerSeconds is double savedTarget)
         {
             SourceTriggerSeconds = savedSource;
             TargetTriggerSeconds = savedTarget;
-            TransitionPointReasoning = "Using your saved mix-out/mix-in points.";
+            TransitionPointReasoning = fromHistory is null ? "Using your saved mix-out/mix-in points." : $"Starting from the transition you saved in \"{fromHistory.SourceName}\". Save to keep it here too.";
         }
         else if (!ApplyStructurePlan("Auto"))
         {
@@ -1670,7 +1833,7 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
 
         try
         {
-            await _transitionRepository.UpsertTransitionAsync(transition);
+            await _store.UpsertTransitionAsync(transition);
         }
         catch (Exception ex)
         {
@@ -1692,7 +1855,7 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
         if (OutgoingTrack == null || IncomingTrack == null) return;
         try
         {
-            await _transitionRepository.DeleteTransitionAsync(OutgoingTrack.Id, IncomingTrack.Id);
+            await _store.DeleteTransitionAsync(OutgoingTrack.Id, IncomingTrack.Id);
         }
         catch (Exception ex)
         {
