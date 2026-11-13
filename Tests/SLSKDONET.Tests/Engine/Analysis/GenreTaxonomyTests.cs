@@ -156,27 +156,27 @@ public class GenreTaxonomyTests
     }
 
     [Theory]
-    [InlineData("drumnbass", GenreBucket.DrumAndBass, null)]
-    [InlineData("dubstep", GenreBucket.Dubstep, null)]
-    [InlineData("techno", GenreBucket.Techno, null)]
-    [InlineData("minimal", GenreBucket.Techno, "Minimal")]
-    [InlineData("house", GenreBucket.House, null)]
-    [InlineData("deephouse", GenreBucket.House, "Deep House")]
-    [InlineData("breakbeat", GenreBucket.Other, "Breakbeat")]
-    [InlineData("trance", GenreBucket.Other, "Trance")]
-    [InlineData("ambient", GenreBucket.Other, "Ambient")]
-    [InlineData("downtempo", GenreBucket.Other, "Downtempo")]
-    [InlineData("idm", GenreBucket.Other, "IDM")]
-    [InlineData("triphop", GenreBucket.Other, "Trip Hop")]
-    [InlineData("rock", GenreBucket.Other, null)]
-    [InlineData("jazz", GenreBucket.Other, null)]
-    [InlineData("hiphop", GenreBucket.Other, null)]
-    public void MapJamendoLabel_MapsClubAndOther(string label, GenreBucket bucket, string? subgenre)
+    [InlineData("drumnbass", GenreBucket.DrumAndBass, null, 1f)]
+    [InlineData("dubstep", GenreBucket.Dubstep, null, 1f)]
+    [InlineData("techno", GenreBucket.Techno, null, 1f)]
+    [InlineData("minimal", GenreBucket.Techno, "Minimal", 0.5f)] // ambiguous: also minimal house (plan: Minimal = 0.5)
+    [InlineData("house", GenreBucket.House, null, 1f)]
+    [InlineData("deephouse", GenreBucket.House, "Deep House", 1f)]
+    [InlineData("breakbeat", GenreBucket.Other, "Breakbeat", 1f)]
+    [InlineData("trance", GenreBucket.Other, "Trance", 1f)]
+    [InlineData("ambient", GenreBucket.Other, "Ambient", 1f)]
+    [InlineData("downtempo", GenreBucket.Other, "Downtempo", 1f)]
+    [InlineData("idm", GenreBucket.Other, "IDM", 1f)]
+    [InlineData("triphop", GenreBucket.Other, "Trip Hop", 1f)]
+    [InlineData("rock", GenreBucket.Other, null, 1f)]
+    [InlineData("jazz", GenreBucket.Other, null, 1f)]
+    [InlineData("hiphop", GenreBucket.Other, null, 1f)]
+    public void MapJamendoLabel_MapsClubAndOther(string label, GenreBucket bucket, string? subgenre, float weight)
     {
         var m = GenreTaxonomy.MapJamendoLabel(label);
         Assert.Equal(bucket, m.Bucket);
         Assert.False(m.IsJunk);
-        Assert.Equal(1f, m.Weight);
+        Assert.Equal(weight, m.Weight);
         if (subgenre is not null) Assert.Equal(subgenre, m.Subgenre);
     }
 
