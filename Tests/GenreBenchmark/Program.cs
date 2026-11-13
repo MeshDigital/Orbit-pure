@@ -69,6 +69,9 @@ foreach (var chunk in hashes.Chunk(500))
 static float[]? Floats(byte[]? blob) =>
     blob is { Length: >= 4 } ? System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(blob).ToArray() : null;
 
+if (args.Contains("--mel-experiment"))
+    return await MelExperiment.RunAsync(truth, int.Parse(args[Array.IndexOf(args, "--mel-experiment") + 1], CultureInfo.InvariantCulture));
+
 if (opts.Mode == "audio")
     return await AudioBench.RunAsync(truth, features, opts);
 
@@ -143,6 +146,7 @@ sealed record Options(string DbPath, string Mode, string? SummaryPath, string? C
                 case "--audio": mode = "audio"; break;
                 case "--limit": limit = int.Parse(Next(), CultureInfo.InvariantCulture); break;
                 case "--audio-cache": cache = Next(); break;
+                case "--mel-experiment": Next(); break; // handled in Main
                 case "--summary": summary = Next(); break;
                 case "--compare": compare = Next(); break;
                 case "--trace": trace = Next(); break;

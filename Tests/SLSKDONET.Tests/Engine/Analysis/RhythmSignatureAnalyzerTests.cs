@@ -102,6 +102,15 @@ public class RhythmSignatureAnalyzerTests
         Assert.Equal(0, RhythmSignatureAnalyzer.Analyze(new float[Rate * 60], Rate, bpm: 128).Reliability); // silence
     }
 
+    [Fact]
+    public void Signature_RoundTripsThroughTheStoredJson()
+    {
+        // audio_features.RhythmSignatureJson (GA6) is read back for re-fusing without audio (#255).
+        var sig = new RhythmSignature(0.91, 0.84, 0.03, 0.27, 64, 128, 32, 0.96);
+        var json = System.Text.Json.JsonSerializer.Serialize(sig);
+        Assert.Equal(sig, System.Text.Json.JsonSerializer.Deserialize<RhythmSignature>(json));
+    }
+
     [Theory]
     [InlineData(174, 87, 174)]
     [InlineData(87, 87, 174)]
