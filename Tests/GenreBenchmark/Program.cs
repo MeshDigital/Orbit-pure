@@ -95,6 +95,10 @@ if (opts.Trace is { } trace)
 if (opts.Misclassified > 0)
     Report.Misclassified(results, opts.Misclassified);
 
+if (opts.Unlabelled > 0)
+    foreach (var r in results.Where(r => r.Prediction.Bucket is null).Take(opts.Unlabelled))
+        Report.Trace(r);
+
 if (opts.Compare is { } comparePath)
     Report.Compare(summary, JsonSerializer.Deserialize<Summary>(File.ReadAllText(comparePath), Json.Options)!);
 
@@ -110,12 +114,12 @@ static void Count(Dictionary<string, int> d, string key) => d[key] = d.GetValueO
 // ════════════════════════════════════════════════════════════════════════════
 
 sealed record Options(string DbPath, string Mode, string? SummaryPath, string? Compare, string? Trace,
-    int Misclassified, bool IncludeUntracked, double ConfidentThreshold)
+    int Misclassified, bool IncludeUntracked, double ConfidentThreshold, int Unlabelled)
 {
     public static Options? Parse(string[] args)
     {
         string? db = null, summary = null, compare = null, trace = null;
-        var mode = "offline"; var mis = 0; var untracked = false; var threshold = 0.7;
+        var mode = "offline"; var mis = 0; var untracked = false; var threshold = 0.7; var unlabelled = 0;
         for (var i = 0; i < args.Length; i++)
         {
             string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"{args[i]} needs a value");
@@ -128,17 +132,18 @@ sealed record Options(string DbPath, string Mode, string? SummaryPath, string? C
                 case "--compare": compare = Next(); break;
                 case "--trace": trace = Next(); break;
                 case "--misclassified": mis = int.Parse(Next(), CultureInfo.InvariantCulture); break;
+                case "--unlabelled": unlabelled = int.Parse(Next(), CultureInfo.InvariantCulture); break;
                 case "--include-untracked": untracked = true; break;
                 case "--confident": threshold = double.Parse(Next(), CultureInfo.InvariantCulture); break;
                 default: Console.Error.WriteLine($"Unknown argument {args[i]}"); return null;
             }
         }
-        return db is null ? null : new Options(db, mode, summary, compare, trace, mis, untracked, threshold);
+        return db is null ? null : new Options(db, mode, summary, compare, trace, mis, untracked, threshold, unlabelled);
     }
 
     public static void PrintUsage() => Console.Error.WriteLine(
         "Usage: GenreBenchmark --db <library copy> [--stored | --offline] [--summary out.json] [--compare baseline.json]\n" +
-        "                      [--trace \"<artist/title/file part>\"] [--misclassified N] [--include-untracked] [--confident 0.7]");
+        "                      [--trace \"<artist/title/file part>\"] [--misclassified N] [--unlabelled N] [--include-untracked] [--confident 0.7]");
 }
 
 /// <summary>One labelled track. <c>Source</c> is where the label came from (user, tags, beatport, discogs, untracked).</summary>
@@ -315,8 +320,13 @@ sealed class OfflinePredictor : IPredictor
         }
 
         evidence.Add("fused: " + string.Join(", ", fused.Distribution.Select(kv => $"{kv.Key} {kv.Value:F3}")) + (fused.RanHeuristic ? " (BPM heuristic)" : ""));
-        var map = GenreTaxonomy.MapFreeText(fused.WinnerLabel);
-        GenreBucket? bucket = map.IsJunk || map.Weight <= 0 ? null : map.Bucket;
+        // v2+ results carry their bucket; v1 only had text ("Other" alone would read as junk).
+        GenreBucket? bucket = fused.Bucket;
+        if (GenreFusionEngine.FusionVersion < 2)
+        {
+            var map = GenreTaxonomy.MapFreeText(fused.WinnerLabel);
+            bucket = map.IsJunk || map.Weight <= 0 ? null : map.Bucket;
+        }
         return new Prediction(bucket, fused.WinnerLabel, fused.Confidence, evidence);
     }
 }

@@ -71,6 +71,12 @@ public static class GenreFusionEngine
 
     private const float HeuristicWeight = 0.35f;
 
+    /// <summary>
+    /// A tempo-only guess is never "confident": v1 let the DnB heuristic reach 0.92 (0.62 + 0.10
+    /// guardrail + 0.20 margin), which the benchmark (#249) showed as hip-hop at 175 BPM labelled DnB.
+    /// </summary>
+    public const float HeuristicMaxConfidence = 0.45f;
+
     /// <summary>Fuses the input votes. Returns <c>null</c> when nothing survives to a winner.</summary>
     public static GenreFusionResult? Fuse(GenreFusionInput input)
     {
@@ -86,40 +92,23 @@ public static class GenreFusionEngine
         // 1) MTG-Jamendo head (87 classes), through the same taxonomy.
         candidates.AddRange(BucketVotes(input.JamendoLabels, s => GenreTaxonomy.MapJamendoLabel(s), "onnx-jamendo", JamendoWeight));
 
-        // 2) Fallback heuristic only when the models gave no vote at all.
-        if (candidates.Count == 0)
+        // 2) Fuse per bucket with the BPM guardrails; the BPM heuristic only when no model vote survives.
+        var fused = new Dictionary<GenreBucket, float>();
+        var maxConfidence = new Dictionary<GenreBucket, float>();
+        var bestSub = new Dictionary<GenreBucket, (string? Sub, float Strength)>();
+
+        Accumulate(candidates, input.Bpm, fused, maxConfidence, bestSub);
+        if (fused.Count == 0)
         {
             var heuristic = InferGenreHeuristic(input.Bpm);
             if (!string.IsNullOrWhiteSpace(heuristic.Label))
             {
                 var map = GenreTaxonomy.MapFreeText(heuristic.Label);
-                candidates.Add(new GenreFusionCandidate(heuristic.Label, heuristic.Confidence, "heuristic", HeuristicWeight, map.Bucket));
+                var vote = new GenreFusionCandidate(heuristic.Label, heuristic.Confidence, "heuristic", HeuristicWeight, map.Bucket);
+                candidates.Add(vote);
                 ranHeuristic = true;
+                Accumulate(new[] { vote }, input.Bpm, fused, maxConfidence, bestSub);
             }
-        }
-
-        if (candidates.Count == 0)
-            return null;
-
-        // 3) Fuse per bucket with the BPM guardrails.
-        var fused = new Dictionary<GenreBucket, float>();
-        var maxConfidence = new Dictionary<GenreBucket, float>();
-        var bestSub = new Dictionary<GenreBucket, (string? Sub, float Strength)>();
-
-        foreach (var candidate in candidates)
-        {
-            if (candidate.Confidence <= 0f) continue;
-
-            var guarded = ApplyBpmGuardrails(candidate.Bucket, candidate.Confidence, input.Bpm);
-            if (guarded <= 0f) continue;
-
-            var score = guarded * candidate.Weight;
-            fused[candidate.Bucket] = fused.GetValueOrDefault(candidate.Bucket) + score;
-            maxConfidence[candidate.Bucket] = Math.Max(maxConfidence.GetValueOrDefault(candidate.Bucket), guarded);
-
-            if (candidate.Subgenre is not null &&
-                (!bestSub.TryGetValue(candidate.Bucket, out var current) || score > current.Strength))
-                bestSub[candidate.Bucket] = (candidate.Subgenre, score);
         }
 
         if (fused.Count == 0)
@@ -131,6 +120,7 @@ public static class GenreFusionEngine
         var margin = Math.Max(0f, winner.Value - runnerUpScore);
         var winnerConfidence = maxConfidence.TryGetValue(winner.Key, out var conf) ? conf : 0.5f;
         var finalConfidence = Math.Clamp(winnerConfidence + Math.Min(0.20f, margin), 0f, 0.99f);
+        if (ranHeuristic) finalConfidence = Math.Min(finalConfidence, HeuristicMaxConfidence);
 
         string? SubOf(GenreBucket b) => bestSub.TryGetValue(b, out var s) ? s.Sub : null;
 
@@ -145,6 +135,28 @@ public static class GenreFusionEngine
         return new GenreFusionResult(
             GenreTaxonomy.CanonicalDisplay(winner.Key, winnerSub),
             finalConfidence, distribution, candidates, ranHeuristic, winner.Key, winnerSub);
+    }
+
+    private static void Accumulate(
+        IEnumerable<GenreFusionCandidate> candidates, float bpm,
+        Dictionary<GenreBucket, float> fused, Dictionary<GenreBucket, float> maxConfidence,
+        Dictionary<GenreBucket, (string? Sub, float Strength)> bestSub)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (candidate.Confidence <= 0f) continue;
+
+            var guarded = ApplyBpmGuardrails(candidate.Bucket, candidate.Confidence, bpm);
+            if (guarded <= 0f) continue;
+
+            var score = guarded * candidate.Weight;
+            fused[candidate.Bucket] = fused.GetValueOrDefault(candidate.Bucket) + score;
+            maxConfidence[candidate.Bucket] = Math.Max(maxConfidence.GetValueOrDefault(candidate.Bucket), guarded);
+
+            if (candidate.Subgenre is not null &&
+                (!bestSub.TryGetValue(candidate.Bucket, out var current) || score > current.Strength))
+                bestSub[candidate.Bucket] = (candidate.Subgenre, score);
+        }
     }
 
     /// <summary>

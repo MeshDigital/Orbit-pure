@@ -129,6 +129,24 @@ public class GenreFusionEngineTests
     }
 
     [Fact]
+    public void TempoOnlyGuess_IsNeverConfident()
+    {
+        // v1 reached 0.92 here (0.62 + 0.10 guardrail + 0.20 margin): hip-hop at 175 BPM became "confident DnB".
+        var r = Fuse(175, null);
+        Assert.True(r.RanHeuristic);
+        Assert.True(r.Confidence <= GenreFusionEngine.HeuristicMaxConfidence, $"{r.Confidence}");
+    }
+
+    [Fact]
+    public void ModelVotesAllGuardedAway_FallBackToTheHeuristic()
+    {
+        // Techno 0.08 at 174 BPM is pushed to ≤ 0 by the ≥165 guardrail: nothing survives, so the tempo guess runs.
+        var r = Fuse(174, null, ("techno", 0.08f));
+        Assert.True(r.RanHeuristic);
+        Assert.Equal(GenreBucket.DrumAndBass, r.Bucket);
+    }
+
+    [Fact]
     public void NothingAtAll_OutsideHeuristicRanges_IsNull()
     {
         Assert.Null(GenreFusionEngine.Fuse(new GenreFusionInput(Array.Empty<GenreLabelScore>(), 90f)));
