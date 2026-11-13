@@ -481,6 +481,9 @@ public class LibraryEntryEntity
     public string? Label { get; set; }
     public string? Comments { get; set; }
 
+    /// <summary>Tag-independent audio payload hash for exact-duplicate detection (issue #235).</summary>
+    public string? AudioContentHash { get; set; }
+
     /// <summary>Track-level colour tag (hex, e.g. "#FF0000"), independent of any cue colours.</summary>
     public string? ColorTag { get; set; }
 
