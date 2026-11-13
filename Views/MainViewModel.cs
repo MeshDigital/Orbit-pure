@@ -140,8 +140,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         SLSKDONET.ViewModels.LibraryImportViewModel? import = null,
         SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? activity = null,
         SLSKDONET.ViewModels.Workstation.WorkstationViewModel? workstation = null,
-        SLSKDONET.Services.Sets.ISetProjectService? setProjects = null,
-        SLSKDONET.Views.INotificationService? notifications = null,
+        SLSKDONET.ViewModels.Sets.SetsViewModel? sets = null,
         SLSKDONET.ViewModels.Maintenance.MaintenanceShellViewModel? maintenance = null)
 
     {
