@@ -34,13 +34,14 @@ public sealed class ActiveTransferRegistry
         _lastBytes.TryRemove(key, out _);
     }
 
+    /// <summary>Sets the byte baseline for a (re)started attempt: the bytes already on disk when
+    /// resuming, 0 for a fresh start, so the first progress sample never counts old bytes.</summary>
+    public void Seed(TransferKey key, long initialBytes) => _lastBytes[key] = initialBytes;
+
     /// <summary>
     /// Records the latest byte count for <paramref name="key"/> and returns the delta since the
     /// previous call (0 when the count did not advance).
     /// </summary>
-    /// <summary>Sets the resume baseline so the first progress sample doesn't count bytes already on disk.</summary>
-    public void Seed(TransferKey key, long initialBytes) => _lastBytes[key] = initialBytes;
-
     public long RecordBytes(TransferKey key, long bytesReceived)
     {
         var previous = _lastBytes.TryGetValue(key, out var old) ? old : 0;

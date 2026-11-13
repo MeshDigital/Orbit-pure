@@ -3801,7 +3801,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     // throws (uncatchable from here — surfaces as an unobserved task exception).
                     startPosition = File.Exists(partPath) ? new FileInfo(partPath).Length : 0;
                     ctx.BytesReceived = startPosition;
-                    if (ctx.ActiveTransferKey is { } activeKey && startPosition > 0)
+                    if (ctx.ActiveTransferKey is { } activeKey) // also 0: reset a failed attempt's count
                         _activeTransfers.Seed(activeKey, startPosition);
 
                     success = await _soulseek.DownloadAsync(
@@ -4032,14 +4032,18 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         var duplicate = await _databaseService
                             .FindLibraryEntryByContentHashAsync(contentHash.Value)
                             .ConfigureAwait(false);
+                        // Only when the existing file is really there: re-downloading a track whose
+                        // file was deleted/moved must replace it, not link to the missing path.
                         if (duplicate != null &&
-                            !string.Equals(duplicate.UniqueHash, ctx.Model.TrackUniqueHash, StringComparison.OrdinalIgnoreCase))
+                            !string.Equals(duplicate.UniqueHash, ctx.Model.TrackUniqueHash, StringComparison.OrdinalIgnoreCase) &&
+                            !string.IsNullOrWhiteSpace(duplicate.FilePath) && File.Exists(duplicate.FilePath))
                         {
                             ctx.Model.TrackUniqueHash = duplicate.UniqueHash;
                             ctx.Model.ResolvedFilePath = duplicate.FilePath;
-                            ctx.Model.IsFlagged = true;
-                            ctx.Model.FlagReason = $"Same audio as {duplicate.FilePath}";
                             await _libraryService.UpdatePlaylistTrackAsync(ctx.Model).ConfigureAwait(false);
+                            // Neutral row status — not IsFlagged, which marks a fake/high-risk file.
+                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(
+                                ctx.GlobalId, $"Already in library — same audio as {duplicate.FilePath}", false, ctx.CorrelationId));
                             _eventBus.Publish(new NotificationEvent(
                                 "Already in library",
                                 $"'{ctx.Model.Artist} – {ctx.Model.Title}' is a duplicate of '{duplicate.Artist} – {duplicate.Title}'.",
