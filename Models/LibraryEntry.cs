@@ -74,6 +74,9 @@ public class LibraryEntry
     public DateTime? ReleaseDate { get; set; }
     public string? Label { get; set; }
     public string? Comments { get; set; }
+
+    /// <summary>Tag-independent audio payload hash for exact-duplicate detection (issue #235).</summary>
+    public string? AudioContentHash { get; set; }
     
     public byte[] WaveformData { get; set; } = Array.Empty<byte>();
     public byte[] RmsData { get; set; } = Array.Empty<byte>();

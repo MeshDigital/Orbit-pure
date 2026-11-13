@@ -42,6 +42,19 @@ public sealed class EditLabViewModelTests : IDisposable
         catch (IOException) { /* temp dir */ }
     }
 
+    /// <summary>Polls <paramref name="condition"/> without blocking a thread, so background
+    /// continuations (autosave) can run while the test waits.</summary>
+    private static async Task<bool> WaitUntilAsync(Func<bool> condition, int timeoutMs)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition()) return true;
+            await Task.Delay(25);
+        }
+        return condition();
+    }
+
     private async Task<EditSourceItemViewModel> ProjectWithTrack(string hash = "a", double bpm = 120)
     {
         await _vm.NewProjectCommand.Execute();
@@ -179,7 +192,10 @@ public sealed class EditLabViewModelTests : IDisposable
         _vm.ProjectName = "My intro";
         var id = _vm.Project!.Id;
         var path = Path.Combine(_dir, "projects", id.ToString("N") + ".json");
-        Assert.True(SpinWait.SpinUntil(() => File.Exists(path) && File.ReadAllText(path).Contains("My intro"), 5000));
+        // Wait asynchronously, not with SpinWait: the autosave's Task.Delay continuation needs a
+        // thread, and on 2-core CI runners xUnit's limited-concurrency context could be fully
+        // occupied by the blocked test thread plus a parallel test — the save then never ran in time.
+        Assert.True(await WaitUntilAsync(() => File.Exists(path) && File.ReadAllText(path).Contains("My intro"), 15000));
 
         await _vm.CloseProjectCommand.Execute();
         Assert.False(_vm.HasProject);

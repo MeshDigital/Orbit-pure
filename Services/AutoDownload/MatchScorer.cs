@@ -179,7 +179,23 @@ public class MatchScorer
         var minFileSize = options?.MinFileSizeBytes ?? (500 * 1024); // 500 KB default
         if (candidate.Size.HasValue && candidate.Size.Value < minFileSize)
         {
-            return 0.0; // Too small — likely corrupt or stub
+            return 0.0; // Too small - likely corrupt or stub
+        }
+
+        // Implied-bitrate plausibility (issue #234).
+        if (candidate.Size is > 0)
+        {
+            var plausibility = CandidateSizePlausibility.Evaluate(
+                candidate.Size,
+                candidateBitrate,
+                candidate.Length,
+                options?.ExpectedDurationSeconds,
+                format,
+                options?.LosslessMinImpliedKbps ?? 400,
+                options?.LossyMinImpliedKbps ?? 96,
+                options?.LossyDeclaredBitrateRatio ?? 0.6);
+            if (!plausibility.IsPlausible)
+                return 0.0;
         }
 
         return 1.0; // Good bitrate and size
@@ -364,6 +380,13 @@ public class MatchScoringOptions
     /// Minimum file size in bytes (default 500 KB).
     /// </summary>
     public long? MinFileSizeBytes { get; set; } = 500 * 1024;
+
+    /// <summary>Track duration used for implied-bitrate plausibility (issue #234).</summary>
+    public double? ExpectedDurationSeconds { get; set; }
+
+    public int LosslessMinImpliedKbps { get; set; } = 400;
+    public int LossyMinImpliedKbps { get; set; } = 96;
+    public double LossyDeclaredBitrateRatio { get; set; } = 0.6;
 
     /// <summary>
     /// Allow MP3 fallback if no lossless available (default false).
