@@ -210,7 +210,17 @@ public class LibraryContentHashBackfillService
                 }
                 else
                 {
-                    var hash = await _hasher.ComputeAsync(item.Path, ct).ConfigureAwait(false);
+                    AudioContentHash? hash;
+                    try
+                    {
+                        hash = await _hasher.ComputeAsync(item.Path, ct).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        // Moved, deleted or locked between listing and hashing: count it, keep going.
+                        _logger.LogWarning(ex, "Could not read library file {Path} for its content hash", item.Path);
+                        hash = null;
+                    }
                     if (hash is null)
                     {
                         _logger.LogWarning("Could not hash library file {Path}; leaving AudioContentHash null", item.Path);

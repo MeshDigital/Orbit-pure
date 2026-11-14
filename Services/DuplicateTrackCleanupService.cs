@@ -432,8 +432,10 @@ public sealed class DuplicateTrackCleanupService
 
             Directory.CreateDirectory(backupDir);
 
-            var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-            var backupPath = Path.Combine(backupDir, $"library.backup.{label}.{timestamp}.db");
+            // Unique per call: two merges in the same second used to write the same file, and the
+            // second backup failed, which aborted that merge (seen as a flaky test).
+            var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss-fff", System.Globalization.CultureInfo.InvariantCulture);
+            var backupPath = Path.Combine(backupDir, $"library.backup.{label}.{timestamp}.{Guid.NewGuid().ToString("N")[..6]}.db");
             LibraryDatabaseMaintenance.CreateBackup(dbPath, backupPath);
 
             _logger.LogInformation("[DuplicateCleanup] Safety backup created at {Path}", backupPath);
