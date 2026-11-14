@@ -96,6 +96,13 @@
                             <MenuItem Header="Rename…" Command="{Binding RenameSetCommand}" />
                             <MenuItem Header="Duplicate" Command="{Binding DuplicateSetCommand}" />
                             <Separator />
+                            <MenuItem Header="Export to Rekordbox XML…" Command="{Binding ExportXmlCommand}"
+                                      ToolTip.Tip="The set as one Rekordbox playlist, with cues and beat grid. An existing file is merged, not replaced." />
+                            <MenuItem Header="Export to USB / folder…" Command="{Binding ExportToFolderCommand}"
+                                      ToolTip.Tip="Copies the audio plus PIONEER/rekordbox.xml; import that file in Rekordbox, then export to your device from there." />
+                            <MenuItem Header="Add transition notes to comments" ToggleType="CheckBox" IsChecked="{Binding IncludeTransitionNotes}"
+                                      ToolTip.Tip="Appends each transition's score and notes to the track's Rekordbox comment." />
+                            <Separator />
                             <MenuItem Header="Delete…" Command="{Binding DeleteSetCommand}" />
                         </MenuFlyout>
                     </Button.Flyout>
