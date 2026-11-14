@@ -171,6 +171,7 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
         this.WhenAnyValue(x => x.TargetTriggerSeconds, x => x.IncomingCues)
             .Subscribe(_ => this.RaisePropertyChanged(nameof(IncomingMixCue)));
         SelectPresetCommand = ReactiveCommand.Create<string>(preset => SelectedPreset = preset);
+        InitUserPresets(serviceProvider); // "My presets" (#204 D5)
         SelectBarsCommand = ReactiveCommand.Create<int>(bars => DurationBars = bars);
         // DurationBars is also set straight on the field by the structure planner and pair loading,
         // which then raise DurationBars — follow that notification rather than every assignment.
@@ -1092,6 +1093,10 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
         }
     }
 
+    /// <summary>What kind of move the current transition is (D5 intent tag): ratings attach to that edge.</summary>
+    public SLSKDONET.Services.Transitions.TransitionIntent CurrentIntent =>
+        SLSKDONET.Services.Transitions.TransitionIntents.Of(LiveModel.Type, SelectedPreset);
+
     private async Task SaveRatingAsync()
     {
         if (RatingService is not { } ratings)
@@ -1101,10 +1106,11 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
         }
         try
         {
-            var summary = await ratings.RateAsync(_ratingFromHash, _ratingToHash, RatingDraft, RatingWorkedLive);
+            var intent = CurrentIntent;
+            var summary = await ratings.RateAsync(_ratingFromHash, _ratingToHash, RatingDraft, RatingWorkedLive, intent);
             RatingSummaryText = summary.Text;
             RatingWorkedLive = false;
-            StatusMessage = $"Rating {RatingDraftText} saved.";
+            StatusMessage = $"Rating {RatingDraftText} saved for this {SLSKDONET.Services.Transitions.TransitionIntents.Label(intent).ToLowerInvariant()}.";
             RatingSaved?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex)

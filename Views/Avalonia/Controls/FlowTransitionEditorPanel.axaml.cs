@@ -11,6 +11,19 @@ namespace SLSKDONET.Views.Avalonia.Controls
 {
     public partial class FlowTransitionEditorPanel : UserControl
     {
+        // "My presets" (#204 D5): the view models report their own failures in StatusMessage.
+        private async void OnSaveUserPresetClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            if ((sender as Control)?.DataContext is SLSKDONET.ViewModels.MixTransitionViewModel vm)
+                await vm.SaveUserPresetAsync();
+        }
+
+        private async void OnDeleteUserPresetClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            if ((sender as Control)?.DataContext is SLSKDONET.ViewModels.MixTransitionViewModel vm)
+                await vm.DeleteSelectedUserPresetAsync();
+        }
+
         public FlowTransitionEditorPanel()
         {
             InitializeComponent();

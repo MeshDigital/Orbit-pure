@@ -27,6 +27,18 @@ public sealed class TransitionRatingServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Rating_AttachesToTheIntentsEdge_SummaryCoversAllIntents()
+    {
+        await Service.RateAsync("a", "b", 70, workedLive: false);
+        var summary = await Service.RateAsync("a", "b", 90, workedLive: false, SLSKDONET.Services.Transitions.TransitionIntent.DropSwap);
+
+        Assert.Equal(2, summary.RatingCount); // one pair, two intents
+        using var db = _db.Factory.CreateDbContext();
+        var types = await db.TransitionKnowledge.Select(e => e.TransitionType).OrderBy(t => t).ToListAsync();
+        Assert.Equal(new[] { KnowledgeTransitionType.Blend, KnowledgeTransitionType.DropSwap }, types);
+    }
+
+    [Fact]
     public async Task Rating_IsAppendOnlyEvidence_LatestWins_LivePlaysCounted()
     {
         await Service.RateAsync("a", "b", 60, workedLive: false);

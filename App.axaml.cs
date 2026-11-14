@@ -630,6 +630,7 @@ public partial class App : Application
         services.AddSingleton<Services.Integrations.Serato.SeratoCueExportService>(); // cues → Serato Markers2 file tags
         services.AddSingleton<Services.AudioAnalysis.CueDetrService>(); // CUE-DETR (ONNX) cue point detector
         services.AddSingleton<Services.AudioAnalysis.CueDetrCueService>(); // cue regeneration with CUE-DETR (compare / AI only)
+        services.AddSingleton<Services.Transitions.IUserTransitionPresetService, Services.Transitions.UserTransitionPresetService>(); // "My presets" in the transition editor (#204 D5)
         services.AddSingleton<Services.Transitions.TransitionPlanService>(); // Mixxx-style sections + DnB transition planning
         services.AddSingleton<PlaylistDiscoveryViewModel>();
 

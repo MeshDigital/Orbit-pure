@@ -176,6 +176,14 @@ D2 handles the convergence instead.
   `TransitionTemplates` into **user presets** in the preset picker (recommended).
 - B. Keep all four. (Not recommended.)
 
+**D5 done (A, #204):** `TransitionIntent` (Blend, Cut, Drop swap, Echo out, Energy reset) in
+`Services/Transitions/TransitionIntents.cs` maps the DSP type + preset, `KnowledgeTransitionType`
+and `TransitionArchetype` onto one tag. Ratings attach to the pair's edge for the editor's current
+intent (they all went to the Blend edge before); the Sets chip reads "Saved: Drop swap · Drop Sync ·
+32 bars". `TransitionTemplates` are the DJ's own presets: "Save as preset" in Custom blend settings,
+"My presets" in both editors. `SetTrackEntity.TransitionType` (archetype) has no UI; it maps via
+`TransitionIntents.Of(archetype)` and isn't migrated in place.
+
 ### D6 — How much should the Copilot do? (memory rule: *ORBIT assists DJs, never replaces them*)
 - **A. Only when the DJ asks** (recommended): "Suggest next", "Find a bridge", "Check clashes",
   "Draft a set" (the draft opens as a new set the DJ edits). Nothing auto-applies. Every suggestion
