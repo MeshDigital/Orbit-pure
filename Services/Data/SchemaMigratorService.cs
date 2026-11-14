@@ -3354,6 +3354,12 @@ public class SchemaMigratorService
                 command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""TopStyleConfidence"" REAL NULL;";
                 await command.ExecuteNonQueryAsync();
             }
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "RhythmSignatureJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding RhythmSignatureJson to audio_features (GA6 #251)...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""RhythmSignatureJson"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
 
             _logger.LogInformation("Schema patching completed.");
         }
