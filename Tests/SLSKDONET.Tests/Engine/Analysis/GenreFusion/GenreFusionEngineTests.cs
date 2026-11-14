@@ -1,136 +1,169 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
+using SLSKDONET.Engine.Analysis;
 using SLSKDONET.Engine.Analysis.GenreFusion;
 using Xunit;
 
 namespace SLSKDONET.Tests.Engine.Analysis.GenreFusion;
 
 /// <summary>
-/// Golden equivalence tests for <see cref="GenreFusionEngine"/>. The expected winner / confidence /
-/// distribution below were captured from the pre-refactor scoring in
-/// <c>AudioAnalysisService.InferAndApplyGenreAsync</c> (master @ 6b8a708) over these same synthetic
-/// inputs; the engine is a verbatim port, so every value must match bit-for-bit.
+/// <see cref="GenreFusionEngine"/> v2 (GA5, #250): Discogs-400 + Jamendo voting per
+/// <see cref="GenreBucket"/> through <see cref="GenreTaxonomy"/> with noisy-OR. Synthetic vectors
+/// only; real-model behaviour is measured by Tests/GenreBenchmark, not asserted here.
 /// </summary>
 public class GenreFusionEngineTests
 {
-    private sealed record GoldenCase(
-        string Name,
-        float Bpm,
-        (string Label, float Score)[] Labels,
-        string? Winner,
-        float Confidence,
-        (string Key, double Score)[] Distribution);
+    private static GenreLabelScore S(string key, float score) => new(key, score);
 
-    private static readonly GoldenCase[] GoldenCases =
+    /// <summary>A 400-ish vector: the given styles plus low noise on many unrelated styles.</summary>
+    private static IReadOnlyList<GenreLabelScore> Styles(params (string Key, float Score)[] hot)
     {
-        new("dnb_174", 174f, new[] { ("drumnbass", 0.9f), ("techno", 0.1f) },
-            "Drum and Bass", 0.99f, new[] { ("Drum and Bass", 0.85) }),
-        new("dnb_87_half", 87f, new[] { ("drumnbass", 0.9f) },
-            "Drum and Bass", 0.95f, new[] { ("Drum and Bass", 0.6375) }),
-        new("house_124", 124f, new[] { ("house", 0.8f), ("techno", 0.3f) },
-            "House", 0.99f, new[] { ("House", 0.748), ("Techno", 0.323) }),
-        new("deephouse_124", 124f, new[] { ("deephouse", 0.7f), ("house", 0.5f) },
-            "House", 0.97999996f, new[] { ("House", 1.156) }),
-        new("techno_132", 132f, new[] { ("techno", 0.85f) },
-            "Techno", 0.99f, new[] { ("Techno", 0.7905) }),
-        new("minimal_techno_132", 132f, new[] { ("minimal", 0.6f), ("techno", 0.5f) },
-            "Techno", 0.88f, new[] { ("Techno", 1.071) }),
-        new("dnb_house_mix_174", 174f, new[] { ("drumnbass", 0.5f), ("house", 0.6f) },
-            "Drum and Bass", 0.702f, new[] { ("Drum and Bass", 0.51), ("House", 0.408) }),
-        new("techno_house_128", 128f, new[] { ("techno", 0.6f), ("house", 0.6f) },
-            "Techno", 0.68f, new[] { ("Techno", 0.578), ("House", 0.578) }),
-        new("empty_174", 174f, System.Array.Empty<(string, float)>(),
-            "Drum and Bass", 0.92f, new[] { ("Drum and Bass", 0.252) }),
-        new("empty_124", 124f, System.Array.Empty<(string, float)>(),
-            "House", 0.84f, new[] { ("House", 0.224) }),
-        new("empty_132", 132f, System.Array.Empty<(string, float)>(),
-            "House", 0.84f, new[] { ("House", 0.224) }),
-        new("empty_90", 90f, System.Array.Empty<(string, float)>(),
-            null, 0f, System.Array.Empty<(string, double)>()),
-        new("low_conf_dnb_174", 174f, new[] { ("drumnbass", 0.1f) },
-            "Drum and Bass", 0.37f, new[] { ("Drum and Bass", 0.17) }),
-        new("dubstep_140", 140f, new[] { ("dubstep", 0.7f) },
-            "Dubstep", 0.9f, new[] { ("Dubstep", 0.595) }),
-        new("trance_138", 138f, new[] { ("trance", 0.8f) },
-            "Trance", 0.99f, new[] { ("Trance", 0.68) }),
-        new("breakbeat_174", 174f, new[] { ("breakbeat", 0.7f) },
-            "Drum and Bass", 0.99f, new[] { ("Drum and Bass", 0.68) }),
-        new("rock_only_174", 174f, new[] { ("rock", 0.9f) },
-            "Drum and Bass", 0.92f, new[] { ("Drum and Bass", 0.252) }),
-        new("zero_conf", 174f, new[] { ("drumnbass", 0f) },
-            null, 0f, System.Array.Empty<(string, double)>()),
-    };
-
-    [Fact]
-    public void Fuse_MatchesPreRefactorGoldenOutputs()
-    {
-        foreach (var c in GoldenCases)
-        {
-            var input = new GenreFusionInput(
-                c.Labels.Select(l => new GenreLabelScore(l.Label, l.Score)).ToArray(),
-                c.Bpm);
-
-            var result = GenreFusionEngine.Fuse(input);
-
-            if (c.Winner is null)
-            {
-                Assert.Null(result);
-                continue;
-            }
-
-            Assert.NotNull(result);
-            Assert.Equal(c.Winner, result.WinnerLabel);
-            Assert.Equal(c.Confidence, result.Confidence);
-            Assert.Equal(c.Distribution.Length, result.Distribution.Count);
-            foreach (var (key, score) in c.Distribution)
-            {
-                Assert.True(result.Distribution.TryGetValue(key, out var actual),
-                    $"case {c.Name}: missing distribution key '{key}'");
-                Assert.Equal(score, actual);
-            }
-        }
+        var list = hot.Select(h => S(h.Key, h.Score)).ToList();
+        for (var i = 0; i < 380; i++) list.Add(S($"Rock---Noise Style {i}", 0.02f)); // under the floor
+        return list;
     }
 
-    [Fact]
-    public void Fuse_EmptyInput_FallsBackToHeuristic()
+    private static GenreFusionResult Fuse(float bpm, IReadOnlyList<GenreLabelScore>? discogs, params (string, float)[] jamendo)
     {
-        var result = GenreFusionEngine.Fuse(new GenreFusionInput(
-            System.Array.Empty<GenreLabelScore>(), 174f));
-
+        var result = GenreFusionEngine.Fuse(new GenreFusionInput(jamendo.Select(j => S(j.Item1, j.Item2)).ToArray(), bpm, discogs));
         Assert.NotNull(result);
-        Assert.True(result.RanHeuristic);
-        Assert.Contains(result.Candidates, c => c.Source == "heuristic" && c.Weight == 0.35f);
+        return result!;
     }
 
     [Fact]
-    public void Fuse_JamendoInput_DoesNotRunHeuristic()
+    public void DnbHeavyDiscogs_IsDrumAndBass()
     {
-        var result = GenreFusionEngine.Fuse(new GenreFusionInput(
-            new[] { new GenreLabelScore("drumnbass", 0.9f) }, 174f));
-
-        Assert.NotNull(result);
-        Assert.False(result.RanHeuristic);
-        var candidate = Assert.Single(result.Candidates);
-        Assert.Equal("onnx-jamendo", candidate.Source);
-        Assert.Equal(0.85f, candidate.Weight);
-        Assert.Equal("Drum and Bass", candidate.Label);
+        var r = Fuse(174, Styles(("Electronic---Drum n Bass", 0.55f), ("Electronic---Jungle", 0.12f), ("Electronic---Techno", 0.06f)),
+            ("electronic", 0.5f), ("techno", 0.22f));
+        Assert.Equal(GenreBucket.DrumAndBass, r.Bucket);
+        Assert.Equal("Drum and Bass", r.WinnerLabel);
     }
 
     [Fact]
-    public void Fuse_FiltersZeroAndNegativeConfidence()
+    public void JungleOnly_IsDrumAndBass_WithJungleSubgenre_AndAStableLabel()
     {
-        // "techno" arrives with zero confidence (dropped before fusion), and "house" at 0.1 is pushed
-        // to ≤ 0 by the ≥155 BPM guardrail (−0.12) — only the boosted DnB vote survives.
-        // (Techno at 0.9 would only lose 0.10 at 174 BPM and stay in the distribution.)
-        var result = GenreFusionEngine.Fuse(new GenreFusionInput(
-            new[]
-            {
-                new GenreLabelScore("drumnbass", 0.9f),
-                new GenreLabelScore("techno", 0f),
-                new GenreLabelScore("house", 0.1f),
-            }, 174f));
-
-        Assert.NotNull(result);
-        Assert.Equal("Drum and Bass", result.WinnerLabel);
-        Assert.Single(result.Distribution);
+        var r = Fuse(170, Styles(("Electronic---Jungle", 0.4f)));
+        Assert.Equal(GenreBucket.DrumAndBass, r.Bucket);
+        Assert.Equal("Jungle", r.Subgenre);
+        Assert.Equal("Drum and Bass", r.WinnerLabel); // label strings are an API
     }
+
+    [Fact]
+    public void HardstyleHeavy_At150_WinsAsOther_InsteadOfLeakingIntoDnbOrTechno()
+    {
+        var r = Fuse(150, Styles(("Electronic---Hardstyle", 0.5f), ("Electronic---Techno", 0.1f), ("Electronic---Hardcore", 0.2f)));
+        Assert.Equal(GenreBucket.Other, r.Bucket);
+        Assert.Equal("Hardstyle", r.WinnerLabel);
+    }
+
+    [Theory]
+    [InlineData(0.5f, 0.3f, GenreBucket.House)]
+    [InlineData(0.3f, 0.5f, GenreBucket.Techno)]
+    public void TechHouseVersusTechno_IsDecidedByMass(float techHouse, float techno, GenreBucket expected)
+    {
+        var r = Fuse(126, Styles(("Electronic---Tech House", techHouse), ("Electronic---Techno", techno)));
+        Assert.Equal(expected, r.Bucket);
+        if (expected == GenreBucket.House) Assert.Equal("Tech House", r.Subgenre);
+    }
+
+    [Fact]
+    public void AllZeroDiscogs_GivesNoVote_AndFallsThroughToJamendo()
+    {
+        var zeros = Enumerable.Range(0, 400).Select(i => S($"Electronic---Style {i}", 0f)).ToArray();
+        var r = Fuse(174, zeros, ("drumnbass", 0.9f));
+        Assert.Equal(GenreBucket.DrumAndBass, r.Bucket);
+        Assert.All(r.Candidates, c => Assert.Equal("onnx-jamendo", c.Source));
+        Assert.False(r.RanHeuristic);
+    }
+
+    [Fact]
+    public void NoRhythm_TheGateIsANoOp()
+    {
+        var r = Fuse(174, null, ("house", 0.6f), ("drumnbass", 0.5f));
+        Assert.Equal(GenreBucket.House, r.Bucket); // tempo alone no longer overrules the models
+        Assert.Empty(r.Gate!);
+    }
+
+    [Fact]
+    public void NoDiscogsScores_StillFusesOnJamendo()
+    {
+        var r = Fuse(124, null, ("house", 0.8f), ("techno", 0.3f));
+        Assert.Equal(GenreBucket.House, r.Bucket);
+        Assert.Equal("House", r.WinnerLabel);
+    }
+
+    [Fact]
+    public void NoisyOr_IsNotASum()
+    {
+        var r = Fuse(174, Styles(("Electronic---Drum n Bass", 0.5f), ("Electronic---Jungle", 0.5f)));
+        var dnb = Assert.Single(r.Candidates, c => c.Source == "onnx-discogs400" && c.Bucket == GenreBucket.DrumAndBass);
+        Assert.Equal(0.75f, dnb.Confidence, 4); // 1 − (1 − 0.5)(1 − 0.5)
+    }
+
+    [Fact]
+    public void NoiseBelowTheFloor_DoesNotVoteForOther()
+    {
+        var r = Fuse(174, Styles(("Electronic---Drum n Bass", 0.3f)));
+        Assert.DoesNotContain(r.Candidates, c => c.Bucket == GenreBucket.Other);
+    }
+
+    [Fact]
+    public void JamendoBreakbeat_IsOther_NotDrumAndBass()
+    {
+        // v1 mapped Jamendo "breakbeat" to DnB; the taxonomy says Breaks is a confuser.
+        var r = Fuse(174, null, ("breakbeat", 0.7f));
+        Assert.Equal(GenreBucket.Other, r.Bucket);
+        Assert.Equal("Breakbeat", r.WinnerLabel);
+    }
+
+    [Fact]
+    public void WeightedTaxonomyMembers_CountPartially()
+    {
+        // Jamendo "minimal" is a 0.5-weight Techno member: 0.6 × 0.5 = 0.3.
+        var r = Fuse(132, null, ("minimal", 0.6f));
+        var techno = Assert.Single(r.Candidates);
+        Assert.Equal(GenreBucket.Techno, techno.Bucket);
+        Assert.Equal(0.3f, techno.Confidence, 4);
+    }
+
+    [Fact]
+    public void JunkOnlyJamendo_NoRhythm_GivesNoGenre()
+    {
+        // The v1/v2 BPM heuristic is gone (GA6): tempo alone no longer names a genre.
+        Assert.Null(GenreFusionEngine.Fuse(new GenreFusionInput(new[] { S("electronic", 0.9f) }, 174f)));
+        Assert.Null(GenreFusionEngine.Fuse(new GenreFusionInput(Array.Empty<GenreLabelScore>(), 174f)));
+        Assert.Null(GenreFusionEngine.Fuse(new GenreFusionInput(new[] { S("drumnbass", 0f) }, 90f)));
+    }
+
+    [Fact]
+    public void NoModelVote_ReliableDnbRhythm_GivesACappedRhythmOnlyGuess()
+    {
+        var rhythm = new RhythmSignature(0.02, 0.95, 0.05, 0.95, 87, 174, 32, 0.9);
+        var r = GenreFusionEngine.Fuse(new GenreFusionInput(Array.Empty<GenreLabelScore>(), 174f, null, rhythm));
+        Assert.NotNull(r);
+        Assert.True(r!.RanHeuristic);
+        Assert.Equal(GenreBucket.DrumAndBass, r.Bucket);
+        Assert.True(r.Confidence <= RhythmTempoGate.RhythmOnlyMaxConfidence);
+        Assert.Contains(r.Gate!, e => e.RuleId == "dnb-break");
+    }
+
+    [Fact]
+    public void ZeroConfidenceVotes_AreDropped()
+    {
+        var r = Fuse(174, null, ("drumnbass", 0.9f), ("techno", 0f));
+        Assert.Equal("Drum and Bass", r.WinnerLabel);
+        Assert.Single(r.Distribution);
+    }
+    [Fact]
+    public void Distribution_IsKeyedByStableDisplayText()
+    {
+        var r = Fuse(140, Styles(("Electronic---Hard Techno", 0.4f), ("Electronic---Dubstep", 0.3f)));
+        Assert.Contains("Hard Techno", r.Distribution.Keys);
+        Assert.Contains("Dubstep", r.Distribution.Keys);
+        Assert.Equal("Hard Techno", r.WinnerLabel); // still contains "techn" for substring consumers
+    }
+
+    [Fact]
+    public void FusionVersion_IsBumpedForGa6() => Assert.Equal(3, GenreFusionEngine.FusionVersion);
 }

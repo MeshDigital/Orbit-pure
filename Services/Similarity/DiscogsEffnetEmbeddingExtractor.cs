@@ -86,7 +86,7 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
 
     /// <summary>
     /// Model version tag used for cache-invalidation, stored in
-    /// <see cref="AudioFeaturesEntity.EmbeddingModelTag"/>. Format: "discogs-effnet-bsdynamic-1|{SHA256_8_HEX}".
+    /// <see cref="AudioFeaturesEntity.EmbeddingModelTag"/>. Format: "discogs-effnet-bsdynamic-1|{SHA256_8_HEX}|mel{N}" (N = <see cref="SLSKDONET.Engine.Analysis.EffnetMelSpectrogramExtractor.PreprocessingVersion"/>).
     /// </summary>
     public string? ModelTag
     {
@@ -277,14 +277,15 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
         }
     }
 
-    private static string BuildModelTag(string modelPath)
+    /// <summary>"{model}|{SHA256_8}|mel{N}": the model file plus the input preprocessing version (#270).</summary>
+    public static string BuildModelTag(string modelPath)
     {
         using var sha = SHA256.Create();
         using var fs  = File.OpenRead(modelPath);
         var hash = sha.ComputeHash(fs);
         var prefix = Convert.ToHexString(hash)[..8];
         var name   = Path.GetFileNameWithoutExtension(modelPath);
-        return $"{name}|{prefix}";
+        return $"{name}|{prefix}|mel{SLSKDONET.Engine.Analysis.EffnetMelSpectrogramExtractor.PreprocessingVersion}";
     }
 
     public void Dispose()

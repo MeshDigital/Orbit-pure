@@ -208,6 +208,7 @@ public class GenreTaxonomyTests
     [InlineData("Jungle", GenreBucket.DrumAndBass, "Jungle")]
     [InlineData("Liquid", GenreBucket.DrumAndBass, "Liquid")]
     [InlineData("Neurofunk", GenreBucket.DrumAndBass, "Neurofunk")]
+    [InlineData("Neuro", GenreBucket.DrumAndBass, "Neurofunk")]
     [InlineData("Jump Up", GenreBucket.DrumAndBass, "Jump Up")]
     [InlineData("Halftime", GenreBucket.DrumAndBass, "Halftime")]
     // Dubstep / 140
@@ -324,6 +325,10 @@ public class GenreTaxonomyTests
     }
 
     [Theory]
+    [InlineData("Deep", true)]
+    [InlineData("Taneční hudba", true)]
+    [InlineData("Deep House", false)]
+    [InlineData("Deep Techno", false)]
     [InlineData("", true)]
     [InlineData("   ", true)]
     [InlineData("Electronic", true)]

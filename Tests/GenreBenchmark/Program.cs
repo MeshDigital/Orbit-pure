@@ -55,10 +55,25 @@ var hashes = truth.Keys.ToList();
 var features = new Dictionary<string, FeatureRow>(StringComparer.Ordinal);
 foreach (var chunk in hashes.Chunk(500))
 {
-    foreach (var f in db.AudioFeatures.AsNoTracking().Where(f => chunk.Contains(f.TrackUniqueHash)))
-        features[f.TrackUniqueHash] = new FeatureRow(f.TrackUniqueHash, f.Bpm, f.DetectedSubGenre, f.SubGenreConfidence,
-            f.Embedding, f.EmbeddingModelTag, f.StyleScores);
+    // Projected, not whole entities: a library copy made before a schema addition lacks the new columns.
+    var rows = db.AudioFeatures.AsNoTracking()
+        .Where(f => chunk.Contains(f.TrackUniqueHash))
+        .Select(f => new { f.TrackUniqueHash, f.Bpm, f.DetectedSubGenre, f.SubGenreConfidence, f.BeatGridJson,
+                           f.EmbeddingBlob, f.EmbeddingModelTag, f.StyleScoresBlob })
+        .ToList();
+    foreach (var f in rows)
+        features[f.TrackUniqueHash] = new FeatureRow(f.TrackUniqueHash, f.Bpm, f.DetectedSubGenre, f.SubGenreConfidence, f.BeatGridJson,
+            Floats(f.EmbeddingBlob), f.EmbeddingModelTag, Floats(f.StyleScoresBlob));
 }
+
+static float[]? Floats(byte[]? blob) =>
+    blob is { Length: >= 4 } ? System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(blob).ToArray() : null;
+
+if (args.Contains("--mel-experiment"))
+    return await MelExperiment.RunAsync(truth, int.Parse(args[Array.IndexOf(args, "--mel-experiment") + 1], CultureInfo.InvariantCulture));
+
+if (opts.Mode == "audio")
+    return await AudioBench.RunAsync(truth, features, opts);
 
 var predictor = opts.Mode == "stored" ? (IPredictor)new StoredPredictor() : new OfflinePredictor(opts);
 if (predictor is OfflinePredictor op && !op.Ready(out var why)) { Console.Error.WriteLine(why); return 3; }
@@ -95,6 +110,10 @@ if (opts.Trace is { } trace)
 if (opts.Misclassified > 0)
     Report.Misclassified(results, opts.Misclassified);
 
+if (opts.Unlabelled > 0)
+    foreach (var r in results.Where(r => r.Prediction.Bucket is null).Take(opts.Unlabelled))
+        Report.Trace(r);
+
 if (opts.Compare is { } comparePath)
     Report.Compare(summary, JsonSerializer.Deserialize<Summary>(File.ReadAllText(comparePath), Json.Options)!);
 
@@ -110,12 +129,12 @@ static void Count(Dictionary<string, int> d, string key) => d[key] = d.GetValueO
 // ════════════════════════════════════════════════════════════════════════════
 
 sealed record Options(string DbPath, string Mode, string? SummaryPath, string? Compare, string? Trace,
-    int Misclassified, bool IncludeUntracked, double ConfidentThreshold)
+    int Misclassified, bool IncludeUntracked, double ConfidentThreshold, int Unlabelled, int Limit, string? AudioCache, bool GateSweep)
 {
     public static Options? Parse(string[] args)
     {
         string? db = null, summary = null, compare = null, trace = null;
-        var mode = "offline"; var mis = 0; var untracked = false; var threshold = 0.7;
+        var mode = "offline"; var mis = 0; var untracked = false; var threshold = 0.7; var unlabelled = 0; var limit = 200; string? cache = null;
         for (var i = 0; i < args.Length; i++)
         {
             string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"{args[i]} needs a value");
@@ -124,27 +143,34 @@ sealed record Options(string DbPath, string Mode, string? SummaryPath, string? C
                 case "--db": db = Next(); break;
                 case "--stored": mode = "stored"; break;
                 case "--offline": mode = "offline"; break;
+                case "--audio": mode = "audio"; break;
+                case "--limit": limit = int.Parse(Next(), CultureInfo.InvariantCulture); break;
+                case "--audio-cache": cache = Next(); break;
+                case "--gate-sweep": break; // read via args.Contains
+                case "--mel-experiment": Next(); break; // handled in Main
                 case "--summary": summary = Next(); break;
                 case "--compare": compare = Next(); break;
                 case "--trace": trace = Next(); break;
                 case "--misclassified": mis = int.Parse(Next(), CultureInfo.InvariantCulture); break;
+                case "--unlabelled": unlabelled = int.Parse(Next(), CultureInfo.InvariantCulture); break;
                 case "--include-untracked": untracked = true; break;
                 case "--confident": threshold = double.Parse(Next(), CultureInfo.InvariantCulture); break;
                 default: Console.Error.WriteLine($"Unknown argument {args[i]}"); return null;
             }
         }
-        return db is null ? null : new Options(db, mode, summary, compare, trace, mis, untracked, threshold);
+        return db is null ? null : new Options(db, mode, summary, compare, trace, mis, untracked, threshold, unlabelled, limit, cache, args.Contains("--gate-sweep"));
     }
 
     public static void PrintUsage() => Console.Error.WriteLine(
-        "Usage: GenreBenchmark --db <library copy> [--stored | --offline] [--summary out.json] [--compare baseline.json]\n" +
-        "                      [--trace \"<artist/title/file part>\"] [--misclassified N] [--include-untracked] [--confident 0.7]");
+        "Usage: GenreBenchmark --db <library copy> [--stored | --offline | --audio [--limit 200] [--audio-cache inputs.json]]\n" +
+        "                      [--summary out.json] [--compare baseline.json]\n" +
+        "                      [--trace \"<artist/title/file part>\"] [--misclassified N] [--unlabelled N] [--include-untracked] [--confident 0.7]");
 }
 
 /// <summary>One labelled track. <c>Source</c> is where the label came from (user, tags, beatport, discogs, untracked).</summary>
-sealed record TruthLabel(string Hash, GenreBucket Bucket, string Text, string Source, string Display);
+sealed record TruthLabel(string Hash, GenreBucket Bucket, string Text, string Source, string Display, string FilePath);
 
-sealed record FeatureRow(string Hash, float Bpm, string StoredLabel, float StoredConfidence,
+sealed record FeatureRow(string Hash, float Bpm, string StoredLabel, float StoredConfidence, string? BeatGridJson,
     float[]? Embedding, string? EmbeddingTag, float[]? StyleScores);
 
 /// <summary>A prediction: bucket (null = no label), the label text, its confidence and evidence lines for --trace.</summary>
@@ -219,7 +245,7 @@ static class GroundTruth
             if (buckets.Select(b => b.Map.Bucket).Distinct().Count() > 1) { conflict++; continue; }
 
             var display = $"{e.Artist} – {e.Title} ({Path.GetFileName(e.FilePath)})";
-            result[e.UniqueHash] = new TruthLabel(e.UniqueHash, buckets[0].Map.Bucket, string.Join(" / ", buckets.Select(b => b.Text)), source, display);
+            result[e.UniqueHash] = new TruthLabel(e.UniqueHash, buckets[0].Map.Bucket, string.Join(" / ", buckets.Select(b => b.Text)), source, display, e.FilePath ?? "");
         }
 
         stats = $"excluded: {circular} model-written, {untrusted} untrusted source, {junk} junk-only, {conflict} conflicting" +
@@ -274,11 +300,9 @@ sealed class OfflinePredictor : IPredictor
     public OfflinePredictor(Options opts)
     {
         var model = Path.Combine(AppContext.BaseDirectory, "Tools", "Essentia", "models", "discogs-effnet-bsdynamic-1.onnx");
+        // The app's own tag (model hash + preprocessing version, #270), so old embeddings are skipped.
         if (File.Exists(model) && new FileInfo(model).Length > 1_000_000)
-        {
-            using var stream = File.OpenRead(model);
-            _currentTag = "discogs-effnet-bsdynamic-1|" + Convert.ToHexString(SHA256.HashData(stream))[..8];
-        }
+            _currentTag = DiscogsEffnetEmbeddingExtractor.BuildModelTag(model);
     }
 
     public bool Ready(out string reason)
@@ -315,8 +339,13 @@ sealed class OfflinePredictor : IPredictor
         }
 
         evidence.Add("fused: " + string.Join(", ", fused.Distribution.Select(kv => $"{kv.Key} {kv.Value:F3}")) + (fused.RanHeuristic ? " (BPM heuristic)" : ""));
-        var map = GenreTaxonomy.MapFreeText(fused.WinnerLabel);
-        GenreBucket? bucket = map.IsJunk || map.Weight <= 0 ? null : map.Bucket;
+        // v2+ results carry their bucket; v1 only had text ("Other" alone would read as junk).
+        GenreBucket? bucket = fused.Bucket;
+        if (GenreFusionEngine.FusionVersion < 2)
+        {
+            var map = GenreTaxonomy.MapFreeText(fused.WinnerLabel);
+            bucket = map.IsJunk || map.Weight <= 0 ? null : map.Bucket;
+        }
         return new Prediction(bucket, fused.WinnerLabel, fused.Confidence, evidence);
     }
 }

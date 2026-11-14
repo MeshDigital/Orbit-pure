@@ -511,7 +511,12 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
 
             // ── Step 5b: Genre inference + canonical normalisation ──────
             if (engines.Has(AnalysisEngine.Mood))
-                InferAndApplyGenre(features, onnxGenrePrediction);
+            {
+                // GA6 (#251): the drums' signature for the rhythm & tempo gate. Uses this run's BPM and
+                // ticks, or the stored ones on a Mood-only run (the features row carries them).
+                var rhythm = AnalyzeRhythm(mono, pcmSampleRate, features, rmsCurve);
+                InferAndApplyGenre(features, onnxGenrePrediction, rhythm);
+            }
 
             // ── Step 5c: Fit a precise constant grid to the beat ticks ───
             // Runs after genre inference because that step can still change the BPM's octave. Replaces
@@ -680,13 +685,50 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         }
     }
 
-    private void InferAndApplyGenre(AudioFeaturesEntity features, GenreMoodPrediction? onnxPrediction)
+    /// <summary>
+    /// Runs <see cref="RhythmSignatureAnalyzer"/> and persists the result. Never throws: rhythm is
+    /// evidence, and without it the gate simply does nothing.
+    /// </summary>
+    private RhythmSignature? AnalyzeRhythm(float[] mono, int sampleRate, AudioFeaturesEntity features, IReadOnlyList<float> rmsCurve)
+    {
+        if (mono.Length == 0) return null;
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var ticks = BeatGridFitter.ParseTicks(features.BeatGridJson);
+            var signature = RhythmSignatureAnalyzer.Analyze(mono, sampleRate, features.Bpm, ticks, rmsCurve.Count > 0 ? rmsCurve : null);
+            _logger.LogDebug("[AudioAnalysis] Rhythm signature in {Ms} ms: 4x4 {FourOnFloor:F2}, backbeat {Backbeat:F2}, half {Half:F2}, break {Break:F2}, {Low:F0}/{High:F0} BPM, reliability {Reliability:F2}",
+                sw.ElapsedMilliseconds, signature.FourOnFloorScore, signature.BackbeatScore, signature.HalfTimeScore,
+                signature.BreakIrregularity, signature.TempoLow, signature.TempoHigh, signature.Reliability);
+            features.RhythmSignatureJson = JsonSerializer.Serialize(signature);
+            return signature;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "[AudioAnalysis] Rhythm signature failed; genre fuses without the rhythm gate");
+            return null;
+        }
+    }
+
+    private void InferAndApplyGenre(AudioFeaturesEntity features, GenreMoodPrediction? onnxPrediction, RhythmSignature? rhythm)
     {
         var jamendo = onnxPrediction is { } prediction
             ? prediction.JamendoGenres.Select(g => new GenreLabelScore(g.Label, g.Probability)).ToArray()
             : Array.Empty<GenreLabelScore>();
 
-        var result = GenreFusionEngine.Fuse(new GenreFusionInput(jamendo, features.Bpm));
+        // GA5 (#250): the 400 Discogs style sigmoids from the same EffNet run. Rows analysed before
+        // they were persisted, or with a labels/model mismatch, fuse on Jamendo alone.
+        IReadOnlyList<GenreLabelScore>? discogs = null;
+        if (features.StyleScores is { } styleScores && _styleLabels is { IsUsable: true } labels &&
+            styleScores.Length == labels.All.Count)
+        {
+            var all = labels.All;
+            var votes = new GenreLabelScore[styleScores.Length];
+            for (var i = 0; i < votes.Length; i++) votes[i] = new GenreLabelScore(all[i].Key, styleScores[i]);
+            discogs = votes;
+        }
+
+        var result = GenreFusionEngine.Fuse(new GenreFusionInput(jamendo, features.Bpm, discogs, rhythm));
         if (result is null)
         {
             return;
