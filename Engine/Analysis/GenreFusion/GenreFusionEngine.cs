@@ -12,10 +12,13 @@ public readonly record struct GenreLabelScore(string Label, float Score);
 /// the 400 Discogs-EffNet style sigmoids keyed "Parent---Name" (GA5, #250); null or empty when the
 /// row predates them. The rhythm signature (GA4/GA6) and personal head (GA11) plug in here later.
 /// </summary>
+/// <param name="Bpm">The tracker BPM, kept for evidence and callers; the gate reads <paramref name="Rhythm"/>'s folded tempo instead.</param>
+/// <param name="Rhythm">The drums' signature (GA4 #248). Null or reliability 0 → the gate is a no-op.</param>
 public readonly record struct GenreFusionInput(
     IReadOnlyList<GenreLabelScore> JamendoLabels,
     float Bpm,
-    IReadOnlyList<GenreLabelScore>? DiscogsStyles = null);
+    IReadOnlyList<GenreLabelScore>? DiscogsStyles = null,
+    RhythmSignature? Rhythm = null);
 
 /// <summary>A single bucket vote before fusion, with its provenance and weight (kept for evidence).</summary>
 /// <param name="Label">Canonical display text of the vote (e.g. "Drum and Bass", "Trance").</param>
@@ -34,6 +37,8 @@ public readonly record struct GenreFusionCandidate(
 /// <param name="Distribution">Fused score per bucket (keyed by its display text, top 6, rounded to 4 decimals).</param>
 /// <param name="Bucket">The winning bucket.</param>
 /// <param name="Subgenre">The winner's subgenre even when the display text can't carry it (Jungle → "Drum and Bass").</param>
+/// <param name="RanHeuristic">True when no model voted and the label is a rhythm + tempo guess (capped confidence).</param>
+/// <param name="Gate">Every rhythm &amp; tempo gate factor that was applied.</param>
 public sealed record GenreFusionResult(
     string WinnerLabel,
     float Confidence,
@@ -41,7 +46,8 @@ public sealed record GenreFusionResult(
     IReadOnlyList<GenreFusionCandidate> Candidates,
     bool RanHeuristic,
     GenreBucket Bucket = GenreBucket.Other,
-    string? Subgenre = null);
+    string? Subgenre = null,
+    IReadOnlyList<GenreGateEvidence>? Gate = null);
 
 /// <summary>
 /// Pure genre fusion (GA2 #247, Discogs-400 wired in GA5 #250). No DB, no ONNX.
@@ -52,16 +58,17 @@ public sealed record GenreFusionResult(
 /// independent sigmoids, never softmaxed or summed. Scores under <see cref="ScoreFloor"/> are noise
 /// and ignored, otherwise the ~350 non-club Discogs styles would all lift Other a little.
 /// Discogs-400 (the fine-grained electronic signal) weighs <see cref="DiscogsWeight"/>, Jamendo
-/// <see cref="JamendoWeight"/>. A track with no model votes falls back to the BPM heuristic; the
-/// BPM guardrails stay until the rhythm &amp; tempo gate (GA6 #251) replaces both.
+/// <see cref="JamendoWeight"/>. The bucket scores then pass the rhythm &amp; tempo gate
+/// (<see cref="RhythmTempoGate"/>, GA6 #251), which replaced the v1 BPM guardrails and heuristic.
 /// </para>
 /// <see cref="FusionVersion"/> is bumped whenever this scoring changes; GA10 (#255) uses it to
 /// detect stale rows.
 /// </summary>
 public static class GenreFusionEngine
 {
-    /// <summary>1 = GA2 verbatim port (Jamendo only). 2 = GA5: Discogs-400 + taxonomy buckets + noisy-OR.</summary>
-    public const int FusionVersion = 2;
+    /// <summary>1 = GA2 verbatim port (Jamendo only). 2 = GA5: Discogs-400 + taxonomy buckets + noisy-OR.
+    /// 3 = GA6: rhythm &amp; tempo gate replaces the BPM guardrails and heuristic.</summary>
+    public const int FusionVersion = 3;
 
     public const float DiscogsWeight = 0.9f;
     public const float JamendoWeight = 0.6f;
@@ -69,21 +76,42 @@ public static class GenreFusionEngine
     /// <summary>Sigmoid scores below this are noise and don't vote.</summary>
     public const float ScoreFloor = 0.05f;
 
-    private const float HeuristicWeight = 0.35f;
-
-    /// <summary>
-    /// A tempo-only guess is never "confident": v1 let the DnB heuristic reach 0.92 (0.62 + 0.10
-    /// guardrail + 0.20 margin), which the benchmark (#249) showed as hip-hop at 175 BPM labelled DnB.
-    /// </summary>
-    public const float HeuristicMaxConfidence = 0.45f;
-
     /// <summary>Fuses the input votes. Returns <c>null</c> when nothing survives to a winner.</summary>
-    public static GenreFusionResult? Fuse(GenreFusionInput input)
+    /// <summary>
+    /// Monotone map from the raw fused confidence to the accuracy actually observed at that
+    /// confidence (GA5/GA6). Fitted on the #249 <c>--audio</c> sample (300 tracks, fixed EffNet input
+    /// #270, gate on): raw 0.3–0.5 → 44 % right, 0.5–0.7 → 46 %, 0.7–0.85 → 49 %, 0.85–0.95 → 59 %,
+    /// 0.95–1 → 69 % (55 % on the hold-out). Without it 77 % of labels claimed ≥ 0.7 and 31 % of all
+    /// tracks were confidently wrong. Even the top bin is under 70 % right, so no fused label is
+    /// "confident" yet; refit when the inputs improve (personal head #256, MAEST #257).
+    /// </summary>
+    public static readonly (float Raw, float Calibrated)[] ConfidenceCalibration =
+    {
+        (0.00f, 0.25f), (0.40f, 0.44f), (0.60f, 0.46f), (0.775f, 0.49f), (0.90f, 0.59f), (0.975f, 0.69f), (1.00f, 0.69f),
+    };
+
+    /// <summary>Piecewise-linear interpolation through <see cref="ConfidenceCalibration"/>.</summary>
+    public static float Calibrate(float raw)
+    {
+        var table = ConfidenceCalibration;
+        if (raw <= table[0].Raw) return table[0].Calibrated;
+        for (var i = 1; i < table.Length; i++)
+        {
+            if (raw > table[i].Raw) continue;
+            var (x0, y0) = table[i - 1];
+            var (x1, y1) = table[i];
+            return y0 + (y1 - y0) * (raw - x0) / (x1 - x0);
+        }
+        return table[^1].Calibrated;
+    }
+
+    /// <param name="gateRules">Rule table for the rhythm &amp; tempo gate; null = <see cref="RhythmTempoGate.Rules"/>
+    /// (the benchmark passes variants when tuning).</param>
+    public static GenreFusionResult? Fuse(GenreFusionInput input, IReadOnlyList<GateRule>? gateRules = null)
     {
         ArgumentNullException.ThrowIfNull(input.JamendoLabels);
 
         var candidates = new List<GenreFusionCandidate>();
-        var ranHeuristic = false;
 
         // 0) Discogs-400 style sigmoids (same ONNX run as the embedding).
         if (input.DiscogsStyles is { Count: > 0 } styles)
@@ -92,35 +120,44 @@ public static class GenreFusionEngine
         // 1) MTG-Jamendo head (87 classes), through the same taxonomy.
         candidates.AddRange(BucketVotes(input.JamendoLabels, s => GenreTaxonomy.MapJamendoLabel(s), "onnx-jamendo", JamendoWeight));
 
-        // 2) Fuse per bucket with the BPM guardrails; the BPM heuristic only when no model vote survives.
-        var fused = new Dictionary<GenreBucket, float>();
+        // 2) Raw per-bucket scores.
+        var raw = new Dictionary<GenreBucket, double>();
         var maxConfidence = new Dictionary<GenreBucket, float>();
         var bestSub = new Dictionary<GenreBucket, (string? Sub, float Strength)>();
-
-        Accumulate(candidates, input.Bpm, fused, maxConfidence, bestSub);
-        if (fused.Count == 0)
+        foreach (var candidate in candidates)
         {
-            var heuristic = InferGenreHeuristic(input.Bpm);
-            if (!string.IsNullOrWhiteSpace(heuristic.Label))
-            {
-                var map = GenreTaxonomy.MapFreeText(heuristic.Label);
-                var vote = new GenreFusionCandidate(heuristic.Label, heuristic.Confidence, "heuristic", HeuristicWeight, map.Bucket);
-                candidates.Add(vote);
-                ranHeuristic = true;
-                Accumulate(new[] { vote }, input.Bpm, fused, maxConfidence, bestSub);
-            }
+            if (candidate.Confidence <= 0f) continue;
+            var score = candidate.Confidence * candidate.Weight;
+            raw[candidate.Bucket] = raw.GetValueOrDefault(candidate.Bucket) + score;
+            maxConfidence[candidate.Bucket] = Math.Max(maxConfidence.GetValueOrDefault(candidate.Bucket), candidate.Confidence);
+            if (candidate.Subgenre is not null &&
+                (!bestSub.TryGetValue(candidate.Bucket, out var current) || score > current.Strength))
+                bestSub[candidate.Bucket] = (candidate.Subgenre, score);
         }
 
-        if (fused.Count == 0)
-            return null;
+        // No model vote at all: a capped rhythm + tempo guess, or nothing.
+        if (raw.Count == 0)
+        {
+            if (RhythmTempoGate.RhythmOnlyGuess(input.Rhythm) is not { } guess) return null;
+            var label = GenreTaxonomy.CanonicalDisplay(guess.Bucket, null);
+            var vote = new GenreFusionCandidate(label, guess.Confidence, "rhythm", 1f, guess.Bucket);
+            return new GenreFusionResult(label, guess.Confidence,
+                new Dictionary<string, double> { [label] = Math.Round(guess.Confidence, 4) },
+                new[] { vote }, RanHeuristic: true, guess.Bucket, null, new[] { guess.Evidence });
+        }
+
+        // 3) Rhythm & tempo gate (GA6). Reliability 0 / no signature → scores unchanged.
+        var gate = RhythmTempoGate.Apply(raw, input.Rhythm, gateRules);
+        var fused = gate.Scores;
 
         var ranked = fused.OrderByDescending(kv => kv.Value).ToList();
         var winner = ranked[0];
-        var runnerUpScore = ranked.Count > 1 ? ranked[1].Value : 0f;
-        var margin = Math.Max(0f, winner.Value - runnerUpScore);
-        var winnerConfidence = maxConfidence.TryGetValue(winner.Key, out var conf) ? conf : 0.5f;
-        var finalConfidence = Math.Clamp(winnerConfidence + Math.Min(0.20f, margin), 0f, 0.99f);
-        if (ranHeuristic) finalConfidence = Math.Min(finalConfidence, HeuristicMaxConfidence);
+        var runnerUpScore = ranked.Count > 1 ? ranked[1].Value : 0;
+        var margin = Math.Max(0, winner.Value - runnerUpScore);
+        // A gate penalty on the winner lowers its confidence; a boost doesn't inflate it.
+        var gateFactor = raw[winner.Key] > 0 ? Math.Min(1.0, winner.Value / raw[winner.Key]) : 1.0;
+        var winnerConfidence = (maxConfidence.TryGetValue(winner.Key, out var conf) ? conf : 0.5f) * gateFactor;
+        var finalConfidence = Calibrate((float)Math.Clamp(winnerConfidence + Math.Min(0.20, margin), 0, 0.99));
 
         string? SubOf(GenreBucket b) => bestSub.TryGetValue(b, out var s) ? s.Sub : null;
 
@@ -134,31 +171,8 @@ public static class GenreFusionEngine
         var winnerSub = SubOf(winner.Key);
         return new GenreFusionResult(
             GenreTaxonomy.CanonicalDisplay(winner.Key, winnerSub),
-            finalConfidence, distribution, candidates, ranHeuristic, winner.Key, winnerSub);
+            finalConfidence, distribution, candidates, RanHeuristic: false, winner.Key, winnerSub, gate.Evidence);
     }
-
-    private static void Accumulate(
-        IEnumerable<GenreFusionCandidate> candidates, float bpm,
-        Dictionary<GenreBucket, float> fused, Dictionary<GenreBucket, float> maxConfidence,
-        Dictionary<GenreBucket, (string? Sub, float Strength)> bestSub)
-    {
-        foreach (var candidate in candidates)
-        {
-            if (candidate.Confidence <= 0f) continue;
-
-            var guarded = ApplyBpmGuardrails(candidate.Bucket, candidate.Confidence, bpm);
-            if (guarded <= 0f) continue;
-
-            var score = guarded * candidate.Weight;
-            fused[candidate.Bucket] = fused.GetValueOrDefault(candidate.Bucket) + score;
-            maxConfidence[candidate.Bucket] = Math.Max(maxConfidence.GetValueOrDefault(candidate.Bucket), guarded);
-
-            if (candidate.Subgenre is not null &&
-                (!bestSub.TryGetValue(candidate.Bucket, out var current) || score > current.Strength))
-                bestSub[candidate.Bucket] = (candidate.Subgenre, score);
-        }
-    }
-
     /// <summary>
     /// One candidate per bucket from one source: noisy-OR over the source's labels that map to the
     /// bucket (junk and sub-floor scores skipped). The subgenre is the strongest member's.
@@ -187,45 +201,5 @@ public static class GenreFusionEngine
             var sub = top[bucket].Sub;
             yield return new GenreFusionCandidate(GenreTaxonomy.CanonicalDisplay(bucket, sub), score, source, weight, bucket, sub);
         }
-    }
-
-    private static (string Label, float Confidence) InferGenreHeuristic(float bpm)
-    {
-        if (bpm >= 160 && bpm <= 182)
-            return ("Drum and Bass", 0.62f);
-
-        if (bpm >= 120 && bpm <= 132)
-            return ("House", 0.56f);
-
-        if (bpm >= 125 && bpm <= 142)
-            return ("Techno", 0.53f);
-
-        return (string.Empty, 0f);
-    }
-
-    /// <summary>The v1 BPM guardrails, now per bucket. Replaced by the rhythm &amp; tempo gate in GA6 (#251).</summary>
-    private static float ApplyBpmGuardrails(GenreBucket bucket, float confidence, float bpm)
-    {
-        var adjusted = confidence;
-
-        if (bucket == GenreBucket.DrumAndBass)
-        {
-            if (bpm >= 160 && bpm <= 182) adjusted += 0.10f; // calibration bias for DnB
-            if (bpm < 150) adjusted -= 0.15f;
-        }
-
-        if (bucket == GenreBucket.House)
-        {
-            if (bpm >= 118 && bpm <= 132) adjusted += 0.08f;
-            if (bpm >= 155) adjusted -= 0.12f;
-        }
-
-        if (bucket == GenreBucket.Techno)
-        {
-            if (bpm >= 124 && bpm <= 145) adjusted += 0.08f;
-            if (bpm >= 165) adjusted -= 0.10f;
-        }
-
-        return Math.Clamp(adjusted, 0f, 1f);
     }
 }
