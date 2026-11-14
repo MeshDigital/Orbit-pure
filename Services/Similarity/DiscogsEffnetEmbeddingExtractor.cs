@@ -88,6 +88,12 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
     /// Model version tag used for cache-invalidation, stored in
     /// <see cref="AudioFeaturesEntity.EmbeddingModelTag"/>. Format: "discogs-effnet-bsdynamic-1|{SHA256_8_HEX}|mel{N}" (N = <see cref="SLSKDONET.Engine.Analysis.EffnetMelSpectrogramExtractor.PreprocessingVersion"/>).
     /// </summary>
+    /// <summary>Tag for the style scores: <see cref="ModelTag"/> plus the pooling ("|pool=energy1", GA7 #252).</summary>
+    public string? StyleModelTag => ModelTag is { } tag ? BuildStyleTag(tag) : null;
+
+    /// <summary>The style-score tag for a given embedding model tag.</summary>
+    public static string BuildStyleTag(string modelTag) => $"{modelTag}|{PatchEnergyWeights.PoolTag}";
+
     public string? ModelTag
     {
         get
@@ -197,8 +203,11 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
             var predictionsTensor = results.First(r => r.Name == "activations").AsTensor<float>();
             var embeddingTensor   = results.First(r => r.Name == "embeddings").AsTensor<float>();
 
+            // The embedding stays the plain mean: the similarity index compares it across tracks
+            // (GA7 tip). Only the style scores are energy-weighted, so drops outweigh intros (#252).
             var embedding    = MeanAcrossPatches(embeddingTensor, patches.Count, EmbeddingDimension);
-            var predictions  = MeanAcrossPatches(predictionsTensor, patches.Count, StyleClassCount);
+            var weights      = PatchEnergyWeights.Compute(audio16k, patches.Count);
+            var predictions  = WeightedMeanAcrossPatches(predictionsTensor, weights, StyleClassCount);
 
             return (embedding, predictions);
         }
@@ -211,6 +220,22 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
             _logger.LogWarning(ex, "[EmbeddingExtractor] ONNX inference failed — skipping embedding for this track");
             return null;
         }
+    }
+
+    private static float[] WeightedMeanAcrossPatches(Tensor<float> tensor, float[] weights, int dim)
+    {
+        var mean = new float[dim];
+        double total = 0;
+        for (int p = 0; p < weights.Length; p++)
+        {
+            total += weights[p];
+            for (int d = 0; d < dim; d++)
+                mean[d] += weights[p] * tensor[p, d];
+        }
+        if (total <= 0) return mean;
+        for (int d = 0; d < dim; d++)
+            mean[d] = (float)(mean[d] / total);
+        return mean;
     }
 
     private static float[] MeanAcrossPatches(Tensor<float> tensor, int patchCount, int dim)

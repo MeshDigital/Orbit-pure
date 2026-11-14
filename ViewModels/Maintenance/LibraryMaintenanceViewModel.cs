@@ -313,11 +313,17 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
             StatusText = "Creating style playlists…";
             var playlistReport = await _playlistApplier.ApplyAsync(_runId.Value, playlists, ct);
 
+            // "Analyse tracks missing AI style": every track whose style scores are missing or stale
+            // (#255). It used to queue only the tracks this run fixed, so the option did nearly nothing.
             StatusText = "Queuing style backfill…";
-            var backfillReason = StyleBackfill
-                ? await _styleBackfill.QueueStyleBackfillAsync(
-                    tagFixes.Concat(genreFills).Select(p => p.Hash).Distinct(StringComparer.Ordinal), ct)
-                : null;
+            string? backfillReason = null;
+            var queuedForStyle = 0;
+            if (StyleBackfill)
+            {
+                var needing = await _styleBackfill.FindTracksNeedingStylesAsync(ct);
+                backfillReason = await _styleBackfill.QueueStyleBackfillAsync(needing, ct);
+                if (backfillReason is null) queuedForStyle = needing.Count;
+            }
 
             var summary = new MaintenanceRunSummary(
                 Applied: tagReport.Applied + genreReport.Applied,
@@ -327,9 +333,14 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
 
             await _tagChanges.CompleteRunAsync(_runId.Value, summary, ct);
 
-            SummaryText = summary.Failed == 0
+            SummaryText = (summary.Failed == 0
                 ? $"Applied {summary.Applied} changes ({summary.FileWritten} files, {summary.DbOnly} DB only). {playlistReport.Created} playlists created, {playlistReport.Appended} extended."
-                : $"Applied {summary.Applied} changes with {summary.Failed} failures. {playlistReport.Created} playlists created, {playlistReport.Appended} extended.";
+                : $"Applied {summary.Applied} changes with {summary.Failed} failures. {playlistReport.Created} playlists created, {playlistReport.Appended} extended.")
+                + (StyleBackfill
+                    ? backfillReason is null
+                        ? $" {SLSKDONET.Utils.CountFormat.N(queuedForStyle)} tracks queued for AI style analysis."
+                        : $" AI style analysis not queued: {backfillReason}"
+                    : string.Empty);
 
             if (!string.IsNullOrWhiteSpace(backfillReason))
                 _logger.LogWarning("[Maintenance] Style backfill unavailable: {Reason}", backfillReason);

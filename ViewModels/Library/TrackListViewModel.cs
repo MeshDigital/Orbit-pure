@@ -650,8 +650,15 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
     public int SelectedTrackCount
     {
         get => _selectedTrackCount;
-        private set => this.RaiseAndSetIfChanged(ref _selectedTrackCount, value);
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _selectedTrackCount, value);
+            this.RaisePropertyChanged(nameof(HasTwoSelected));
+        }
     }
+
+    /// <summary>Exactly two tracks selected: Library → "Edit transition…" (#204).</summary>
+    public bool HasTwoSelected => SelectedTrackCount == 2;
 
     /// <summary>
     /// The rows that count as a user selection: never the shared "Loading…" placeholder, never

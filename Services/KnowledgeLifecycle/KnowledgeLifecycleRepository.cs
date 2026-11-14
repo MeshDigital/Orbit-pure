@@ -132,7 +132,9 @@ public static class KnowledgeLifecycleRepository
     /// models, resolving file paths/titles via <see cref="LibraryEntryEntity"/> and annotating each
     /// slot's <c>Comments</c> with the incoming transition's recScore / confidence / freshness.
     /// </summary>
-    public static async Task<List<PlaylistTrack>> BuildAnnotatedSetExportAsync(AppDbContext db, Guid setProjectId)
+    /// <param name="includeTransitionNotes">Append the incoming transition's notes to each slot's
+    /// <c>Comments</c> (Sets export opt-in, #206). The ExportAgent keeps the old behaviour (true).</param>
+    public static async Task<List<PlaylistTrack>> BuildAnnotatedSetExportAsync(AppDbContext db, Guid setProjectId, bool includeTransitionNotes = true)
     {
         var set = await db.SetLists
             .Include(s => s.Tracks)
@@ -162,7 +164,11 @@ public static class KnowledgeLifecycleRepository
             .Where(e => hashes.Contains(e.SourceTrackId) && hashes.Contains(e.TargetTrackId))
             .ToListAsync()
             .ConfigureAwait(false);
-        var edgeByPair = edgeList.ToDictionary(e => (e.SourceTrackId, e.TargetTrackId));
+        // Several rows per pair are normal (one per transition type): keep the strongest. A plain
+        // ToDictionary threw on the second row and made such a set impossible to export.
+        var edgeByPair = edgeList
+            .GroupBy(e => (e.SourceTrackId, e.TargetTrackId))
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(e => e.CompatibilityScore).First());
 
         var health = ComputeSetHealth(ordered, edgeByPair, eventProfile);
 
@@ -172,18 +178,34 @@ public static class KnowledgeLifecycleRepository
             var slot = ordered[i];
             entries.TryGetValue(slot.TrackUniqueHash, out var entry);
 
+            // The full library metadata: the Rekordbox writer takes album, genre, BPM, key, label and
+            // year from the track model (cues and the beat grid it reads itself by hash).
             var track = new PlaylistTrack
             {
                 TrackUniqueHash = slot.TrackUniqueHash,
                 ResolvedFilePath = entry?.FilePath ?? string.Empty,
                 Title = entry?.Title ?? string.Empty,
                 Artist = entry?.Artist ?? string.Empty,
+                Album = entry?.Album ?? string.Empty,
+                Genres = entry?.Genres,
+                Bitrate = entry?.Bitrate,
+                Format = entry?.Format,
+                BPM = entry?.BPM,
+                MusicalKey = entry?.MusicalKey,
+                Label = entry?.Label,
+                ReleaseDate = entry?.ReleaseDate,
+                CanonicalDuration = entry?.CanonicalDuration,
+                ColorTag = entry?.ColorTag,
+                Comments = entry?.Comments,
+                AddedAt = entry?.AddedAt ?? DateTime.UtcNow,
                 TrackNumber = i + 1,
             };
 
-            if (i > 0 && edgeByPair.TryGetValue((ordered[i - 1].TrackUniqueHash, slot.TrackUniqueHash), out var edge))
+            if (includeTransitionNotes && i > 0 && edgeByPair.TryGetValue((ordered[i - 1].TrackUniqueHash, slot.TrackUniqueHash), out var edge))
             {
-                track.Comments = AnnotatedCommentFormatter.FormatComment(health, edge.ConfidenceLevel, edge.Freshness);
+                // Appended to the track's own comment, never replacing it (#206).
+                var note = AnnotatedCommentFormatter.FormatComment(health, edge.ConfidenceLevel, edge.Freshness);
+                track.Comments = string.IsNullOrWhiteSpace(track.Comments) ? note : $"{track.Comments} | {note}";
             }
 
             tracks.Add(track);
