@@ -86,7 +86,17 @@
                 <StackPanel Spacing="4">
                     <TextBlock Classes="h1" Text="{Binding SelectedSet.Name, FallbackValue=''}"
                                TextTrimming="CharacterEllipsis" />
-                    <TextBlock Classes="subtitle" Text="{Binding SelectedSummary}" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Classes="subtitle" Text="{Binding SelectedSummary}" VerticalAlignment="Center" />
+                        <ComboBox ItemsSource="{Binding EventPresetOptions}" SelectedItem="{Binding SelectedEventPreset}"
+                                  MinWidth="140" ToolTip.Tip="The event this set is for: Set Health compares your slots' energy targets with its energy curve">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:EventPresetOption">
+                                    <TextBlock Text="{Binding Name}" ToolTip.Tip="{Binding Description}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </StackPanel>
                 </StackPanel>
                 <Button Grid.Column="1" Classes="icon" VerticalAlignment="Top"
                         ToolTip.Tip="Set actions" AutomationProperties.Name="Set actions">
