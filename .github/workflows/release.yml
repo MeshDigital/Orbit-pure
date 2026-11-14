@@ -1,0 +1,165 @@
+name: Release
+
+# Builds the installers for a version tag (v0.4.0, v0.4.0-beta.1) or a manual run, then publishes a
+# GitHub release. Windows is the supported platform: the job fails the release if the Windows build,
+# installer or start-up smoke test fails. Linux and macOS are experimental (see
+# DOCS/platform/MACOS_FEASIBILITY.md): they publish, launch-test and upload only when they start,
+# and never block the Windows release.
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version without the v (e.g. 0.4.0). Must match <Version> in SLSKDONET.csproj.'
+        required: true
+      prerelease:
+        description: 'Publish as a pre-release (Beta update channel only)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_NOLOGO: true
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            v="${GITHUB_REF_NAME#v}"
+            # A tag with a suffix (v0.4.0-beta.1) is a pre-release.
+            if [[ "$v" == *-* ]]; then pre=true; else pre=false; fi
+          else
+            v="${{ inputs.version }}"
+            pre="${{ inputs.prerelease }}"
+          fi
+          csproj=$(grep -oP '(?<=<Version>)[^<]+' SLSKDONET.csproj)
+          base="${v%%-*}"
+          if [ "$csproj" != "$base" ]; then
+            echo "::error::Version $v does not match <Version>$csproj</Version> in SLSKDONET.csproj (the in-app updater compares them)."
+            exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup --no-progress -y }
+      - name: Build, smoke-test and package
+        shell: pwsh
+        run: ./Tools/release-alpha.ps1 -Version "${{ needs.version.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            artifacts/ORBIT-*-win-x64.zip
+            artifacts/ORBIT-Setup-*-win-x64.exe
+          if-no-files-found: error
+
+  linux:
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Publish linux-x64
+        run: dotnet publish SLSKDONET.csproj -c Release -r linux-x64 --self-contained true -o out/ORBIT
+      - name: Start-up smoke test (xvfb, throwaway profile)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb libice6 libsm6 libfontconfig1 > /dev/null
+          chmod +x out/ORBIT/ORBIT
+          set +e
+          timeout 60 xvfb-run -a out/ORBIT/ORBIT --setup-preview > smoke.log 2>&1
+          code=$?
+          set -e
+          tail -n 40 smoke.log || true
+          # 124 = still running when the timeout hit, i.e. it started and stayed up.
+          if [ "$code" -ne 124 ]; then echo "::error::ORBIT exited on start-up (code $code)"; exit 1; fi
+      - name: Package
+        run: tar -C out -czf "ORBIT-${{ needs.version.outputs.version }}-linux-x64-experimental.tar.gz" ORBIT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: ORBIT-*-linux-x64-experimental.tar.gz
+
+  macos:
+    needs: version
+    # Intel runner: osx-arm64 can't build yet (Microsoft.ML 3.0.1 only supports x86/x64).
+    runs-on: macos-13
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Publish osx-x64
+        run: dotnet publish SLSKDONET.csproj -c Release -r osx-x64 --self-contained true -o out/ORBIT
+      - name: Start-up smoke test (throwaway profile)
+        run: |
+          chmod +x out/ORBIT/ORBIT
+          out/ORBIT/ORBIT --setup-preview > smoke.log 2>&1 &
+          pid=$!
+          sleep 60
+          tail -n 40 smoke.log || true
+          if ! kill -0 "$pid" 2>/dev/null; then echo "::error::ORBIT exited on start-up"; exit 1; fi
+          kill "$pid" || true
+      - name: Package
+        run: tar -C out -czf "ORBIT-${{ needs.version.outputs.version }}-osx-x64-experimental.tar.gz" ORBIT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: ORBIT-*-osx-x64-experimental.tar.gz
+
+  release:
+    needs: [version, windows, linux, macos]
+    # Windows must succeed; the experimental jobs may fail (continue-on-error) and are then left out.
+    if: ${{ always() && needs.windows.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${{ needs.version.outputs.version }}"
+          notes="DOCS/releases/v${v}.md"
+          [ -f "$notes" ] || { echo "::error::Release notes $notes are missing"; exit 1; }
+          flags=()
+          [ "${{ needs.version.outputs.prerelease }}" = "true" ] && flags+=(--prerelease)
+          files=$(find dist -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.tar.gz' \))
+          echo "$files"
+          gh release create "v${v}" $files --title "ORBIT ${v}" --notes-file "$notes" --target "${GITHUB_SHA}" "${flags[@]}"
