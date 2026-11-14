@@ -39,6 +39,9 @@ public static class EffnetMelSpectrogramExtractor
     public const int MelBands = 96;
     public const int PatchFrames = 128;
 
+    /// <summary>Length of one (non-overlapping) patch: 128 hops of 256 samples at 16 kHz ≈ 2.05 s.</summary>
+    public const double PatchSeconds = (double)PatchFrames * HopSize / SampleRate;
+
     /// <summary>
     /// Part of <c>EmbeddingModelTag</c>/<c>StyleModelTag</c> ("|mel2"), so rows computed with an
     /// older preprocessing are detectably stale (GA10 #255 re-runs them). 1 = ln + unit-height mel

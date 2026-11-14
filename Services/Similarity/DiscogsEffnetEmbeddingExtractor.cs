@@ -108,14 +108,14 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
     /// Returns <c>null</c> when the model is unavailable or the audio is too short for even one
     /// mel-spectrogram patch (~2 seconds).
     /// </summary>
-    public Task<(float[] Embedding, float[] StylePredictions)?> ExtractAsync(
+    public Task<(float[] Embedding, float[] StylePredictions, float[][] PatchEmbeddings)?> ExtractAsync(
         float[] monoAudioSamples16k,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(monoAudioSamples16k);
 
         EnsureSessionLoaded();
-        if (_session == null) return Task.FromResult<(float[], float[])?>(null);
+        if (_session == null) return Task.FromResult<(float[], float[], float[][])?>(null);
 
         ct.ThrowIfCancellationRequested();
 
@@ -147,7 +147,7 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
 
     // ── private helpers ───────────────────────────────────────────────────────
 
-    private (float[] Embedding, float[] StylePredictions)? RunInference(float[] audio16k, CancellationToken ct)
+    private (float[] Embedding, float[] StylePredictions, float[][] PatchEmbeddings)? RunInference(float[] audio16k, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
 
@@ -209,7 +209,18 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
             var weights      = PatchEnergyWeights.Compute(audio16k, patches.Count);
             var predictions  = WeightedMeanAcrossPatches(predictionsTensor, weights, StyleClassCount);
 
-            return (embedding, predictions);
+            // Per-patch embeddings (patch p covers p × PatchSeconds onward) for time-resolved heads
+            // such as voice/instrumental (#285); transient, never stored.
+            var patchEmbeddings = new float[patches.Count][];
+            for (int p = 0; p < patches.Count; p++)
+            {
+                var row = new float[EmbeddingDimension];
+                for (int d = 0; d < EmbeddingDimension; d++)
+                    row[d] = embeddingTensor[p, d];
+                patchEmbeddings[p] = row;
+            }
+
+            return (embedding, predictions, patchEmbeddings);
         }
         catch (OperationCanceledException)
         {

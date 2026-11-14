@@ -51,6 +51,7 @@ public sealed class EffnetClassifierHeadService : IDisposable
     private readonly Head _moodRelaxed;
     private readonly Head _moodParty;
     private readonly Head _moodAggressive;
+    private readonly Head _voice; // voice_instrumental: classes [instrumental, voice] (#285)
     private bool _disposed;
 
     public EffnetClassifierHeadService(ILogger<EffnetClassifierHeadService> logger)
@@ -69,6 +70,28 @@ public sealed class EffnetClassifierHeadService : IDisposable
         _moodRelaxed    = new Head(Path.Combine(modelsDir, "mood_relaxed-discogs-effnet-1.onnx"), 2, logger);
         _moodParty      = new Head(Path.Combine(modelsDir, "mood_party-discogs-effnet-1.onnx"), 2, logger);
         _moodAggressive = new Head(Path.Combine(modelsDir, "mood_aggressive-discogs-effnet-1.onnx"), 2, logger);
+        _voice          = new Head(Path.Combine(modelsDir, VoiceModelFile), 2, logger);
+    }
+
+    public const string VoiceModelFile = "voice_instrumental-discogs-effnet-1.onnx";
+
+    /// <summary>True when the voice/instrumental head loaded (vocal detection runs only then).</summary>
+    public bool IsVoiceAvailable => _voice.IsAvailable;
+
+    /// <summary>
+    /// Voice probability (0–1) per mel patch, from the per-patch embeddings, in one batched call.
+    /// Null when the voice model is unavailable or inference failed (logged by the head).
+    /// </summary>
+    public float[]? PredictVoiceByPatch(IReadOnlyList<float[]> patchEmbeddings)
+    {
+        ArgumentNullException.ThrowIfNull(patchEmbeddings);
+        if (patchEmbeddings.Count == 0) return Array.Empty<float>();
+        var scores = _voice.PredictBatch(patchEmbeddings);
+        if (scores is null) return null;
+        var voice = new float[scores.Length];
+        for (int i = 0; i < scores.Length; i++)
+            voice[i] = scores[i][1]; // [instrumental, voice]
+        return voice;
     }
 
     /// <summary>True when at least the genre classifier head loaded successfully.</summary>
@@ -109,6 +132,7 @@ public sealed class EffnetClassifierHeadService : IDisposable
         _moodRelaxed.Dispose();
         _moodParty.Dispose();
         _moodAggressive.Dispose();
+        _voice.Dispose();
     }
 
     /// <summary>One small dense-network classifier head: 1280-D embedding in, N-class prediction out.</summary>
@@ -173,6 +197,57 @@ public sealed class EffnetClassifierHeadService : IDisposable
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "[ClassifierHead] ONNX inference failed for {Path} — skipping this prediction", _modelPath);
+                return null;
+            }
+        }
+
+        /// <summary>Predicts a batch of embeddings ([n, 1280] → [n, classes]) in one call; null on failure.</summary>
+        public float[][]? PredictBatch(IReadOnlyList<float[]> embeddings)
+        {
+            EnsureLoaded();
+            if (_session == null || embeddings.Count == 0) return null;
+
+            var dim = embeddings[0].Length;
+            var flat = new float[embeddings.Count * dim];
+            for (int i = 0; i < embeddings.Count; i++)
+            {
+                if (embeddings[i].Length != dim)
+                {
+                    _logger.LogWarning("[ClassifierHead] ragged batch for {Path} — skipping", _modelPath);
+                    return null;
+                }
+                embeddings[i].CopyTo(flat, i * dim);
+            }
+            var tensor = new DenseTensor<float>(flat, new[] { embeddings.Count, dim });
+            var inputs = new[] { NamedOnnxValue.CreateFromTensor("embeddings", tensor) };
+
+            try
+            {
+                _inferenceLock.Wait();
+                IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results;
+                try
+                {
+                    results = _session.Run(inputs);
+                }
+                finally
+                {
+                    _inferenceLock.Release();
+                }
+
+                using var _ = results;
+                var output = results.First(r => r.Name == "activations").AsTensor<float>();
+                var rows = new float[embeddings.Count][];
+                for (int i = 0; i < embeddings.Count; i++)
+                {
+                    rows[i] = new float[_classCount];
+                    for (int c = 0; c < _classCount; c++)
+                        rows[i][c] = output[i, c];
+                }
+                return rows;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[ClassifierHead] batched ONNX inference failed for {Path} — skipping", _modelPath);
                 return null;
             }
         }

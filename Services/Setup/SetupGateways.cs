@@ -392,6 +392,7 @@ public static class AnalysisModelInventory
         ("mood_relaxed-discogs-effnet-1.onnx", "mood"),
         ("mood_party-discogs-effnet-1.onnx", "mood"),
         ("mood_aggressive-discogs-effnet-1.onnx", "mood"),
+        ("voice_instrumental-discogs-effnet-1.onnx", "vocal detection"),
         ("cue-detr.onnx", "cue confidence"),
     };
 

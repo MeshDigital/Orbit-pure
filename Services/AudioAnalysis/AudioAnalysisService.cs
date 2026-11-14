@@ -356,6 +356,15 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                         var prediction = _effnetClassifier.Classify(embeddingResult.Value.Embedding);
                         onnxGenrePrediction = prediction;
 
+                        // Vocal span / density from the voice head on every patch (#285): feeds
+                        // Sets "Check clashes", vocal-safe mix points and vocal clash avoidance.
+                        // Without the model the vocal fields stay unknown (null span), never guessed.
+                        var voice = _effnetClassifier.PredictVoiceByPatch(embeddingResult.Value.PatchEmbeddings);
+                        if (voice is { Length: > 0 })
+                            SLSKDONET.Engine.Analysis.VocalActivity.Apply(
+                                SLSKDONET.Engine.Analysis.VocalActivity.FromPatchProbabilities(voice, EffnetMelSpectrogramExtractor.PatchSeconds),
+                                features);
+
                         // Winner-takes-all across the 5 independent binary mood classifiers,
                         // matching the (previously dead) ApplyMoodClassification's own convention.
                         (string Tag, float Score)[] moodCandidates =

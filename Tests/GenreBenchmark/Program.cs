@@ -24,6 +24,9 @@ using SLSKDONET.Services.Similarity;
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 
+if (args.Length > 0 && args[0] == "--vocals")
+    return await VocalBench.RunAsync(args[1..]); // #285: no database involved
+
 var opts = Options.Parse(args);
 if (opts is null) { Options.PrintUsage(); return 2; }
 Metrics.Threshold = opts.ConfidentThreshold;
