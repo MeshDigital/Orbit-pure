@@ -92,4 +92,21 @@ Suggested phase order if it becomes a "go":
 Follow-up issues (drafted here, **not created** until the owner approves): one per phase above.
 
 ## Result: does it start? (release workflow smoke jobs)
-_Filled in from the first release run._
+Measured on the `v0.4.0-beta.1` release runs (2026-11-14), published at
+https://github.com/MeshDigital/Orbit-pure/releases/tag/v0.4.0-beta.1:
+
+| Build | Runner | Result |
+|---|---|---|
+| `win-x64` (supported) | `windows-latest` | Smoke test passed (window up, stays up); Inno Setup installer + zip built |
+| `linux-x64` (experimental) | `ubuntu-latest`, `xvfb-run` | **Starts and stays up** for the 60 s window: library, download center and the update check all initialise; 202 MB `.tar.gz` (no AI models) |
+| `osx-x64` (experimental) | `macos-latest` (Apple Silicon) under **Rosetta 2** | **Starts and stays up**, same start-up path; 93 MB `.tar.gz` (no AI models, not notarised) |
+| `osx-arm64` | — | not built (`Microsoft.ML` 3.0.1, see above) |
+
+Found by the smoke logs, for the port backlog:
+- The Intel `macos-13` runner image no longer gets runners; the job now publishes `osx-x64` on
+  `macos-latest` and smoke-tests it under Rosetta.
+- On macOS the update check reads the app's own version as `0.0.0.0` (it comes from the Windows file
+  version), so the in-app updater would misjudge releases there. Read the assembly's informational
+  version instead (S).
+- Only start-up is tested. Playback can't work off Windows until `IAudioOutputBackend` exists, and
+  the experimental archives ship without the AI models (the LFS bandwidth goes to the Windows build).
