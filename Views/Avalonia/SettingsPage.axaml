@@ -998,6 +998,18 @@
                                                 Command="{Binding FindExactDuplicatesCommand}"
                                                 Content="Find duplicates…"/>
                                     </Grid>
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                        <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="Rekordbox play history"/>
+                                            <TextBlock Classes="caption" TextWrapping="Wrap"
+                                                       Text="Import the sets you played in Rekordbox: every two tracks you played back to back count as a transition that worked live. Read-only; only tracks in your ORBIT library count."/>
+                                            <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding HistoryImportStatus}"
+                                                       IsVisible="{Binding HistoryImportStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Classes="secondary"
+                                                Command="{Binding ImportRekordboxHistoryCommand}"
+                                                Content="Import history"/>
+                                    </Grid>
                                     <Grid Classes="row" ColumnDefinitions="*,Auto" IsVisible="{Binding CanUndoMaintenance}">
                                         <StackPanel Classes="label">
                                             <TextBlock Classes="body" Text="Undo last maintenance run"/>

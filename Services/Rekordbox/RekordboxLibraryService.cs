@@ -21,6 +21,17 @@ public sealed record RekordboxDbCue(int Kind, long InMsec, long OutMsec, int Col
 /// <summary>One Rekordbox collection track that has cues.</summary>
 public sealed record RekordboxDbTrack(string Id, string? Path, string? Title, string? Artist, double Bpm, IReadOnlyList<RekordboxDbCue> Cues);
 
+/// <summary>One track in a Rekordbox play-history playlist, in played order.</summary>
+public sealed record RekordboxHistoryTrack(int TrackNo, string? Path, string? Title, string? Artist);
+
+/// <summary>A Rekordbox play-history playlist ("HISTORY 2026-01-03"): one recorded session.</summary>
+public sealed record RekordboxHistory(string Id, string? Name, string? Created, IReadOnlyList<RekordboxHistoryTrack> Tracks);
+
+public sealed record RekordboxHistoryResult(bool Success, string Message, IReadOnlyList<RekordboxHistory> Histories)
+{
+    public static RekordboxHistoryResult Fail(string message) => new(false, message, Array.Empty<RekordboxHistory>());
+}
+
 public sealed record RekordboxReadResult(bool Success, string Message, IReadOnlyList<RekordboxDbTrack> Tracks)
 {
     public static RekordboxReadResult Fail(string message) => new(false, message, Array.Empty<RekordboxDbTrack>());
@@ -96,6 +107,51 @@ public sealed class RekordboxLibraryService
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>Rekordbox's play-history playlists (read-only, #207). Not cached: imports are rare.</summary>
+    public async Task<RekordboxHistoryResult> ReadHistoryAsync(CancellationToken ct = default)
+    {
+        var db = DatabasePath;
+        if (db == null) return RekordboxHistoryResult.Fail("No Rekordbox 6/7 library found on this computer.");
+        if (!File.Exists(BridgePath)) return RekordboxHistoryResult.Fail("The Rekordbox reader isn't installed with this build of ORBIT.");
+
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var (exit, stdout, stderr) = await RunBridgeAsync("history", db, ct).ConfigureAwait(false);
+            var result = exit switch
+            {
+                0 => ParseHistory(stdout),
+                2 => RekordboxHistoryResult.Fail("Rekordbox's library file wasn't found."),
+                3 => RekordboxHistoryResult.Fail("Couldn't unlock Rekordbox's library. This Rekordbox version may use a different key."),
+                _ => RekordboxHistoryResult.Fail($"Couldn't read Rekordbox's play history: {FirstLine(stderr)}"),
+            };
+            if (!result.Success) _logger.LogWarning("Rekordbox history read failed (exit {Exit}): {Error}", exit, FirstLine(stderr));
+            else _logger.LogInformation("Rekordbox history read: {Count} sessions", result.Histories.Count);
+            return result;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    internal static RekordboxHistoryResult ParseHistory(string json)
+    {
+        var list = new List<RekordboxHistory>();
+        using var doc = JsonDocument.Parse(json);
+        foreach (var h in doc.RootElement.EnumerateArray())
+        {
+            var tracks = h.GetProperty("tracks").EnumerateArray().Select(t => new RekordboxHistoryTrack(
+                t.GetProperty("trackNo").GetInt32(),
+                t.GetProperty("path").GetString(),
+                t.GetProperty("title").GetString(),
+                t.GetProperty("artist").GetString())).ToList();
+            list.Add(new RekordboxHistory(h.GetProperty("id").GetString() ?? "", h.GetProperty("name").GetString(),
+                h.GetProperty("created").GetString(), tracks));
+        }
+        return new RekordboxHistoryResult(true, $"{list.Count} play-history sessions", list);
     }
 
     /// <summary>The Rekordbox track for a file ORBIT knows, matched by path (case- and separator-insensitive).</summary>

@@ -64,57 +64,67 @@ public sealed class PerformanceAnalystAgent : IKnowledgeAgent, IDisposable
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
-            var session = await db.PerformanceSessions
-                .Include(s => s.Tracks)
-                .FirstOrDefaultAsync(s => s.Id == evt.SessionId)
-                .ConfigureAwait(false);
-            if (session is null)
-                return;
-
-            var audibles = PerformanceSessionReconciler.ExtractAudibleTransitions(session.Tracks.ToList());
-
-            foreach (var audible in audibles)
-            {
-                var type = audible.TransitionType.HasValue
-                    ? (KnowledgeTransitionType)audible.TransitionType.Value
-                    : KnowledgeTransitionType.Blend;
-
-                var edge = await KnowledgeLifecycleRepository
-                    .GetOrCreateKnowledgeEdgeAsync(db, audible.SourceTrackId, audible.TargetTrackId, type)
-                    .ConfigureAwait(false);
-
-                var source = audible.CrowdReaction.HasValue
-                    ? TransitionEvidenceSource.CrowdReaction
-                    : TransitionEvidenceSource.LivePerformance;
-                var score = audible.CrowdReaction ?? LiveChoiceBaseScore;
-                var confidence = audible.CrowdReaction.HasValue ? CrowdRatedConfidence : LiveChoiceConfidence;
-
-                await KnowledgeLifecycleRepository
-                    .AddEvidenceAsync(db, edge.Id, source, score, confidence, evt.SessionId)
-                    .ConfigureAwait(false);
-                await KnowledgeLifecycleRepository.RecomputeAsync(edge.Id, db).ConfigureAwait(false);
-            }
-
-            var observedTypes = audibles
-                .Select(a => a.TransitionType.HasValue
-                    ? (KnowledgeTransitionType)a.TransitionType.Value
-                    : KnowledgeTransitionType.Blend)
-                .ToList();
-            if (observedTypes.Count > 0)
-            {
-                var fingerprint = await KnowledgeLifecycleRepository.GetOrCreateFingerprintAsync(db).ConfigureAwait(false);
-                DjFingerprintService.UpdateTransitionPreferences(fingerprint, observedTypes);
-                fingerprint.UpdatedAtUtc = DateTime.UtcNow;
-                await db.SaveChangesAsync().ConfigureAwait(false);
-            }
-
-            _logger.LogInformation(
-                "[PerformanceAnalyst] reconciled {Count} audible(s) for session {Session}",
-                audibles.Count, evt.SessionId);
+            var count = await RecordEvidenceAsync(db, evt.SessionId).ConfigureAwait(false);
+            _logger.LogInformation("[PerformanceAnalyst] reconciled {Count} audible(s) for session {Session}", count, evt.SessionId);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[PerformanceAnalyst] failed to reconcile session {Session}", evt.SessionId);
         }
     }
-}
+
+    /// <summary>
+    /// Writes the session's live evidence: one append-only <see cref="TransitionEvidenceEntity"/> per
+    /// live audible (a weak positive, or the crowd rating when there is one), recomputes each edge
+    /// and updates the DJ's transition-type fingerprint. Returns the number of audibles. Shared by
+    /// this agent and the explicit Rekordbox history import (#207), which runs it directly because the
+    /// agent swarm is off by default.
+    /// </summary>
+    public static async Task<int> RecordEvidenceAsync(AppDbContext db, Guid sessionId)
+    {
+        var session = await db.PerformanceSessions
+            .Include(s => s.Tracks)
+            .FirstOrDefaultAsync(s => s.Id == sessionId)
+            .ConfigureAwait(false);
+        if (session is null)
+            return 0;
+
+        var audibles = PerformanceSessionReconciler.ExtractAudibleTransitions(session.Tracks.ToList());
+
+        foreach (var audible in audibles)
+        {
+            var type = audible.TransitionType.HasValue
+                ? (KnowledgeTransitionType)audible.TransitionType.Value
+                : KnowledgeTransitionType.Blend;
+
+            var edge = await KnowledgeLifecycleRepository
+                .GetOrCreateKnowledgeEdgeAsync(db, audible.SourceTrackId, audible.TargetTrackId, type)
+                .ConfigureAwait(false);
+
+            var source = audible.CrowdReaction.HasValue
+                ? TransitionEvidenceSource.CrowdReaction
+                : TransitionEvidenceSource.LivePerformance;
+            var score = audible.CrowdReaction ?? LiveChoiceBaseScore;
+            var confidence = audible.CrowdReaction.HasValue ? CrowdRatedConfidence : LiveChoiceConfidence;
+
+            await KnowledgeLifecycleRepository
+                .AddEvidenceAsync(db, edge.Id, source, score, confidence, sessionId)
+                .ConfigureAwait(false);
+            await KnowledgeLifecycleRepository.RecomputeAsync(edge.Id, db).ConfigureAwait(false);
+        }
+
+        var observedTypes = audibles
+            .Select(a => a.TransitionType.HasValue
+                ? (KnowledgeTransitionType)a.TransitionType.Value
+                : KnowledgeTransitionType.Blend)
+            .ToList();
+        if (observedTypes.Count > 0)
+        {
+            var fingerprint = await KnowledgeLifecycleRepository.GetOrCreateFingerprintAsync(db).ConfigureAwait(false);
+            DjFingerprintService.UpdateTransitionPreferences(fingerprint, observedTypes);
+            fingerprint.UpdatedAtUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync().ConfigureAwait(false);
+        }
+
+        return audibles.Count;
+    }}

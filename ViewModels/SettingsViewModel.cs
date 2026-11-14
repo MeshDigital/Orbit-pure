@@ -209,6 +209,54 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>Settings → Maintenance: open the Library Maintenance wizard overlay.</summary>
     private ICommand? _runMaintenanceCommand;
     public ICommand RunMaintenanceCommand => _runMaintenanceCommand ??= new RelayCommand(() => _eventBus.Publish(new OpenLibraryMaintenanceRequestedEvent()));
+    // ── Rekordbox play history → "played live" evidence (#207) ─────────────
+    private readonly Services.KnowledgeLifecycle.RekordboxHistoryImportService? _historyImport;
+    private AsyncRelayCommand? _importRekordboxHistoryCommand;
+    public ICommand ImportRekordboxHistoryCommand => _importRekordboxHistoryCommand ??=
+        new AsyncRelayCommand(ImportRekordboxHistoryAsync, () => _historyImport is not null && !IsImportingHistory);
+
+    private bool _isImportingHistory;
+    public bool IsImportingHistory
+    {
+        get => _isImportingHistory;
+        private set
+        {
+            if (_isImportingHistory == value) return;
+            _isImportingHistory = value;
+            OnPropertyChanged();
+            _importRekordboxHistoryCommand?.RaiseCanExecuteChanged();
+        }
+    }
+
+    private string? _historyImportStatus;
+    /// <summary>The last import's honest result (sessions, transitions, unmatched tracks, or why it failed).</summary>
+    public string? HistoryImportStatus
+    {
+        get => _historyImportStatus;
+        private set { if (_historyImportStatus == value) return; _historyImportStatus = value; OnPropertyChanged(); }
+    }
+
+    private async Task ImportRekordboxHistoryAsync()
+    {
+        if (_historyImport is null) return;
+        IsImportingHistory = true;
+        HistoryImportStatus = "Reading Rekordbox's play history…";
+        try
+        {
+            var result = await _historyImport.ImportAsync();
+            HistoryImportStatus = result.Summary;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Rekordbox history import failed");
+            HistoryImportStatus = $"Import failed: {ex.Message}";
+        }
+        finally
+        {
+            IsImportingHistory = false;
+        }
+    }
+
     private ICommand? _findExactDuplicatesCommand;
     public ICommand FindExactDuplicatesCommand => _findExactDuplicatesCommand ??= new RelayCommand(() => _eventBus.Publish(new OpenExactDuplicatesRequestedEvent()));
 
@@ -2062,7 +2110,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         EnrichmentViewModel? enrichment = null,
         MetadataSourcesSettingsViewModel? metadataSources = null,
         UpdateViewModel? updateViewModel = null,
-        Services.Library.Maintenance.MaintenanceUndoService? maintenanceUndo = null)
+        Services.Library.Maintenance.MaintenanceUndoService? maintenanceUndo = null,
+        Services.KnowledgeLifecycle.RekordboxHistoryImportService? historyImport = null)
     {
         _logger = logger;
         _config = config;
@@ -2096,6 +2145,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _lifecycle = lifecycle;
         _libraryService = libraryService;
         _maintenanceUndo = maintenanceUndo;
+        _historyImport = historyImport;
         KeyboardMappings = keyboardMappings;
         _dialogService = dialogService;
 
