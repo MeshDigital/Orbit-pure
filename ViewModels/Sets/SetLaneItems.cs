@@ -117,10 +117,25 @@ public sealed class TransitionChipViewModel : ReactiveObject
     public SLSKDONET.Models.Timeline.PlaylistTrackTransition? SavedTransition { get; }
     public bool HasSavedTransition => SavedTransition is not null;
 
-    /// <summary>"Saved: Blend · 16 bars", or a prompt to design one.</summary>
-    public string SavedTransitionText => SavedTransition is { } saved
-        ? $"Saved: {saved.PresetName} · {saved.DurationBars.ToString(CultureInfo.InvariantCulture)} bars"
-        : "No saved transition yet: playback would use the Auto plan";
+    /// <summary>The saved transition's intent tag (D5), when one is saved.</summary>
+    public SLSKDONET.Services.Transitions.TransitionIntent? SavedIntent => SavedTransition is { } saved
+        ? SLSKDONET.Services.Transitions.TransitionIntents.Of(saved.Type, saved.PresetName)
+        : null;
+
+    /// <summary>"Saved: Drop swap · Drop Sync · 32 bars" (the preset only when it adds something), or a prompt to design one.</summary>
+    public string SavedTransitionText
+    {
+        get
+        {
+            if (SavedTransition is not { } saved || SavedIntent is not { } intent)
+                return "No saved transition yet: playback would use the Auto plan";
+            var label = SLSKDONET.Services.Transitions.TransitionIntents.Label(intent);
+            var preset = string.IsNullOrWhiteSpace(saved.PresetName) || string.Equals(saved.PresetName, label, StringComparison.OrdinalIgnoreCase)
+                ? string.Empty
+                : $" · {saved.PresetName}";
+            return $"Saved: {label}{preset} · {saved.DurationBars.ToString(CultureInfo.InvariantCulture)} bars";
+        }
+    }
 
     public TransitionChipViewModel(SlotCardViewModel from, SlotCardViewModel to, TransitionKnowledgeInfo? knowledge,
         SLSKDONET.Models.Timeline.PlaylistTrackTransition? savedTransition = null)

@@ -450,7 +450,7 @@ public sealed class SetsViewModelTests : IDisposable
 
         var chips = vm.LaneItems.OfType<TransitionChipViewModel>().ToList();
         Assert.True(chips[0].HasSavedTransition);
-        Assert.Equal("Saved: Melt · 32 bars", chips[0].SavedTransitionText);
+        Assert.Equal("Saved: Blend · Melt · 32 bars", chips[0].SavedTransitionText); // intent tag (D5), then the preset
         Assert.False(chips[1].HasSavedTransition);
     }
 
