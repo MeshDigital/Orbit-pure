@@ -1204,6 +1204,7 @@ public partial class App : Application
         // ── Sets (rebuild plan Phase 2): single write path for SetProjects ─
         services.AddSingleton<Services.Sets.ISetProjectService, Services.Sets.SetProjectService>();
         services.AddSingleton<Services.Sets.SetTransitionRepository>();
+        services.AddSingleton<Services.Sets.SetExportService>(); // Sets → Export (#206)
         services.AddSingleton<Services.Sets.ITransitionHistoryService, Services.Sets.TransitionHistoryService>();
         services.AddSingleton<Services.KnowledgeLifecycle.ITransitionRatingService, Services.KnowledgeLifecycle.TransitionRatingService>();
     }

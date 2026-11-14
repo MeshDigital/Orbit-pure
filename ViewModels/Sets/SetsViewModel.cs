@@ -205,6 +205,53 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
         RedoCommand = ReactiveCommand.CreateFromTask(RedoAsync, this.WhenAnyValue(x => x.CanRedo));
         StartFromPlaylistCommand = ReactiveCommand.CreateFromTask(StartFromPlaylistAsync, hasSelection);
         ClearPoolFiltersCommand = ReactiveCommand.Create(() => Pool.ClearFilters());
+        ExportXmlCommand = ReactiveCommand.CreateFromTask(() => ExportAsync(SLSKDONET.Services.Export.ExportMode.XmlOnly), hasSelection);
+        ExportToFolderCommand = ReactiveCommand.CreateFromTask(() => ExportAsync(SLSKDONET.Services.Export.ExportMode.FilesAndXml), hasSelection);
+    }
+
+    // ── Export (rebuild plan P5, #206) ────────────────────────────────────────
+
+    /// <summary>Export the set as a Rekordbox playlist into an XML file (merged if it exists).</summary>
+    public ReactiveCommand<Unit, Unit> ExportXmlCommand { get; }
+
+    /// <summary>Copy the set's audio to a USB stick / folder plus PIONEER/rekordbox.xml.</summary>
+    public ReactiveCommand<Unit, Unit> ExportToFolderCommand { get; }
+
+    private bool _includeTransitionNotes;
+    /// <summary>Opt-in: append each transition's notes to the track's Rekordbox comment.</summary>
+    public bool IncludeTransitionNotes
+    {
+        get => _includeTransitionNotes;
+        set => this.RaiseAndSetIfChanged(ref _includeTransitionNotes, value);
+    }
+
+    private async Task ExportAsync(SLSKDONET.Services.Export.ExportMode mode)
+    {
+        if (SelectedSet is not { } set) return;
+        if (_services?.GetService(typeof(SetExportService)) is not SetExportService exporter)
+        {
+            _notifications?.Show("Export", "Set export isn't available right now.", NotificationType.Error);
+            return;
+        }
+
+        try
+        {
+            var destination = mode == SLSKDONET.Services.Export.ExportMode.XmlOnly
+                ? await _dialogs.SaveFileAsync("Export set to Rekordbox XML", "rekordbox.xml", "xml")
+                : await _dialogs.OpenFolderDialogAsync("Export set to a USB stick or folder");
+            if (string.IsNullOrWhiteSpace(destination)) return;
+
+            var result = await exporter.ExportAsync(set.Id, destination, mode, IncludeTransitionNotes);
+            var missing = result.MissingFiles > 0 ? $" {CountFormat.Of(result.MissingFiles, "track")} left out (file not on disk)." : string.Empty;
+            _notifications?.Show("Set exported",
+                $"\"{result.SetName}\": {CountFormat.Of(result.TrackCount, "track")} → {result.Destination}.{missing} " +
+                "In Rekordbox: Preferences → Advanced → rekordbox xml, then pick this file.",
+                result.MissingFiles > 0 ? NotificationType.Warning : NotificationType.Success, TimeSpan.FromSeconds(12));
+        }
+        catch (Exception ex)
+        {
+            ReportFailure("Couldn't export the set", ex);
+        }
     }
 
     public ReactiveCommand<Unit, Unit> StartFromPlaylistCommand { get; }
@@ -649,6 +696,8 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
     {
         NewSetCommand.Dispose();
         RenameSetCommand.Dispose();
+        ExportXmlCommand.Dispose();
+        ExportToFolderCommand.Dispose();
         DuplicateSetCommand.Dispose();
         DeleteSetCommand.Dispose();
         RetryCommand.Dispose();
