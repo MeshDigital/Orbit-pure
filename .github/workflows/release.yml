@@ -84,9 +84,9 @@ jobs:
     timeout-minutes: 45
     continue-on-error: true
     steps:
+      # No LFS here: the AI models (~350 MB) count against the LFS bandwidth quota, and the
+      # experimental builds can't use the DirectML path yet anyway. They ship without models.
       - uses: actions/checkout@v4
-        with:
-          lfs: true
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
@@ -117,9 +117,7 @@ jobs:
     timeout-minutes: 45
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true
+      - uses: actions/checkout@v4 # no LFS: see the linux job
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
