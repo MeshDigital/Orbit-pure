@@ -169,7 +169,7 @@ public static class GenreTaxonomy
         (n => n is "dnb" or "db" or "dandb" || n.Contains("drumbass") || n.Contains("drumandbass") || n.Contains("drumnbass"), M(GenreBucket.DrumAndBass)),
         (n => n.Contains("jungle"),    M(GenreBucket.DrumAndBass, "Jungle")),
         (n => n.Contains("liquid"),    M(GenreBucket.DrumAndBass, "Liquid")),
-        (n => n.Contains("neurofunk"), M(GenreBucket.DrumAndBass, "Neurofunk")),
+        (n => n.Contains("neurofunk") || n == "neuro", M(GenreBucket.DrumAndBass, "Neurofunk")), // "Neuro" is the common short tag (#249 traces)
         (n => n.Contains("jumpup"),    M(GenreBucket.DrumAndBass, "Jump Up")),
         (n => n.Contains("halftime"),  M(GenreBucket.DrumAndBass, "Halftime")),
 
@@ -304,7 +304,9 @@ public static class GenreTaxonomy
         var n = Normalize(t);
         if (n.Length == 0) return true;
 
-        if (n is "electronic" or "electronica" or "dance" or "dancedj" or "club" or "edm"
+        // "deep" alone and non-English "dance music" tags say nothing about the scene (#249 traces).
+        if (n is "electronic" or "electronica" or "dance" or "dancedj" or "club" or "edm" or "deep"
+            or "dancemusic" or "tanecnihudba" or "tanečníhudba" or "musiqueelectronique" or "elektronischemusik"
             or "electronicdancemusic" or "other" or "unknown" or "misc" or "genre" or "various")
             return true;
 
