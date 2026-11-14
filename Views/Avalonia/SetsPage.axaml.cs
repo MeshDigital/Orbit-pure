@@ -62,6 +62,18 @@ public partial class SetsPage : UserControl
             await vm.FindBridgeAsync(); // reports its own failures
     }
 
+    private async void OnSuggestNextClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (ViewModel is { } vm)
+            await vm.SuggestNextAsync(); // reports its own failures
+    }
+
+    private async void OnInsertSuggestionClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is NextSuggestionViewModel suggestion && ViewModel is { } vm)
+            await vm.InsertSuggestionAfterAsync(suggestion);
+    }
+
     private async void OnInsertBridgeClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is BridgeSuggestionViewModel bridge && ViewModel is { } vm)

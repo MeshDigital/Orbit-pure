@@ -358,6 +358,37 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                             </StackPanel>
+
+                            <!-- Suggest next (P4.2): only when the DJ asks; nothing changes until Insert -->
+                            <StackPanel Spacing="8">
+                                <Button Classes="secondary" Content="Suggest next" HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Center" Click="OnSuggestNextClick" IsEnabled="{Binding !IsSuggestingNext}"
+                                        ToolTip.Tip="Tracks to play after this one: transitions you've played first, then matches by key, BPM and how the outro flows into the intro" />
+                                <TextBlock Classes="caption" Text="Searching…" IsVisible="{Binding IsSuggestingNext}" />
+                                <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding NextStatus}"
+                                           IsVisible="{Binding NextStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                <ItemsControl ItemsSource="{Binding NextSuggestions}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:NextSuggestionViewModel">
+                                            <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                                                <StackPanel Spacing="2">
+                                                    <TextBlock Classes="body-sm" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Classes="caption" Text="{Binding Artist}" TextTrimming="CharacterEllipsis" />
+                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <Border Classes="fact"><TextBlock Text="{Binding Bpm}" /></Border>
+                                                        <Border Classes="fact"><TextBlock Text="{Binding Key}" /></Border>
+                                                        <TextBlock Classes="caption mono" VerticalAlignment="Center" Text="{Binding ScoreText}" />
+                                                        <TextBlock Classes="caption" VerticalAlignment="Center" Text="{Binding Basis}" />
+                                                    </StackPanel>
+                                                    <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding Reason}" />
+                                                </StackPanel>
+                                                <Button Grid.Column="1" Classes="ghost small" Content="Insert after" VerticalAlignment="Center"
+                                                        Click="OnInsertSuggestionClick" ToolTip.Tip="Add this track in a new slot right after this one (Ctrl+Z undoes)" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
                         </StackPanel>
 
                         <!-- Transition -->

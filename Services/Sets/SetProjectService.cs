@@ -23,6 +23,10 @@ public sealed record SetPoolQuery(
 /// <summary>A library track in the Sets track pool, with whatever analysis exists.</summary>
 public sealed record SetPoolTrack(string TrackUniqueHash, string Title, string Artist, double? Bpm, string? CamelotKey);
 
+/// <summary>A transition ORBIT already knows out of a track (#205 P4.2).</summary>
+/// <param name="FromEvidence">True for a knowledge edge with evidence (played live, rated); false for a scan candidate.</param>
+public sealed record KnownNextTransition(string TargetHash, double Score, int EvidenceCount, bool Verified, bool FromEvidence);
+
 /// <summary>Result of seeding a set from a playlist.</summary>
 public sealed record PlaylistAppendResult(IReadOnlyList<SetTrackEntity> Added, int SkippedNotInLibrary);
 
@@ -91,6 +95,9 @@ public interface ISetProjectService
 {
     /// <summary>All sets, most recently modified first.</summary>
     Task<IReadOnlyList<SetSummary>> GetSetsAsync(bool includeArchived = true);
+
+    /// <summary>Known transitions out of a track: evidence-backed knowledge edges and knowledge-scan candidates.</summary>
+    Task<IReadOnlyList<KnownNextTransition>> GetKnownNextAsync(string fromHash);
 
     /// <summary>Sets (or clears, with null) the set's event preset. False when the set is gone.</summary>
     Task<bool> SetEventPresetAsync(Guid setId, string? presetKey);
@@ -217,6 +224,30 @@ public sealed class SetProjectService : ISetProjectService
             .Select(r => new SetSummary(r.Id, r.Name, r.Status, r.SlotCount, r.LastModifiedAt,
                 r.EventProfileId is Guid pid && profileNames.TryGetValue(pid, out var pname) ? EventPresets.KeyFromProfileName(pname) : null))
             .ToList();
+    }
+
+    public async Task<IReadOnlyList<KnownNextTransition>> GetKnownNextAsync(string fromHash)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+        var edges = await db.TransitionKnowledge.AsNoTracking()
+            .Where(e => e.SourceTrackId == fromHash && (e.EvidenceCount > 0 || e.Verified))
+            .Select(e => new { e.TargetTrackId, e.CompatibilityScore, e.EvidenceCount, e.Verified })
+            .ToListAsync().ConfigureAwait(false);
+        var candidates = await db.TransitionCandidates.AsNoTracking()
+            .Where(c => c.SourceTrackId == fromHash && !c.IsPromoted)
+            .Select(c => new { c.TargetTrackId, c.CompatibilityScore })
+            .ToListAsync().ConfigureAwait(false);
+
+        // Several knowledge rows per pair are normal (one per transition type): keep the strongest.
+        var known = edges.GroupBy(e => e.TargetTrackId)
+            .Select(g => g.OrderByDescending(e => e.CompatibilityScore).First())
+            .Select(e => new KnownNextTransition(e.TargetTrackId, e.CompatibilityScore, e.EvidenceCount, e.Verified, FromEvidence: true))
+            .ToList();
+        var knownTargets = known.Select(k => k.TargetHash).ToHashSet(StringComparer.Ordinal);
+        known.AddRange(candidates.Where(c => !knownTargets.Contains(c.TargetTrackId))
+            .GroupBy(c => c.TargetTrackId)
+            .Select(g => new KnownNextTransition(g.Key, g.Max(c => c.CompatibilityScore), 0, false, FromEvidence: false)));
+        return known;
     }
 
     public async Task<bool> SetEventPresetAsync(Guid setId, string? presetKey)
