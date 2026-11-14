@@ -344,7 +344,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                         if (_styleLabels is { IsUsable: true })
                         {
                             features.StyleScores = embeddingResult.Value.StylePredictions;
-                            features.StyleModelTag = _effnetEmbedding.ModelTag;
+                            features.StyleModelTag = _effnetEmbedding.StyleModelTag; // embedding tag + "|pool=energy1" (#252)
                             var top = _styleLabels.TopN(embeddingResult.Value.StylePredictions, 1);
                             if (top.Count > 0)
                             {

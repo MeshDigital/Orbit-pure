@@ -50,7 +50,8 @@ public sealed class StyleBackfillService
         {
             // An LFS pointer file is ~130 bytes: no real model, so no "current" tag to compare against.
             return System.IO.File.Exists(model) && new System.IO.FileInfo(model).Length > 1_000_000
-                ? SLSKDONET.Services.Similarity.DiscogsEffnetEmbeddingExtractor.BuildModelTag(model)
+                ? SLSKDONET.Services.Similarity.DiscogsEffnetEmbeddingExtractor.BuildStyleTag(
+                    SLSKDONET.Services.Similarity.DiscogsEffnetEmbeddingExtractor.BuildModelTag(model))
                 : null;
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
