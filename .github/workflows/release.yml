@@ -112,8 +112,10 @@ jobs:
 
   macos:
     needs: version
-    # Intel runner: osx-arm64 can't build yet (Microsoft.ML 3.0.1 only supports x86/x64).
-    runs-on: macos-13
+    # osx-arm64 can't build yet (Microsoft.ML 3.0.1 only supports x86/x64), so this publishes the
+    # Intel build on the Apple Silicon runner (the Intel macos-13 image was retired and never got a
+    # runner) and smoke-tests it under Rosetta 2.
+    runs-on: macos-latest
     timeout-minutes: 45
     continue-on-error: true
     steps:
@@ -123,10 +125,11 @@ jobs:
           dotnet-version: '9.0.x'
       - name: Publish osx-x64
         run: dotnet publish SLSKDONET.csproj -c Release -r osx-x64 --self-contained true -o out/ORBIT
-      - name: Start-up smoke test (throwaway profile)
+      - name: Start-up smoke test (Rosetta 2, throwaway profile)
         run: |
+          softwareupdate --install-rosetta --agree-to-license > /dev/null 2>&1 || true
           chmod +x out/ORBIT/ORBIT
-          out/ORBIT/ORBIT --setup-preview > smoke.log 2>&1 &
+          arch -x86_64 out/ORBIT/ORBIT --setup-preview > smoke.log 2>&1 &
           pid=$!
           sleep 60
           tail -n 40 smoke.log || true
