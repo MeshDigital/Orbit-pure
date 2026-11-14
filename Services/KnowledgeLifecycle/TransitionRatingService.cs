@@ -42,7 +42,12 @@ public sealed record TransitionRatingSummary(double? LastRating, int RatingCount
 public interface ITransitionRatingService
 {
     Task<TransitionRatingSummary> GetAsync(string fromHash, string toHash);
-    Task<TransitionRatingSummary> RateAsync(string fromHash, string toHash, double rating, bool workedLive);
+    /// <summary>
+    /// Records a rating on the pair's edge for <paramref name="intent"/> (D5: one edge per intent),
+    /// so a rated drop swap doesn't land on the pair's blend edge. The summary covers every intent.
+    /// </summary>
+    Task<TransitionRatingSummary> RateAsync(string fromHash, string toHash, double rating, bool workedLive,
+        SLSKDONET.Services.Transitions.TransitionIntent intent = SLSKDONET.Services.Transitions.TransitionIntent.Blend);
 }
 
 public sealed class TransitionRatingService : ITransitionRatingService
@@ -87,7 +92,8 @@ public sealed class TransitionRatingService : ITransitionRatingService
             edges.Any(e => e.Verified));
     }
 
-    public async Task<TransitionRatingSummary> RateAsync(string fromHash, string toHash, double rating, bool workedLive)
+    public async Task<TransitionRatingSummary> RateAsync(string fromHash, string toHash, double rating, bool workedLive,
+        SLSKDONET.Services.Transitions.TransitionIntent intent = SLSKDONET.Services.Transitions.TransitionIntent.Blend)
     {
         if (string.IsNullOrEmpty(fromHash) || string.IsNullOrEmpty(toHash))
             throw new ArgumentException("Both tracks need a library identity to be rated.");
@@ -95,9 +101,8 @@ public sealed class TransitionRatingService : ITransitionRatingService
 
         await using (var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false))
         {
-            // Intent tags (D5) come later; until then a rating attaches to the Blend edge.
             var edge = await KnowledgeLifecycleRepository
-                .GetOrCreateKnowledgeEdgeAsync(db, fromHash, toHash, KnowledgeTransitionType.Blend)
+                .GetOrCreateKnowledgeEdgeAsync(db, fromHash, toHash, SLSKDONET.Services.Transitions.TransitionIntents.ToKnowledgeType(intent))
                 .ConfigureAwait(false);
             await KnowledgeLifecycleRepository
                 .AddEvidenceAsync(db, edge.Id, TransitionEvidenceSource.ManualRating, score, 0.9, null)
