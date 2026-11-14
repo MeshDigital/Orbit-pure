@@ -15,6 +15,19 @@ public partial class TrackListView : UserControl
     private ScrollViewer? _scroller;
     private TrackListViewModel? _viewModel;
 
+    /// <summary>Library → "Edit transition between these two…" (#204): the shared editor as a dialog.</summary>
+    private async void OnEditTransitionClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (DataContext is not TrackListViewModel { Operations: { } operations }) return;
+        var opened = await operations.CreateAdHocTransitionEditorAsync(); // toasts why when it can't
+        if (opened is not { } pair) return;
+
+        var window = new TransitionEditorWindow(pair.Editor, pair.Title); // disposes the editor when closed
+        if (TopLevel.GetTopLevel(this) is Window owner)
+            await window.ShowDialog(owner);
+        else
+            window.Show();
+    }
     public TrackListView()
     {
         InitializeComponent();
