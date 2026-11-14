@@ -228,14 +228,13 @@ public class LibraryContentHashBackfillService
                     }
                     else
                     {
+                        // Set-based: an entry removed meanwhile (a duplicate merge, the user) affects 0 rows
+                        // instead of throwing a concurrency exception that ended the whole run.
                         await using var db = await _factory.CreateDbContextAsync(ct).ConfigureAwait(false);
-                        var entry = await db.LibraryEntries.FirstOrDefaultAsync(e => e.UniqueHash == item.Hash, ct).ConfigureAwait(false);
-                        if (entry != null)
-                        {
-                            entry.AudioContentHash = hash.Value;
-                            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-                            updated++;
-                        }
+                        var value = hash.Value;
+                        var rows = await db.LibraryEntries.Where(e => e.UniqueHash == item.Hash)
+                            .ExecuteUpdateAsync(s => s.SetProperty(e => e.AudioContentHash, value), ct).ConfigureAwait(false);
+                        if (rows > 0) updated++;
                     }
                 }
 

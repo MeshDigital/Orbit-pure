@@ -142,6 +142,10 @@ public sealed class ExactDuplicateMergeTests : IDisposable
         var resolution = await Resolver(recycler).ResolveAsync(
             new[] { new ExactDuplicateMergePlan(keeper, new[] { duplicate }) }, moveFilesToRecycleBin: true);
 
+        Assert.False(resolution.Merge.Aborted, "merge aborted: " + string.Join("; ", resolution.Merge.Errors));
+        Assert.Empty(resolution.Merge.Errors);
+        Assert.Empty(resolution.RecycleErrors);
+        Assert.Equal(1, resolution.Merge.EntriesRemoved);
         Assert.Equal(1, resolution.FilesRecycled);
         Assert.Equal(new[] { duplicatePath }, recycler.Calls);
         Assert.True(System.IO.File.Exists(keeperPath));
