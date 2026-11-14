@@ -32,6 +32,22 @@ public sealed class BridgeSuggestionViewModel
     }
 }
 
+/// <summary>One "Suggest next" entry for the inspector (#205 P4.2).</summary>
+public sealed class NextSuggestionViewModel
+{
+    public NextSuggestion Suggestion { get; }
+    public string TrackUniqueHash => Suggestion.Track.TrackUniqueHash;
+    public string Title => Suggestion.Track.Title;
+    public string Artist => Suggestion.Track.Artist;
+    public string Bpm => SLSKDONET.Utils.NumFormat.Bpm(Suggestion.Track.Bpm);
+    public string Key => Suggestion.Track.CamelotKey ?? "—";
+    public string ScoreText => Suggestion.Score.ToString("0", CultureInfo.InvariantCulture);
+    public string Reason => Suggestion.Reason;
+    public string Basis => Suggestion.BasisLabel;
+
+    public NextSuggestionViewModel(NextSuggestion suggestion) => Suggestion = suggestion;
+}
+
 /// <summary>One role chip in the slot inspector; checking it changes the selected slot's role.</summary>
 public sealed class RoleOptionViewModel : ReactiveObject
 {
@@ -296,6 +312,85 @@ public sealed partial class SetsViewModel
         }
     }
 
+    // ── Suggest next (rebuild plan P4.2, #205) ───────────────────────────────
+
+    /// <summary>What to play after the selected slot, strongest evidence first.</summary>
+    public System.Collections.ObjectModel.ObservableCollection<NextSuggestionViewModel> NextSuggestions { get; } = new();
+
+    private bool _isSuggestingNext;
+    public bool IsSuggestingNext { get => _isSuggestingNext; private set => this.RaiseAndSetIfChanged(ref _isSuggestingNext, value); }
+
+    private string? _nextStatus;
+    /// <summary>What the last "Suggest next" found, or why it found nothing.</summary>
+    public string? NextStatus { get => _nextStatus; private set => this.RaiseAndSetIfChanged(ref _nextStatus, value); }
+
+    private Guid? _nextFor;
+
+    /// <summary>
+    /// Ranks library tracks to play after the selected slot: transitions you played or rated, then
+    /// knowledge-scan candidates, then key/BPM/section matches. Each entry carries its reason.
+    /// Suggestions only: nothing changes until "Insert after".
+    /// </summary>
+    public async Task SuggestNextAsync()
+    {
+        if (SelectedSlot is not { } card || SelectedSet is null)
+            return;
+        NextSuggestions.Clear();
+        _nextFor = card.SlotId;
+        IsSuggestingNext = true;
+        NextStatus = null;
+        try
+        {
+            var from = card.Slot;
+            var fromTrack = new SetPoolTrack(from.TrackUniqueHash, from.Title, from.Artist, from.Bpm, from.CamelotKey);
+            var inSet = Slots.Select(s => s.Slot.TrackUniqueHash).ToHashSet(StringComparer.Ordinal);
+
+            var pool = (await _sets.SearchPoolAsync(new SetPoolQuery(
+                    AnalysedOnly: from.Bpm is > 0,
+                    BpmMin: from.Bpm is double lo && lo > 0 ? lo * (1 - NextTrackRanker.BpmWindow) : null,
+                    BpmMax: from.Bpm is double hi && hi > 0 ? hi * (1 + NextTrackRanker.BpmWindow) : null,
+                    Limit: 3000)))
+                .Where(t => !inSet.Contains(t.TrackUniqueHash))
+                .ToList();
+            var known = await _sets.GetKnownNextAsync(from.TrackUniqueHash);
+
+            var fit = new Dictionary<string, double>(StringComparer.Ordinal);
+            if (_sectionVectors is not null && pool.Count > 0)
+                foreach (var (hash, score) in await _sectionVectors.FindNextCandidatesAsync(from.TrackUniqueHash, pool.Select(t => t.TrackUniqueHash)))
+                    fit[hash] = score;
+            if (_nextFor != card.SlotId)
+                return; // the selection moved on
+
+            foreach (var s in NextTrackRanker.Rank(fromTrack, pool, known, fit))
+                NextSuggestions.Add(new NextSuggestionViewModel(s));
+
+            NextStatus = NextSuggestions.Count > 0
+                ? (known.Any(k => k.FromEvidence)
+                    ? "Transitions you've played come first, then matches by key, BPM and how the outro flows into the intro."
+                    : "No played transitions out of this track yet: matched by key, BPM and how its outro flows into the intro.")
+                : from.Bpm is not > 0
+                    ? "Analyse this track first: suggestions need its BPM (or transitions you've played out of it)."
+                    : "No library tracks within 6 % of this BPM that aren't already in the set.";
+        }
+        catch (Exception ex)
+        {
+            ReportFailure("Suggest next failed", ex);
+        }
+        finally
+        {
+            IsSuggestingNext = false;
+        }
+    }
+
+    /// <summary>Puts a suggestion in a new slot right after the selected one.</summary>
+    public async Task InsertSuggestionAfterAsync(NextSuggestionViewModel suggestion)
+    {
+        if (SelectedSlot is not { } card)
+            return;
+        NextSuggestions.Clear();
+        NextStatus = null;
+        await InsertTrackAsync(suggestion.TrackUniqueHash, card.Index + 1);
+    }
     /// <summary>Inserts a bridge suggestion between the selected transition's two slots.</summary>
     public async Task InsertBridgeAsync(BridgeSuggestionViewModel bridge)
     {

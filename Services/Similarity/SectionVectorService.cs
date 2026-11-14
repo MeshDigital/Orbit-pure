@@ -331,6 +331,33 @@ public sealed class SectionVectorService
             .ToList();
     }
 
+    /// <summary>
+    /// "What fits after this track" (Sets → Suggest next, #205 P4.2): each candidate scored by how
+    /// well this track's outro flows into its intro (0–1, the same section score the bridge finder
+    /// uses). Candidates without an intro, or a source without an outro, are left out.
+    /// </summary>
+    public async Task<IReadOnlyList<(string TrackHash, double Score)>> FindNextCandidatesAsync(
+        string fromHash, IEnumerable<string> candidateHashes, CancellationToken ct = default)
+    {
+        if (!IsValidTrackHash(fromHash) || candidateHashes is null)
+            return Array.Empty<(string, double)>();
+        var candidates = candidateHashes.Distinct().ToList();
+        if (candidates.Count == 0) return Array.Empty<(string, double)>();
+
+        var all = new HashSet<string>(candidates) { fromHash };
+        await PreloadAsync(all, ct);
+        var outro = GetCached(fromHash).Where(s => s.SectionType == PhraseType.Outro).OrderByDescending(s => s.Confidence).FirstOrDefault();
+        if (outro is null) return Array.Empty<(string, double)>();
+
+        var results = new List<(string, double)>();
+        foreach (var hash in candidates)
+        {
+            if (ct.IsCancellationRequested) break;
+            var intro = GetCached(hash).Where(s => s.SectionType == PhraseType.Intro).OrderByDescending(s => s.Confidence).FirstOrDefault();
+            if (intro is not null) results.Add((hash, outro.TransitionScore(intro)));
+        }
+        return results.OrderByDescending(r => r.Item2).ToList();
+    }
     // ── Bulk preload ───────────────────────────────────────────────────────
 
     /// <summary>
