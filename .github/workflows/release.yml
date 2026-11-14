@@ -157,7 +157,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           v="${{ needs.version.outputs.version }}"
-          notes="DOCS/releases/v${v}.md"
+          notes="DOCS/releases/v${v%%-*}.md" # one notes file per version: v0.4.0-beta.1 uses v0.4.0.md
           [ -f "$notes" ] || { echo "::error::Release notes $notes are missing"; exit 1; }
           flags=()
           [ "${{ needs.version.outputs.prerelease }}" = "true" ] && flags+=(--prerelease)
