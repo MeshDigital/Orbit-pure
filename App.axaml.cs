@@ -1195,7 +1195,7 @@ public partial class App : Application
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.AutoDownload.GhostAcquisitionOrchestrator>>()));
 
         // ── Phase 2: Knowledge Lifecycle agent swarm ─────────────────────
-        // Gated by AppConfig.EnableKnowledgeAgents (default off). PerformanceAnalystAgent and
+        // Gated by AppConfig.EnableKnowledgeAgents (default on; Suggest next reads the candidates). PerformanceAnalystAgent and
         // ExportAgent are not registered: nothing publishes PerformanceSessionRecordedEvent or
         // SetExportRequestedEvent yet (rebuild plan D7; they return with P5.1 / P6.1).
         services.AddSingleton<Services.KnowledgeLifecycle.IKnowledgeAgent, Services.KnowledgeLifecycle.TransitionAgent>();

@@ -11,9 +11,9 @@ namespace SLSKDONET.Tests.Services.KnowledgeLifecycle;
 public class KnowledgeSwarmHostTests
 {
     [Fact]
-    public void EnableKnowledgeAgents_DefaultsOff()
+    public void EnableKnowledgeAgents_DefaultsOn()
     {
-        Assert.False(new AppConfig().EnableKnowledgeAgents);
+        Assert.True(new AppConfig().EnableKnowledgeAgents); // Suggest next reads the candidates (#205 P4.6)
     }
 
     [Fact]

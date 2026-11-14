@@ -271,7 +271,7 @@ public class ConfigManager
 
                 // [Advanced]
                 EnableNetworkActivityMonitor = !bool.TryParse(config["Advanced:EnableNetworkActivityMonitor"], out var enam) || enam, // Default true
-                EnableKnowledgeAgents = bool.TryParse(config["Advanced:EnableKnowledgeAgents"], out var eka) && eka, // Default false
+                EnableKnowledgeAgents = !bool.TryParse(config["Advanced:EnableKnowledgeAgents"], out var eka) || eka, // Default true (#205 P4.6)
             };
 
             // Apply defaults if loaded values are empty (for backward compatibility with old configs)

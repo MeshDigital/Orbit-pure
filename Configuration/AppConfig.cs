@@ -57,8 +57,9 @@ public class AppConfig
     // diagnose ban-causing traffic patterns; overhead is connection/request-level only.
     public bool EnableNetworkActivityMonitor { get; set; } = true;
     // Background knowledge agents (KnowledgeSwarmHost: transition-candidate scan after each analysis).
-    // Default off until a UI consumes their output; read at startup (Settings → Advanced).
-    public bool EnableKnowledgeAgents { get; set; } = false;
+    // Default on since Sets → "Suggest next" shows the candidates (#205 P4.6); read at startup
+    // (Settings → Advanced).
+    public bool EnableKnowledgeAgents { get; set; } = true;
     public int SearchResponseLimit { get; set; } = 200; // was 100 — at Critical (65%) this gives ~130, enough for meaningful ranking
     public int SearchFileLimit { get; set; } = 200; // was 100
     public int SearchHardResultCap { get; set; } = 10000; // Absolute per-search circuit breaker for accepted candidates
