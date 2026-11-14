@@ -62,6 +62,12 @@ public partial class SetsPage : UserControl
             await vm.FindBridgeAsync(); // reports its own failures
     }
 
+    private async void OnCheckClashesClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (ViewModel is { } vm)
+            await vm.CheckClashesAsync(); // reports its own failures
+    }
+
     private async void OnSuggestNextClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (ViewModel is { } vm)

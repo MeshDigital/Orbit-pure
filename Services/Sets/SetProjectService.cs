@@ -99,6 +99,9 @@ public interface ISetProjectService
     /// <summary>Known transitions out of a track: evidence-backed knowledge edges and knowledge-scan candidates.</summary>
     Task<IReadOnlyList<KnownNextTransition>> GetKnownNextAsync(string fromHash);
 
+    /// <summary>Length, mix cues and vocal span per track, for "Check clashes" (P4.4). Unknown tracks are left out.</summary>
+    Task<IReadOnlyDictionary<string, TrackMixData>> GetMixDataAsync(IReadOnlyCollection<string> hashes);
+
     /// <summary>Sets (or clears, with null) the set's event preset. False when the set is gone.</summary>
     Task<bool> SetEventPresetAsync(Guid setId, string? presetKey);
 
@@ -224,6 +227,43 @@ public sealed class SetProjectService : ISetProjectService
             .Select(r => new SetSummary(r.Id, r.Name, r.Status, r.SlotCount, r.LastModifiedAt,
                 r.EventProfileId is Guid pid && profileNames.TryGetValue(pid, out var pname) ? EventPresets.KeyFromProfileName(pname) : null))
             .ToList();
+    }
+
+    public async Task<IReadOnlyDictionary<string, TrackMixData>> GetMixDataAsync(IReadOnlyCollection<string> hashes)
+    {
+        var list = hashes.Distinct(StringComparer.Ordinal).ToList();
+        var result = new Dictionary<string, TrackMixData>(StringComparer.Ordinal);
+        if (list.Count == 0) return result;
+
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+        var features = await db.AudioFeatures.AsNoTracking()
+            .Where(f => list.Contains(f.TrackUniqueHash))
+            .Select(f => new { f.TrackUniqueHash, f.TrackDuration, f.VocalStartSeconds, f.VocalEndSeconds })
+            .ToListAsync().ConfigureAwait(false);
+        var cueTypes = new[] { CuePointType.Intro, CuePointType.MixIn, CuePointType.OutroStart, CuePointType.MixOut };
+        var cues = await db.CuePoints.AsNoTracking()
+            .Where(c => list.Contains(c.TrackUniqueHash) && cueTypes.Contains(c.Type))
+            .Select(c => new { c.TrackUniqueHash, c.Type, c.TimestampInSeconds })
+            .ToListAsync().ConfigureAwait(false);
+        var cuesByHash = cues.ToLookup(c => c.TrackUniqueHash, StringComparer.Ordinal);
+
+        foreach (var f in features.GroupBy(f => f.TrackUniqueHash, StringComparer.Ordinal).Select(g => g.First()))
+        {
+            var trackCues = cuesByHash[f.TrackUniqueHash].ToList();
+            double? Cue(CuePointType type, bool last = false)
+            {
+                var times = trackCues.Where(c => c.Type == type).Select(c => c.TimestampInSeconds).ToList();
+                return times.Count == 0 ? null : last ? times.Max() : times.Min();
+            }
+            result[f.TrackUniqueHash] = new TrackMixData(
+                f.TrackDuration > 0 ? f.TrackDuration : null,
+                Cue(CuePointType.MixIn) ?? Cue(CuePointType.Intro),
+                Cue(CuePointType.MixOut, last: true),
+                Cue(CuePointType.OutroStart, last: true),
+                f.VocalStartSeconds,
+                f.VocalEndSeconds);
+        }
+        return result;
     }
 
     public async Task<IReadOnlyList<KnownNextTransition>> GetKnownNextAsync(string fromHash)

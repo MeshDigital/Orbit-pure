@@ -49,7 +49,7 @@ public sealed class SetHealthSummary
     public static SetHealthSummary Empty { get; } = new(Array.Empty<SlotCardViewModel>(), Array.Empty<TransitionChipViewModel>());
 
     public SetHealthSummary(IReadOnlyList<SlotCardViewModel> slots, IReadOnlyList<TransitionChipViewModel> transitions,
-        SLSKDONET.Services.Sets.EventPreset? preset = null)
+        SLSKDONET.Services.Sets.EventPreset? preset = null, IReadOnlyList<HealthIssue>? clashIssues = null)
     {
         static bool Analysed(SlotCardViewModel s) => s.Slot.Bpm is > 0 && s.Slot.CamelotKey is not null;
 
@@ -97,6 +97,8 @@ public sealed class SetHealthSummary
             issues.Add(new HealthIssue(
                 $"{transition.From.Number} → {transition.To.Number}: {string.Join(", ", transition.Warnings)}",
                 transition.To.SlotId));
+        // "Check clashes" findings (P4.4), already in lane order.
+        if (clashIssues is not null) issues.AddRange(clashIssues);
         Issues = issues;
 
         EnergyTargets = slots.Select(s => s.Slot.EnergyTarget).ToList();

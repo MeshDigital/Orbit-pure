@@ -263,7 +263,7 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
                 return;
             }
             set.EventPresetKey = option.Preset?.Key;
-            Health = new SetHealthSummary(Slots.ToList(), LaneItems.OfType<TransitionChipViewModel>().ToList(), option.Preset);
+            Health = BuildHealth();
         }
         catch (Exception ex)
         {
@@ -559,7 +559,7 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
 
         if (_selectedSlotId is Guid id && Slots.All(s => s.SlotId != id))
             _selectedSlotId = null;
-        Health = new SetHealthSummary(Slots.ToList(), LaneItems.OfType<TransitionChipViewModel>().ToList(), SelectedEventPreset.Preset);
+        Health = BuildHealth();
         RaiseSlotSelectionChanged();
     }
 
