@@ -248,7 +248,17 @@
                                                Targets="{Binding Health.EnergyTargets}" Actuals="{Binding Health.TrackEnergies}" />
                     </StackPanel>
 
-                    <StackPanel Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="16,0,0,0">
+                    <StackPanel Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="16,0,0,0" Spacing="4">
+                        <Button Classes="ghost small" HorizontalAlignment="Right" Click="OnCheckClashesClick"
+                                IsEnabled="{Binding !IsCheckingClashes}"
+                                ToolTip.Tip="Check every transition: outro vs intro sections, vocals in the mix, the same artist twice in a row. Findings join the issues list">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <PathIcon Data="{StaticResource icon_search}" Width="14" Height="14" />
+                                <TextBlock Text="Check clashes" />
+                            </StackPanel>
+                        </Button>
+                        <TextBlock Classes="caption muted" HorizontalAlignment="Right" MaxWidth="320" TextWrapping="Wrap"
+                                   Text="{Binding ClashStatus}" IsVisible="{Binding ClashStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         <Button Classes="ghost small" IsVisible="{Binding Health.HasIssues}"
                                 ToolTip.Tip="Things worth fixing; pick one to jump to its slot">
                             <StackPanel Orientation="Horizontal" Spacing="4">
@@ -270,7 +280,7 @@
                                 </Flyout>
                             </Button.Flyout>
                         </Button>
-                        <TextBlock Classes="caption success" Text="No issues found" IsVisible="{Binding !Health.HasIssues}" />
+                        <TextBlock Classes="caption success" HorizontalAlignment="Right" Text="No issues found" IsVisible="{Binding !Health.HasIssues}" />
                     </StackPanel>
                 </Grid>
             </Border>

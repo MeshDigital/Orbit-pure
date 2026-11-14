@@ -453,6 +453,19 @@ evidence accumulates (re-rank the section-vector results by knowledge evidence i
 BPM of both ends (not already in the set) ranked by outro→intro section fit, each with its two
 section scores; "Insert" puts it between the slots (undoable). Status text says what was searched
 or why nothing fits.
+
+**P4.2 done (#284):** inspector → slot → "Suggest next": played/rated knowledge edges first, then
+knowledge-scan candidates, then key · BPM (±6 %) · outro→intro matches; each with its basis and
+reason, "Insert after" adds it (`NextTrackRanker`).
+
+**P4.4 done:** Set Health → "Check clashes" sweeps every transition (`SetClashCheck`): outro vs
+intro section fit below 50, both tracks singing inside the 16-bar mix window (placed by
+MixOut/OutroStart and MixIn/Intro cues), and the same artist twice in a row. Findings join the
+issues list and jump to their slot; any reorder drops them and asks for a re-check. Harmonic and
+BPM clashes were already always-on transition warnings. **Gap:** no analysis step writes
+`VocalStartSeconds`/`VocalEndSeconds`/`VocalDensity` (Essentia's voice model never ran), so the
+vocal check says "no vocal data" until vocal detection exists — tracked in #285.
+
 | ID | Work |
 |---|---|
 | P4.1 | **Pick one engine.** Flow Builder has its own bridge finder and A10 flow suggestion; the Copilot has `BridgeFinder` / `SetBuilder`. Benchmark both on the same library with `Tools/CopilotBattleTest` + the existing Flow Builder tests, keep the better one, delete the other |
