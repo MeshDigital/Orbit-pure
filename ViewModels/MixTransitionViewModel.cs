@@ -978,6 +978,43 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
         return true;
     }
 
+    /// <summary>Why an ad-hoc pair (two Library tracks, #204) can't be saved.</summary>
+    public const string AdHocSaveBlockedReason =
+        "Not saved: these two tracks aren't next to each other in a playlist or set. Preview and rate the transition here, or add both to a set to keep the arrangement.";
+
+    /// <summary>
+    /// Loads any two library tracks (Library → "Edit transition…", #204 AdHoc). Preview, mix
+    /// points and the rating work as everywhere; the arrangement has no playlist or set to be
+    /// saved in, so Save is blocked with <see cref="AdHocSaveBlockedReason"/> instead of pretending.
+    /// It starts from what was last saved for the pair elsewhere, like set pairs do.
+    /// </summary>
+    public async Task<bool> LoadAdHocPairAsync(string fromHash, string toHash)
+    {
+        var fromEntry = await _libraryService.FindLibraryEntryAsync(fromHash);
+        var toEntry = await _libraryService.FindLibraryEntryAsync(toHash);
+        if (fromEntry is null || toEntry is null)
+        {
+            StatusMessage = "Both tracks need to be in your library to edit their transition.";
+            return false;
+        }
+
+        await LoadPairCoreAsync(Guid.Empty, ToTrackModel(fromEntry, Guid.NewGuid(), Guid.Empty), ToTrackModel(toEntry, Guid.NewGuid(), Guid.Empty),
+            new UnsavedTransitionStore(), isSet: false);
+        SaveBlockedReason = AdHocSaveBlockedReason;
+        return true;
+    }
+
+    /// <summary>The store of an ad-hoc pair: nothing saved, nothing to load (Save is blocked).</summary>
+    private sealed class UnsavedTransitionStore : ITransitionRepository
+    {
+        public Task<SLSKDONET.Models.Timeline.PlaylistTrackTransition?> GetTransitionAsync(Guid outgoingPlaylistTrackId, Guid incomingPlaylistTrackId) =>
+            Task.FromResult<SLSKDONET.Models.Timeline.PlaylistTrackTransition?>(null);
+        public Task<List<SLSKDONET.Models.Timeline.PlaylistTrackTransition>> GetTransitionsForPlaylistAsync(Guid playlistId) =>
+            Task.FromResult(new List<SLSKDONET.Models.Timeline.PlaylistTrackTransition>());
+        public Task UpsertTransitionAsync(SLSKDONET.Models.Timeline.PlaylistTrackTransition transition) =>
+            throw new InvalidOperationException(AdHocSaveBlockedReason);
+        public Task DeleteTransitionAsync(Guid outgoingPlaylistTrackId, Guid incomingPlaylistTrackId) => Task.CompletedTask;
+    }
     /// <summary>A track model for a set slot: the slot id stands in for the playlist-track id.</summary>
     private static PlaylistTrack ToTrackModel(LibraryEntry entry, Guid slotId, Guid setId) => new()
     {

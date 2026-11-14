@@ -43,6 +43,42 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     private readonly Services.AudioAnalysis.CueDetrCueService? _cueDetrCues;
     private readonly IDbContextFactory<AppDbContext>? _dbFactory;
     private readonly Services.Sets.ISetProjectService? _setProjects;
+    private readonly IServiceProvider? _services;
+
+    /// <summary>
+    /// Opens the shared transition editor for the two selected tracks, in selection order (#204
+    /// AdHoc). Returns null (after a toast saying why) when it can't; the view shows the window.
+    /// </summary>
+    public async Task<(MixTransitionViewModel Editor, string Title)?> CreateAdHocTransitionEditorAsync()
+    {
+        var selected = LibraryViewModel?.Tracks.SelectedTracks?.Where(t => t is not null).ToList() ?? new();
+        if (selected.Count != 2)
+        {
+            _notificationService.Show("Edit transition", "Select exactly two tracks: the one to mix out of first.", NotificationType.Information);
+            return null;
+        }
+        if (_services?.GetService(typeof(MixTransitionViewModel)) is not MixTransitionViewModel editor)
+        {
+            _logger.LogError("MixTransitionViewModel isn't registered; can't open the transition editor");
+            _notificationService.Show("Edit transition", "The transition editor isn't available right now.", NotificationType.Error);
+            return null;
+        }
+
+        try
+        {
+            var (from, to) = (selected[0].Model, selected[1].Model);
+            if (await editor.LoadAdHocPairAsync(from.TrackUniqueHash, to.TrackUniqueHash))
+                return (editor, $"Transition: {from.Title} → {to.Title}");
+            _notificationService.Show("Edit transition", editor.StatusMessage ?? "Couldn't open that transition.", NotificationType.Warning);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Opening an ad-hoc transition failed");
+            _notificationService.Show("Edit transition", $"Couldn't open the transition editor: {ex.Message}", NotificationType.Error);
+        }
+        editor.Dispose();
+        return null;
+    }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -100,8 +136,10 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         Services.AudioAnalysis.CueDetrCueService? cueDetrCues = null,
         EditLab.EditLabViewModel? editLabViewModel = null,
         IDbContextFactory<AppDbContext>? dbFactory = null,
-        Services.Sets.ISetProjectService? setProjects = null)
+        Services.Sets.ISetProjectService? setProjects = null,
+        IServiceProvider? services = null)
     {
+        _services = services;
         _editLabViewModel = editLabViewModel;
         _dbFactory = dbFactory;
         _setProjects = setProjects;

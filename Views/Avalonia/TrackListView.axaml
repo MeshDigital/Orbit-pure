@@ -395,6 +395,9 @@
                         </MenuItem.ItemContainerTheme>
                     </MenuItem>
                     <MenuItem Header="Edit cues in Cue Forge" Command="{Binding Operations.OpenInCueForgeCommand}"/>
+                    <MenuItem Header="Edit transition between these two…" Click="OnEditTransitionClick"
+                              IsVisible="{Binding HasTwoSelected}"
+                              ToolTip.Tip="Open the transition editor for the two selected tracks (the first one mixes out): preview, mix points and a rating"/>
                     <MenuItem Header="Open in Edit Lab" Command="{Binding Operations.OpenInEditLabCommand}"
                               ToolTip.Tip="Start a new edit with this track as the base: cut it up, combine it with other tracks' stems, render it"/>
                     <MenuItem Header="Refresh BPM from tags" Command="{Binding Operations.RefreshBpmFromTagsCommand}"
