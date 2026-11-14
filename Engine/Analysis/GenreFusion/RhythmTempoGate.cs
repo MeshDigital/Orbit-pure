@@ -65,8 +65,10 @@ public static class RhythmTempoGate
             F((GenreBucket.DrumAndBass, 1.6), (GenreBucket.House, 0.3), (GenreBucket.Techno, 0.3), (GenreBucket.Dubstep, 0.3))),
 
         // 160–185 with a strong 4x4 kick → hardcore/gabber (Other), not DnB.
+        // "Strong" 4x4 only: DnB kicks often read as half four-on-the-floor (~0.5), and a partial
+        // strength here cost DnB 2 pp recall on the #249 audio sample.
         new GateRule("hardcore-4x4", 160, 185,
-            s => s.FourOnFloorScore,
+            s => s.FourOnFloorScore >= 0.7 ? s.FourOnFloorScore : 0,
             F((GenreBucket.Other, 1.4), (GenreBucket.DrumAndBass, 0.4))),
 
         // 135–150, once-per-bar snare, no 4x4 → the 140 scene. Techno ×0.4 is an addition to the
@@ -86,10 +88,10 @@ public static class RhythmTempoGate
             s => s.FourOnFloorScore,
             F((GenreBucket.DrumAndBass, 0.3), (GenreBucket.Dubstep, 0.3))),
 
-        // 125–140 two-step, no 4x4 → UKG / bassline / breaks (Other), less house.
-        new GateRule("two-step", 125, 140,
-            s => Math.Min(s.BreakIrregularity, 1 - s.FourOnFloorScore),
-            F((GenreBucket.Other, 1.2), (GenreBucket.House, 0.6))),
+        // A "two-step" rule (125–140, Other ×1.2, House ×0.6) from the plan was measured and left out:
+        // on the #249 audio sample it cost House 5 pp recall by firing on house tracks whose rhythm
+        // read as broken, while gaining Other 2 pp (see the #251 PR). Re-add it as data when the
+        // rhythm signature gets more reliable on shuffled house.
     };
 
     /// <summary>Result of gating: the adjusted scores and every factor that was applied.</summary>
@@ -99,7 +101,8 @@ public static class RhythmTempoGate
     /// Applies the gate to raw per-bucket scores. Returns the scores unchanged (and no evidence) when
     /// there is no signature or its reliability is 0.
     /// </summary>
-    public static GateResult Apply(IReadOnlyDictionary<GenreBucket, double> raw, RhythmSignature? rhythm)
+    public static GateResult Apply(IReadOnlyDictionary<GenreBucket, double> raw, RhythmSignature? rhythm,
+        IReadOnlyList<GateRule>? rules = null)
     {
         var scores = raw.ToDictionary(kv => kv.Key, kv => kv.Value);
         var evidence = new List<GenreGateEvidence>();
@@ -113,7 +116,7 @@ public static class RhythmTempoGate
 
         // Multiply all applicable factors per bucket first, then clamp once against the raw score.
         var product = raw.Keys.ToDictionary(b => b, _ => 1.0);
-        foreach (var rule in Rules)
+        foreach (var rule in rules ?? Rules)
         {
             if (!InBand(rhythm, rule.TempoLo, rule.TempoHi)) continue;
             var strength = Clamp01(rule.Strength(rhythm));

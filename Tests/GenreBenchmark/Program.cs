@@ -129,7 +129,7 @@ static void Count(Dictionary<string, int> d, string key) => d[key] = d.GetValueO
 // ════════════════════════════════════════════════════════════════════════════
 
 sealed record Options(string DbPath, string Mode, string? SummaryPath, string? Compare, string? Trace,
-    int Misclassified, bool IncludeUntracked, double ConfidentThreshold, int Unlabelled, int Limit, string? AudioCache)
+    int Misclassified, bool IncludeUntracked, double ConfidentThreshold, int Unlabelled, int Limit, string? AudioCache, bool GateSweep)
 {
     public static Options? Parse(string[] args)
     {
@@ -146,6 +146,7 @@ sealed record Options(string DbPath, string Mode, string? SummaryPath, string? C
                 case "--audio": mode = "audio"; break;
                 case "--limit": limit = int.Parse(Next(), CultureInfo.InvariantCulture); break;
                 case "--audio-cache": cache = Next(); break;
+                case "--gate-sweep": break; // read via args.Contains
                 case "--mel-experiment": Next(); break; // handled in Main
                 case "--summary": summary = Next(); break;
                 case "--compare": compare = Next(); break;
@@ -157,7 +158,7 @@ sealed record Options(string DbPath, string Mode, string? SummaryPath, string? C
                 default: Console.Error.WriteLine($"Unknown argument {args[i]}"); return null;
             }
         }
-        return db is null ? null : new Options(db, mode, summary, compare, trace, mis, untracked, threshold, unlabelled, limit, cache);
+        return db is null ? null : new Options(db, mode, summary, compare, trace, mis, untracked, threshold, unlabelled, limit, cache, args.Contains("--gate-sweep"));
     }
 
     public static void PrintUsage() => Console.Error.WriteLine(

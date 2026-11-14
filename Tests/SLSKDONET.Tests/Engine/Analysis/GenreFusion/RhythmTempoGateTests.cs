@@ -111,10 +111,33 @@ public class RhythmTempoGateTests
     }
 
     [Fact]
-    public void TwoStepAt132_PrefersOtherOverHouse()
+    public void TwoStepRule_IsNotInTheTable()
     {
+        // Measured and left out (#251 PR): it misfired on house whose rhythm read as broken.
         var r = FuseWith(TwoStep132, ("Electronic---House", 0.35f), ("Electronic---UK Garage", 0.3f));
-        Assert.Equal(GenreBucket.Other, r.Bucket);
+        Assert.Equal(GenreBucket.House, r.Bucket);
+        Assert.DoesNotContain(RhythmTempoGate.Rules, x => x.Id == "two-step");
+    }
+
+    [Fact]
+    public void PartialFourOnFloorAtDnbTempo_DoesNotFireTheHardcoreRule()
+    {
+        var dnbHalfKick = Sig(0.5, 0.3, 0.3, 0.6, 174);
+        var gated = RhythmTempoGate.Apply(new Dictionary<GenreBucket, double> { [GenreBucket.DrumAndBass] = 0.5, [GenreBucket.Other] = 0.3 }, dnbHalfKick);
+        Assert.DoesNotContain(gated.Evidence, e => e.RuleId == "hardcore-4x4");
+    }
+
+    [Fact]
+    public void Calibration_IsMonotone_AndNeverClaimsConfidentYet()
+    {
+        var prev = -1f;
+        for (var x = 0f; x <= 1.0001f; x += 0.01f)
+        {
+            var y = GenreFusionEngine.Calibrate(x);
+            Assert.True(y >= prev - 1e-6, $"non-monotone at {x}");
+            Assert.True(y < 0.7f);
+            prev = y;
+        }
     }
 
     [Fact]

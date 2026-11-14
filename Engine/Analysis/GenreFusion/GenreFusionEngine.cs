@@ -77,7 +77,37 @@ public static class GenreFusionEngine
     public const float ScoreFloor = 0.05f;
 
     /// <summary>Fuses the input votes. Returns <c>null</c> when nothing survives to a winner.</summary>
-    public static GenreFusionResult? Fuse(GenreFusionInput input)
+    /// <summary>
+    /// Monotone map from the raw fused confidence to the accuracy actually observed at that
+    /// confidence (GA5/GA6). Fitted on the #249 <c>--audio</c> sample (300 tracks, fixed EffNet input
+    /// #270, gate on): raw 0.3–0.5 → 44 % right, 0.5–0.7 → 46 %, 0.7–0.85 → 49 %, 0.85–0.95 → 59 %,
+    /// 0.95–1 → 69 % (55 % on the hold-out). Without it 77 % of labels claimed ≥ 0.7 and 31 % of all
+    /// tracks were confidently wrong. Even the top bin is under 70 % right, so no fused label is
+    /// "confident" yet; refit when the inputs improve (personal head #256, MAEST #257).
+    /// </summary>
+    public static readonly (float Raw, float Calibrated)[] ConfidenceCalibration =
+    {
+        (0.00f, 0.25f), (0.40f, 0.44f), (0.60f, 0.46f), (0.775f, 0.49f), (0.90f, 0.59f), (0.975f, 0.69f), (1.00f, 0.69f),
+    };
+
+    /// <summary>Piecewise-linear interpolation through <see cref="ConfidenceCalibration"/>.</summary>
+    public static float Calibrate(float raw)
+    {
+        var table = ConfidenceCalibration;
+        if (raw <= table[0].Raw) return table[0].Calibrated;
+        for (var i = 1; i < table.Length; i++)
+        {
+            if (raw > table[i].Raw) continue;
+            var (x0, y0) = table[i - 1];
+            var (x1, y1) = table[i];
+            return y0 + (y1 - y0) * (raw - x0) / (x1 - x0);
+        }
+        return table[^1].Calibrated;
+    }
+
+    /// <param name="gateRules">Rule table for the rhythm &amp; tempo gate; null = <see cref="RhythmTempoGate.Rules"/>
+    /// (the benchmark passes variants when tuning).</param>
+    public static GenreFusionResult? Fuse(GenreFusionInput input, IReadOnlyList<GateRule>? gateRules = null)
     {
         ArgumentNullException.ThrowIfNull(input.JamendoLabels);
 
@@ -117,7 +147,7 @@ public static class GenreFusionEngine
         }
 
         // 3) Rhythm & tempo gate (GA6). Reliability 0 / no signature → scores unchanged.
-        var gate = RhythmTempoGate.Apply(raw, input.Rhythm);
+        var gate = RhythmTempoGate.Apply(raw, input.Rhythm, gateRules);
         var fused = gate.Scores;
 
         var ranked = fused.OrderByDescending(kv => kv.Value).ToList();
@@ -127,7 +157,7 @@ public static class GenreFusionEngine
         // A gate penalty on the winner lowers its confidence; a boost doesn't inflate it.
         var gateFactor = raw[winner.Key] > 0 ? Math.Min(1.0, winner.Value / raw[winner.Key]) : 1.0;
         var winnerConfidence = (maxConfidence.TryGetValue(winner.Key, out var conf) ? conf : 0.5f) * gateFactor;
-        var finalConfidence = (float)Math.Clamp(winnerConfidence + Math.Min(0.20, margin), 0, 0.99);
+        var finalConfidence = Calibrate((float)Math.Clamp(winnerConfidence + Math.Min(0.20, margin), 0, 0.99));
 
         string? SubOf(GenreBucket b) => bestSub.TryGetValue(b, out var s) ? s.Sub : null;
 
