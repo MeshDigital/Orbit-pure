@@ -111,6 +111,12 @@ public interface ISetProjectService
     /// <summary>Creates a Draft set. A blank name gets a timestamped default.</summary>
     Task<SetListEntity> CreateSetAsync(string? name = null);
 
+    /// <summary>
+    /// Creates a new Draft set holding <paramref name="trackHashes"/> in order (P4.5 "Draft a set"),
+    /// with an optional event preset. Never touches an existing set.
+    /// </summary>
+    Task<SetListEntity> CreateDraftSetAsync(string name, IReadOnlyList<string> trackHashes, string? presetKey = null);
+
     /// <summary>Renames a set. Returns false when it no longer exists; blank names are rejected.</summary>
     Task<bool> RenameSetAsync(Guid setId, string name);
 
@@ -415,6 +421,26 @@ public sealed class SetProjectService : ISetProjectService
         };
         db.SetLists.Add(set);
         await db.SaveChangesAsync().ConfigureAwait(false);
+        return set;
+    }
+
+    public async Task<SetListEntity> CreateDraftSetAsync(string name, IReadOnlyList<string> trackHashes, string? presetKey = null)
+    {
+        var set = new SetListEntity
+        {
+            Name = string.IsNullOrWhiteSpace(name) ? $"Draft {DateTime.Now:MMM d HH:mm}" : name.Trim(),
+            Status = SetProjectStatus.Draft,
+        };
+        await using (var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false))
+        {
+            db.SetLists.Add(set);
+            var slots = trackHashes.Select(h => new SetTrackEntity { SetListId = set.Id, TrackUniqueHash = h }).ToList();
+            Renumber(slots);
+            db.SetTracks.AddRange(slots);
+            await db.SaveChangesAsync().ConfigureAwait(false); // the set and its slots in one save
+        }
+        if (presetKey is not null)
+            await SetEventPresetAsync(set.Id, presetKey).ConfigureAwait(false);
         return set;
     }
 

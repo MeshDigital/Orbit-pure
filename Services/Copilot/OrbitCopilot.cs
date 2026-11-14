@@ -41,20 +41,26 @@ public sealed class OrbitCopilot : IOrbitCopilot
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
 
-        var features = await db.AudioFeatures
-            .Where(f => f.Bpm > 0 && f.TrackDuration > 0)
-            .OrderBy(f => f.TrackUniqueHash)
-            .ToListAsync(ct)
-            .ConfigureAwait(false);
+        // Only the columns the builder needs (full rows carry embedding blobs), one row per track.
+        var features = (await db.AudioFeatures.AsNoTracking()
+                .Where(f => f.Bpm > 0 && f.TrackDuration > 0)
+                .OrderBy(f => f.TrackUniqueHash)
+                .Select(f => new { f.TrackUniqueHash, f.Bpm, f.Energy, f.TrackDuration, f.CamelotKey })
+                .ToListAsync(ct)
+                .ConfigureAwait(false))
+            .DistinctBy(f => f.TrackUniqueHash, StringComparer.Ordinal)
+            .ToList();
 
-        var featureHashes = features.Select(f => f.TrackUniqueHash).Distinct().ToList();
-        var entryList = await db.LibraryEntries
-            .Where(e => featureHashes.Contains(e.UniqueHash))
-            .ToListAsync(ct)
-            .ConfigureAwait(false);
-        var entryByHash = entryList.ToDictionary(e => e.UniqueHash, StringComparer.Ordinal);
+        var featureHashes = features.Select(f => f.TrackUniqueHash).ToList();
+        var entryByHash = (await db.LibraryEntries.AsNoTracking()
+                .Where(e => featureHashes.Contains(e.UniqueHash))
+                .Select(e => new { e.UniqueHash, e.Title, e.Artist })
+                .ToListAsync(ct)
+                .ConfigureAwait(false))
+            .DistinctBy(e => e.UniqueHash, StringComparer.Ordinal)
+            .ToDictionary(e => e.UniqueHash, StringComparer.Ordinal);
 
-        var candidates = features
+        var all = features
             .Select(f =>
             {
                 entryByHash.TryGetValue(f.TrackUniqueHash, out var entry);
@@ -66,20 +72,29 @@ public sealed class OrbitCopilot : IOrbitCopilot
             .ToList();
 
         // Narrow the candidate pool to the target BPM band first, so a 174 target seeds from D&B.
+        var candidates = all;
         if (request.TargetBpm is double targetBpm && targetBpm > 0)
         {
             var lo = targetBpm * (1 - request.MaxBpmVariance);
             var hi = targetBpm * (1 + request.MaxBpmVariance);
-            candidates = candidates.Where(c => c.Bpm >= lo && c.Bpm <= hi).ToList();
+            candidates = all.Where(c => c.Bpm >= lo && c.Bpm <= hi).ToList();
         }
+        // An explicit seed always opens the set, even just outside the band.
+        if (request.SeedTrackHash is { } seed && candidates.All(c => c.TrackUniqueHash != seed)
+            && all.FirstOrDefault(c => c.TrackUniqueHash == seed) is { } seedCandidate)
+            candidates.Insert(0, seedCandidate);
 
         var hashes = candidates.Select(c => c.TrackUniqueHash).Distinct().ToList();
 
-        var edges = await db.TransitionKnowledge
+        // Several knowledge rows per pair are normal (one per transition type): keep the most confident.
+        var edges = await db.TransitionKnowledge.AsNoTracking()
             .Where(e => hashes.Contains(e.SourceTrackId) && hashes.Contains(e.TargetTrackId))
+            .Select(e => new { e.SourceTrackId, e.TargetTrackId, e.ConfidenceScore })
             .ToListAsync(ct)
             .ConfigureAwait(false);
-        var confidence = edges.ToDictionary(e => (e.SourceTrackId, e.TargetTrackId), e => e.ConfidenceScore);
+        var confidence = edges
+            .GroupBy(e => (e.SourceTrackId, e.TargetTrackId))
+            .ToDictionary(g => g.Key, g => g.Max(e => e.ConfidenceScore));
 
         var energyCurve = ParseEnergyCurve(request.EventProfile?.TargetEnergyCurveJson);
 
@@ -88,7 +103,8 @@ public sealed class OrbitCopilot : IOrbitCopilot
             seedHash = candidates.OrderBy(c => Math.Abs(c.Bpm - tb)).First().TrackUniqueHash;
 
         var spine = SetBuilder.BuildSpine(candidates, confidence, request.TargetMinutes, request.MaxBpmVariance, energyCurve, seedHash);
-        var duration = spine.Sum(h => candidates.First(c => c.TrackUniqueHash == h).DurationSeconds) / 60.0;
+        var durationByHash = candidates.DistinctBy(c => c.TrackUniqueHash).ToDictionary(c => c.TrackUniqueHash, c => c.DurationSeconds);
+        var duration = spine.Sum(h => durationByHash[h]) / 60.0;
 
         return new SetBuildResult(spine, duration);
     }
