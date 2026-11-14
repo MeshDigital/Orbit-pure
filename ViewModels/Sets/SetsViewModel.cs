@@ -181,8 +181,10 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
         ILibraryService? library = null,
         SetTransitionRepository? setTransitions = null,
         IServiceProvider? services = null,
-        SLSKDONET.Services.Similarity.SectionVectorService? sectionVectors = null)
+        SLSKDONET.Services.Similarity.SectionVectorService? sectionVectors = null,
+        SLSKDONET.Services.Copilot.IOrbitCopilot? copilot = null)
     {
+        _copilot = copilot;
         _sets = sets;
         _setTransitions = setTransitions;
         _services = services;

@@ -62,6 +62,14 @@ public partial class SetsPage : UserControl
             await vm.FindBridgeAsync(); // reports its own failures
     }
 
+    private void OnDraftFlyoutOpening(object? sender, System.EventArgs e) => ViewModel?.PrepareDraft();
+
+    private async void OnDraftSetClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (ViewModel is { } vm)
+            await vm.DraftSetAsync(); // reports its own failures
+    }
+
     private async void OnCheckClashesClick(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (ViewModel is { } vm)

@@ -466,6 +466,12 @@ BPM clashes were already always-on transition warnings. **Gap:** no analysis ste
 `VocalStartSeconds`/`VocalEndSeconds`/`VocalDensity` (Essentia's voice model never ran), so the
 vocal check says "no vocal data" until vocal detection exists — tracked in #285.
 
+**P4.5 done:** Sets rail → "Draft a set" (target BPM, minutes, event curve, optionally the selected
+slot as seed) runs the Copilot `SetBuilder` and opens the result as a **new** Draft set; nothing
+else changes. Fixed on the way: `OrbitCopilot.BuildSetAsync` threw when a pair had several
+knowledge rows (one per transition type), loaded full feature rows incl. embedding blobs, and
+dropped an explicit seed just outside the BPM band.
+
 | ID | Work |
 |---|---|
 | P4.1 | **Pick one engine.** Flow Builder has its own bridge finder and A10 flow suggestion; the Copilot has `BridgeFinder` / `SetBuilder`. Benchmark both on the same library with `Tools/CopilotBattleTest` + the existing Flow Builder tests, keep the better one, delete the other |
