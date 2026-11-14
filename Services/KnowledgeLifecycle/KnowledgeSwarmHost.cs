@@ -14,8 +14,8 @@ namespace SLSKDONET.Services.KnowledgeLifecycle;
 /// existing startup/shutdown path (<c>GetServices&lt;IHostedService&gt;()</c>) drives
 /// <see cref="StartAsync"/> and <see cref="StopAsync"/>, so the swarm never orphans threads on exit.
 /// <para>
-/// Off by default (<see cref="AppConfig.EnableKnowledgeAgents"/>, Settings → Advanced): nothing in the
-/// UI consumes the agents' output yet, so scanning after every analysis would only cost cycles.
+/// On by default (<see cref="AppConfig.EnableKnowledgeAgents"/>, Settings → Advanced): Sets →
+/// "Suggest next" shows the Transition Agent's candidates as "Knowledge scan" suggestions.
 /// Read once at startup; changing the setting takes effect after a restart.
 /// </para>
 /// </summary>

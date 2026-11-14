@@ -34,6 +34,15 @@ public sealed class TransitionAgent : IKnowledgeAgent, IDisposable
 
     public static readonly TimeSpan IdlePollInterval = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// Bound on remembered pair keys. Past it they're forgotten: the candidate upsert is idempotent,
+    /// so forgetting only costs a re-score, never a duplicate row.
+    /// </summary>
+    public const int MaxSeenKeys = 100_000;
+
+    /// <summary>Bound on queued pairs (a big batch analysis); the rest return when either track is re-analysed.</summary>
+    public const int MaxBacklog = 20_000;
+
     private readonly IEventBus _eventBus;
     private readonly ILogger<TransitionAgent> _logger;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
@@ -108,6 +117,13 @@ public sealed class TransitionAgent : IKnowledgeAgent, IDisposable
 
             foreach (var candidate in candidates)
             {
+                if (_backlog.Count >= MaxBacklog)
+                {
+                    _logger.LogDebug("[TransitionAgent] backlog full ({Max}); skipping the rest for {Track}", MaxBacklog, evt.TrackGlobalId);
+                    break;
+                }
+                if (_seenKeys.Count >= MaxSeenKeys)
+                    _seenKeys.Clear();
                 var key = TransitionCandidateFilter.IdempotencyKey(
                     seed.TrackUniqueHash, candidate.TrackUniqueHash, seed.AnalysisVersion);
                 if (_seenKeys.TryAdd(key, 0))

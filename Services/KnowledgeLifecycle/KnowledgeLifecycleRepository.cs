@@ -22,15 +22,23 @@ public static class KnowledgeLifecycleRepository
     public static Task<AudioFeaturesEntity?> GetAudioFeaturesAsync(AppDbContext db, string trackHash)
         => db.AudioFeatures.FirstOrDefaultAsync(f => f.TrackUniqueHash == trackHash);
 
-    /// <summary>Bounded SQL query: only tracks within the seed's BPM band (plus a hard cap).</summary>
+    /// <summary>
+    /// Bounded SQL query: tracks within the seed's BPM band, closest BPM first, then the hard cap (so
+    /// the cap never drops the best matches). Only the columns <see cref="TransitionCandidateFilter"/>
+    /// reads are loaded (no embedding blobs); the returned rows are detached partial entities.
+    /// </summary>
     public static async Task<List<AudioFeaturesEntity>> GetCandidateFeaturesAsync(AppDbContext db, AudioFeaturesEntity seed)
     {
-        var minBpm = (float)(seed.Bpm * (1 - TransitionCandidateFilter.DefaultBpmBand));
-        var maxBpm = (float)(seed.Bpm * (1 + TransitionCandidateFilter.DefaultBpmBand));
-        return await db.AudioFeatures
+        var seedBpm = seed.Bpm;
+        var minBpm = (float)(seedBpm * (1 - TransitionCandidateFilter.DefaultBpmBand));
+        var maxBpm = (float)(seedBpm * (1 + TransitionCandidateFilter.DefaultBpmBand));
+        return await db.AudioFeatures.AsNoTracking()
             .Where(f => f.TrackUniqueHash != seed.TrackUniqueHash)
             .Where(f => f.Bpm >= minBpm && f.Bpm <= maxBpm)
+            .OrderBy(f => Math.Abs(f.Bpm - seedBpm))
+            .ThenBy(f => f.TrackUniqueHash)
             .Take(SqlCandidateCap)
+            .Select(f => new AudioFeaturesEntity { TrackUniqueHash = f.TrackUniqueHash, Bpm = f.Bpm, CamelotKey = f.CamelotKey })
             .ToListAsync();
     }
 

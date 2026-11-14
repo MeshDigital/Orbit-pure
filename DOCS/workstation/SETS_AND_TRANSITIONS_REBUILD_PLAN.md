@@ -472,6 +472,13 @@ else changes. Fixed on the way: `OrbitCopilot.BuildSetAsync` threw when a pair h
 knowledge rows (one per transition type), loaded full feature rows incl. embedding blobs, and
 dropped an explicit seed just outside the BPM band.
 
+**P4.6 done:** Suggest next consumes `TransitionCandidates` (its "Knowledge scan" tier), so the
+Transition Agent is on by default again (`EnableKnowledgeAgents` = true for new installs). F12
+fixed: the candidate query orders by BPM closeness before its 500 cap and projects only hash/BPM/
+key (no embedding blobs); `_seenKeys` (100k) and the backlog (20k) are bounded. Existing installs
+keep the `False` their `config.ini` already stores — the next release's "What's new" should
+mention the Settings → Advanced toggle.
+
 | ID | Work |
 |---|---|
 | P4.1 | **Pick one engine.** Flow Builder has its own bridge finder and A10 flow suggestion; the Copilot has `BridgeFinder` / `SetBuilder`. Benchmark both on the same library with `Tools/CopilotBattleTest` + the existing Flow Builder tests, keep the better one, delete the other |
