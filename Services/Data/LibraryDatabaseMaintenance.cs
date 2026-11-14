@@ -95,17 +95,28 @@ public static class LibraryDatabaseMaintenance
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(targetPath))!);
         }
 
-        using (var src = new SqliteConnection(new SqliteConnectionStringBuilder
-               { DataSource = dbPath, Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString()))
-        using (var dst = new SqliteConnection(new SqliteConnectionStringBuilder
-               { DataSource = targetPath, Pooling = false }.ToString()))
+        // A writer on another connection (analysis, downloads, a test running in parallel) makes the
+        // online backup fail with SQLITE_BUSY / SQLITE_LOCKED for a moment; that used to abort a
+        // duplicate merge outright. Retry briefly before giving up.
+        const int attempts = 6;
+        for (var attempt = 1; ; attempt++)
         {
-            src.Open();
-            dst.Open();
-            src.BackupDatabase(dst);
+            try
+            {
+                using var src = new SqliteConnection(new SqliteConnectionStringBuilder
+                    { DataSource = dbPath, Mode = SqliteOpenMode.ReadOnly, Pooling = false, DefaultTimeout = 5 }.ToString());
+                using var dst = new SqliteConnection(new SqliteConnectionStringBuilder
+                    { DataSource = targetPath, Pooling = false }.ToString());
+                src.Open();
+                dst.Open();
+                src.BackupDatabase(dst);
+                return targetPath;
+            }
+            catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6 && attempt < attempts) // BUSY, LOCKED
+            {
+                System.Threading.Thread.Sleep(150 * attempt);
+            }
         }
-
-        return targetPath;
     }
 
     /// <summary>

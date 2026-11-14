@@ -8,10 +8,9 @@
     <Nullable>enable</Nullable>
     <AssemblyName>ORBIT</AssemblyName>
     <RootNamespace>SLSKDONET</RootNamespace>
-    <!-- A manual Properties/AssemblyInfo.cs carries InternalsVisibleTo; disable the SDK's
-         auto-generated assembly info + target-framework attribute to avoid duplicate-attribute
-         CS0579 errors on incremental builds. -->
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- The SDK generates the assembly info, so <Version> below reaches AssemblyVersion /
+         InformationalVersion (the updater, About and feedback read it). It was disabled, which left
+         every build at version 0.0.0.0. InternalsVisibleTo is an item further down. -->
     <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
     <Version>0.4.0</Version>
     <Authors>SLSK_CSV Contributors</Authors>
@@ -30,6 +29,7 @@
 
   <ItemGroup>
     <Compile Remove="External\**" />
+    <InternalsVisibleTo Include="SLSKDONET.Tests" />
     <Compile Remove="Tests\**" />
     <Compile Remove="Companions\**" />
     <Compile Remove="Tools\**" />
