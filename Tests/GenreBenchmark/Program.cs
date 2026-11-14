@@ -279,11 +279,9 @@ sealed class OfflinePredictor : IPredictor
     public OfflinePredictor(Options opts)
     {
         var model = Path.Combine(AppContext.BaseDirectory, "Tools", "Essentia", "models", "discogs-effnet-bsdynamic-1.onnx");
+        // The app's own tag (model hash + preprocessing version, #270), so old embeddings are skipped.
         if (File.Exists(model) && new FileInfo(model).Length > 1_000_000)
-        {
-            using var stream = File.OpenRead(model);
-            _currentTag = "discogs-effnet-bsdynamic-1|" + Convert.ToHexString(SHA256.HashData(stream))[..8];
-        }
+            _currentTag = DiscogsEffnetEmbeddingExtractor.BuildModelTag(model);
     }
 
     public bool Ready(out string reason)

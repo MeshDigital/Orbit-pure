@@ -22,11 +22,14 @@ namespace SLSKDONET.Engine.Analysis;
 /// this is distinct from the separate MusiCNN-family models (danceability, voice/instrumental,
 /// tonal/DJ-tool, genre_electronic), which use 187-frame patches and are NOT covered here.
 ///
-/// Residual uncertainty: the exact mel-filter gain normalization convention ("unit_tri" in
-/// Essentia's profile terminology) and window function were not found in a primary source —
-/// mapped to NWaves' `MelBankSlaney(normalizeGain: false)` (unit-height triangles, matching
-/// "unit_tri" literally) and a standard Hann window respectively. Validate output against a
-/// track with a known genre before trusting this in production.
+/// <para><b>Validated against tagged tracks (issue #270, 2026-11-14).</b> The first version used the
+/// natural log and unit-height mel triangles. On 40 tagged tracks (DnB/House/Techno/Other) the
+/// model then put a degenerate "Noise"/"DJ Battle Tool" style on top for 24 of 40, with a mean top
+/// score of 0.11. The librosa reproduction of the recipe (<c>log10</c>, Slaney <b>area</b>-normalised
+/// mel bands, plain Hann window) gives 0 degenerate outputs, a mean top score of 0.50 and e.g.
+/// "Drum n Bass 0.75" on a Noisia track; 19 of 40 Discogs bucket votes match the tag versus 10.
+/// Measured with <c>Tests/GenreBenchmark --mel-experiment</c>, which tries all 8 combinations.
+/// Any change here changes every embedding: bump <see cref="PreprocessingVersion"/>.</para>
 /// </summary>
 public static class EffnetMelSpectrogramExtractor
 {
@@ -36,11 +39,18 @@ public static class EffnetMelSpectrogramExtractor
     public const int MelBands = 96;
     public const int PatchFrames = 128;
 
+    /// <summary>
+    /// Part of <c>EmbeddingModelTag</c>/<c>StyleModelTag</c> ("|mel2"), so rows computed with an
+    /// older preprocessing are detectably stale (GA10 #255 re-runs them). 1 = ln + unit-height mel
+    /// (wrong, #270), 2 = log10 + area-normalised mel.
+    /// </summary>
+    public const int PreprocessingVersion = 2;
+
     // These immutable tables are identical for every track. Sharing them avoids rebuilding the
     // same Hann window and 96 × 257 filterbank in every concurrent analysis worker.
     private static readonly float[] AnalysisWindow = Window.OfType(WindowType.Hann, FrameSize);
     private static readonly float[][] MelFilterbank = FilterBanks.MelBankSlaney(
-        MelBands, FrameSize, SampleRate, lowFreq: 0, highFreq: SampleRate / 2.0, normalizeGain: false);
+        MelBands, FrameSize, SampleRate, lowFreq: 0, highFreq: SampleRate / 2.0, normalizeGain: true); // Slaney area norm (#270)
 
     /// <summary>
     /// Downsamples mono audio at an arbitrary source rate to 16 kHz via linear interpolation.
@@ -135,7 +145,7 @@ public static class EffnetMelSpectrogramExtractor
                 for (int k = 0; k < numBins; k++)
                     energy += filter[k] * power[k];
 
-                logMel[b] = (float)Math.Log(10000.0 * energy + 1.0);
+                logMel[b] = (float)Math.Log10(10000.0 * energy + 1.0); // log10, not ln (#270)
             }
 
             melFrames.Add(logMel);
