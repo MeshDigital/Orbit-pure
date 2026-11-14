@@ -50,9 +50,10 @@ public static class FirstRunDetector
     /// </summary>
     // 10 = beat-grid editing epic (#219). 11 = Sets phase 3 (#198). 12 = Library maintenance
     // wizard (#210). 13 = Flow Builder deck controls + Cue Forge "Back to". 14 = acquisition hardening (#231), Sets phase 3 (#198) +
-    // exact-duplicate review (#238). Coordinated so each
+    // exact-duplicate review (#238). 15 = release 0.4.0: genre-accuracy epic (#245)
+    // and the EffNet input fix (#270), What's New rewritten to cover the whole 0.4.0 release. Coordinated so each
     // unmerged branch takes the next free number above 10.
-    public const int CurrentSetupVersion = 14;
+    public const int CurrentSetupVersion = 15;
 
     /// <param name="fallbackDownloadDirectory">
     /// The folder ORBIT fills in when config.ini has none (<see cref="Configuration.AppConfig.FallbackDownloadDirectory"/>).

@@ -18,17 +18,16 @@ public sealed class WhatsNewStepViewModel : SetupStepViewModel
 
     public IReadOnlyList<WhatsNewItem> Items { get; } = new[]
     {
-        new WhatsNewItem("Find exact duplicates", "Library ⋯ → Find exact duplicates compares the audio itself, so re-tagged or renamed copies are found too. Pick the copy to keep; its playlists, set slots and cues are merged. Files only go to the Recycle Bin if you tick that box."),
-        new WhatsNewItem("Sets: Plan B for every slot", "Keep backup tracks under a slot and swap one in with a click. The slot keeps its role, energy target and notes."),
-        new WhatsNewItem("Sets: track pool", "Search your library under the set, filter to tracks in key or within 4% BPM of the selected slot, or add a whole playlist at once."),
-        new WhatsNewItem("Design transitions inside a set", "Double-click the score between two slots to open the transition editor. It saves into the set, starts from what you saved for that pair before, and has a rating and a \"played it live\" box."),
+        new WhatsNewItem("Sets has its own page", "Plan a gig as slot cards with a role, energy target and notes, and a compatibility score between every pair. Keep Plan B tracks per slot, search a track pool under the set, and add tracks from the Library with right-click → Add to Set."),
+        new WhatsNewItem("Design transitions inside a set", "Double-click the score between two slots to open the transition editor. It's the same editor as Flow Builder (Transition Lab is gone), with a rating and a \"played it live\" box, and it starts from what you saved for that pair before."),
         new WhatsNewItem("Find a bridge track", "Select a transition in a set and choose Find a bridge track: analysed tracks close in BPM to both ends, ranked by how their intro and outro fit. Insert puts one between the slots."),
-        new WhatsNewItem("Add to Set from the Library", "Right-click tracks → Add to Set → pick a recent set or start a new one. Works on a whole selection."),
-        new WhatsNewItem("One transition editor", "Transition Lab is gone: the same transition editor is used in Flow Builder and in Sets."),
+        new WhatsNewItem("Flow Builder: drag the mix points", "Drag the marker on either deck to move the mix-out or mix-in. The incoming track snaps to its cues and to spots where one of its cues lands on a cue of the outgoing track; Shift snaps to beats, Alt moves freely."),
+        new WhatsNewItem("Beat grids you can trust", "BPM fixes in Cue Forge update the grid itself, and a grid you edited or confirmed is never overwritten by re-analysis. The Library's Grid review chip lists tracks whose bar lines don't match the music."),
+        new WhatsNewItem("Much better genre detection", "Genre now comes from the detailed style model plus a rhythm check (a kick on every beat vs backbeat vs half-time) instead of tempo ranges, so DnB, dubstep, techno and house are told apart far more often."),
+        new WhatsNewItem("Refresh AI styles for your library", "A model input bug made earlier style, genre and mood guesses unreliable. In Library maintenance, tick \"Analyse tracks with missing or outdated AI style\" to redo them in the background."),
+        new WhatsNewItem("Find exact duplicates", "Library ⋯ → Find exact duplicates compares the audio itself, so re-tagged or renamed copies are found too. Pick the copy to keep; its playlists, set slots and cues are merged. Files only go to the Recycle Bin if you tick that box."),
+        new WhatsNewItem("Library maintenance", "One pass fixes malformed tags, fills missing metadata and groups unclassified tracks into style playlists, with a preview and a one-click undo (Library ⋯ menu or Settings → Maintenance)."),
         new WhatsNewItem("Already in your library", "When a download turns out to be audio you already have, the playlist points to your existing file and the row says so, instead of adding a second copy."),
-        new WhatsNewItem("No more previews", "Auto-download now skips previews and cut-off files: a file too small for its length and bitrate is rejected before it downloads."),
-        new WhatsNewItem("Transitions snap to cues", "Dragging the incoming track in the transition editor snaps to its cues, and to spots where one of its cues lands on a cue of the outgoing track; otherwise it moves bar by bar. Shift snaps to beats, Alt moves freely."),
-        new WhatsNewItem("Steadier downloads", "Two tracks from the same user no longer share progress, and download speed is measured correctly, so fewer downloads are wrongly treated as stalled and retried."),
-        new WhatsNewItem("Library maintenance opens", "The Library maintenance window (Library ⋯ menu or Settings → Maintenance) now actually opens; before, the button did nothing."),
+        new WhatsNewItem("Steadier downloads", "Auto-download skips previews and cut-off files, two tracks from the same user no longer share progress, and download speed is measured correctly, so fewer downloads are wrongly treated as stalled."),
     };
 }
