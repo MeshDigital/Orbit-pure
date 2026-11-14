@@ -27,8 +27,8 @@
                     <CheckBox Content="Fix malformed / swapped tags" IsChecked="{Binding FixTags}"/>
                     <CheckBox Content="Fetch missing online metadata" IsChecked="{Binding Enrich}"
                               ToolTip.Tip="Queues tracks for background enrichment. Fills empty fields only; BPM, key and energy are never touched."/>
-                    <CheckBox Content="Analyse tracks missing AI style" IsChecked="{Binding StyleBackfill}"
-                              ToolTip.Tip="Runs a cheap style-only (Mood) analysis in the background."/>
+                    <CheckBox Content="Analyse tracks with missing or outdated AI style" IsChecked="{Binding StyleBackfill}"
+                              ToolTip.Tip="Runs a style-only (Mood) analysis in the background for every track without current style scores, including tracks analysed before the style model fix."/>
                     <CheckBox Content="Fill empty Genre from AI style" IsChecked="{Binding GenreFill}"/>
                     <CheckBox Content="Group unclassified tracks into style playlists" IsChecked="{Binding StylePlaylists}"/>
                     <Border Classes="divider"/>
