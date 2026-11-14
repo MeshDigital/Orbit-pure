@@ -26,6 +26,9 @@ public sealed class SetListItemViewModel : ReactiveObject
     public SetProjectStatus Status { get; }
     public int SlotCount { get; }
 
+    /// <summary>The set's event preset key (#207), or null.</summary>
+    public string? EventPresetKey { get; set; }
+
     /// <summary>"12 tracks · Draft".</summary>
     public string Summary => $"{CountFormat.Of(SlotCount, "track")} · {Status}";
 
@@ -35,6 +38,7 @@ public sealed class SetListItemViewModel : ReactiveObject
         _name = summary.Name;
         Status = summary.Status;
         SlotCount = summary.SlotCount;
+        EventPresetKey = summary.EventPresetKey;
     }
 }
 
@@ -93,6 +97,7 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
                 _selectedTransitionKey = null;
                 RaiseUndoStateChanged();
             }
+            SyncEventPreset(value);
             PendingSlotLoad = LoadSlotsAsync();
         }
     }
@@ -207,6 +212,63 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
         ClearPoolFiltersCommand = ReactiveCommand.Create(() => Pool.ClearFilters());
         ExportXmlCommand = ReactiveCommand.CreateFromTask(() => ExportAsync(SLSKDONET.Services.Export.ExportMode.XmlOnly), hasSelection);
         ExportToFolderCommand = ReactiveCommand.CreateFromTask(() => ExportAsync(SLSKDONET.Services.Export.ExportMode.FilesAndXml), hasSelection);
+    }
+
+    // ── Event preset (rebuild plan P6, #207) ──────────────────────────────────
+
+    /// <summary>"No event" plus the presets, for the header picker.</summary>
+    public IReadOnlyList<EventPresetOption> EventPresetOptions { get; } =
+        new[] { EventPresetOption.None }.Concat(EventPresets.All.Select(p => new EventPresetOption(p))).ToList();
+
+    private EventPresetOption _selectedEventPreset = EventPresetOption.None;
+    private bool _syncingPreset;
+    /// <summary>The selected set's event; changing it saves and re-scores Set Health's energy flow.</summary>
+    public EventPresetOption SelectedEventPreset
+    {
+        get => _selectedEventPreset;
+        set
+        {
+            value ??= EventPresetOption.None;
+            if (ReferenceEquals(_selectedEventPreset, value)) return;
+            this.RaiseAndSetIfChanged(ref _selectedEventPreset, value);
+            if (!_syncingPreset) PendingPresetSave = SaveEventPresetAsync(value);
+        }
+    }
+
+    /// <summary>The save started by the last preset change (awaited by tests).</summary>
+    internal Task PendingPresetSave { get; private set; } = Task.CompletedTask;
+
+    /// <summary>Shows the selected set's stored preset without saving it again.</summary>
+    private void SyncEventPreset(SetListItemViewModel? set)
+    {
+        _syncingPreset = true;
+        try
+        {
+            SelectedEventPreset = EventPresetOptions.FirstOrDefault(o => o.Preset?.Key == set?.EventPresetKey) ?? EventPresetOption.None;
+        }
+        finally
+        {
+            _syncingPreset = false;
+        }
+    }
+
+    private async Task SaveEventPresetAsync(EventPresetOption option)
+    {
+        if (SelectedSet is not { } set) return;
+        try
+        {
+            if (!await _sets.SetEventPresetAsync(set.Id, option.Preset?.Key))
+            {
+                _notifications?.Show("Sets", $"\"{set.Name}\" no longer exists.", NotificationType.Warning);
+                return;
+            }
+            set.EventPresetKey = option.Preset?.Key;
+            Health = new SetHealthSummary(Slots.ToList(), LaneItems.OfType<TransitionChipViewModel>().ToList(), option.Preset);
+        }
+        catch (Exception ex)
+        {
+            ReportFailure("Couldn't save the event", ex);
+        }
     }
 
     // ── Export (rebuild plan P5, #206) ────────────────────────────────────────
@@ -497,7 +559,7 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
 
         if (_selectedSlotId is Guid id && Slots.All(s => s.SlotId != id))
             _selectedSlotId = null;
-        Health = new SetHealthSummary(Slots.ToList(), LaneItems.OfType<TransitionChipViewModel>().ToList());
+        Health = new SetHealthSummary(Slots.ToList(), LaneItems.OfType<TransitionChipViewModel>().ToList(), SelectedEventPreset.Preset);
         RaiseSlotSelectionChanged();
     }
 
@@ -712,4 +774,12 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
         ClearPoolFiltersCommand.Dispose();
         Pool.Dispose();
     }
+}
+
+/// <summary>An entry of the Sets header's event picker (null preset = no event).</summary>
+public sealed record EventPresetOption(SLSKDONET.Services.Sets.EventPreset? Preset)
+{
+    public static EventPresetOption None { get; } = new((SLSKDONET.Services.Sets.EventPreset?)null);
+    public string Name => Preset?.Name ?? "No event";
+    public string Description => Preset?.Description ?? "Set Health doesn't compare the energy with an event";
 }

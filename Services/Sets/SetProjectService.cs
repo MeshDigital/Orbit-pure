@@ -31,7 +31,8 @@ public sealed record KnownNextTransition(string TargetHash, double Score, int Ev
 public sealed record PlaylistAppendResult(IReadOnlyList<SetTrackEntity> Added, int SkippedNotInLibrary);
 
 /// <summary>A set as listed in the Sets rail.</summary>
-public sealed record SetSummary(Guid Id, string Name, SetProjectStatus Status, int SlotCount, DateTime LastModifiedAt);
+/// <param name="EventPresetKey">The set's event preset (<see cref="EventPresets"/>), or null.</param>
+public sealed record SetSummary(Guid Id, string Name, SetProjectStatus Status, int SlotCount, DateTime LastModifiedAt, string? EventPresetKey = null);
 
 /// <summary>
 /// One slot of a set, joined with the library and analysis data the Sets page shows.
@@ -97,6 +98,9 @@ public interface ISetProjectService
 
     /// <summary>Known transitions out of a track: evidence-backed knowledge edges and knowledge-scan candidates.</summary>
     Task<IReadOnlyList<KnownNextTransition>> GetKnownNextAsync(string fromHash);
+
+    /// <summary>Sets (or clears, with null) the set's event preset. False when the set is gone.</summary>
+    Task<bool> SetEventPresetAsync(Guid setId, string? presetKey);
 
     /// <summary>A set's slots in spine order, with labels and analysis data. Empty for an unknown set.</summary>
     Task<IReadOnlyList<SetSlotInfo>> GetSlotsAsync(Guid setId);
@@ -203,16 +207,22 @@ public sealed class SetProjectService : ISetProjectService
             sets = sets.Where(s => s.Status != SetProjectStatus.Archived);
 
         var rows = await sets
-            .Select(s => new { s.Id, s.Name, s.Status, s.LastModifiedAt, SlotCount = s.Tracks.Count })
+            .Select(s => new { s.Id, s.Name, s.Status, s.LastModifiedAt, SlotCount = s.Tracks.Count, s.EventProfileId })
             .ToListAsync()
             .ConfigureAwait(false);
+        var profileIds = rows.Where(r => r.EventProfileId != null).Select(r => r.EventProfileId!.Value).Distinct().ToList();
+        var profileNames = profileIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await db.EventProfiles.AsNoTracking().Where(p => profileIds.Contains(p.Id))
+                .ToDictionaryAsync(p => p.Id, p => p.Name).ConfigureAwait(false);
 
         // Order client-side: rows written by different code paths store the timestamp as
         // "yyyy-MM-ddTHH:mm:ss" or "yyyy-MM-dd HH:mm:ss", and SQLite compares them as text, so a
         // T-separated row outranks every space-separated one regardless of time. Set counts are small.
         return rows
             .OrderByDescending(r => r.LastModifiedAt)
-            .Select(r => new SetSummary(r.Id, r.Name, r.Status, r.SlotCount, r.LastModifiedAt))
+            .Select(r => new SetSummary(r.Id, r.Name, r.Status, r.SlotCount, r.LastModifiedAt,
+                r.EventProfileId is Guid pid && profileNames.TryGetValue(pid, out var pname) ? EventPresets.KeyFromProfileName(pname) : null))
             .ToList();
     }
 
@@ -238,6 +248,33 @@ public sealed class SetProjectService : ISetProjectService
             .GroupBy(c => c.TargetTrackId)
             .Select(g => new KnownNextTransition(g.Key, g.Max(c => c.CompatibilityScore), 0, false, FromEvidence: false)));
         return known;
+    }
+
+    public async Task<bool> SetEventPresetAsync(Guid setId, string? presetKey)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+        var set = await db.SetLists.FirstOrDefaultAsync(s => s.Id == setId).ConfigureAwait(false);
+        if (set is null) return false;
+
+        if (EventPresets.ByKey(presetKey) is not { } preset)
+        {
+            set.EventProfileId = null;
+        }
+        else
+        {
+            // One shared profile row per preset, created on first use.
+            var name = EventPresets.NamePrefix + preset.Key;
+            var profile = await db.EventProfiles.FirstOrDefaultAsync(p => p.Name == name).ConfigureAwait(false);
+            if (profile is null)
+            {
+                profile = new EventProfileEntity { Name = name, AudienceType = preset.Audience };
+                db.EventProfiles.Add(profile);
+            }
+            profile.TargetEnergyCurveJson = System.Text.Json.JsonSerializer.Serialize(preset.EnergyCurve);
+            set.EventProfileId = profile.Id;
+        }
+        await db.SaveChangesAsync().ConfigureAwait(false);
+        return true;
     }
 
     public async Task<IReadOnlyList<SetSlotInfo>> GetSlotsAsync(Guid setId)

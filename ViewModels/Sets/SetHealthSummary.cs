@@ -32,7 +32,11 @@ public sealed class SetHealthSummary
     public HealthMetric Transitions { get; }
     public HealthMetric PeakPlacement { get; }
     public HealthMetric Recovery { get; }
-    public IReadOnlyList<HealthMetric> Metrics => new[] { Overall, Transitions, PeakPlacement, Recovery };
+    /// <summary>Slot energy targets vs the event preset's curve (#207); null when the set has no preset.</summary>
+    public HealthMetric? EnergyFlow { get; }
+    public IReadOnlyList<HealthMetric> Metrics => EnergyFlow is { } flow
+        ? new[] { Overall, Transitions, PeakPlacement, Recovery, flow }
+        : new[] { Overall, Transitions, PeakPlacement, Recovery };
     public IReadOnlyList<HealthIssue> Issues { get; }
     public bool HasIssues => Issues.Count > 0;
     public string IssuesText => CountFormat.Of(Issues.Count, "issue");
@@ -44,7 +48,8 @@ public sealed class SetHealthSummary
 
     public static SetHealthSummary Empty { get; } = new(Array.Empty<SlotCardViewModel>(), Array.Empty<TransitionChipViewModel>());
 
-    public SetHealthSummary(IReadOnlyList<SlotCardViewModel> slots, IReadOnlyList<TransitionChipViewModel> transitions)
+    public SetHealthSummary(IReadOnlyList<SlotCardViewModel> slots, IReadOnlyList<TransitionChipViewModel> transitions,
+        SLSKDONET.Services.Sets.EventPreset? preset = null)
     {
         static bool Analysed(SlotCardViewModel s) => s.Slot.Bpm is > 0 && s.Slot.CamelotKey is not null;
 
@@ -65,7 +70,12 @@ public sealed class SetHealthSummary
             hasPeak && roles.Count >= 2 ? SetHealthService.CrowdRecovery(roles) : null,
             "Mark Peak slots, then follow them with a Reset or Atmosphere slot");
 
-        var parts = new[] { (Transitions.Value, 0.6), (PeakPlacement.Value, 0.2), (Recovery.Value, 0.2) }
+        if (preset is not null)
+            EnergyFlow = new HealthMetric($"Energy flow ({preset.Name})",
+                SLSKDONET.Services.Sets.EventPresets.EnergyFlow(slots.Select(s => s.Slot.EnergyTarget).ToList(), preset.EnergyCurve),
+                "Set an energy target on at least two slots to compare them with the event's curve");
+
+        var parts = new[] { (Transitions.Value, 0.6), (PeakPlacement.Value, 0.2), (Recovery.Value, 0.2), (EnergyFlow?.Value, 0.2) }
             .Where(p => p.Value is not null)
             .ToList();
         Overall = new HealthMetric("Overall",
