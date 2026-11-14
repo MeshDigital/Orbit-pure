@@ -10,6 +10,7 @@ namespace RekordboxBridge;
 ///   RekordboxBridge probe          --db &lt;master.db&gt;   can it be opened; row counts
 ///   RekordboxBridge cues           --db &lt;master.db&gt;   every track with cues, as JSON
 ///   RekordboxBridge encoding-stats --db &lt;master.db&gt;   how Kind / colour / positions are encoded
+///   RekordboxBridge history        --db &lt;master.db&gt;   play-history playlists with their tracks, as JSON
 ///
 /// JSON goes to stdout, a one-line reason to stderr. Exit codes: 0 ok, 1 usage, 2 database not
 /// found, 3 couldn't decrypt (wrong key / unsupported Rekordbox), 4 unexpected schema or error.
@@ -52,6 +53,7 @@ internal static class Program
                     case "probe": Probe(connection, json); break;
                     case "cues": Cues(connection, json); break;
                     case "encoding-stats": EncodingStats(connection, json); break;
+                    case "history": History(connection, json); break;
                     default: return Usage();
                 }
             }
@@ -71,7 +73,7 @@ internal static class Program
 
     private static int Usage()
     {
-        Console.Error.WriteLine("usage: RekordboxBridge probe|cues|encoding-stats --db <path to master.db>");
+        Console.Error.WriteLine("usage: RekordboxBridge probe|cues|encoding-stats|history --db <path to master.db>");
         return 1;
     }
 
@@ -105,6 +107,59 @@ internal static class Program
         using var cmd = c.CreateCommand();
         cmd.CommandText = sql;
         return Convert.ToInt64(cmd.ExecuteScalar() ?? 0L, CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// Rekordbox's play history (one playlist per session it recorded), oldest first, each with its
+    /// tracks in played order: [{ id, name, created, tracks: [{ trackNo, path, title, artist }] }].
+    /// Folders (Attribute 1) and deleted rows are skipped.
+    /// </summary>
+    private static void History(SqliteConnection c, Utf8JsonWriter json)
+    {
+        var histories = new List<(string Id, string? Name, string? Created)>();
+        using (var cmd = c.CreateCommand())
+        {
+            cmd.CommandText = @"SELECT ID, Name, DateCreated FROM djmdHistory
+                                WHERE rb_local_deleted = 0 AND coalesce(Attribute, 0) = 0
+                                ORDER BY DateCreated, Seq";
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+                histories.Add((Convert.ToString(r.GetValue(0), CultureInfo.InvariantCulture) ?? "",
+                    r.IsDBNull(1) ? null : r.GetString(1), r.IsDBNull(2) ? null : r.GetString(2)));
+        }
+
+        json.WriteStartArray();
+        foreach (var h in histories)
+        {
+            json.WriteStartObject();
+            json.WriteString("id", h.Id);
+            json.WriteString("name", h.Name);
+            json.WriteString("created", h.Created);
+            json.WriteStartArray("tracks");
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText = @"SELECT s.TrackNo, t.FolderPath, t.Title, a.Name
+                                    FROM djmdSongHistory s
+                                    JOIN djmdContent t ON t.ID = s.ContentID
+                                    LEFT JOIN djmdArtist a ON a.ID = t.ArtistID
+                                    WHERE s.HistoryID = $id AND s.rb_local_deleted = 0
+                                    ORDER BY s.TrackNo";
+                cmd.Parameters.AddWithValue("$id", h.Id);
+                using var r = cmd.ExecuteReader();
+                while (r.Read())
+                {
+                    json.WriteStartObject();
+                    json.WriteNumber("trackNo", r.IsDBNull(0) ? 0 : Convert.ToInt32(r.GetValue(0), CultureInfo.InvariantCulture));
+                    json.WriteString("path", r.IsDBNull(1) ? null : r.GetString(1));
+                    json.WriteString("title", r.IsDBNull(2) ? null : r.GetString(2));
+                    json.WriteString("artist", r.IsDBNull(3) ? null : r.GetString(3));
+                    json.WriteEndObject();
+                }
+            }
+            json.WriteEndArray();
+            json.WriteEndObject();
+        }
+        json.WriteEndArray();
     }
 
     private static void Probe(SqliteConnection c, Utf8JsonWriter json)
