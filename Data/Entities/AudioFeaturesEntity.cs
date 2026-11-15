@@ -731,6 +731,14 @@ public class AudioFeaturesEntity
     /// without decoding audio again (#255). Null for rows analysed before it existed.
     /// </summary>
     public string? RhythmSignatureJson { get; set; }
+
+    /// <summary>
+    /// The resolved genre and the evidence behind it as JSON (GA8 #253,
+    /// <see cref="SLSKDONET.Engine.Analysis.GenreFusion.GenreEvidenceRecord"/>): the library genre
+    /// and its source, the audio opinion, the rhythm summary, gate factors and any conflict.
+    /// <see cref="DetectedSubGenre"/> stays the audio opinion. Null until a track is analysed again.
+    /// </summary>
+    public string? GenreEvidenceJson { get; set; }
 }
 
 

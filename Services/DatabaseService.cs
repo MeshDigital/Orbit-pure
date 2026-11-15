@@ -2312,6 +2312,22 @@ public class DatabaseService
         return await context.AudioFeatures.AsNoTracking().FirstOrDefaultAsync(f => f.TrackUniqueHash == uniqueHash);
     }
 
+    /// <summary>The track's library genre and who wrote it, for metadata-first genre resolution (GA8 #253).
+    /// Null when the track has no genre; a failed read is logged and treated as "no library genre".</summary>
+    public async Task<Engine.Analysis.GenreFusion.TrackGenreContext?> GetTrackGenreContextAsync(string uniqueHash, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var context = new AppDbContext();
+            return await AudioAnalysis.TrackGenreContextQuery.LoadAsync(context, uniqueHash, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "[DatabaseService] Couldn't read the library genre for {Hash}; using the audio genre", uniqueHash);
+            return null;
+        }
+    }
+
     /// <summary>
     /// Returns the local file path for a track by its unique hash.
     /// Checks LibraryEntries.FilePath first, then Tracks.LocalFilePath.

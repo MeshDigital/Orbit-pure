@@ -183,7 +183,19 @@ foreach (var refTrack in reference)
     if (!string.IsNullOrEmpty(allowedSources) && !allowedSources.Split(',').Contains(f.PhraseSegmentsSource))
         f.PhraseSegmentsSource = "";
 
-    var analysis = AnalysisPipelineResultBuilder.Build(f);
+    // Experiment switch: ORBIT_BENCH_METADATA_GENRE=1 resolves the genre metadata-first from the
+    // copy's library genre + provenance (GA8 #253), as the app now does; default is the audio label.
+    SLSKDONET.Engine.Analysis.GenreFusion.ResolvedGenre? resolvedGenre = null;
+    if (Environment.GetEnvironmentVariable("ORBIT_BENCH_METADATA_GENRE") == "1")
+    {
+        var genreContext = SLSKDONET.Services.AudioAnalysis.TrackGenreContextQuery.LoadAsync(db, f.TrackUniqueHash).GetAwaiter().GetResult();
+        resolvedGenre = SLSKDONET.Engine.Analysis.GenreFusion.TrackGenreResolver.Resolve(
+            genreContext, SLSKDONET.Engine.Analysis.GenreFusion.AudioGenreOpinion.FromFeatures(f));
+        if (resolvedGenre.Decision is not (SLSKDONET.Engine.Analysis.GenreFusion.GenreDecision.Audio
+            or SLSKDONET.Engine.Analysis.GenreFusion.GenreDecision.None))
+            Skip($"(info) genre {resolvedGenre.Decision}");
+    }
+    var analysis = AnalysisPipelineResultBuilder.Build(f, genre: resolvedGenre);
     double anchor = f.DownbeatOffsetSeconds > 0 ? f.DownbeatOffsetSeconds : 0.0;
     var (cues, path) = generator.GenerateCuesWithPath(f.TrackUniqueHash, analysis, anchor);
     if (cues.Count == 0) { Skip("generator produced no cues"); continue; }
@@ -525,7 +537,7 @@ static class Metrics
 
         return new TrackResult(
             refTrack.FileName, f.TrackUniqueHash, analysis.Genre ?? "",
-            GenreFamilyClassifier.Classify(analysis.Genre, (float)bpm).Family, path, bpm,
+            GenreFamilyClassifier.Classify(analysis.Genre, (float)bpm, analysis.GenreConfidence, analysis.GenreSource).Family, path, bpm,
             refTimes.Count, realDrops.Count, dropErrors,
             refTimes.Select(t => Nearest(genTimes, t) - t).ToArray(),
             genApproach.Select(t => t - Nearest(refTimes, t)).ToArray(),

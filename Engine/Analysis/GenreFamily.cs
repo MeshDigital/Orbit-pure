@@ -91,7 +91,11 @@ public static class GenreFamilyClassifier
             // library's DnB tracks are routinely tagged "Techno"/"Ambient" at 0.1–0.3 confidence;
             // at 175 BPM the BPM bracket is the better evidence. Explicit bass-family text is
             // still trusted (a low-confidence "Dubstep" tag at 140 BPM should not become Trance).
-            if (genreConfidence is < 0.5f && !explicitBass)
+            // A user or file tag (resolved by TrackGenreResolver, GA8 #253) is not a model guess: the
+            // low-confidence escapes below exist to distrust the ONNX label, not the DJ's own tag.
+            bool trusted = source is GenreSource.UserTag or GenreSource.LocalFileTag;
+
+            if (!trusted && genreConfidence is < 0.5f && !explicitBass)
             {
                 var bpmOnly = Classify(null, bpm);
                 if (bpmOnly.Family != GenreFamily.Unknown) return bpmOnly;
@@ -99,7 +103,7 @@ public static class GenreFamilyClassifier
 
             // At DnB tempo the ONNX genre head is routinely wrong ("Techno"/"House" at 0.5-0.7
             // confidence on 174 BPM tracks). A confident label still wins; a weak one does not.
-            if (genreConfidence is < 0.7f && bpm >= 160 && bpm <= 190)
+            if (!trusted && genreConfidence is < 0.7f && bpm >= 160 && bpm <= 190)
             {
                 var bpmOnly = Classify(null, bpm);
                 if (bpmOnly.Family != GenreFamily.Unknown) return bpmOnly;
@@ -121,6 +125,26 @@ public static class GenreFamilyClassifier
 
             if (g.Contains("hous"))
                 return new GenreFamilyResult(GenreFamily.FourOnTheFloor, FourOnTheFloorSubgenre.House, 118, 128);
+
+            // A trusted tag the keywords above don't know ("Neurofunk", "Riddim" are caught; "Hardstyle",
+            // "Hip Hop" are not): the taxonomy decides, and a non-club genre stays Unknown (generic
+            // behaviour) instead of being bracketed by tempo — a 175 BPM hardcore tag is not DnB.
+            if (trusted)
+            {
+                var mapped = GenreTaxonomy.MapFreeText(genreHint);
+                if (!mapped.IsJunk)
+                {
+                    var (family, sub) = GenreTaxonomy.ToFamily(mapped.Bucket, mapped.Subgenre);
+                    return family switch
+                    {
+                        GenreFamily.Breakbeat => new GenreFamilyResult(family, sub, 160, 190),
+                        GenreFamily.Dubstep => new GenreFamilyResult(family, sub, 138, 150),
+                        GenreFamily.FourOnTheFloor when sub == FourOnTheFloorSubgenre.House => new GenreFamilyResult(family, sub, 118, 128),
+                        GenreFamily.FourOnTheFloor => new GenreFamilyResult(family, sub, 125, 138),
+                        _ => new GenreFamilyResult(GenreFamily.Unknown, FourOnTheFloorSubgenre.Unknown, 0, 0),
+                    };
+                }
+            }
         }
 
         // No usable genre text — fall back to BPM bracket alone. The 138-150 range is genuinely

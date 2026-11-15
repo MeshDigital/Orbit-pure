@@ -15,7 +15,11 @@ namespace SLSKDONET.Engine.Analysis;
 /// </summary>
 public static class AnalysisPipelineResultBuilder
 {
-    public static AnalysisPipelineResult Build(AudioFeaturesEntity f, IReadOnlyList<PhraseSegment>? phraseSegments = null)
+    /// <param name="genre">The metadata-first genre (<see cref="GenreFusion.TrackGenreResolver"/>, GA8 #253). When
+    /// given, a trusted library genre beats the audio model's label for every genre-driven choice in cue
+    /// generation; null keeps the audio label (<see cref="AudioFeaturesEntity.DetectedSubGenre"/>).</param>
+    public static AnalysisPipelineResult Build(AudioFeaturesEntity f, IReadOnlyList<PhraseSegment>? phraseSegments = null,
+        GenreFusion.ResolvedGenre? genre = null)
     {
         var result = new AnalysisPipelineResult
         {
@@ -35,6 +39,14 @@ public static class AnalysisPipelineResultBuilder
                 ? GenreSource.ModelInferred
                 : GenreSource.Unknown,
         };
+
+        if (genre is { Decision: not GenreFusion.GenreDecision.None })
+        {
+            result.Genre = genre.DisplayText;
+            result.GenreConfidence = genre.Confidence > 0 ? genre.Confidence : result.GenreConfidence;
+            result.GenreSource = genre.Source;
+            result.ResolvedGenre = genre;
+        }
 
         // Phrases come only from the caller, resolved from the single TrackPhrases store (User >
         // RekordboxPSSI > Heuristic, #225). The legacy PhraseSegmentsJson column is no longer read: it

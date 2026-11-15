@@ -101,6 +101,10 @@ public sealed class AnalysisPipelineResult
     /// <summary>Where <see cref="Genre"/> came from. Model-inferred labels are advisory at
     /// breakbeat tempos; user/local tags are authoritative.</summary>
     public GenreSource GenreSource { get; set; } = GenreSource.Unknown;
+
+    /// <summary>The metadata-first genre behind <see cref="Genre"/> (GA8 #253); null when the caller
+    /// passed none and <see cref="Genre"/> is the audio model's label.</summary>
+    public GenreFusion.ResolvedGenre? ResolvedGenre { get; set; }
 }
 
 /// <summary>

@@ -266,8 +266,18 @@ public static class GenreTaxonomy
     /// </summary>
     public static GenreBucketMapping MapFreeText(string? text)
     {
-        if (string.IsNullOrWhiteSpace(text))
-            return new GenreBucketMapping(GenreBucket.Other, null, 0f, IsJunk: true);
+        var all = MapFreeTextAll(text);
+        return all.Count > 0 ? all[0] : new GenreBucketMapping(GenreBucket.Other, null, 0f, IsJunk: true);
+    }
+
+    /// <summary>
+    /// Every non-junk value of a multi-value genre text, mapped in tag order
+    /// ("Drum &amp; Bass, Liquid" → DnB, DnB/Liquid). Empty when the text is empty or all junk.
+    /// </summary>
+    public static IReadOnlyList<GenreBucketMapping> MapFreeTextAll(string? text)
+    {
+        var result = new List<GenreBucketMapping>();
+        if (string.IsNullOrWhiteSpace(text)) return result;
 
         var parts = text.Split(new[] { ',', ';', '/', '\n', '\r', '|' },
             StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -279,13 +289,17 @@ public static class GenreTaxonomy
             var n = Normalize(part);
             if (n.Length == 0) continue;
 
+            var mapped = new GenreBucketMapping(GenreBucket.Other, part.Trim(), 1f);
             foreach (var (test, map) in FreeTextRules)
-                if (test(n)) return map;
-
-            return new GenreBucketMapping(GenreBucket.Other, part.Trim(), 1f);
+            {
+                if (!test(n)) continue;
+                mapped = map;
+                break;
+            }
+            result.Add(mapped);
         }
 
-        return new GenreBucketMapping(GenreBucket.Other, null, 0f, IsJunk: true);
+        return result;
     }
 
     // ---------------------------------------------------------------------------------------

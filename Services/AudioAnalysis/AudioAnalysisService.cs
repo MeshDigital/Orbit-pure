@@ -515,7 +515,9 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 // GA6 (#251): the drums' signature for the rhythm & tempo gate. Uses this run's BPM and
                 // ticks, or the stored ones on a Mood-only run (the features row carries them).
                 var rhythm = AnalyzeRhythm(mono, pcmSampleRate, features, rmsCurve);
-                InferAndApplyGenre(features, onnxGenrePrediction, rhythm);
+                // GA8 (#253): the library genre and its source, so a trusted tag picks the BPM bracket.
+                var genreContext = await _db.GetTrackGenreContextAsync(trackUniqueHash, cancellationToken).ConfigureAwait(false);
+                InferAndApplyGenre(features, onnxGenrePrediction, rhythm, genreContext);
             }
 
             // ── Step 5c: Fit a precise constant grid to the beat ticks ───
@@ -710,7 +712,8 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         }
     }
 
-    private void InferAndApplyGenre(AudioFeaturesEntity features, GenreMoodPrediction? onnxPrediction, RhythmSignature? rhythm)
+    private void InferAndApplyGenre(AudioFeaturesEntity features, GenreMoodPrediction? onnxPrediction, RhythmSignature? rhythm,
+        TrackGenreContext? genreContext = null)
     {
         var jamendo = onnxPrediction is { } prediction
             ? prediction.JamendoGenres.Select(g => new GenreLabelScore(g.Label, g.Probability)).ToArray()
@@ -731,6 +734,9 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         var result = GenreFusionEngine.Fuse(new GenreFusionInput(jamendo, features.Bpm, discogs, rhythm));
         if (result is null)
         {
+            // No audio opinion: a trusted library genre still gets its evidence row.
+            features.GenreEvidenceJson = TrackGenreResolver.Resolve(genreContext, new AudioGenreOpinion(null, 0f, rhythm,
+                FusionVersion: GenreFusionEngine.FusionVersion)).Evidence.ToJson();
             return;
         }
 
@@ -745,7 +751,12 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         // are both settled, the correct seam for a genre-corroborated bracket correction (unlike
         // BpmDetectionService's genre-agnostic half-time correction, which runs before genre is
         // known and can't use it). See BreakbeatAnalysisStrategy/FourOnTheFloorAnalysisStrategy.
-        var classification = GenreFamilyClassifier.Classify(result.WinnerLabel, features.Bpm, result.Confidence, GenreSource.ModelInferred);
+        // The audio label above stays the audio opinion (DetectedSubGenre); the BPM bracket follows the
+        // metadata-first genre (GA8 #253), so a user's "Drum & Bass" tag refines toward 174, not 87.
+        var resolved = TrackGenreResolver.Resolve(genreContext, new AudioGenreOpinion(
+            result.WinnerLabel, result.Confidence, rhythm, result.Distribution, result.Gate, GenreFusionEngine.FusionVersion));
+        features.GenreEvidenceJson = resolved.Evidence.ToJson();
+        var classification = GenreFamilyClassifier.Classify(resolved.DisplayText, features.Bpm, resolved.Confidence, resolved.Source);
         IGenreFamilyAnalysisStrategy? strategy = classification.Family switch
         {
             GenreFamily.Breakbeat => _breakbeatStrategy,

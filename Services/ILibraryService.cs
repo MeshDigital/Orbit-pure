@@ -213,6 +213,10 @@ public interface ILibraryService
     Task<Dictionary<string, string>> GetMetadataProvenanceAsync(string trackHash) =>
         Task.FromResult(new Dictionary<string, string>());
 
+    /// <summary>The track's library genre and who wrote it, for metadata-first genre resolution (GA8 #253).</summary>
+    Task<Engine.Analysis.GenreFusion.TrackGenreContext?> GetTrackGenreContextAsync(string trackHash) =>
+        Task.FromResult<Engine.Analysis.GenreFusion.TrackGenreContext?>(null);
+
     /// <summary>
     /// Loads ALL tracks from all active playlists.
     /// Used for "All Tracks" view.

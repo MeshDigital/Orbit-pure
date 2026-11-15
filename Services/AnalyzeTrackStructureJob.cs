@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Engine.Analysis;
+using SLSKDONET.Engine.Analysis.GenreFusion;
 using SLSKDONET.Models;
 using SLSKDONET.Services.Audio;
 using SLSKDONET.Services.AudioAnalysis;
@@ -107,6 +108,12 @@ public sealed class AnalyzeTrackStructureJob
                 }
             }
 
+            // Step 2b: Metadata-first genre (GA8 #253). A trusted library genre (the user's, a clean
+            // file tag, Beatport, Discogs) beats the audio model for the phrase preset and the cues;
+            // DetectedSubGenre stays the audio opinion. The evidence is persisted with the row below.
+            var resolvedGenre = await ResolveGenreAsync(trackUniqueHash, features, cancellationToken).ConfigureAwait(false);
+            features.GenreEvidenceJson = resolvedGenre.Evidence.ToJson();
+
             // Step 3: Run the structural analysis engine
             var analysisResult = StructuralAnalysisEngine.Analyze(
                 bpm: features.Bpm,
@@ -122,12 +129,16 @@ public sealed class AnalyzeTrackStructureJob
             var alignedPhrases = await _phraseAlignmentService.AlignPhrasesAsync(
                 rawBoundaries,
                 features.Bpm > 0 ? features.Bpm : analysisResult.Bpm,
-                !string.IsNullOrWhiteSpace(features.DetectedSubGenre) ? features.DetectedSubGenre : features.ElectronicSubgenre,
+                resolvedGenre.Decision != GenreDecision.None
+                    ? resolvedGenre.DisplayText
+                    : !string.IsNullOrWhiteSpace(features.DetectedSubGenre) ? features.DetectedSubGenre : features.ElectronicSubgenre,
                 trackUniqueHash,
                 cancellationToken,
                 trackDuration: features.TrackDuration > 0 ? features.TrackDuration : null,
-                genreConfidence: features.SubGenreConfidence > 0 ? features.SubGenreConfidence : null,
-                genreSource: GenreSource.ModelInferred);
+                genreConfidence: resolvedGenre.Decision != GenreDecision.None
+                    ? resolvedGenre.Confidence
+                    : features.SubGenreConfidence > 0 ? features.SubGenreConfidence : null,
+                genreSource: resolvedGenre.Decision != GenreDecision.None ? resolvedGenre.Source : GenreSource.ModelInferred);
 
             var sections = alignedPhrases.Count > 0
                 ? await EnrichAlignedPhrasesAsync(alignedPhrases, trackUniqueHash, features, analysisResult, cancellationToken)
@@ -232,7 +243,7 @@ public sealed class AnalyzeTrackStructureJob
                 // user's own map, then Rekordbox's, then the heuristic sections saved above.
                 var phrasesForCues = Engine.Analysis.PhraseSourceResolver.Resolve(
                     await _databaseService.GetPhrasesByHashAsync(trackUniqueHash), features.TrackDuration);
-                var analysisPipelineResult = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features, phrasesForCues);
+                var analysisPipelineResult = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features, phrasesForCues, resolvedGenre);
                 double downbeatAnchor = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
                 await _cueGenerationService.GenerateAndPersistCuesAsync(
                     trackUniqueHash,
@@ -278,6 +289,18 @@ public sealed class AnalyzeTrackStructureJob
         }
     }
 
+    /// <summary>The metadata-first genre for a track (GA8 #253): its library genre and source, read fresh
+    /// so a genre the user just edited is used, resolved against the stored audio opinion.</summary>
+    private async Task<ResolvedGenre> ResolveGenreAsync(string trackUniqueHash, AudioFeaturesEntity features, CancellationToken ct)
+    {
+        var context = await _databaseService.GetTrackGenreContextAsync(trackUniqueHash, ct).ConfigureAwait(false);
+        var resolved = TrackGenreResolver.Resolve(context, AudioGenreOpinion.FromFeatures(features));
+        if (resolved.HasConflict)
+            _logger.LogInformation("[AnalyzeTrackStructureJob] Genre conflict for {Hash}: {Conflict} ({Decision})",
+                trackUniqueHash, resolved.Conflict, resolved.Decision);
+        return resolved;
+    }
+
     /// <summary>
     /// Re-runs ONLY cue-point mapping (Step 6 of <see cref="ExecuteAsync"/>) against whatever
     /// phrase/energy/sub-bass/novelty signals are already persisted on the track's
@@ -305,7 +328,8 @@ public sealed class AnalyzeTrackStructureJob
             // JSON column is only used when Rekordbox's own analysis wrote it.
             var phrases = Engine.Analysis.PhraseSourceResolver.Resolve(
                 await _databaseService.GetPhrasesByHashAsync(trackUniqueHash), features.TrackDuration);
-            var analysisPipelineResult = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features, phrases);
+            var resolvedGenre = await ResolveGenreAsync(trackUniqueHash, features, cancellationToken).ConfigureAwait(false);
+            var analysisPipelineResult = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features, phrases, resolvedGenre);
             double downbeatAnchor = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
 
             var cues = await _cueGenerationService.GenerateAndPersistCuesAsync(

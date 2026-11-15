@@ -64,7 +64,11 @@ public sealed class CueDetrCueService
             }
         }
 
-        var analysis = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features);
+        // Metadata-first genre (GA8 #253), as Auto-generate and the structure job use it.
+        var genreContext = await _database.GetTrackGenreContextAsync(trackHash, ct).ConfigureAwait(false);
+        var genre = Engine.Analysis.GenreFusion.TrackGenreResolver.Resolve(
+            genreContext, Engine.Analysis.GenreFusion.AudioGenreOpinion.FromFeatures(features));
+        var analysis = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features, genre: genre);
         double anchor = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
         var orbit = _generator.GenerateCues(trackHash, analysis, anchor,
             features.VocalStartSeconds, features.VocalEndSeconds,

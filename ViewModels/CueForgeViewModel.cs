@@ -2232,7 +2232,7 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
                 return;
             }
 
-            var analysis = BuildAnalysisResultFromFeatures(features, _resolvedPhrases);
+            var analysis = BuildAnalysisResultFromFeatures(features, _resolvedPhrases, await ResolveGenreAsync(features));
             double downbeat = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
             var rows = new List<string>();
 
@@ -2288,7 +2288,7 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
                 return;
             }
 
-            var analysis = BuildAnalysisResultFromFeatures(features, _resolvedPhrases);
+            var analysis = BuildAnalysisResultFromFeatures(features, _resolvedPhrases, await ResolveGenreAsync(features));
             double downbeat = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
 
             var generatedEntities = _engineCueService.GenerateCues(
@@ -2365,8 +2365,19 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
     // phrase list is passed explicitly because the view model resolves it from TrackPhrases, which
     // the builder cannot reach on its own.
     internal static Engine.Analysis.AnalysisPipelineResult BuildAnalysisResultFromFeatures(
-        AudioFeaturesEntity f, IReadOnlyList<PhraseSegment>? phrases = null) =>
-        Engine.Analysis.AnalysisPipelineResultBuilder.Build(f, phrases);
+        AudioFeaturesEntity f, IReadOnlyList<PhraseSegment>? phrases = null,
+        Engine.Analysis.GenreFusion.ResolvedGenre? genre = null) =>
+        Engine.Analysis.AnalysisPipelineResultBuilder.Build(f, phrases, genre);
+
+    /// <summary>The metadata-first genre (GA8 #253): the library genre is read on every Auto-generate,
+    /// so a genre the user just edited is used straight away.</summary>
+    private async Task<Engine.Analysis.GenreFusion.ResolvedGenre?> ResolveGenreAsync(AudioFeaturesEntity features)
+    {
+        if (_libraryService is null || TrackHash is null) return null;
+        var context = await _libraryService.GetTrackGenreContextAsync(TrackHash);
+        return Engine.Analysis.GenreFusion.TrackGenreResolver.Resolve(
+            context, Engine.Analysis.GenreFusion.AudioGenreOpinion.FromFeatures(features));
+    }
 
     // ── Utility ────────────────────────────────────────────────────────────
 
