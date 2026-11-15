@@ -81,6 +81,10 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
     /// <summary>Offered only when the refresh service is available (it is in the app).</summary>
     public bool CanRefreshGenres => _genreRefresh is not null;
 
+    private bool _genreConflicts = true;
+    /// <summary>Propose (unticked) genre fixes where the tag and a strong audio genre disagree (GA9 #254).</summary>
+    public bool GenreConflicts { get => _genreConflicts; set => this.RaiseAndSetIfChanged(ref _genreConflicts, value); }
+
     private bool _genreFill = true;
     public bool GenreFill { get => _genreFill; set => this.RaiseAndSetIfChanged(ref _genreFill, value); }
 
@@ -302,6 +306,12 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
             if (GenreFill)
             {
                 foreach (var p in StylePlaylistPlanner.GenreFillProposals(candidates))
+                    GenreRows.Add(new ProposalRowViewModel(p));
+            }
+            if (GenreConflicts)
+            {
+                // Tag vs audio conflicts (GA9 #254): review-only, never against a genre you set.
+                foreach (var p in await GenreConflictRule.ScanAsync(db, ct))
                     GenreRows.Add(new ProposalRowViewModel(p));
             }
 

@@ -33,6 +33,8 @@
                               IsVisible="{Binding CanRefreshGenres}"
                               ToolTip.Tip="Re-runs genre fusion from the analysis already stored (no audio, seconds for thousands of tracks) for tracks fused by an older engine or whose library genre changed since. Your tags and files are not touched."/>
                     <CheckBox Content="Fill empty Genre from AI style" IsChecked="{Binding GenreFill}"/>
+                    <CheckBox Content="Propose genre fixes where tag and audio strongly disagree" IsChecked="{Binding GenreConflicts}"
+                              ToolTip.Tip="Lists tracks whose genre tag the AI strongly disagrees with (backed by the drums), or whose genre is a non-genre such as &quot;Electronic&quot;. Nothing is ticked: you choose. Genres you set yourself are never questioned."/>
                     <CheckBox Content="Group unclassified tracks into style playlists" IsChecked="{Binding StylePlaylists}"/>
                     <Border Classes="divider"/>
                     <Grid ColumnDefinitions="*,Auto">
@@ -80,7 +82,7 @@
                         <TextBlock Classes="body-sm" Text="{Binding GenreSummaryText}" TextWrapping="Wrap"/>
                     </StackPanel>
 
-                    <TextBlock Classes="section" Text="GENRE FILL"/>
+                    <TextBlock Classes="section" Text="GENRE FILL &amp; CONFLICTS"/>
                     <ScrollViewer MaxHeight="180" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding GenreRows}">
                             <ItemsControl.ItemsPanel>

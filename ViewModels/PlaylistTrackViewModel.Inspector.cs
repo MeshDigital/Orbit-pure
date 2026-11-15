@@ -118,11 +118,7 @@ public partial class PlaylistTrackViewModel
     {
         get
         {
-            if (!_stylesRequested && _libraryService != null && !string.IsNullOrEmpty(GlobalId))
-            {
-                _stylesRequested = true;
-                _ = LoadStylesAsync();
-            }
+            EnsureStylesRequested();
             return string.IsNullOrWhiteSpace(_topStyleKey) ? null : StylePlaylistPlanner.SplitKey(_topStyleKey).Name;
         }
     }
@@ -135,6 +131,15 @@ public partial class PlaylistTrackViewModel
     {
         _stylesRequested = false;
         OnPropertyChanged(nameof(TopStyleDisplay));
+        OnPropertyChanged(nameof(GenreEvidence));
+    }
+
+    private void EnsureStylesRequested()
+    {
+        if (_stylesRequested || _libraryService == null || string.IsNullOrEmpty(GlobalId)) return;
+        _stylesRequested = true;
+        IsLoadingGenreEvidence = true;
+        _ = LoadStylesAsync();
     }
 
     private async Task LoadStylesAsync()
@@ -142,6 +147,7 @@ public partial class PlaylistTrackViewModel
         try
         {
             var features = await _libraryService!.GetAudioFeaturesByHashAsync(GlobalId);
+            var (evidence, error) = ParseGenreEvidence(features?.GenreEvidenceJson, GlobalId);
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
                 _topStyleKey = features?.TopStyle;
@@ -149,12 +155,110 @@ public partial class PlaylistTrackViewModel
                 OnPropertyChanged(nameof(TopStyleDisplay));
                 OnPropertyChanged(nameof(HasStyleScores));
                 OnPropertyChanged(nameof(TopStyleConfidence));
+                SetGenreEvidence(evidence, error);
             });
         }
         catch (Exception ex)
         {
             Serilog.Log.Warning(ex, "Could not load style for track {GlobalId}", GlobalId);
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                SetGenreEvidence(null, "Couldn't load the genre evidence."));
         }
+    }
+
+    // ── Genre evidence (GA9 #254) ────────────────────────────────────────────────────────────
+
+    private GenreEvidencePresentation? _genreEvidence;
+    /// <summary>What the genre engine decided and why; loaded with the AI style on first read.</summary>
+    public GenreEvidencePresentation? GenreEvidence
+    {
+        get
+        {
+            EnsureStylesRequested();
+            return _genreEvidence;
+        }
+    }
+
+    public bool HasGenreEvidence => _genreEvidence is not null;
+
+    private bool _isLoadingGenreEvidence;
+    public bool IsLoadingGenreEvidence
+    {
+        get => _isLoadingGenreEvidence;
+        private set
+        {
+            if (SetProperty(ref _isLoadingGenreEvidence, value))
+                OnPropertyChanged(nameof(ShowGenreEvidenceEmpty));
+        }
+    }
+
+    private string? _genreEvidenceError;
+    public string? GenreEvidenceError
+    {
+        get => _genreEvidenceError;
+        private set
+        {
+            if (SetProperty(ref _genreEvidenceError, value))
+            {
+                OnPropertyChanged(nameof(HasGenreEvidenceError));
+                OnPropertyChanged(nameof(ShowGenreEvidenceEmpty));
+            }
+        }
+    }
+
+    public bool HasGenreEvidenceError => !string.IsNullOrEmpty(GenreEvidenceError);
+
+    /// <summary>Loaded, readable, and no evidence yet: "not analysed with the new genre engine".</summary>
+    public bool ShowGenreEvidenceEmpty => !IsLoadingGenreEvidence && !HasGenreEvidence && !HasGenreEvidenceError && _stylesRequested;
+
+    private string? _genreReanalyseStatus;
+    /// <summary>"Queued for analysis" after Re-analyse, so the button gives honest feedback.</summary>
+    public string? GenreReanalyseStatus { get => _genreReanalyseStatus; private set => SetProperty(ref _genreReanalyseStatus, value); }
+
+    /// <summary>Old rows and malformed JSON become the empty state (logged), never a crash.</summary>
+    internal static (GenreEvidencePresentation? Evidence, string? Error) ParseGenreEvidence(string? json, string? hash = null)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return (null, null);
+        var record = Engine.Analysis.GenreFusion.GenreEvidenceRecord.TryParse(json);
+        if (record is null)
+        {
+            Serilog.Log.Warning("Unreadable GenreEvidenceJson for track {Hash}; showing the not-analysed state", hash);
+            return (null, null);
+        }
+        try
+        {
+            return (GenreEvidencePresentation.From(record), null);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "Could not present the genre evidence for track {Hash}", hash);
+            return (null, "Couldn't read the genre evidence.");
+        }
+    }
+
+    private void SetGenreEvidence(GenreEvidencePresentation? evidence, string? error)
+    {
+        _genreEvidence = evidence;
+        GenreEvidenceError = error;
+        IsLoadingGenreEvidence = false;
+        if (evidence is not null) GenreReanalyseStatus = null;
+        OnPropertyChanged(nameof(GenreEvidence));
+        OnPropertyChanged(nameof(HasGenreEvidence));
+        OnPropertyChanged(nameof(ShowGenreEvidenceEmpty));
+    }
+
+    /// <summary>Re-analyse is offered for tracks with a file; ghosts have nothing to decode.</summary>
+    public bool CanReanalyseGenre => _eventBus is not null && !IsGhost && !string.IsNullOrEmpty(GlobalId);
+
+    private ICommand? _reanalyseGenreCommand;
+    /// <summary>Queues the AI genre/mood pass (Mood engines: style scores, rhythm, fusion, evidence) for this track.</summary>
+    public ICommand ReanalyseGenreCommand => _reanalyseGenreCommand ??= new RelayCommand(ReanalyseGenre, () => CanReanalyseGenre);
+
+    private void ReanalyseGenre()
+    {
+        if (!CanReanalyseGenre) return;
+        _eventBus!.Publish(new TrackAnalysisRequestedEvent(GlobalId, IsHighPriority: true, Engines: AnalysisEngine.Mood));
+        GenreReanalyseStatus = "Queued for AI genre analysis.";
     }
 
     private ICommand? _useAsGenreCommand;

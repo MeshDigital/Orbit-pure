@@ -26,6 +26,8 @@ public enum TagIssueRule
     JunkSuffixes,
     FeatInTitle,
     AllCaps,
+    /// <summary>Library genre and a strong audio genre disagree (GA9 #254, <see cref="GenreConflictRule"/>); never fired by the detector itself.</summary>
+    GenreConflict,
 }
 
 public enum ProposalConfidence { NeedsReview, Medium, High }

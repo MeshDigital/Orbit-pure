@@ -273,6 +273,93 @@
                                     ToolTip.Tip="Set this track's Genre to its top AI-detected style, in the file and the library (undoable)."/>
                         </StackPanel>
 
+                        <!-- Genre evidence (GA9 #254): what cues use, and why -->
+                        <Expander Header="Genre evidence" IsExpanded="False" HorizontalAlignment="Stretch"
+                                  IsVisible="{Binding !IsGhost}">
+                            <StackPanel Spacing="8" Margin="0,8,0,0">
+                                <TextBlock Classes="caption muted" Text="Loading…" IsVisible="{Binding IsLoadingGenreEvidence}"/>
+                                <TextBlock Classes="caption error" Text="{Binding GenreEvidenceError}" TextWrapping="Wrap"
+                                           IsVisible="{Binding HasGenreEvidenceError}"/>
+
+                                <!-- Empty: analysed before the metadata-first genre engine -->
+                                <StackPanel Spacing="8" IsVisible="{Binding ShowGenreEvidenceEmpty}">
+                                    <TextBlock Classes="caption" TextWrapping="Wrap"
+                                               Text="Not analysed with the new genre engine yet."/>
+                                    <Button Classes="secondary small" Content="Re-analyse" HorizontalAlignment="Left"
+                                            Command="{Binding ReanalyseGenreCommand}" IsVisible="{Binding CanReanalyseGenre}"
+                                            ToolTip.Tip="Queue this track's AI genre and mood analysis. Your tags are not changed."/>
+                                    <TextBlock Classes="caption muted" Text="{Binding GenreReanalyseStatus}"
+                                               IsVisible="{Binding GenreReanalyseStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                </StackPanel>
+
+                                <StackPanel Spacing="8" IsVisible="{Binding HasGenreEvidence}">
+                                    <TextBlock Classes="body-sm" Text="{Binding GenreEvidence.UsedForText}" TextWrapping="Wrap"/>
+                                    <TextBlock Classes="caption warning" Text="{Binding GenreEvidence.ConflictText}" TextWrapping="Wrap"
+                                               IsVisible="{Binding GenreEvidence.HasConflict}"/>
+
+                                    <!-- Library tag and how far it's trusted against the audio -->
+                                    <StackPanel Spacing="4" IsVisible="{Binding GenreEvidence.HasTag}">
+                                        <TextBlock Classes="caption muted" Text="{Binding GenreEvidence.TagText}" TextWrapping="Wrap"/>
+                                        <ItemsControl ItemsSource="{Binding GenreEvidence.TagBars}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:GenreScore">
+                                                    <Grid Classes="bar-row" ColumnDefinitions="88,*,44"
+                                                          ToolTip.Tip="How far this source is trusted against the audio model">
+                                                        <TextBlock Classes="caption" Text="{Binding Label}" Foreground="{StaticResource BrushText1}" VerticalAlignment="Center"/>
+                                                        <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding Confidence}"/>
+                                                        <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding Confidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+
+                                    <!-- Audio model buckets -->
+                                    <StackPanel Spacing="4" IsVisible="{Binding GenreEvidence.HasAudio}">
+                                        <TextBlock Classes="caption muted" Text="Audio model"/>
+                                        <ItemsControl ItemsSource="{Binding GenreEvidence.AudioBars}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><StackPanel Spacing="6"/></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:GenreScore">
+                                                    <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
+                                                        <TextBlock Classes="caption" Text="{Binding Label}" Foreground="{StaticResource BrushText1}"
+                                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Label}"/>
+                                                        <ProgressBar Grid.Column="1" Classes="meter" Maximum="1" Value="{Binding Confidence}"/>
+                                                        <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding Confidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+
+                                    <!-- Drums -->
+                                    <StackPanel Spacing="4" IsVisible="{Binding GenreEvidence.HasRhythm}">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Classes="caption muted" Text="Drums"/>
+                                            <TextBlock Grid.Column="1" Classes="caption mono" Text="{Binding GenreEvidence.TempoText}"
+                                                       ToolTip.Tip="The two tempo octaves the drums were read on"/>
+                                        </Grid>
+                                        <ItemsControl ItemsSource="{Binding GenreEvidence.RhythmBars}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><StackPanel Spacing="6"/></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:GenreScore">
+                                                    <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
+                                                        <TextBlock Classes="caption" Text="{Binding Label}" Foreground="{StaticResource BrushText1}" VerticalAlignment="Center"/>
+                                                        <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding Confidence}"/>
+                                                        <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding Confidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+                        </Expander>
+
                         <!-- AI mood (ranked) -->
                         <StackPanel Spacing="6" IsVisible="{Binding HasMoodBreakdown}">
                             <TextBlock Classes="section" Text="MOOD"/>

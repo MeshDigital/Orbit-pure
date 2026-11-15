@@ -1725,6 +1725,8 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
               OnPropertyChanged(nameof(ProvenanceTooltip));
 
               RaiseInspectorDerivedPropertiesChanged();
+              // Re-read the AI style and genre evidence too (they load lazily and were never refreshed).
+              InvalidateStyles();
               AnalysisDataRefreshed?.Invoke(this, EventArgs.Empty);
           }
           catch (Exception ex)
