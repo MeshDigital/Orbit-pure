@@ -16,6 +16,7 @@ using SLSKDONET.Services.Similarity;
 using SLSKDONET.Tests.Services.Sets;
 using SLSKDONET.ViewModels.Maintenance;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace SLSKDONET.Tests.Maintenance;
 
@@ -29,6 +30,9 @@ public sealed class GenreRefreshServiceTests : IDisposable
 
     private readonly SetsTestDatabase _db = new("genre-refresh");
     private readonly EventBusService _bus = new();
+    private readonly ITestOutputHelper _output;
+
+    public GenreRefreshServiceTests(ITestOutputHelper output) => _output = output;
 
     public void Dispose()
     {
@@ -239,7 +243,11 @@ public sealed class GenreRefreshServiceTests : IDisposable
         sw.Stop();
 
         Assert.Equal(1000, report.Refused);
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10), $"took {sw.Elapsed}");
+        _output.WriteLine($"scan + re-fuse of 1,000 rows: {sw.ElapsedMilliseconds} ms");
+        // A budget, not a CI gate (#255): shared CI runners are several times slower than a desktop and vary
+        // run to run (13 s seen on one), so the 10 s bound is only enforced locally.
+        if (Environment.GetEnvironmentVariable("CI") is null)
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10), $"took {sw.Elapsed}");
     }
 
     /// <summary>Progress&lt;T&gt; posts asynchronously; this records synchronously.</summary>
