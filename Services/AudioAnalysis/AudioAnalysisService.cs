@@ -721,41 +721,21 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
 
         // GA5 (#250): the 400 Discogs style sigmoids from the same EffNet run. Rows analysed before
         // they were persisted, or with a labels/model mismatch, fuse on Jamendo alone.
-        IReadOnlyList<GenreLabelScore>? discogs = null;
-        if (features.StyleScores is { } styleScores && _styleLabels is { IsUsable: true } labels &&
-            styleScores.Length == labels.All.Count)
-        {
-            var all = labels.All;
-            var votes = new GenreLabelScore[styleScores.Length];
-            for (var i = 0; i < votes.Length; i++) votes[i] = new GenreLabelScore(all[i].Key, styleScores[i]);
-            discogs = votes;
-        }
+        var discogs = _styleLabels is { IsUsable: true } labels
+            ? GenreFeatureWriter.DiscogsVotes(features.StyleScores, labels.Keys)
+            : null;
 
-        var result = GenreFusionEngine.Fuse(new GenreFusionInput(jamendo, features.Bpm, discogs, rhythm));
-        if (result is null)
-        {
-            // No audio opinion: a trusted library genre still gets its evidence row.
-            features.GenreEvidenceJson = TrackGenreResolver.Resolve(genreContext, new AudioGenreOpinion(null, 0f, rhythm,
-                FusionVersion: GenreFusionEngine.FusionVersion)).Evidence.ToJson();
-            return;
-        }
-
-        features.ElectronicSubgenre = result.WinnerLabel;
-        features.ElectronicSubgenreConfidence = result.Confidence;
-        features.DetectedSubGenre = result.WinnerLabel;
-        features.SubGenreConfidence = result.Confidence;
-        features.PredictedVibe = result.WinnerLabel;
-        features.PredictionConfidence = result.Confidence;
+        // Fusion + metadata-first resolution, written the same way the genre refresh (GA10 #255) writes it.
+        var written = GenreFeatureWriter.Apply(features, jamendo, discogs, rhythm, genreContext);
+        if (written.Fused is null) return;
+        var resolved = written.Resolved;
 
         // Genre-family BPM refinement — this is the one place both a final genre string and BPM
         // are both settled, the correct seam for a genre-corroborated bracket correction (unlike
         // BpmDetectionService's genre-agnostic half-time correction, which runs before genre is
         // known and can't use it). See BreakbeatAnalysisStrategy/FourOnTheFloorAnalysisStrategy.
-        // The audio label above stays the audio opinion (DetectedSubGenre); the BPM bracket follows the
-        // metadata-first genre (GA8 #253), so a user's "Drum & Bass" tag refines toward 174, not 87.
-        var resolved = TrackGenreResolver.Resolve(genreContext, new AudioGenreOpinion(
-            result.WinnerLabel, result.Confidence, rhythm, result.Distribution, result.Gate, GenreFusionEngine.FusionVersion));
-        features.GenreEvidenceJson = resolved.Evidence.ToJson();
+        // The BPM bracket follows the metadata-first genre (GA8 #253), so a user's "Drum & Bass" tag
+        // refines toward 174, not 87; DetectedSubGenre stays the audio opinion.
         var classification = GenreFamilyClassifier.Classify(resolved.DisplayText, features.Bpm, resolved.Confidence, resolved.Source);
         IGenreFamilyAnalysisStrategy? strategy = classification.Family switch
         {
@@ -774,8 +754,6 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 features.BpmConfidence *= confidencePenalty;
             }
         }
-
-        features.GenreDistributionJson = JsonSerializer.Serialize(result.Distribution);
     }
 
     /// <summary>Appends a short note to <see cref="AudioFeaturesEntity.AnomaliesJson"/> for later

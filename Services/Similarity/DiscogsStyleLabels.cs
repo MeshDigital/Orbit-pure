@@ -40,6 +40,10 @@ public sealed class DiscogsStyleLabels
 
     public IReadOnlyList<DiscogsStyle> All => _all.Value;
 
+    private IReadOnlyList<string>? _keys;
+    /// <summary>The style keys (<c>Parent---Style</c>) in model output order, built once.</summary>
+    public IReadOnlyList<string> Keys => _keys ??= All.Select(s => s.Key).ToArray();
+
     /// <summary>
     /// True when the labels loaded successfully and match the model output length, so the style
     /// scores can be persisted and read back meaningfully.
