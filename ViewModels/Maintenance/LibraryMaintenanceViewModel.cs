@@ -32,6 +32,8 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
     private readonly TagChangeService _tagChanges;
     private readonly StylePlaylistApplier _playlistApplier;
     private readonly StyleBackfillService _styleBackfill;
+    private readonly GenreRefreshService? _genreRefresh;
+    private GenreRefreshScan _genreScan = GenreRefreshScan.Empty;
     private readonly CompositeDisposable _disposables = new();
     private readonly CancellationTokenSource _cts = new();
 
@@ -72,6 +74,13 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
     private bool _styleBackfillTask;
     public bool StyleBackfill { get => _styleBackfillTask; set => this.RaiseAndSetIfChanged(ref _styleBackfillTask, value); }
 
+    private bool _refreshGenres = true;
+    /// <summary>Re-fuse genres from stored analysis (GA10 #255): no audio, seconds for thousands of tracks.</summary>
+    public bool RefreshGenres { get => _refreshGenres; set => this.RaiseAndSetIfChanged(ref _refreshGenres, value); }
+
+    /// <summary>Offered only when the refresh service is available (it is in the app).</summary>
+    public bool CanRefreshGenres => _genreRefresh is not null;
+
     private bool _genreFill = true;
     public bool GenreFill { get => _genreFill; set => this.RaiseAndSetIfChanged(ref _genreFill, value); }
 
@@ -90,6 +99,24 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
 
     private int _enrichmentCount;
     public int EnrichmentCount { get => _enrichmentCount; private set => this.RaiseAndSetIfChanged(ref _enrichmentCount, value); }
+
+    private int _refreshableGenres;
+    /// <summary>Tracks whose genre the refresh can bring up to date from stored analysis.</summary>
+    public int RefreshableGenres { get => _refreshableGenres; private set => this.RaiseAndSetIfChanged(ref _refreshableGenres, value); }
+
+    private string? _genreSummaryText;
+    /// <summary>Review-step summary of the AI genre work, with time estimates; null when nothing was chosen.</summary>
+    public string? GenreSummaryText
+    {
+        get => _genreSummaryText;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _genreSummaryText, value);
+            this.RaisePropertyChanged(nameof(HasGenreSummary));
+        }
+    }
+
+    public bool HasGenreSummary => !string.IsNullOrEmpty(GenreSummaryText);
 
     // ── Run state ────────────────────────────────────────────────────────────
     private bool _isScanning;
@@ -123,7 +150,8 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
         LibraryIdentityIndexLoader indexLoader,
         TagChangeService tagChanges,
         StylePlaylistApplier playlistApplier,
-        StyleBackfillService styleBackfill)
+        StyleBackfillService styleBackfill,
+        GenreRefreshService? genreRefresh = null)
     {
         _eventBus = eventBus;
         _logger = logger;
@@ -132,6 +160,7 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
         _tagChanges = tagChanges;
         _playlistApplier = playlistApplier;
         _styleBackfill = styleBackfill;
+        _genreRefresh = genreRefresh;
 
         StartScanCommand = new AsyncRelayCommand(StartScanAsync);
         CancelCommand = new RelayCommand(() => _cts.Cancel());
@@ -280,13 +309,48 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
             StylePlan = StylePlaylists ? plan.Playlists : Array.Empty<PlannedStylePlaylist>();
             MissingStyles = plan.MissingStyles;
 
-            EnrichmentCount = await _styleBackfill.CountTracksMissingStylesAsync(ct);
+            // AI genre (GA10 #255): one scan sorts every track into re-fuse (stored data) / needs analysis / current.
+            _genreScan = GenreRefreshScan.Empty;
+            if (_genreRefresh is not null && (RefreshGenres || StyleBackfill))
+            {
+                StatusText = "Checking AI genres…";
+                _genreScan = await _genreRefresh.ScanAsync(ct);
+                EnrichmentCount = _genreScan.NeedsInference;
+            }
+            else
+            {
+                EnrichmentCount = await _styleBackfill.CountTracksMissingStylesAsync(ct);
+            }
+            RefreshableGenres = _genreScan.Refuse.Count;
+            GenreSummaryText = BuildGenreSummary();
         }
         finally
         {
             IsScanning = false;
         }
     }
+
+    private string? BuildGenreSummary()
+    {
+        var parts = new List<string>();
+        if (RefreshGenres && _genreRefresh is not null)
+            parts.Add(RefreshableGenres == 0
+                ? "Every genre that can be refreshed from stored analysis is already current."
+                : $"{SLSKDONET.Utils.CountFormat.N(RefreshableGenres)} tracks will refresh their genre from stored analysis " +
+                  $"(about {FormatDuration(GenreRefreshService.EstimatedPerTrack * RefreshableGenres)}, no audio).");
+        if (StyleBackfill && EnrichmentCount > 0)
+            parts.Add($"{SLSKDONET.Utils.CountFormat.N(EnrichmentCount)} tracks need a new AI style analysis " +
+                      $"(about {FormatDuration(StyleBackfillService.EstimatedPerTrack * EnrichmentCount)} in the background).");
+        else if (RefreshGenres && EnrichmentCount > 0)
+            parts.Add($"{SLSKDONET.Utils.CountFormat.N(EnrichmentCount)} more need a new AI style analysis first; " +
+                      "tick \"Analyse tracks with missing or outdated AI style\" to queue them.");
+        return parts.Count == 0 ? null : string.Join(" ", parts);
+    }
+
+    internal static string FormatDuration(TimeSpan t) =>
+        t.TotalSeconds < 60 ? $"{Math.Max(1, (int)Math.Ceiling(t.TotalSeconds))} s"
+        : t.TotalMinutes < 90 ? $"{(int)Math.Ceiling(t.TotalMinutes)} min"
+        : SLSKDONET.Utils.NumFormat.Ui($"{t.TotalHours:0.#} h");
 
     /// <summary>
     /// Applies the approved work in order: tag fixes → genre fill → playlists → style backfill.
@@ -325,6 +389,16 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
                 if (backfillReason is null) queuedForStyle = needing.Count;
             }
 
+            // Genre refresh from stored analysis (GA10 #255). It returns its own honest report on cancel.
+            GenreRefreshReport? genreRefresh = null;
+            if (RefreshGenres && _genreRefresh is not null && _genreScan.Refuse.Count > 0)
+            {
+                StatusText = "Refreshing genres from stored analysis…";
+                var progress = new Progress<(int Done, int Total)>(p =>
+                    StatusText = $"Refreshing genres from stored analysis… {SLSKDONET.Utils.CountFormat.N(p.Done)} / {SLSKDONET.Utils.CountFormat.N(p.Total)}");
+                genreRefresh = await _genreRefresh.RefuseAsync(_genreScan.Refuse, progress, ct);
+            }
+
             var summary = new MaintenanceRunSummary(
                 Applied: tagReport.Applied + genreReport.Applied,
                 FileWritten: tagReport.FileWritten + genreReport.FileWritten,
@@ -340,7 +414,8 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
                     ? backfillReason is null
                         ? $" {SLSKDONET.Utils.CountFormat.N(queuedForStyle)} tracks queued for AI style analysis."
                         : $" AI style analysis not queued: {backfillReason}"
-                    : string.Empty);
+                    : string.Empty)
+                + (genreRefresh is { } g ? " " + DescribeGenreRefresh(g) : string.Empty);
 
             if (!string.IsNullOrWhiteSpace(backfillReason))
                 _logger.LogWarning("[Maintenance] Style backfill unavailable: {Reason}", backfillReason);
@@ -349,6 +424,16 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
         {
             IsApplying = false;
         }
+    }
+
+    internal static string DescribeGenreRefresh(GenreRefreshReport g)
+    {
+        var text = $"Genres refreshed for {SLSKDONET.Utils.CountFormat.N(g.Refused)} tracks ({SLSKDONET.Utils.CountFormat.N(g.Changed)} changed)";
+        if (g.Failed > 0) text += $", {SLSKDONET.Utils.CountFormat.N(g.Failed)} failed (see the log)";
+        if (g.Skipped > 0) text += $", {SLSKDONET.Utils.CountFormat.N(g.Skipped)} skipped";
+        text += g.Cancelled ? "; cancelled before the end." : ".";
+        if (g.Refused > 0) text += " This is analysis data: Undo doesn't revert it.";
+        return text;
     }
 
     /// <summary>Undoes the run: tag changes and playlists, reporting edited-since skips.</summary>

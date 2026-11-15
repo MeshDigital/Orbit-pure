@@ -29,6 +29,9 @@
                               ToolTip.Tip="Queues tracks for background enrichment. Fills empty fields only; BPM, key and energy are never touched."/>
                     <CheckBox Content="Analyse tracks with missing or outdated AI style" IsChecked="{Binding StyleBackfill}"
                               ToolTip.Tip="Runs a style-only (Mood) analysis in the background for every track without current style scores, including tracks analysed before the style model fix."/>
+                    <CheckBox Content="Refresh AI genres from stored analysis" IsChecked="{Binding RefreshGenres}"
+                              IsVisible="{Binding CanRefreshGenres}"
+                              ToolTip.Tip="Re-runs genre fusion from the analysis already stored (no audio, seconds for thousands of tracks) for tracks fused by an older engine or whose library genre changed since. Your tags and files are not touched."/>
                     <CheckBox Content="Fill empty Genre from AI style" IsChecked="{Binding GenreFill}"/>
                     <CheckBox Content="Group unclassified tracks into style playlists" IsChecked="{Binding StylePlaylists}"/>
                     <Border Classes="divider"/>
@@ -72,6 +75,11 @@
                         </ItemsControl>
                     </ScrollViewer>
 
+                    <StackPanel Spacing="4" IsVisible="{Binding HasGenreSummary}">
+                        <TextBlock Classes="section" Text="AI GENRE"/>
+                        <TextBlock Classes="body-sm" Text="{Binding GenreSummaryText}" TextWrapping="Wrap"/>
+                    </StackPanel>
+
                     <TextBlock Classes="section" Text="GENRE FILL"/>
                     <ScrollViewer MaxHeight="180" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding GenreRows}">
@@ -97,6 +105,7 @@
                 <StackPanel IsVisible="{Binding IsApplyStep}" Spacing="12">
                     <ProgressBar IsIndeterminate="True"/>
                     <TextBlock Classes="body-sm" Text="{Binding StatusText}" TextWrapping="Wrap"/>
+                    <Button Classes="secondary" Content="Cancel" Command="{Binding CancelCommand}" HorizontalAlignment="Left"/>
                 </StackPanel>
 
                 <!-- 5. Summary -->

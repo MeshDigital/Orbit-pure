@@ -66,17 +66,29 @@ public sealed class StyleBackfillService
     public string UnavailableReason =>
         IsAvailable ? string.Empty : HardwareCapabilities.Current.VerdictFor(HardwareFeature.AiTagging).Reason ?? "AI tagging is switched off";
 
+    /// <summary>The embedding model tag that goes with a style tag (the style tag minus its pooling suffix).</summary>
+    public static string? EmbeddingTagOf(string? styleTag)
+    {
+        var suffix = "|" + SLSKDONET.Engine.Analysis.PatchEnergyWeights.PoolTag;
+        return styleTag is not null && styleTag.EndsWith(suffix, StringComparison.Ordinal) ? styleTag[..^suffix.Length] : null;
+    }
+
     /// <summary>
-    /// Library tracks whose style scores are missing (no features row, no <c>TopStyle</c>) or stale
-    /// (<c>StyleModelTag</c> ≠ <see cref="CurrentStyleTag"/>). One projected query per table.
+    /// Library tracks whose model outputs are missing or stale, so only a Mood-only analysis (audio decode +
+    /// ONNX) brings their genre up to date (GA10 #255): no features row, no <c>TopStyle</c>,
+    /// <c>StyleModelTag</c> ≠ <see cref="CurrentStyleTag"/>, an embedding from another model, or no stored
+    /// rhythm signature (rows analysed before the rhythm gate). One projected query per table.
     /// </summary>
     public async Task<IReadOnlyList<string>> FindTracksNeedingStylesAsync(CancellationToken ct = default)
     {
         var current = CurrentStyleTag;
+        var currentEmbedding = EmbeddingTagOf(current);
         await using var db = await _dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
         var library = await db.LibraryEntries.AsNoTracking().Select(e => e.UniqueHash).ToListAsync(ct).ConfigureAwait(false);
         var fresh = await db.AudioFeatures.AsNoTracking()
-            .Where(f => f.TopStyle != null && (current == null || f.StyleModelTag == current))
+            .Where(f => f.TopStyle != null && f.RhythmSignatureJson != null
+                        && (current == null || f.StyleModelTag == current)
+                        && (currentEmbedding == null || f.EmbeddingModelTag == null || f.EmbeddingModelTag == currentEmbedding))
             .Select(f => f.TrackUniqueHash)
             .ToListAsync(ct).ConfigureAwait(false);
 

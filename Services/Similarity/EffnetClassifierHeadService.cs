@@ -24,7 +24,17 @@ public readonly record struct GenreMoodPrediction(
     float MoodParty,
     float MoodAggressive);
 
-public sealed class EffnetClassifierHeadService : IDisposable
+/// <summary>The MTG-Jamendo genre head alone, run from a stored embedding (genre refresh, GA10 #255).</summary>
+public interface IJamendoGenreHead
+{
+    /// <summary>True when the head loaded (model present and AI tagging allowed on this machine).</summary>
+    bool IsAvailable { get; }
+
+    /// <summary>The 87 label probabilities, or null when the head is unavailable or inference failed.</summary>
+    IReadOnlyList<SLSKDONET.Engine.Analysis.GenreFusion.GenreLabelScore>? PredictJamendo(float[] embedding);
+}
+
+public sealed class EffnetClassifierHeadService : IDisposable, IJamendoGenreHead
 {
     // MTG-Jamendo's 87-class taxonomy, in the model's output index order — confirmed against
     // the model's own published classes list (mtg_jamendo_genre-discogs-effnet-1.json).
@@ -97,6 +107,17 @@ public sealed class EffnetClassifierHeadService : IDisposable
             MoodRelaxed:    _moodRelaxed.Predict(embedding)?[0] ?? 0f,
             MoodParty:      _moodParty.Predict(embedding)?[0] ?? 0f,
             MoodAggressive: _moodAggressive.Predict(embedding)?[0] ?? 0f);
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<SLSKDONET.Engine.Analysis.GenreFusion.GenreLabelScore>? PredictJamendo(float[] embedding)
+    {
+        ArgumentNullException.ThrowIfNull(embedding);
+        var scores = _jamendoGenre.Predict(embedding);
+        if (scores is null) return null;
+        var labels = new SLSKDONET.Engine.Analysis.GenreFusion.GenreLabelScore[scores.Length];
+        for (var i = 0; i < scores.Length; i++) labels[i] = new(JamendoLabels[i], scores[i]);
+        return labels;
     }
 
     public void Dispose()

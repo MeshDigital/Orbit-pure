@@ -986,6 +986,8 @@ public partial class App : Application
         services.AddSingleton<Services.Library.Maintenance.TagChangeService>();
         services.AddSingleton<Services.Library.Maintenance.LibraryIdentityIndexLoader>();
         services.AddSingleton<Services.Library.Maintenance.StyleBackfillService>();
+        // GA10 (#255): re-fuses genre from stored model outputs (no audio); the Jamendo head is the shared one.
+        services.AddSingleton<Services.Library.Maintenance.GenreRefreshService>();
         services.AddSingleton<Services.Library.Maintenance.StylePlaylistApplier>();
         services.AddSingleton<Services.Library.Maintenance.UseAsGenreService>();
         services.AddSingleton<Services.Library.Maintenance.MaintenanceUndoService>();
@@ -1077,6 +1079,7 @@ public partial class App : Application
         // no output at all with the binary ORBIT bundles.
         services.AddSingleton<Services.Similarity.DiscogsEffnetEmbeddingExtractor>();
         services.AddSingleton<Services.Similarity.EffnetClassifierHeadService>();
+        services.AddSingleton<Services.Similarity.IJamendoGenreHead>(sp => sp.GetRequiredService<Services.Similarity.EffnetClassifierHeadService>());
         services.AddSingleton<Services.Similarity.DiscogsStyleLabels>();
         services.AddSingleton<Services.AudioAnalysis.AudioAnalysisService>();
         services.AddSingleton<Services.IAudioAnalysisService>(sp =>
