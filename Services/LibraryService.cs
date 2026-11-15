@@ -1055,6 +1055,20 @@ public class LibraryService : ILibraryService
         return rows.ToDictionary(r => r.Field, r => r.Source, StringComparer.OrdinalIgnoreCase);
     }
 
+    public async Task<Engine.Analysis.GenreFusion.TrackGenreContext?> GetTrackGenreContextAsync(string trackHash)
+    {
+        try
+        {
+            await using var db = new AppDbContext();
+            return await AudioAnalysis.TrackGenreContextQuery.LoadAsync(db, trackHash).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[LibraryService] Couldn't read the library genre for {Hash}; using the audio genre", trackHash);
+            return null;
+        }
+    }
+
     public async Task<PlaylistTrack?> GetPlaylistTrackByHashAsync(Guid playlistId, string trackHash)
     {
         try
