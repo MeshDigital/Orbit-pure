@@ -286,8 +286,16 @@ public static class TrackGenreResolver
         if (strength == GenreMetadataStrength.Strong && string.Equals(context.Source?.Trim(), "discogs", StringComparison.OrdinalIgnoreCase)
             && values.Select(v => v.Subgenre ?? v.Bucket.ToString()).Distinct(StringComparer.OrdinalIgnoreCase).Count() > DiscogsMaxStyles)
             strength = GenreMetadataStrength.Medium; // compilation / VA style soup
-        if (ambiguous && strength is GenreMetadataStrength.Strong or GenreMetadataStrength.FileTag or GenreMetadataStrength.Medium)
-            strength -= 1; // "Techno, House": the tag can't settle it on its own
+        // "Techno, House": the tag can't settle it on its own — drop a trust tier explicitly rather
+        // than relying on enum ordering (which would break silently if a member were inserted).
+        if (ambiguous)
+            strength = strength switch
+            {
+                GenreMetadataStrength.Strong => GenreMetadataStrength.FileTag,
+                GenreMetadataStrength.FileTag => GenreMetadataStrength.Medium,
+                GenreMetadataStrength.Medium => GenreMetadataStrength.Weak,
+                _ => strength,
+            };
 
         return new MetadataView(primary.Bucket, subgenre, strength, ambiguous, values.Count);
     }
