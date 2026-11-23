@@ -675,13 +675,60 @@ public class SchemaMigratorService
         }
     }
 
+    /// <summary>
+    /// Applies every schema patch as <b>one transaction</b> (#317): SQLite DDL is transactional, so a statement that
+    /// fails part-way rolls all of them back and the schema stays exactly as it was, instead of being left half-patched.
+    /// The patches are re-attempted at the next start (their exists-guards make them idempotent), and
+    /// <see cref="SchemaReconciler"/> still runs afterwards as the additive safety net.
+    /// </summary>
     private async Task ApplySchemaPatchesAsync(AppDbContext context, System.Data.Common.DbConnection connection)
+    {
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync();
+        await RunAtomicallyAsync(connection, () => ApplySchemaPatchesCoreAsync(context, connection), _logger);
+    }
+
+    /// <summary>
+    /// Runs <paramref name="patches"/> inside <c>BEGIN IMMEDIATE … COMMIT</c> on <paramref name="connection"/>, rolling
+    /// back on any failure. Plain SQL is used instead of <c>BeginTransaction()</c> on purpose: Microsoft.Data.Sqlite
+    /// rejects every command whose <c>Transaction</c> isn't set while an ADO transaction is active, and the patches
+    /// create commands in many places. Returns false (logged) when the patches were rolled back.
+    /// </summary>
+    internal static async Task<bool> RunAtomicallyAsync(System.Data.Common.DbConnection connection, Func<Task> patches, ILogger logger)
+    {
+        async Task Exec(string sql)
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = sql;
+            await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+        }
+
+        await Exec("BEGIN IMMEDIATE;").ConfigureAwait(false);
+        try
+        {
+            await patches().ConfigureAwait(false);
+            await Exec("COMMIT;").ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                await Exec("ROLLBACK;").ConfigureAwait(false);
+                logger.LogError(ex, "Schema patching failed and was rolled back; the database schema is unchanged and the patches will be retried at the next start.");
+            }
+            catch (Exception rollbackEx)
+            {
+                logger.LogCritical(rollbackEx, "Schema patching failed ({Error}) and the rollback failed too; the database may be partially patched.", ex.Message);
+            }
+            return false;
+        }
+    }
+
+    private async Task ApplySchemaPatchesCoreAsync(AppDbContext context, System.Data.Common.DbConnection connection)
     {
         try
         {
-            if (connection.State != System.Data.ConnectionState.Open)
-                await connection.OpenAsync();
-
             using var command = connection.CreateCommand();
 
             // Helper to check if column exists
@@ -3371,7 +3418,8 @@ public class SchemaMigratorService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to apply schema patches. Application may be unstable.");
+            _logger.LogError(ex, "Failed to apply schema patches; rolling back.");
+            throw; // RunAtomicallyAsync rolls the whole batch back (#317)
         }
     }
 
