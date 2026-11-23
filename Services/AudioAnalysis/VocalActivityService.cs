@@ -174,11 +174,11 @@ public sealed class VocalActivityService : IVocalActivityService
         }
         catch (IOException)
         {
-            // A locked file (AV scanner, still-open handle) shouldn't fail detection; the OS temp cleaner reaps it later.
+            // intentional: a locked temp file (AV scanner, open handle) must not fail detection; the OS temp cleaner reaps it.
         }
         catch (UnauthorizedAccessException)
         {
-            // Same: never let temp cleanup break the user's clash check.
+            // intentional: same — temp cleanup must never break the user's clash check.
         }
     }
 
