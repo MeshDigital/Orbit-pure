@@ -1,9 +1,9 @@
 using System;
 using System.IO;
-using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using SLSKDONET.Services.Platform;
 
 namespace SLSKDONET.Services;
 
@@ -14,47 +14,51 @@ public interface ISoulseekCredentialService
     Task DeleteCredentialsAsync();
 }
 
+/// <summary>
+/// The Soulseek login, encrypted for the current user on every platform (#315) through <see cref="ISecretProtector"/>:
+/// DPAPI on Windows (the same file format as before, so saved logins keep working), AES-256-GCM with a keyring-held
+/// key on macOS/Linux. Stored as <c>LocalAppData/ORBIT/slsk_creds.dat</c> on all three. Before #315, macOS/Linux
+/// logged "not implemented" and silently saved nothing.
+/// </summary>
 public class SoulseekCredentialService : ISoulseekCredentialService
 {
+    private const string Purpose = "soulseek-credentials";
+
     private readonly ILogger<SoulseekCredentialService> _logger;
+    private readonly ISecretProtector _protector;
     private readonly string _credentialFilePath;
 
     public SoulseekCredentialService(ILogger<SoulseekCredentialService> logger)
+        : this(logger, null, null)
+    {
+    }
+
+    public SoulseekCredentialService(ILogger<SoulseekCredentialService> logger, ISecretProtector? protector, string? directory)
     {
         _logger = logger;
-        
-        var appDataPath = SLSKDONET.Data.OrbitPaths.LocalRoot;
-        var appFolder = Path.Combine(appDataPath, "ORBIT");
-        Directory.CreateDirectory(appFolder);
-        
+        _protector = protector ?? SecretProtector.Default;
+        var appFolder = directory ?? Path.Combine(SLSKDONET.Data.OrbitPaths.LocalRoot, "ORBIT");
         _credentialFilePath = Path.Combine(appFolder, "slsk_creds.dat");
     }
 
+    /// <summary>False after a save that didn't persist (the reason is logged).</summary>
+    public bool LastSaveSucceeded { get; private set; } = true;
+
     public async Task SaveCredentialsAsync(string username, string password)
     {
+        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+            return;
         try
         {
-            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
-                return;
-
-            string payload = $"{username}|{password}";
-            
-            if (OperatingSystem.IsWindows())
-            {
-                var bytes = Encoding.UTF8.GetBytes(payload);
-                var encrypted = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
-                await File.WriteAllBytesAsync(_credentialFilePath, encrypted);
-                _logger.LogInformation("Soulseek credentials saved securely.");
-            }
-            else
-            {
-                // Fallback for non-Windows (or implement specific secure storage per platform)
-                _logger.LogWarning("Secure credential storage not implemented for this platform.");
-            }
+            var encrypted = _protector.Protect(Encoding.UTF8.GetBytes($"{username}|{password}"), Purpose);
+            await Task.Run(() => GcmSecretProtector.WriteUserOnlyBytes(_credentialFilePath, encrypted)).ConfigureAwait(false);
+            LastSaveSucceeded = true;
+            _logger.LogInformation("Soulseek credentials saved securely ({Backend}).", _protector.Backend);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save credentials");
+            LastSaveSucceeded = false;
+            _logger.LogError(ex, "Failed to save Soulseek credentials; they will have to be entered again next session");
         }
     }
 
@@ -65,22 +69,16 @@ public class SoulseekCredentialService : ISoulseekCredentialService
             if (!File.Exists(_credentialFilePath))
                 return (null, null);
 
-            if (OperatingSystem.IsWindows())
-            {
-                var encrypted = await File.ReadAllBytesAsync(_credentialFilePath);
-                var bytes = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
-                var payload = Encoding.UTF8.GetString(bytes);
-                
-                var parts = payload.Split('|', 2);
-                if (parts.Length == 2)
-                {
-                    return (parts[0], parts[1]);
-                }
-            }
+            var encrypted = await File.ReadAllBytesAsync(_credentialFilePath).ConfigureAwait(false);
+            var payload = Encoding.UTF8.GetString(_protector.Unprotect(encrypted, Purpose));
+            var parts = payload.Split('|', 2);
+            if (parts.Length == 2)
+                return (parts[0], parts[1]);
+            _logger.LogWarning("Stored Soulseek credentials are malformed; sign in again");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to load credentials");
+            _logger.LogError(ex, "Failed to load Soulseek credentials");
         }
 
         return (null, null);
@@ -95,7 +93,7 @@ public class SoulseekCredentialService : ISoulseekCredentialService
                 File.Delete(_credentialFilePath);
                 _logger.LogInformation("Soulseek credentials deleted.");
             }
-            await Task.CompletedTask;
+            await Task.CompletedTask.ConfigureAwait(false);
         }
         catch (Exception ex)
         {
