@@ -108,6 +108,7 @@ public sealed class GenreEvidencePresentation
     {
         GenreMetadataStrength.Authoritative => 1.0,
         GenreMetadataStrength.Strong => 0.9,
+        GenreMetadataStrength.FileTag => 0.85,
         GenreMetadataStrength.Medium => 0.75,
         GenreMetadataStrength.Weak => 0.5,
         _ => 0.25, // AudioDerived: the model again

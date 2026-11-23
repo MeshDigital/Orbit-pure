@@ -154,6 +154,7 @@ public sealed class PersonalGenreHeadTests : IDisposable
         var row = new GenreRefreshService.StalenessRow
         {
             Hash = "h", FusionVersion = GenreFusionEngine.FusionVersion, HasEvidence = true, PersonalHead = null,
+            ResolverVersion = TrackGenreResolver.ResolverVersion,
             EmbeddingModelTag = "tag-A", HasEmbedding = true,
         };
         var model = new PersonalGenreModel { Enabled = true, BlendWeight = 0.35f, EmbeddingModelTag = "tag-A", TrainedAtUtc = new DateTime(2026, 11, 20) };

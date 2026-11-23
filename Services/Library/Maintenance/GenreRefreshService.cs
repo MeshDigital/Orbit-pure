@@ -99,6 +99,7 @@ public sealed class GenreRefreshService
         public string? EvidenceGenres { get; set; }
         public string? EvidenceSource { get; set; }
         public bool HasEvidence { get; set; }
+        public long? ResolverVersion { get; set; }
         public string? PersonalHead { get; set; }
         public string? EmbeddingModelTag { get; set; }
         public bool HasEmbedding { get; set; }
@@ -120,6 +121,8 @@ public sealed class GenreRefreshService
     {
         if (!row.HasEvidence || row.FusionVersion is not { } version || version < currentFusionVersion)
             return GenreStaleness.Refuse;
+        // Decided by older precedence rules (e.g. before file tags lost their outright win).
+        if ((row.ResolverVersion ?? 0) < TrackGenreResolver.ResolverVersion) return GenreStaleness.Refuse;
         // A personal head was (re)trained, enabled or switched off since this row was fused (GA11 #256).
         if (!string.Equals(row.PersonalHead, expectedPersonalHead, StringComparison.Ordinal)) return GenreStaleness.Refuse;
         var genres = string.IsNullOrWhiteSpace(current?.Genres) ? null : current!.Genres!.Trim();
@@ -149,6 +152,7 @@ public sealed class GenreRefreshService
                    CASE WHEN json_valid(""GenreEvidenceJson"") THEN json_extract(""GenreEvidenceJson"", '$.MetadataSource') END AS ""EvidenceSource"",
                    COALESCE(json_valid(""GenreEvidenceJson""), 0) AS ""HasEvidence"",
                    CASE WHEN json_valid(""GenreEvidenceJson"") THEN json_extract(""GenreEvidenceJson"", '$.PersonalHead') END AS ""PersonalHead"",
+                   CASE WHEN json_valid(""GenreEvidenceJson"") THEN json_extract(""GenreEvidenceJson"", '$.ResolverVersion') END AS ""ResolverVersion"",
                    ""EmbeddingModelTag"" AS ""EmbeddingModelTag"",
                    (""EmbeddingBlob"" IS NOT NULL) AS ""HasEmbedding""
             FROM ""audio_features""").ToListAsync(ct).ConfigureAwait(false);
