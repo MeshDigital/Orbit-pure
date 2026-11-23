@@ -114,47 +114,72 @@ public sealed class VocalActivityService : IVocalActivityService
             return;
         }
 
-        Dictionary<StemType, string> stems;
         var outputDir = Path.Combine(Path.GetTempPath(), "orbit_vocal", Guid.NewGuid().ToString("N"));
         try
         {
-            stems = await _separator.SeparateAsync(path, outputDir, ct).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogInformation(ex, "[VocalActivity] Stem separation failed for {Hash}; vocal fields left unset.", hash);
-            return;
-        }
+            Dictionary<StemType, string> stems;
+            try
+            {
+                stems = await _separator.SeparateAsync(path, outputDir, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation(ex, "[VocalActivity] Stem separation failed for {Hash}; vocal fields left unset.", hash);
+                return;
+            }
 
-        if (!stems.TryGetValue(StemType.Vocals, out var vocalPath) || !File.Exists(vocalPath))
-        {
-            _logger.LogInformation("[VocalActivity] Separation produced no vocal stem for {Hash}; vocal fields left unset.", hash);
-            return;
-        }
+            if (!stems.TryGetValue(StemType.Vocals, out var vocalPath) || !File.Exists(vocalPath))
+            {
+                _logger.LogInformation("[VocalActivity] Separation produced no vocal stem for {Hash}; vocal fields left unset.", hash);
+                return;
+            }
 
-        var rms = await Task.Run(() => ReadStemRms(vocalPath, WindowSeconds, ct), ct).ConfigureAwait(false);
-        if (rms.Length == 0)
-        {
-            _logger.LogInformation("[VocalActivity] The vocal stem for {Hash} decoded empty; vocal fields left unset.", hash);
-            return;
-        }
-        var result = VocalActivity.FromStemRms(rms, WindowSeconds);
+            var rms = await Task.Run(() => ReadStemRms(vocalPath, WindowSeconds, ct), ct).ConfigureAwait(false);
+            if (rms.Length == 0)
+            {
+                _logger.LogInformation("[VocalActivity] The vocal stem for {Hash} decoded empty; vocal fields left unset.", hash);
+                return;
+            }
+            var result = VocalActivity.FromStemRms(rms, WindowSeconds);
 
-        await using (var db = await _dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false))
-        {
-            var row = await db.AudioFeatures.FirstOrDefaultAsync(f => f.TrackUniqueHash == hash, ct).ConfigureAwait(false);
-            if (row is null) return;
-            VocalActivity.Apply(result, row);
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-        }
+            await using (var db = await _dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false))
+            {
+                var row = await db.AudioFeatures.FirstOrDefaultAsync(f => f.TrackUniqueHash == hash, ct).ConfigureAwait(false);
+                if (row is null) return;
+                VocalActivity.Apply(result, row);
+                await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            }
 
-        _logger.LogInformation(
-            "[VocalActivity] {Hash}: density {Density:0.00} → {Type}, span {Start:F1}s–{End:F1}s.",
-            hash, result.Density, result.Type, result.StartSeconds, result.EndSeconds);
+            _logger.LogInformation(
+                "[VocalActivity] {Hash}: density {Density:0.00} → {Type}, span {Start:F1}s–{End:F1}s.",
+                hash, result.Density, result.Type, result.StartSeconds, result.EndSeconds);
+        }
+        finally
+        {
+            TryDeleteDirectory(outputDir);
+        }
+    }
+
+    /// <summary>Best-effort removal of the per-run separation output so "Check clashes" doesn't fill the temp drive.</summary>
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+                Directory.Delete(path, recursive: true);
+        }
+        catch (IOException)
+        {
+            // A locked file (AV scanner, still-open handle) shouldn't fail detection; the OS temp cleaner reaps it later.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Same: never let temp cleanup break the user's clash check.
+        }
     }
 
     /// <summary>The first on-disk path for a hash, in the analysis queue's preference order, or null.</summary>
