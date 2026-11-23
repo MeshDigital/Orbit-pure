@@ -89,6 +89,21 @@ public class DownloadManagerDeleteTrackTests
         Assert.NotNull(received);
     }
 
+    /// <summary>#330: the Downloads header's "Soulseek connected" must follow the real connection.</summary>
+    [Fact]
+    public void SoulseekConnected_IsRaised_WhenTheConnectionStateChanges()
+    {
+        using var eventBus = new EventBusService();
+        using var manager = CreateDownloadManager(new Mock<ILibraryService>(), eventBus);
+        var raised = 0;
+        manager.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(DownloadManager.SoulseekConnected)) raised++; };
+
+        eventBus.Publish(new SoulseekStateChangedEvent("Disconnected", IsConnected: false, IsDisconnected: true));
+        eventBus.Publish(new ConnectionLifecycleStateChangedEvent("LoggedIn", "Disconnected", "test"));
+
+        Assert.Equal(2, raised);
+    }
+
     private static DownloadManager CreateDownloadManager(Mock<ILibraryService> library, EventBusService eventBus)
     {
         var databaseService = CreateDatabaseService();
