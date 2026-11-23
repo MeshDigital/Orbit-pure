@@ -48,7 +48,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     // Removed ISpotifyMetadataService dependency (moved to Enricher)
     private readonly ILibraryService _libraryService;
     private readonly IEventBus _eventBus;
-    
+
     // NEW Services
     private readonly DownloadDiscoveryService _discoveryService;
     private readonly AutoSearchService _autoSearchService;
@@ -128,7 +128,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     // - App crash: resume from last checkpoint (CrashRecoveryJournal)
     // - Network drop: retry with exponential backoff
     // - User cancel: clean abort without orphaned files
-    // 
+    //
     // DownloadContext tracks:
     // - Model: Track metadata (artist, title, preferences)
     // - State: Current phase (Queued -> Searching -> Downloading -> Complete)
@@ -136,7 +136,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     // Global State managed via Events
     private readonly List<DownloadContext> _downloads = new();
     private readonly object _collectionLock = new object();
-    
+
     private const int LAZY_QUEUE_BUFFER_SIZE = 5000;
     private const int REFILL_THRESHOLD = 50;
 
@@ -159,11 +159,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     private const long MAX_RETRY_SLOT_DEFERRAL = 25;
 
     // Expose read-only copy for internal checks
-    public IReadOnlyList<DownloadContext> ActiveDownloads 
+    public IReadOnlyList<DownloadContext> ActiveDownloads
     {
         get { lock(_collectionLock) { return _downloads.ToList(); } }
     }
-    
+
     // Expose download directory from config
     public string? DownloadDirectory => _config.DownloadDirectory;
 
@@ -224,7 +224,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         _autoSearchService = autoSearchService;
         _pathProvider = pathProvider;
         _fileWriteService = fileWriteService;
-        _crashJournal = crashJournal; 
+        _crashJournal = crashJournal;
         _peerReliability = peerReliability;
         _prefetchVerifier = prefetchVerifier;
         _networkHealth = networkHealth;
@@ -235,32 +235,32 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
         // CONCURRENCY CONTROL ARCHITECTURE:
         // WHY: SemaphoreSlim instead of Task.WhenAll() or Parallel.ForEach():
-        // 
+        //
         // Problem: P2P nodes have limited upload slots (typically 2-10 per user)
         // - If we launch 50 downloads at once, 45 will queue/timeout
         // - Network saturation kills ALL downloads (competing for bandwidth)
         // - No graceful cancellation - Task.WhenAll() is all-or-nothing
-        // 
+        //
         // Solution: SemaphoreSlim throttling
         // - Limits concurrent downloads to user-defined value (default: 3)
         // - Queued downloads wait their turn (no timeout waste)
         // - Dynamic adjustment: user can change MaxActiveDownloads at runtime
         // - Hard cap at 50: prevents DOS if user enters 99999
-        // 
+        //
         // Real-world impact:
         // - 20 concurrent = 60% success rate, ~1.5MB/s (contention overhead)
-        
+
         // Golden Rule: Hard cap at 50 concurrent downloads
         int configLimit = _config.MaxConcurrentDownloads > 0 ? _config.MaxConcurrentDownloads : DEFAULT_DOWNLOAD_LANES;
-        int initialLimit = Math.Min(50, configLimit); 
+        int initialLimit = Math.Min(50, configLimit);
         int initialSearchLanes = _config.MaxConcurrentSearches > 0 ? _config.MaxConcurrentSearches : DEFAULT_SEARCH_LANES;
         initialSearchLanes = Math.Clamp(initialSearchLanes, _config.MinAdaptiveSearchLanes, _config.MaxAdaptiveSearchLanes);
-        
-        _maxActiveDownloads = initialLimit; 
+
+        _maxActiveDownloads = initialLimit;
         _downloadSemaphore = new SemaphoreSlim(initialLimit, 50); // Hard cap at 50 to prevent DOS
         _searchSemaphore = new SemaphoreSlim(initialSearchLanes, _config.MaxAdaptiveSearchLanes);
         _currentSearchLanes = initialSearchLanes;
-        
+
         // Phase 8: Automation Subscriptions — store IDisposables so they unsubscribe on Dispose()
         _eventBusSubs.Add(_eventBus.GetEvent<AutoDownloadTrackEvent>().Subscribe(OnAutoDownloadTrack));
         _eventBusSubs.Add(_eventBus.GetEvent<AutoDownloadUpgradeEvent>().Subscribe(OnAutoDownloadUpgrade));
@@ -308,10 +308,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     {
         lock (_collectionLock)
         {
-            var active = _downloads.FirstOrDefault(d => 
-                d.Model.PlaylistId == projectId && 
+            var active = _downloads.FirstOrDefault(d =>
+                d.Model.PlaylistId == projectId &&
                 d.State == PlaylistTrackState.Downloading);
-            
+
             return active != null ? $"{active.Model.Artist} - {active.Model.Title}" : null;
         }
     }
@@ -369,23 +369,23 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     }
 
     private int _maxActiveDownloads;
-    public int MaxActiveDownloads 
+    public int MaxActiveDownloads
     {
         get => _maxActiveDownloads;
         set
         {
             if (_maxActiveDownloads == value || value < 1 || value > 50) return;
-            
+
             int diff = value - _maxActiveDownloads;
             _maxActiveDownloads = value;
-            
+
             // Persist
             if (_config.MaxConcurrentDownloads != value)
             {
                 _config.MaxConcurrentDownloads = value;
                 _ = _configManager.SaveAsync(_config); // Fire and forget save
             }
-            
+
             // Adjust semaphore count dynamically
             if (diff > 0)
             {
@@ -405,7 +405,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                             "Note: the higher concurrent-download limit will only reach its full effect at the protocol level after the next Soulseek reconnect.");
                     }
                 }
-                catch (SemaphoreFullException) 
+                catch (SemaphoreFullException)
                 {
                      // Should not happen with max 50, but fail safe
                      _logger.LogWarning("Failed to increase concurrency limit - semaphore full");
@@ -417,8 +417,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 // We don't cancel running downloads, just prevent new ones until count drops
                 int reduceBy = Math.Abs(diff);
                 _logger.LogInformation("ðŸ›‘ Decreasing concurrent download limit to {Count} (throttling {Reduce} slots)", value, reduceBy);
-                
-                Task.Run(async () => 
+
+                Task.Run(async () =>
                 {
                     for(int i=0; i < reduceBy; i++)
                     {
@@ -428,7 +428,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             }
         }
     }
-    
+
     public bool EnableMp3Fallback
     {
         get => _config.EnableMp3Fallback;
@@ -442,9 +442,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             }
         }
     }
-    
+
     public int MaxQueueWaitTimeMinutes => _config.MaxQueueWaitTimeMinutes;
-    
+
     public async Task InitAsync()
 
     {
@@ -452,9 +452,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         try
         {
             await _databaseService.InitAsync();
-            
+
             // Phase 3C.5: Lazy Hydration - Only load active/history and a buffer of pending tracks
-            
+
             // Load job priority cache BEFORE hydration so JobPriority is correctly stamped on all tracks
             await LoadJobPriorityCacheAsync();
 
@@ -462,7 +462,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             // This prevents the "Global Leak" where 10,000 history items are hydrated on boot
             var activeTracks = await _databaseService.GetActiveTracksAsync();
             HydrateAndAddEntities(activeTracks);
-            
+
             _logger.LogInformation("Hydrated {Count} active tracks", activeTracks.Count);
 
             // Issue #46: hydrate last 50 completed/failed so the Downloads page is
@@ -472,7 +472,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             _logger.LogInformation("Hydrated {Count} recent completed/failed tracks", recentHistory.Count);
 
             // PERFORMANCE FIX: Defer queue refilling until after startup
-            // The ProcessQueueLoop will call RefillQueueAsync when needed, 
+            // The ProcessQueueLoop will call RefillQueueAsync when needed,
             // which is now project-aware to prevent mass-activation.
             // await RefillQueueAsync(); // Removed global refill on init
 
@@ -745,7 +745,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             // 0. Set Album Art for the Job from the first track if available
             if (string.IsNullOrEmpty(job.AlbumArtUrl))
             {
-                 job.AlbumArtUrl = job.OriginalTracks.FirstOrDefault(t => !string.IsNullOrEmpty(t.AlbumArtUrl))?.AlbumArtUrl 
+                 job.AlbumArtUrl = job.OriginalTracks.FirstOrDefault(t => !string.IsNullOrEmpty(t.AlbumArtUrl))?.AlbumArtUrl
                                    ?? job.PlaylistTracks.FirstOrDefault(t => !string.IsNullOrEmpty(t.AlbumArtUrl))?.AlbumArtUrl;
             }
 
@@ -766,7 +766,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
             // 3. Queue the tracks using the internal method
             QueueTracks(job.PlaylistTracks);
-            
+
             // 4. Fire event for Library UI to refresh
             // Duplicate event removed: LibraryService already publishes ProjectAddedEvent
             // _eventBus.Publish(new ProjectAddedEvent(job.Id));
@@ -808,18 +808,18 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     private void QueueTracksCore(List<PlaylistTrack> tracks)
     {
         _logger.LogInformation("Queueing project tracks with {Count} tracks", tracks.Count);
-        
+
         int skipped = 0;
         int queued = 0;
-        
+
         // O(N) Optimization: Create lookup maps OUTSIDE the lock to prevent UI freeze on large imports
-        var currentDownloads = ActiveDownloads; 
-        
+        var currentDownloads = ActiveDownloads;
+
         var existingMap = currentDownloads
             .Where(d => !string.IsNullOrEmpty(d.Model.TrackUniqueHash))
             .GroupBy(d => d.Model.TrackUniqueHash)
             .ToDictionary(g => g.Key!, g => g.First());
-        
+
         var existingIds = currentDownloads
             .GroupBy(d => d.Model.Id)
             .ToDictionary(g => g.Key, g => g.First());
@@ -908,23 +908,23 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         existingCtx.NextRetryTime = null;
                         existingCtx.RetryAfterSlot = null; // Clear slot gate on explicit retry
                         existingCtx.FailureReason = null;
-                        
 
-                        queued++; 
+
+                        queued++;
                         continue;
                     }
 
                     skipped++;
-                    _logger.LogDebug("Skipping track {Artist} - {Title}: already active/completed (State: {State})", 
+                    _logger.LogDebug("Skipping track {Artist} - {Title}: already active/completed (State: {State})",
                         track.Artist, track.Title, existingCtx.State);
                     continue;
                 }
-                
-                if (_downloads.Count(d => d.State == PlaylistTrackState.Pending) >= LAZY_QUEUE_BUFFER_SIZE 
+
+                if (_downloads.Count(d => d.State == PlaylistTrackState.Pending) >= LAZY_QUEUE_BUFFER_SIZE
                     && track.Priority > 0)
                 {
-                     skipped++; 
-                     continue; 
+                     skipped++;
+                     continue;
                 }
 
                 var ctx = new DownloadContext(track);
@@ -949,7 +949,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         {
             _logger.LogInformation("Queued {Queued} new tracks, skipped {Skipped} already queued tracks", queued, skipped);
         }
-        
+
         if (queued > 0)
         {
              // Phase 21: Targeted Refill - Only refill for projects that were just queued
@@ -983,7 +983,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                      _logger.LogWarning(ex, "[QueuePersist] Failed to save queue snapshot after QueueTracks");
                  }
              });
-             
+
              // Auto-start engine if not running and we have tracks to process
              if (!IsRunning)
              {
@@ -1001,15 +1001,15 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         lock (_collectionLock)
         {
             var batchBuffer = new List<(PlaylistTrack, PlaylistTrackState?)>();
-            
+
             foreach (var t in entities)
             {
                 // Map PlaylistTrackEntity -> PlaylistTrack Model
-                var model = new PlaylistTrack 
-                { 
+                var model = new PlaylistTrack
+                {
                     Id = t.Id,
                     PlaylistId = t.PlaylistId,
-                    Artist = t.Artist, 
+                    Artist = t.Artist,
                     Title = t.Title,
                     Album = t.Album,
                     TrackUniqueHash = t.TrackUniqueHash,
@@ -1032,10 +1032,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     JobPriority = GetEffectiveJobPriority(t.PlaylistId),
                     JobManualSortOrder = _jobManualSortOrder.GetValueOrDefault(t.PlaylistId, 0),
                 };
-                
+
                 // Map status to download state
                 var ctx = new DownloadContext(model);
-                
+
                 // Phase 3 Hardening: Accurate State Restoration
                 // 1. If user explicitly paused it, honor that state
                 if (model.IsUserPaused)
@@ -1052,7 +1052,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         TrackStatus.Skipped => PlaylistTrackState.Cancelled,
                         TrackStatus.OnHold => IsMp3FallbackAllowed(model) ? PlaylistTrackState.Paused : PlaylistTrackState.Pending,
                         // If it was pending/downloading/searching, we make it Pending to restart
-                        _ => PlaylistTrackState.Pending 
+                        _ => PlaylistTrackState.Pending
                     };
                 }
 
@@ -1064,11 +1064,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 }
 
                 _downloads.Add(ctx);
-                
+
                 // Issue #4: Batch track events instead of firing per-track to prevent UI freeze
                 batchBuffer.Add((model, ctx.State));
             }
-            
+
             // Issue #4: Publish all tracks in single batch event for efficient UI update
             if (batchBuffer.Count > 0)
             {
@@ -1092,10 +1092,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             lock (_collectionLock)
             {
                 // If we are refilling for a specific project, we check the buffer for that project specifically
-                int pendingCount = projectId.HasValue 
+                int pendingCount = projectId.HasValue
                     ? _downloads.Count(d => d.Model.PlaylistId == projectId && d.State == PlaylistTrackState.Pending)
                     : _downloads.Count(d => d.State == PlaylistTrackState.Pending);
-                
+
                 if (pendingCount >= LAZY_QUEUE_BUFFER_SIZE) return; // Buffer full enough
 
                 needed = LAZY_QUEUE_BUFFER_SIZE - pendingCount;
@@ -1109,10 +1109,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             var newTracks = projectId.HasValue
                 ? await _databaseService.GetPendingTracksForProjectAsync(projectId.Value, needed, excludeIds)
                 : await _databaseService.GetPendingPriorityTracksAsync(needed, excludeIds);
-            
+
             if (newTracks.Any())
             {
-                _logger.LogDebug("Refilling queue with {Count} tracks for {Scope}", 
+                _logger.LogDebug("Refilling queue with {Count} tracks for {Scope}",
                     newTracks.Count, projectId.HasValue ? $"Project {projectId}" : "Global Queue");
                 HydrateAndAddEntities(newTracks);
             }
@@ -1121,7 +1121,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         {
             _logger.LogError(ex, "Failed to refill queue from database");
         }
-    }    
+    }
         // Processing loop picks this up automatically
 
     // Updated Delete to take GlobalId instead of VM
@@ -1186,14 +1186,14 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
-    /// Phase 6: Reset a track for re-download. 
+    /// Phase 6: Reset a track for re-download.
     /// Deletes local files and sets status back to Missing across all playlists.
     /// </summary>
     public async Task ResetTrackToPendingAsync(string globalId)
     {
         DownloadContext? ctx;
         lock(_collectionLock) ctx = _downloads.FirstOrDefault(d => d.GlobalId == globalId);
-        
+
         using (LogContext.PushProperty("TrackHash", globalId))
         {
             _logger.LogInformation("Resetting track for re-download: {Hash}", globalId);
@@ -1216,7 +1216,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
             // 3. Reset references in Playlists to Missing
             await _databaseService.UpdatePlaylistTrackStatusAndRecalculateJobsAsync(globalId, TrackStatus.Missing, string.Empty);
-            
+
             // 4. Reset global track queue state
             var track = await _databaseService.FindTrackAsync(globalId);
             if (track != null)
@@ -1229,11 +1229,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
             // 5. Notify UI
             _eventBus.Publish(new TrackStateChangedEvent(globalId, Guid.Empty, PlaylistTrackState.Pending, DownloadFailureReason.None, "Fraud Purge / Reset"));
-            
+
             _logger.LogInformation("Track {Hash} reset to Pending state. Ready for Discovery.", globalId);
         }
     }
-    
+
     private void DeleteLocalFiles(string? path)
     {
         if (string.IsNullOrEmpty(path)) return;
@@ -1244,7 +1244,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 File.Delete(path);
                 _logger.LogInformation("Deleted file: {Path}", path);
             }
-            
+
             var partPath = path + ".part";
             if (File.Exists(partPath))
             {
@@ -1259,17 +1259,17 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     }
 
     // Removed OnTrackPropertyChanged - Service no longer listens to VM property changes
-    
+
     // Helper to update state and publish event (Overload: Structured Failure Reason)
     public async Task UpdateStateAsync(DownloadContext ctx, PlaylistTrackState newState, DownloadFailureReason failureReason)
     {
         // Store structured failure data
         ctx.FailureReason = failureReason;
-        
+
         // Generate detailed message from enum + search attempts
         var displayMessage = failureReason.ToDisplayMessage();
         var suggestion = failureReason.ToActionableSuggestion();
-        
+
         // Only append search diagnostics if the failure is search-related (i.e. we couldn't find a valid track)
         // If we passed the search phase and failed later (TransferFailed), irrelevant rejections shouldn't be shown.
         var isSearchFailure = failureReason == DownloadFailureReason.NoSearchResults ||
@@ -1288,19 +1288,19 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 displayMessage += $" ({bestRejection.ShortReason})";
             }
         }
-        
+
         // Store detailed message for persistence
         ctx.DetailedFailureMessage = $"{displayMessage}. {suggestion}";
-        
+
         // Call original method with generated error message
         await UpdateStateAsync(ctx, newState, ctx.DetailedFailureMessage);
     }
-    
+
     // Helper to update state and publish event (Original: String-based)
     public async Task UpdateStateAsync(DownloadContext ctx, PlaylistTrackState newState, string? error = null, bool wasAlreadyPresent = false)
     {
         if (ctx.State == newState && ctx.ErrorMessage == error) return;
-        
+
         if (newState == PlaylistTrackState.Searching && ctx.SearchStartedAt == null)
         {
             ctx.SearchStartedAt = DateTime.UtcNow;
@@ -1346,16 +1346,16 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 });
             }
         }
-        
+
         // Publish with ProjectId for targeted updates
         // Phase 0.5: Include best search log for diagnostics
         var bestSearchLog = ctx.SearchAttempts.OrderByDescending(x => x.ResultsCount).FirstOrDefault();
         _eventBus.Publish(new TrackStateChangedEvent(ctx.GlobalId, ctx.Model.PlaylistId, newState, ctx.FailureReason ?? DownloadFailureReason.None, error, bestSearchLog, ctx.CurrentUsername, wasAlreadyPresent));
-        
+
         // DB Persistence (Consolidated)
         // Phase 3D: High-Efficiency Core - Master and Playlist updates now happen in a SINGLE transaction
         await SyncDbAsync(ctx);
-        
+
         // Phase 6: VIP/Bypass Sync
         if (newState == PlaylistTrackState.Downloading && ctx.IsVip)
         {
@@ -1441,9 +1441,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             }
         }
     }
-    
+
     /// <summary>
-    /// Consolidated DB Sync: Updates Master Record, Playlist Status, and Recalculates Job progress 
+    /// Consolidated DB Sync: Updates Master Record, Playlist Status, and Recalculates Job progress
     /// in a single transaction. Reduces DB overhead by 50% per state change.
     /// </summary>
     private async Task SyncDbAsync(DownloadContext ctx)
@@ -1459,8 +1459,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             };
 
             var updatedJobIds = await _databaseService.UpdatePlaylistTrackStatusAndRecalculateJobsAsync(
-                ctx.GlobalId, 
-                dbStatus, 
+                ctx.GlobalId,
+                dbStatus,
                 ctx.Model.ResolvedFilePath,
                 ctx.Model.SearchRetryCount,
                 ctx.Model.NotFoundRestartCount,
@@ -1494,7 +1494,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     {
         DownloadContext? ctx;
         lock(_collectionLock) ctx = _downloads.FirstOrDefault(d => d.GlobalId == globalId);
-        
+
         if (ctx != null)
         {
             ctx.Model.Priority = 0;
@@ -1507,20 +1507,20 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     {
         DownloadContext? ctx;
         lock (_collectionLock) ctx = _downloads.FirstOrDefault(t => t.GlobalId == globalId);
-        
+
         if (ctx == null)
         {
             _logger.LogWarning("Cannot pause track {Id}: not found", globalId);
             return;
         }
-        
+
         // CRITICAL: Cancel the CancellationTokenSource immediately
         // This ensures the download stops mid-transfer and preserves the .part file
         ctx.CancellationTokenSource?.Cancel();
         ctx.CancellationTokenSource = new CancellationTokenSource(); // Reset for resume
-        
+
         await UpdateStateAsync(ctx, PlaylistTrackState.Paused);
-        
+
         // Mark as user-paused in DB so hydration knows not to auto-resume
         try
         {
@@ -1536,14 +1536,14 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         {
             _logger.LogWarning(ex, "Failed to mark job as user-paused in DB (non-fatal)");
         }
-        
+
         _logger.LogInformation("â¸ï¸ Paused track: {Artist} - {Title} (user-initiated)", ctx.Model.Artist, ctx.Model.Title);
     }
 
     /// <summary>
     /// Pauses all active downloads.
     /// </summary>
-    public async Task PauseAllAsync() 
+    public async Task PauseAllAsync()
     {
         List<DownloadContext> active;
         lock (_collectionLock)
@@ -1554,7 +1554,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         if (active.Any())
         {
             _logger.LogInformation("⏸ Pausing all {Count} active downloads...", active.Count);
-            foreach(var d in active) 
+            foreach(var d in active)
             {
                  await PauseTrackAsync(d.GlobalId);
             }
@@ -1585,7 +1585,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 await ResumeTrackAsync(d.GlobalId);
             }
         }
-        
+
         IsPaused = false; // Globally unpause if it was
     }
 
@@ -1610,7 +1610,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         {
             _logger.LogError(ex, "Error while stopping processing loop");
         }
-        
+
         _logger.LogInformation("DownloadManager engine stopped.");
         OnPropertyChanged(nameof(IsRunning));
     }
@@ -1671,7 +1671,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
         ctx.CancellationTokenSource?.Cancel();
         ctx.CancellationTokenSource = new CancellationTokenSource(); // Reset
-        
+
         _ = UpdateStateAsync(ctx, PlaylistTrackState.Cancelled);
 
         // Delete the final file + its .part sibling (handles the case where ResolvedFilePath is set)
@@ -1682,17 +1682,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         // This path may be set even when ResolvedFilePath is still null (mid-download cancellation).
         try
         {
-            var stagingPartPath = _pathProvider.GetTrackPath(
-                ctx.Model.Artist,
-                ctx.Model.Album ?? "Unknown",
-                ctx.Model.Title,
-                ctx.Model.Format ?? "mp3") + ".part";
-
-            if (File.Exists(stagingPartPath))
-            {
-                File.Delete(stagingPartPath);
-                _logger.LogInformation("Deleted staging .part file on cancel: {Path}", stagingPartPath);
-            }
+            // The real .part path (#328): never rebuilt from tags, which pointed nowhere and created empty folders.
+            foreach (var deleted in Downloads.PartFileGuard.DeletePartFiles(ctx.PartFilePath, ctx.Model.ResolvedFilePath))
+                _logger.LogInformation("Deleted staging .part file on cancel: {Path}", deleted);
         }
         catch (Exception ex)
         {
@@ -1710,7 +1702,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     {
         DownloadContext? ctx;
         lock (_collectionLock) ctx = _downloads.FirstOrDefault(t => t.GlobalId == globalId);
-        
+
         if (ctx == null) return;
 
         var stalledUser = ctx.CurrentUsername;
@@ -1718,10 +1710,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         {
             ctx.BlacklistedUsers.Add(stalledUser);
             _logger.LogWarning("⚠️ Health Monitor: Blacklisting peer {User} for {Track}", stalledUser, ctx.Model.Title);
-            
+
             // Record failure/stall status to deprioritize bad peers in future searches
             _peerReliability.RecordDownloadFailed(stalledUser, stalled: true);
-            
+
             // Notify UI
             _eventBus.Publish(new NotificationEvent(
                 "Auto-Retry Triggered",
@@ -1731,7 +1723,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
         // 1. Cancel active transfer (stops Soulseek)
         ctx.CancellationTokenSource?.Cancel();
-        
+
         // 2. IMPORTANT: Don't delete files! We want to try to resume from another peer if possible.
         // Wait, Soulseek resume requires same file hash. DiscoveryService might find a different file hash.
         // If different file hash, Resume logic (based on file size match?) might be risky.
@@ -1741,7 +1733,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
         // 3. Reset state to Pending so ProcessQueueLoop picks it up
         await UpdateStateAsync(ctx, PlaylistTrackState.Pending, "Auto-retrying after stall");
-        
+
         // Reset CTS for next attempt
         ctx.CancellationTokenSource = new CancellationTokenSource();
     }
@@ -1750,7 +1742,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     {
         DownloadContext? ctx;
         lock (_collectionLock) ctx = _downloads.FirstOrDefault(d => d.GlobalId == globalId);
-        
+
         if (ctx == null) return;
 
         _logger.LogInformation("🚀 Force Start (VIP) triggered for {Title}", ctx.Model.Title);
@@ -1964,11 +1956,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
             try
             {
-                var partPath = _pathProvider.GetTrackPath(ctx.Model.Artist, ctx.Model.Album, ctx.Model.Title, ctx.Model.Format ?? "mp3") + ".part";
-                if (File.Exists(partPath))
-                {
-                    File.Delete(partPath);
-                }
+                Downloads.PartFileGuard.DeletePartFiles(ctx.PartFilePath, ctx.Model.ResolvedFilePath); // the real .part (#328)
+                ctx.PartFilePath = null;
                 if (!string.IsNullOrEmpty(ctx.Model.ResolvedFilePath) && File.Exists(ctx.Model.ResolvedFilePath))
                 {
                     File.Delete(ctx.Model.ResolvedFilePath);
@@ -1998,17 +1987,17 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     {
         DownloadContext? ctx;
         lock (_collectionLock) ctx = _downloads.FirstOrDefault(d => d.GlobalId == globalId);
-        
+
         if (ctx == null) return;
 
         _logger.LogInformation("🛡️ Bypassing Guards for {Title}. Force downloading ignoring quality filters.", ctx.Model.Title);
-        
+
         ctx.Model.IgnoreSafetyGuards = true;
-        ctx.IsVip = true; 
+        ctx.IsVip = true;
         ctx.Model.Priority = 0;
-        
+
         await UpdateStateAsync(ctx, PlaylistTrackState.Pending);
-        
+
         // Reset failures and logs to give it a fresh start
         ctx.ErrorMessage = null;
         ctx.SearchAttempts.Clear();
@@ -2072,22 +2061,22 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         // Preserve manual candidate intent by recording it for the next discovery/download cycle.
         ctx.OverrideCandidate = candidate;
     }
-    
+
     public async Task UpdateTrackFiltersAsync(string globalId, string formats, int minBitrate)
     {
         DownloadContext? ctx;
         lock (_collectionLock) ctx = _downloads.FirstOrDefault(d => d.GlobalId == globalId);
-        
+
         if (ctx != null)
         {
             ctx.Model.PreferredFormats = formats;
             ctx.Model.MinBitrateOverride = minBitrate;
-            
+
             // Persist to DB immediately
             await SyncDbAsync(ctx);
-            
+
             // If it's a playlist track, update that entity too
-            try 
+            try
             {
                 using var context = new Data.AppDbContext();
                 var pt = await context.PlaylistTracks.FirstOrDefaultAsync(t => t.Id == ctx.Model.Id);
@@ -2104,7 +2093,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             }
         }
     }
-    
+
     public bool EnqueueTrack(Track track, int priority = 0)
     {
         if (!TryValidateTrackForQueue(track, out var reason))
@@ -2129,7 +2118,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
              ResolvedFilePath = Path.Combine(_config.DownloadDirectory!, _fileNameFormatter.Format(_config.NameFormat ?? "{artist} - {title}", track) + "." + track.GetExtension()),
              TrackUniqueHash = track.UniqueHash
         };
-        
+
         QueueTracks(new List<PlaylistTrack> { playlistTrack });
         return true;
     }
@@ -2194,16 +2183,16 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
         _logger.LogInformation("DownloadManager Orchestrator started.");
 
-        
+
         await InitAsync();
 
         // Phase 13: Non-blocking Journal Recovery
         // We run this in background to avoid blocking the UI/Splash Screen
         // while it reconciles potentially thousands of checks.
         // Run recovery in background
-        _ = Task.Run(async () => 
+        _ = Task.Run(async () =>
         {
-            try 
+            try
             {
                 await HydrateFromCrashAsync();
 
@@ -2214,8 +2203,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 {
                     foreach (var ctx in _downloads.Where(t => t.State == PlaylistTrackState.Pending || t.State == PlaylistTrackState.Downloading))
                     {
-                        var partPath = _pathProvider.GetTrackPath(ctx.Model.Artist, ctx.Model.Album ?? "Unknown", ctx.Model.Title, "mp3") + ".part";
-                        activePartPaths.Add(partPath);
+                        // Protect the REAL .part files of live downloads (#328): the tag-built path never existed,
+                        // so an active partial file older than 24 h could be swept as an orphan.
+                        foreach (var partPath in Downloads.PartFileGuard.CandidatePartPaths(ctx.PartFilePath, ctx.Model.ResolvedFilePath))
+                            activePartPaths.Add(partPath);
                     }
                 }
                 await _pathProvider.CleanupOrphanedPartFilesAsync(activePartPaths);
@@ -2386,13 +2377,13 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 .ToList();
 
             var knownTracks = new HashSet<string>();
-            try 
+            try
             {
                 // Assuming DatabaseService has a method to check existence by list, or we add one.
                 // For now, sticking to existing public surface area to avoid expanding scope too much
                 // in this specific 'replace_file_content' operation.
                 // If ID is in Hydrated downloads, we know it exists.
-                lock (_collectionLock) 
+                lock (_collectionLock)
                 {
                     foreach(var d in _downloads) knownTracks.Add(d.GlobalId);
                 }
@@ -2407,11 +2398,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 if (checkpoint.OperationType != OperationType.Download) continue;
 
                 DownloadCheckpointState? state = null;
-                try 
+                try
                 {
                     state = JsonSerializer.Deserialize<DownloadCheckpointState>(checkpoint.StateJson);
                 }
-                catch 
+                catch
                 {
                     _logger.LogWarning("Corrupt checkpoint state for {Id}, marking dead letter.", checkpoint.Id);
                     await _crashJournal.MarkAsDeadLetterAsync(checkpoint.Id);
@@ -2435,7 +2426,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         if (dbTrack == null)
                         {
                             _logger.LogWarning("👻 Zombie Checkpoint: {Track} (File & Record missing). Cleaning up.", state.Title);
-                            await _crashJournal.CompleteCheckpointAsync(checkpoint.Id); 
+                            await _crashJournal.CompleteCheckpointAsync(checkpoint.Id);
                             zombies++;
                             continue;
                         }
@@ -2455,11 +2446,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     var info = new FileInfo(state.PartFilePath);
                     if (info.Length > state.BytesDownloaded)
                     {
-                        try 
+                        try
                         {
-                            _logger.LogWarning("⚠️ Truncation Guard: Truncating {Track} from {Disk} to {Journal} bytes.", 
+                            _logger.LogWarning("⚠️ Truncation Guard: Truncating {Track} from {Disk} to {Journal} bytes.",
                                 state.Title, info.Length, state.BytesDownloaded);
-                                
+
                             await using (var fs = new FileStream(state.PartFilePath, FileMode.Open, FileAccess.Write, FileShare.None, 4096, useAsync: true))
                             {
                                 fs.SetLength(state.BytesDownloaded);
@@ -2482,11 +2473,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 ctx.BytesReceived = state.BytesDownloaded;
                 ctx.TotalBytes = state.ExpectedSize;
                 ctx.IsResuming = true;
-                
+
                 // 5. PRIORITIZE
                 ctx.NextRetryTime = DateTime.MinValue;
-                ctx.RetryCount = 0; 
-                
+                ctx.RetryCount = 0;
+
                 if (ctx.State == PlaylistTrackState.Downloading || ctx.State == PlaylistTrackState.Searching || ctx.State == PlaylistTrackState.Stalled)
                 {
                     // If user manually paused it, honor that
@@ -2500,29 +2491,29 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         ctx.State = PlaylistTrackState.Pending;
                     }
                 }
-                
+
                 // Also catch any tracks left in 'Paused' state that SHOULD be paused
                 if (ctx.Model.IsUserPaused && ctx.State != PlaylistTrackState.Paused)
                 {
                     ctx.State = PlaylistTrackState.Paused;
                 }
-                
+
                 // If it's not paused, and was in a failed/cancelled state, reset to pending
                 if (!ctx.Model.IsUserPaused && (ctx.State == PlaylistTrackState.Failed || ctx.State == PlaylistTrackState.Cancelled))
                 {
                     ctx.State = PlaylistTrackState.Pending;
                 }
-                
+
                 await UpdateStateAsync(ctx, ctx.State, "Recovered from Crash Journal");
-                
+
                 recovered++;
-                _logger.LogInformation("✅ Recovered Session: {Artist} - {Title} ({Percent}%)", 
+                _logger.LogInformation("✅ Recovered Session: {Artist} - {Title} ({Percent}%)",
                     state.Artist, state.Title, (state.BytesDownloaded * 100.0 / Math.Max(1, state.ExpectedSize)).ToString("F0"));
             }
 
             // Clean up stale entries while we are here
             await _crashJournal.ClearStaleCheckpointsAsync();
-            
+
             _logger.LogInformation("Recovery Summary: {Recovered} Resumed, {Zombies} Zombies squashed.", recovered, zombies);
         }
         catch (Exception ex)
@@ -2637,7 +2628,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     CurrentBackoffSeconds = 0;
                     OnPropertyChanged(nameof(CurrentBackoffSeconds));
                     OnPropertyChanged(nameof(IsBackingOff));
-                    
+
                     // Transition waiting downloads back to pending
                     lock (_collectionLock)
                     {
@@ -2677,7 +2668,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         var sortedEligible = eligibleTracks.OrderBy(t => t.Model.Priority).ToList();
                         nextContext = SelectNextTrackWithLaneAllocation(sortedEligible, activeByPriority);
                     }
-                    
+
                     // Periodic trim: remove terminal downloads older than 30 min to prevent unbounded growth
                     var cutoff = DateTime.UtcNow.AddMinutes(-30);
                     lock (_collectionLock)
@@ -2710,7 +2701,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     continue;
                 }
 
-                _logger.LogDebug("Spinning up search/download for {Title} (Priority: {Prio}, VIP: {Vip})", 
+                _logger.LogDebug("Spinning up search/download for {Title} (Priority: {Prio}, VIP: {Vip})",
                     nextContext.Model.Title, nextContext.Model.Priority, nextContext.IsVip);
 
                 bool tookSemaphoreSlot = false;
@@ -2733,7 +2724,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 {
                     // Update Active map with new reality
                     var activeByPriority = GetActiveDownloadsByPriority();
-                    
+
                     // Check if our pre-selected 'nextContext' is still valid and optimal
                     // Or simply re-run selection to be safe
                     var eligibleTracks = _downloads.Where(t =>
@@ -2778,7 +2769,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         if (finalTookSlot)
                         {
                             _downloadSemaphore.Release();
-                            _logger.LogDebug("Released semaphore slot. Available slots: {Available}/{Total}", 
+                            _logger.LogDebug("Released semaphore slot. Available slots: {Available}/{Total}",
                                 _downloadSemaphore.CurrentCount, _maxActiveDownloads);
                         }
                         OnPropertyChanged(nameof(ActiveWorkerSlots));
@@ -2975,12 +2966,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                     // Phase 21: Progressive Retry Logic (3x Session, 3x Restart)
                     ctx.Model.SearchRetryCount++;
-                    
+
                     // Determine specific failure reason based on search history for better logs/UI
                     if (ctx.SearchAttempts.Any())
                     {
                         var lastAttempt = ctx.SearchAttempts.Last();
-                        
+
                         // Check for discovery timeout first (90s global limit)
                         if (lastAttempt.TimedOut)
                         {
@@ -3075,7 +3066,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         }
                         else
                         {
-                            _logger.LogWarning("⚠️ Session Failure for {Title}: No results found after 3 attempts. Deferring to next app restart (Session {Count}/3 | Reason: {Reason}).", 
+                            _logger.LogWarning("⚠️ Session Failure for {Title}: No results found after 3 attempts. Deferring to next app restart (Session {Count}/3 | Reason: {Reason}).",
                                 ctx.Model.Title, ctx.Model.NotFoundRestartCount, failureReason);
                             await UpdateStateAsync(ctx, PlaylistTrackState.Failed, $"Search failed 3x in this session ({failureReason}). Deferring to next restart.");
                         }
@@ -3106,7 +3097,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             {
                 // Enhanced cancellation diagnostics
                 var cancellationReason = "Unknown";
-                
+
                 // Fix #3: Preemption-aware cancellation handling
                 if (ctx.Model.Priority >= 10 && ctx.State == PlaylistTrackState.Downloading)
                 {
@@ -3115,7 +3106,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     await UpdateStateAsync(ctx, PlaylistTrackState.Deferred, "Deferred for high-priority downloads");
                     return;
                 }
-                
+
                 // Check if it was user-initiated pause
                 if (ctx.State == PlaylistTrackState.Paused)
                 {
@@ -3123,7 +3114,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     _logger.LogInformation("â¸ Download paused by user: {Title}", ctx.Model.Title);
                     return;
                 }
-                
+
                 // Check if it was explicit cancellation
                 if (ctx.State == PlaylistTrackState.Cancelled)
                 {
@@ -3131,11 +3122,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     _logger.LogInformation("âŒ Download cancelled by user: {Title}", ctx.Model.Title);
                     return;
                 }
-                
+
                 // Check if it's a global shutdown
                 if (_globalCts.Token.IsCancellationRequested)
                 {
-                    _logger.LogInformation("Shutdown detected. Preserving state for {Title} (Current State: {State})", 
+                    _logger.LogInformation("Shutdown detected. Preserving state for {Title} (Current State: {State})",
                         ctx.Model.Title, ctx.State);
                     return;
                 }
@@ -3211,7 +3202,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     ctx.Model.Title,
                     srex.Message,
                     ctx.CorrelationId ?? "-");
-                
+
                 // 1. Capture Diagnostics
                 if (srex.SearchLog != null)
                 {
@@ -3225,7 +3216,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     var delayMinutes = Math.Pow(2, ctx.RetryCount); // 2, 4, 8, 16...
                     ctx.NextRetryTime = DateTime.UtcNow.AddMinutes(delayMinutes);
                     ctx.Model.Priority = 20; // Low priority
-                    
+
                     // Important: Set state to Pending so it stays in the queue, but with a status message explaining the delay
                     await UpdateStateAsync(ctx, PlaylistTrackState.Pending, $"Retrying in {delayMinutes}m: Search Rejected");
                     _logger.LogInformation("Scheduled retry #{Count} for {GlobalId} at {Time} due to search rejection", ctx.RetryCount, ctx.GlobalId, ctx.NextRetryTime);
@@ -3298,7 +3289,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     await UpdateStateAsync(ctx, PlaylistTrackState.Failed, transferDisposition.RetryFailureReason);
                     return;
                 }
-                
+
                 // Exponential / classified backoff logic
                 ctx.RetryCount++;
                 if (_config.AutoRetryFailedDownloads && ctx.RetryCount < _config.MaxDownloadRetries)
@@ -3467,13 +3458,13 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             bestMatch.ScoreBreakdown);
 
         PrimePipelineSearchForNextTrack(ctx.GlobalId);
-        
+
         // Phase 3B: Track current peer for Health Monitor blacklisting
         ctx.CurrentUsername = bestMatch.Username;
 
         // Issue #233: registration happens only after the peer gate is acquired (see below),
         // so a track that is merely queued for a busy peer is never in the active registry.
-        
+
         // Phase 0.3: Reset Health Metrics for new attempt
         ctx.StallCount = 0;
         ctx.CurrentSpeed = 0;
@@ -3497,6 +3488,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         ctx.Model.ResolvedFilePath = finalPath; // Set early so UI can probe the path (will look for .part)
 
         var partPath = finalPath + ".part";
+        ctx.PartFilePath = partPath; // the one real .part path, for every cleanup path (#328)
         long startPosition = 0;
 
         // STEP 1: Check if final file already exists and is complete
@@ -3514,17 +3506,33 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             else
             {
                 // File exists but is incomplete (corrupted?) - delete and restart
-                _logger.LogWarning("Final file exists but size mismatch (expected {Expected}, got {Actual}). Deleting and restarting.", 
+                _logger.LogWarning("Final file exists but size mismatch (expected {Expected}, got {Actual}). Deleting and restarting.",
                     bestMatch.Size, existingFileInfo.Length);
                 File.Delete(finalPath);
             }
         }
 
-        // STEP 2: Check for existing .part file to resume
+        // STEP 2: Check for existing .part file to resume — only if it provably came from THIS source (#328).
+        // The name template often doesn't include the peer, so another peer's partial file can sit at this
+        // exact path; continuing it would glue two different recordings together.
+        if (File.Exists(partPath))
+        {
+            var journalState = await _crashJournal.GetDownloadStateAsync(ctx.GlobalId);
+            var decision = Downloads.PartFileGuard.DecideResume(
+                journalState?.SoulseekUsername, journalState?.SoulseekFilename, journalState?.ExpectedSize ?? 0,
+                journalState?.BytesDownloaded ?? 0, bestMatch.Username ?? string.Empty, bestMatch.Filename ?? string.Empty, bestMatch.Size ?? 0);
+            if (!decision.Resume)
+            {
+                _logger.LogWarning("Not resuming the partial file for {Track}: {Reason}. Deleting it and starting from 0.",
+                    ctx.Model.Title, decision.Reason);
+                File.Delete(partPath);
+            }
+        }
+
         if (File.Exists(partPath))
         {
             var diskBytes = new FileInfo(partPath).Length;
-            
+
             // Phase 3A: Atomic Handshake - Trust Journal, Truncate Disk
             var confirmedBytes = await _crashJournal.GetConfirmedBytesAsync(ctx.GlobalId);
             long expectedSize = bestMatch.Size ?? 0;
@@ -3535,16 +3543,16 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             if (expectedSize > 0 && diskBytes >= expectedSize)
             {
                 startPosition = diskBytes;
-                _logger.LogInformation("ðŸ‘» Ghost File Detected: Disk ({Disk}) >= Expected ({Expected}). Skipping truncation despite Journal ({Journal}).", 
+                _logger.LogInformation("ðŸ‘» Ghost File Detected: Disk ({Disk}) >= Expected ({Expected}). Skipping truncation despite Journal ({Journal}).",
                     diskBytes, expectedSize, confirmedBytes);
             }
             else if (confirmedBytes > 0 && diskBytes > confirmedBytes)
             {
                 // Case 1: Disk has more data than journal (unconfirmed tail)
                 // Truncate to confirmed bytes to ensure no corrupt/torn data is kept
-                _logger.LogWarning("âš ï¸ Atomic Resume: Truncating {Diff} bytes of unconfirmed data for {Track}", 
+                _logger.LogWarning("âš ï¸ Atomic Resume: Truncating {Diff} bytes of unconfirmed data for {Track}",
                     diskBytes - confirmedBytes, ctx.Model.Title);
-                    
+
                 await using (var fs = new FileStream(partPath, FileMode.Open, FileAccess.Write, FileShare.None, 4096, useAsync: true))
                 {
                     fs.SetLength(confirmedBytes);
@@ -3561,8 +3569,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
             ctx.IsResuming = true;
             ctx.BytesReceived = startPosition;
-            
-            _logger.LogInformation("Resuming download from byte {Position} for {Track} (Journal Confirmed: {Confirmed})", 
+
+            _logger.LogInformation("Resuming download from byte {Position} for {Track} (Journal Confirmed: {Confirmed})",
                 startPosition, ctx.Model.Title, confirmedBytes);
 
             _eventBus.Publish(new Events.TrackDetailedStatusEvent(
@@ -3604,7 +3612,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         };
 
         string? checkpointId = await _crashJournal.LogCheckpointAsync(checkpoint);
-        _logger.LogDebug("âœ… Download checkpoint logged: {Id} - {Artist} - {Title}", 
+        _logger.LogDebug("âœ… Download checkpoint logged: {Id} - {Artist} - {Title}",
             checkpointId, ctx.Model.Artist, ctx.Model.Title);
 
         // Phase 2A: PERIODIC HEARTBEAT with stall detection
@@ -3615,7 +3623,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         using var heartbeatTimer = new PeriodicTimer(TimeSpan.FromSeconds(heartbeatIntervalSeconds));
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         using var stallMonitorCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        
+
         int stallCount = 0;
         long lastHeartbeatBytes = startPosition;
         long lastThroughputBytes = startPosition;
@@ -3632,7 +3640,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     if (ctx.IsFinalizing) return;
 
                     var currentBytes = ctx.BytesReceived; // Thread-safe Interlocked read
-                    
+
                     // STALL DETECTION: throughput below floor for configured timeout window.
                     // CRITICAL: Skip stall detection entirely when the download is QUEUED.
                     // Queued = we are waiting in the peer's upload queue. Zero throughput is
@@ -3662,7 +3670,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                                 _logger.LogWarning("⚠️ Download stalled for >{StallTimeout}s: {Artist} - {Title} ({Current}/{Total} bytes, {Kbps:0.0} KB/s)",
                                     _config.StallTimeoutSeconds,
                                     ctx.Model.Artist, ctx.Model.Title, currentBytes, checkpointState.ExpectedSize, currentKbps);
-                                
+
                                 ctx.Model.StalledReason = $"Throughput below {_config.MinThroughputFloorKbps} KB/s for {_config.StallTimeoutSeconds}s";
                                 stalledByMonitor = true;
                                 stallMonitorCts.Cancel();
@@ -3704,9 +3712,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                                 _logger.LogWarning(journalEx, "Crash-journal heartbeat write failed for {GlobalId}; stall detection continues", ctx.GlobalId);
                             }
                         }
-                        
+
                         _logger.LogTrace("Heartbeat: {Current}/{Total} bytes ({Percent}%)",
-                            currentBytes, checkpointState.ExpectedSize, 
+                            currentBytes, checkpointState.ExpectedSize,
                             (currentBytes * 100.0 / checkpointState.ExpectedSize));
                     }
                 }
@@ -3742,13 +3750,13 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             if ((DateTime.Now - lastNotificationTime).TotalMilliseconds > 500)
             {
                 _eventBus.Publish(new TrackProgressChangedEvent(
-                    ctx.GlobalId, 
+                    ctx.GlobalId,
                     ctx.Progress,
                     ctx.BytesReceived,
                     ctx.TotalBytes,
                     ctx.CorrelationId
                 ));
-                
+
                 lastNotificationTime = DateTime.Now;
             }
 
@@ -3906,14 +3914,14 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                 // ATOMIC OPERATION: Use SafeWrite to move .part to .mp3
                 var moveSuccess = await _fileWriteService.MoveAtomicAsync(partPath, finalPath);
-                
+
                 if (!moveSuccess)
                 {
                      // If move failed (e.g. disk full during copy phase), throw execution to trigger retry/fail logic
                      throw new IOException($"Failed to atomically move file from {partPath} to {finalPath}");
                 }
-                
-                _logger.LogInformation("Atomic move complete: {Part} â†’ {Final}", 
+
+                _logger.LogInformation("Atomic move complete: {Part} â†’ {Final}",
                     Path.GetFileName(partPath), Path.GetFileName(finalPath));
 
                 _eventBus.Publish(new Events.TrackDetailedStatusEvent(
@@ -3990,7 +3998,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 {
                     // Phase 3A: Sentinel Flag - Prevent heartbeat from re-creating checkpoint
                     ctx.IsFinalizing = true;
-                    
+
                     await _crashJournal.CompleteCheckpointAsync(checkpointId);
                     _logger.LogDebug("✅ Download checkpoint completed: {Id}", checkpointId);
                 }
@@ -4118,7 +4126,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         // Phase 2A: CRITICAL CLEANUP - Stop heartbeat timer
         heartbeatCts.Cancel(); // Signal heartbeat to stop
         heartbeatTimer.Dispose();
-        
+
         try
         {
             await heartbeatTask; // Wait for heartbeat task to complete
@@ -4269,7 +4277,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     private void OnUpgradeAvailable(UpgradeAvailableEvent e)
     {
         // For now just log, could trigger a notification in future
-        _logger.LogInformation("Upgrade Available (Manual Approval Needed): {TrackId} - {BestMatch}", 
+        _logger.LogInformation("Upgrade Available (Manual Approval Needed): {TrackId} - {BestMatch}",
             e.TrackGlobalId, e.BestMatch.Filename);
     }
 
@@ -4324,7 +4332,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         {
             ctx.Model.Priority = 0;
             ctx.Model.AddedAt = PinnedToTop; // absolute top, across playlists
-            
+
             if (ctx.State == PlaylistTrackState.Pending || ctx.State == PlaylistTrackState.Stalled || ctx.State == PlaylistTrackState.Paused)
             {
                 _ = UpdateStateAsync(ctx, PlaylistTrackState.Pending);
@@ -4344,7 +4352,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
         // Fix #1: Persist to database FIRST for crash resilience
         await _databaseService.UpdatePlaylistTracksPriorityAsync(playlistId, 0);
-        
+
         // Update in-memory contexts
         int updatedCount = 0;
         lock (_collectionLock)
@@ -4379,7 +4387,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
         if (lowestPriority != null && lowestPriority.Model.Priority > 0) // Preempt anything lower than High Priority (0)
         {
-            _logger.LogInformation("â¸ Preempting lower priority download (Priority {Prio}): {Title}", 
+            _logger.LogInformation("â¸ Preempting lower priority download (Priority {Prio}): {Title}",
                 lowestPriority.Model.Priority, lowestPriority.Model.Title);
             await PauseTrackAsync(lowestPriority.Model.TrackUniqueHash);
         }
@@ -4663,7 +4671,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         ctx.Model.StalledReason = null;
         ctx.IsFinalizing = false; // Reset critical flags
         ctx.SearchAttempts.Clear(); // Clear bad search history
-        
+
         lock (ctx.BlacklistedUsers)
         {
              ctx.BlacklistedUsers.Clear(); // Give peers a second chance
@@ -4671,17 +4679,14 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
         // 2. Clean Disk (Nuanced: Only delete .part if it's failed/stalled, keep .mp3 if it was somehow completed?)
         // Actually "Hard Retry" implies "Delete everything and start over".
-        try 
+        try
         {
-            // Fix: Use the component-based overload of GetTrackPath as Models.PlaylistTrack is not Models.Track
-            var partPath = _pathProvider.GetTrackPath(ctx.Model.Artist, ctx.Model.Album, ctx.Model.Title, ctx.Model.Format ?? "mp3") + ".part";
-            
-            if (File.Exists(partPath)) 
-            {
-                 File.Delete(partPath);
-                 _logger.LogInformation("Deleted stale .part file for retry: {Path}", partPath);
-            }
-            
+            // The real .part path (#328). The tag-built path used before never existed, so Hard Retry deleted
+            // nothing and the next attempt resumed the old partial file from a different peer.
+            foreach (var deleted in Downloads.PartFileGuard.DeletePartFiles(ctx.PartFilePath, ctx.Model.ResolvedFilePath))
+                _logger.LogInformation("Deleted stale .part file for retry: {Path}", deleted);
+            ctx.PartFilePath = null;
+
             // If we have a resolved file path that is invalid, nuke it
             if (!string.IsNullOrEmpty(ctx.Model.ResolvedFilePath) && File.Exists(ctx.Model.ResolvedFilePath))
             {
@@ -4703,10 +4708,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         // 3. Reset to Pending to trigger immediate pickup
         ctx.Model.Priority = 0; // VIP Pass
         await UpdateStateAsync(ctx, PlaylistTrackState.Pending);
-        
+
         // 4. Force immediate queue refill and check
         _ = RefillQueueAsync();
-        
+
         // 5. Force save to DB to ensure 'IsUserPaused=false' and Priority persists
         await _databaseService.UpdatePlaylistTrackUserPausedAsync(ctx.Model.Id, false);
         // We'll trust the SaveTrackToDb call within UpdateStateAsync to persist the Priority,

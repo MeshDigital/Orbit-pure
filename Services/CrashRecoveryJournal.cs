@@ -85,7 +85,7 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
 {
     private readonly ILogger<CrashRecoveryJournal> _logger;
     private static readonly SemaphoreSlim _journalLock = new(1, 1);
-    
+
     // PERFORMANCE: Shared connection for journal (reduces overhead)
     private SqliteConnection? _journalConnection;
     private SqliteCommand? _insertCheckpointCmd;
@@ -94,7 +94,7 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
     private SqliteCommand? _resetFailureCountCmd;
     private SqliteCommand? _markDeadLetterCmd;
     private SqliteCommand? _getSystemHealthCmd;
-    
+
     private bool _disposed = false;
 
     public CrashRecoveryJournal(ILogger<CrashRecoveryJournal> logger)
@@ -112,7 +112,7 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
             // Get database path
             var appData = SLSKDONET.Data.OrbitPaths.RoamingRoot;
             var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
-            
+
             // Create table using main context
             using var context = new AppDbContext();
             var connection = context.Database.GetDbConnection() as SqliteConnection;
@@ -131,14 +131,14 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
                     LastHeartbeat INTEGER NOT NULL,
                     CreatedAt TEXT NOT NULL
                 );
-                
-                CREATE INDEX IF NOT EXISTS IX_Recovery_Priority 
+
+                CREATE INDEX IF NOT EXISTS IX_Recovery_Priority
                 ON RecoveryCheckpoints(Priority DESC);
-                
-                CREATE INDEX IF NOT EXISTS IX_Recovery_Type 
+
+                CREATE INDEX IF NOT EXISTS IX_Recovery_Type
                 ON RecoveryCheckpoints(OperationType);
-                
-                CREATE INDEX IF NOT EXISTS IX_Recovery_Heartbeat 
+
+                CREATE INDEX IF NOT EXISTS IX_Recovery_Heartbeat
                 ON RecoveryCheckpoints(LastHeartbeat);
             ";
             await createCmd.ExecuteNonQueryAsync();
@@ -146,7 +146,7 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
             // PERFORMANCE: Create dedicated journal connection
             _journalConnection = new SqliteConnection($"Data Source={dbPath}");
             await _journalConnection.OpenAsync();
-            
+
             // PERFORMANCE: Journal-specific optimizations
             using var pragmaCmd = _journalConnection.CreateCommand();
             pragmaCmd.CommandText = @"
@@ -160,15 +160,15 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
             // PERFORMANCE: Pre-compile frequently used statements
             _insertCheckpointCmd = _journalConnection.CreateCommand();
             _insertCheckpointCmd.CommandText = @"
-                INSERT OR REPLACE INTO RecoveryCheckpoints 
+                INSERT OR REPLACE INTO RecoveryCheckpoints
                 (Id, OperationType, TargetPath, StateJson, Priority, FailureCount, Status, LastHeartbeat, CreatedAt)
                 VALUES (@id, @type, @path, @state, @priority, @failures, @status, @heartbeat, @created)";
             _insertCheckpointCmd.Prepare();
 
             _updateHeartbeatCmd = _journalConnection.CreateCommand();
             _updateHeartbeatCmd.CommandText = @"
-                UPDATE RecoveryCheckpoints 
-                SET LastHeartbeat = @heartbeat, StateJson = @state 
+                UPDATE RecoveryCheckpoints
+                SET LastHeartbeat = @heartbeat, StateJson = @state
                 WHERE Id = @id";
             _updateHeartbeatCmd.Prepare();
 
@@ -179,15 +179,15 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
             _resetFailureCountCmd = _journalConnection.CreateCommand();
             _resetFailureCountCmd.CommandText = "UPDATE RecoveryCheckpoints SET FailureCount = 0, Status = 0 WHERE TargetPath = @path";
             _resetFailureCountCmd.Prepare();
-            
+
             _markDeadLetterCmd = _journalConnection.CreateCommand();
             _markDeadLetterCmd.CommandText = "UPDATE RecoveryCheckpoints SET Status = 2 WHERE Id = @id";
             _markDeadLetterCmd.Prepare();
-            
+
             _getSystemHealthCmd = _journalConnection.CreateCommand();
             _getSystemHealthCmd.CommandText = @"
-                SELECT Status, COUNT(*) 
-                FROM RecoveryCheckpoints 
+                SELECT Status, COUNT(*)
+                FROM RecoveryCheckpoints
                 GROUP BY Status";
             _getSystemHealthCmd.Prepare();
 
@@ -223,10 +223,10 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
             _insertCheckpointCmd.Parameters.AddWithValue("@created", checkpoint.CreatedAt.ToString("o"));
 
             await _insertCheckpointCmd.ExecuteNonQueryAsync();
-            
-            _logger.LogDebug("Logged checkpoint: {Type} - {Path} (Priority: {Priority})", 
+
+            _logger.LogDebug("Logged checkpoint: {Type} - {Path} (Priority: {Priority})",
                 checkpoint.OperationType, checkpoint.TargetPath, checkpoint.Priority);
-            
+
             return checkpoint.Id;
         }
         finally
@@ -259,8 +259,8 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
             _updateHeartbeatCmd.Parameters.AddWithValue("@id", checkpointId);
 
             await _updateHeartbeatCmd.ExecuteNonQueryAsync();
-            
-            _logger.LogTrace("Updated heartbeat for {Id}: {Current}/{Previous} bytes", 
+
+            _logger.LogTrace("Updated heartbeat for {Id}: {Current}/{Previous} bytes",
                 checkpointId, currentBytes, previousBytes);
         }
         finally
@@ -287,9 +287,9 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
         {
             _deleteCheckpointCmd.Parameters.Clear();
             _deleteCheckpointCmd.Parameters.AddWithValue("@id", checkpointId);
-            
+
             var rowsAffected = await _deleteCheckpointCmd.ExecuteNonQueryAsync();
-            
+
             if (rowsAffected > 0)
             {
                 Interlocked.Increment(ref _sessionRecoveredCount);
@@ -315,7 +315,7 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
         {
             _resetFailureCountCmd.Parameters.Clear();
             _resetFailureCountCmd.Parameters.AddWithValue("@path", targetPath);
-            
+
             var rows = await _resetFailureCountCmd.ExecuteNonQueryAsync();
             if (rows > 0)
             {
@@ -342,7 +342,7 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
         {
             _markDeadLetterCmd.Parameters.Clear();
             _markDeadLetterCmd.Parameters.AddWithValue("@id", checkpointId);
-            
+
             var rows = await _markDeadLetterCmd.ExecuteNonQueryAsync();
             if (rows > 0)
             {
@@ -360,6 +360,40 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
     /// Acts as the "Source of Truth" to validate partial files on disk.
     /// Uses JsonDocument to avoid dependency on specific state types.
     /// </summary>
+    /// <summary>
+    /// The full download state recorded for <paramref name="checkpointId"/> (which peer/file/size wrote the .part,
+    /// and how many bytes are confirmed), or null when there is no readable record (#328).
+    /// </summary>
+    public async Task<DownloadCheckpointState?> GetDownloadStateAsync(string checkpointId)
+    {
+        if (_disposed || _journalConnection == null)
+            return null;
+
+        await _journalLock.WaitAsync();
+        try
+        {
+            using var cmd = _journalConnection.CreateCommand();
+            cmd.CommandText = "SELECT StateJson FROM RecoveryCheckpoints WHERE Id = @id";
+            cmd.Parameters.AddWithValue("@id", checkpointId);
+            var json = await cmd.ExecuteScalarAsync() as string;
+            if (string.IsNullOrEmpty(json))
+                return null;
+            try
+            {
+                return JsonSerializer.Deserialize<DownloadCheckpointState>(json);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Unreadable download checkpoint {Id}; treating the partial file as unknown", checkpointId);
+                return null;
+            }
+        }
+        finally
+        {
+            _journalLock.Release();
+        }
+    }
+
     public async Task<long> GetConfirmedBytesAsync(string checkpointId)
     {
         if (_disposed || _journalConnection == null)
@@ -376,7 +410,7 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
             if (string.IsNullOrEmpty(json))
                 return 0;
 
-            try 
+            try
             {
                 using var doc = JsonDocument.Parse(json);
                 if (doc.RootElement.TryGetProperty("BytesDownloaded", out var bytesElement))
@@ -407,14 +441,14 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
             return new List<RecoveryCheckpoint>();
 
         var checkpoints = new List<RecoveryCheckpoint>();
-        
+
         // Calculate stale threshold: 24 hours ago in Stopwatch ticks
         var ticksPerSecond = Stopwatch.Frequency;
         var staleThresholdTicks = Stopwatch.GetTimestamp() - (ticksPerSecond * 60 * 60 * 24); // 24 hours
 
         using var cmd = _journalConnection.CreateCommand();
         cmd.CommandText = @"
-            SELECT Id, OperationType, TargetPath, StateJson, Priority, FailureCount, 
+            SELECT Id, OperationType, TargetPath, StateJson, Priority, FailureCount,
                    LastHeartbeat, CreatedAt, Status
             FROM RecoveryCheckpoints
             WHERE LastHeartbeat > @staleThreshold AND Status = 0
@@ -504,11 +538,11 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
                 UPDATE RecoveryCheckpoints
                 SET Status = 0, LastHeartbeat = @now, FailureCount = 0
                 WHERE Id IN (
-                    SELECT Id FROM RecoveryCheckpoints 
+                    SELECT Id FROM RecoveryCheckpoints
                     WHERE Status = @deadLetter
                     LIMIT @limit
                 )";
-             
+
              cmd.Parameters.AddWithValue("@now", Stopwatch.GetTimestamp());
              cmd.Parameters.AddWithValue("@limit", batchSize);
              cmd.Parameters.AddWithValue("@deadLetter", (int)CheckpointStatus.DeadLetter);
@@ -584,7 +618,7 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
             using var cmd = _journalConnection.CreateCommand();
             cmd.CommandText = "DELETE FROM RecoveryCheckpoints WHERE LastHeartbeat < @threshold";
             cmd.Parameters.AddWithValue("@threshold", staleThresholdTicks);
-            
+
             var deleted = await cmd.ExecuteNonQueryAsync();
             if (deleted > 0)
             {
@@ -617,7 +651,7 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
             _markDeadLetterCmd?.Dispose();
             _getSystemHealthCmd?.Dispose();
             _journalConnection?.Dispose();
-            _journalLock.Dispose();
+            // The lock is static (shared by every instance): never dispose it from one instance (#328).
         }
 
 
@@ -636,17 +670,17 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
         _resetFailureCountCmd?.Dispose();
         _markDeadLetterCmd?.Dispose();
         _getSystemHealthCmd?.Dispose();
-        
+
         if (_journalConnection != null)
         {
             await _journalConnection.DisposeAsync();
         }
-        
-        _journalLock.Dispose();
+
+        // The lock is static (shared by every instance): never dispose it from one instance (#328).
 
         _disposed = true;
         _logger.LogInformation("Crash recovery journal disposed asynchronously");
-        
+
         GC.SuppressFinalize(this);
     }
 }
