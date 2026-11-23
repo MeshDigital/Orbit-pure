@@ -14,11 +14,16 @@ public readonly record struct GenreLabelScore(string Label, float Score);
 /// </summary>
 /// <param name="Bpm">The tracker BPM, kept for evidence and callers; the gate reads <paramref name="Rhythm"/>'s folded tempo instead.</param>
 /// <param name="Rhythm">The drums' signature (GA4 #248). Null or reliability 0 → the gate is a no-op.</param>
+/// <param name="Personal">The user's personal genre head (GA11 #256): its probabilities and blend weight. Null = not used.</param>
 public readonly record struct GenreFusionInput(
     IReadOnlyList<GenreLabelScore> JamendoLabels,
     float Bpm,
     IReadOnlyList<GenreLabelScore>? DiscogsStyles = null,
-    RhythmSignature? Rhythm = null);
+    RhythmSignature? Rhythm = null,
+    PersonalHeadInput? Personal = null);
+
+/// <summary>The personal head's say in one fusion: class probabilities and the cross-validated blend weight.</summary>
+public sealed record PersonalHeadInput(IReadOnlyDictionary<GenreBucket, float> Probabilities, float BlendWeight, string ModelId);
 
 /// <summary>A single bucket vote before fusion, with its provenance and weight (kept for evidence).</summary>
 /// <param name="Label">Canonical display text of the vote (e.g. "Drum and Bass", "Trance").</param>
@@ -148,14 +153,25 @@ public static class GenreFusionEngine
 
         // 3) Rhythm & tempo gate (GA6). Reliability 0 / no signature → scores unchanged.
         var gate = RhythmTempoGate.Apply(raw, input.Rhythm, gateRules);
-        var fused = gate.Scores;
+        IReadOnlyDictionary<GenreBucket, double> fused = gate.Scores;
+
+        // 4) Personal head (GA11 #256): blended in after the gate, exactly as cross-validation measured it, then
+        //    scaled back to the gated total so the distribution keeps its usual magnitude.
+        if (input.Personal is { Probabilities.Count: > 0 } personal && personal.BlendWeight > 0)
+        {
+            var total = fused.Values.Where(v => v > 0).Sum();
+            var blended = PersonalGenreTrainer.Blend(fused, personal.Probabilities, personal.BlendWeight);
+            fused = blended.ToDictionary(kv => kv.Key, kv => kv.Value * (total > 0 ? total : 1));
+            foreach (var (bucket, p) in personal.Probabilities)
+                candidates.Add(new GenreFusionCandidate(GenreTaxonomy.CanonicalDisplay(bucket, null), p, "personal-head", personal.BlendWeight, bucket));
+        }
 
         var ranked = fused.OrderByDescending(kv => kv.Value).ToList();
         var winner = ranked[0];
         var runnerUpScore = ranked.Count > 1 ? ranked[1].Value : 0;
         var margin = Math.Max(0, winner.Value - runnerUpScore);
         // A gate penalty on the winner lowers its confidence; a boost doesn't inflate it.
-        var gateFactor = raw[winner.Key] > 0 ? Math.Min(1.0, winner.Value / raw[winner.Key]) : 1.0;
+        var gateFactor = raw.TryGetValue(winner.Key, out var rawWinner) && rawWinner > 0 ? Math.Min(1.0, winner.Value / rawWinner) : 1.0;
         var winnerConfidence = (maxConfidence.TryGetValue(winner.Key, out var conf) ? conf : 0.5f) * gateFactor;
         var finalConfidence = Calibrate((float)Math.Clamp(winnerConfidence + Math.Min(0.20, margin), 0, 0.99));
 

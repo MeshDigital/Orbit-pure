@@ -86,6 +86,7 @@ public sealed class UseAsGenreService : IDisposable
             }
 
             _notifications.AddMaintenanceResult($"Genre set to {name}", $"{entry.Artist} — {entry.Title}");
+            _eventBus.Publish(new Genre.GenreLabelsChangedEvent()); // the personal genre head retrains (GA11 #256)
             _eventBus.Publish(new ToastRequestedEvent(
                 "Genre set",
                 $"{name} was written to {entry.Title} (file + library).",

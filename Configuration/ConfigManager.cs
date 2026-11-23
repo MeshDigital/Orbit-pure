@@ -181,6 +181,7 @@ public class ConfigManager
                     : 3,
                 UseNewPlaylistSurface = bool.TryParse(config["Library:UseNewPlaylistSurface"], out var useNewPlaylistSurface) && useNewPlaylistSurface,
                 UpgradeScoutEnabled = bool.TryParse(config["Library:UpgradeScoutEnabled"], out var use) && use,
+                LearnFromGenreCorrections = !bool.TryParse(config["Library:LearnFromGenreCorrections"], out var lfgc) || lfgc, // Default true (GA11 #256)
                 UpgradeMinBitrateThreshold = int.TryParse(config["Library:UpgradeMinBitrateThreshold"], out var umbt) ? umbt : 320,
                 UpgradeMinGainKbps = int.TryParse(config["Library:UpgradeMinGainKbps"], out var umgk) ? umgk : 128,
                 UpgradeAutoQueueEnabled = bool.TryParse(config["Library:UpgradeAutoQueueEnabled"], out var uaqe) && uaqe,
@@ -420,6 +421,7 @@ public class ConfigManager
         iniContent.AppendLine($"NavigationAutoHideActivationToggleCount = {Math.Max(2, config.LibraryNavigationAutoHideActivationToggleCount)}");
         iniContent.AppendLine($"UseNewPlaylistSurface = {config.UseNewPlaylistSurface}");
         iniContent.AppendLine($"UpgradeScoutEnabled = {config.UpgradeScoutEnabled}");
+        iniContent.AppendLine($"LearnFromGenreCorrections = {config.LearnFromGenreCorrections}");
         iniContent.AppendLine($"UpgradeMinBitrateThreshold = {config.UpgradeMinBitrateThreshold}");
         iniContent.AppendLine($"UpgradeMinGainKbps = {config.UpgradeMinGainKbps}");
         iniContent.AppendLine($"UpgradeAutoQueueEnabled = {config.UpgradeAutoQueueEnabled}");

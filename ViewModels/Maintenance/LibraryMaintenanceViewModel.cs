@@ -383,6 +383,8 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
 
             StatusText = "Applying genre fill…";
             var genreReport = await _tagChanges.ApplyAsync(_runId.Value, genreFills, null, ct);
+            if (genreReport.Applied > 0)
+                _eventBus.Publish(new SLSKDONET.Services.Genre.GenreLabelsChangedEvent()); // the personal genre head retrains (GA11 #256)
 
             StatusText = "Creating style playlists…";
             var playlistReport = await _playlistApplier.ApplyAsync(_runId.Value, playlists, ct);

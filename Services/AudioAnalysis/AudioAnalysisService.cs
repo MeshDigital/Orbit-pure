@@ -41,6 +41,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
     private readonly DiscogsEffnetEmbeddingExtractor _effnetEmbedding;
     private readonly EffnetClassifierHeadService _effnetClassifier;
     private readonly DiscogsStyleLabels? _styleLabels;
+    private readonly Genre.PersonalGenreHeadService? _personalGenre;
     private readonly TrackFingerprintBuilderService _trackFingerprintBuilder;
     private readonly TrackFingerprintStore _trackFingerprintStore;
     private readonly BreakbeatAnalysisStrategy _breakbeatStrategy;
@@ -71,7 +72,8 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         DatabaseService db,
         ILogger<AudioAnalysisService> logger,
         Rekordbox.IRekordboxPssiService? rekordbox = null,
-        DiscogsStyleLabels? styleLabels = null)
+        DiscogsStyleLabels? styleLabels = null,
+        Genre.PersonalGenreHeadService? personalGenre = null)
     {
         _rekordbox = rekordbox;
         _ingestion     = ingestion;
@@ -87,6 +89,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         _effnetEmbedding = effnetEmbedding;
         _effnetClassifier = effnetClassifier;
         _styleLabels = styleLabels;
+        _personalGenre = personalGenre;
         _trackFingerprintBuilder = trackFingerprintBuilder;
         _trackFingerprintStore = trackFingerprintStore;
         _breakbeatStrategy = breakbeatStrategy;
@@ -726,7 +729,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             : null;
 
         // Fusion + metadata-first resolution, written the same way the genre refresh (GA10 #255) writes it.
-        var written = GenreFeatureWriter.Apply(features, jamendo, discogs, rhythm, genreContext);
+        var written = GenreFeatureWriter.Apply(features, jamendo, discogs, rhythm, genreContext, _personalGenre?.ActiveModel);
         if (written.Fused is null) return;
         var resolved = written.Resolved;
 

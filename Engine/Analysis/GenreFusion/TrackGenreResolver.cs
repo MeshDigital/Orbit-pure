@@ -56,7 +56,9 @@ public sealed record AudioGenreOpinion(
     RhythmSignature? Rhythm = null,
     IReadOnlyDictionary<string, double>? Distribution = null,
     IReadOnlyList<GenreGateEvidence>? Gate = null,
-    int FusionVersion = 0)
+    int FusionVersion = 0,
+    IReadOnlyDictionary<string, double>? Personal = null,
+    string? PersonalModelId = null)
 {
     /// <summary>The audio opinion stored on a features row. Gate factors and the fusion version come from the
     /// row's previous <see cref="AudioFeaturesEntity.GenreEvidenceJson"/>, which only analysis writes them into.</summary>
@@ -72,7 +74,9 @@ public sealed record AudioGenreOpinion(
             TryDeserialize<RhythmSignature>(f.RhythmSignatureJson),
             TryDeserialize<Dictionary<string, double>>(f.GenreDistributionJson),
             previous?.Gate,
-            previous?.FusionVersion ?? 0);
+            previous?.FusionVersion ?? 0,
+            previous?.Personal,
+            previous?.PersonalHead);
     }
 
     internal static T? TryDeserialize<T>(string? json) where T : class
@@ -168,6 +172,8 @@ public static class TrackGenreResolver
                 Rhythm = RhythmSummary.From(rhythm),
                 RhythmFavoursAudio = rhythmFavoursAudio,
                 Gate = audio?.Gate,
+                Personal = audio?.Personal,
+                PersonalHead = audio?.PersonalModelId,
             };
             return new ResolvedGenre(bucket, sub, display, confidence, source, decision,
                 meta is null ? null : metadata?.Source, conflict, evidence);
@@ -361,6 +367,11 @@ public sealed class GenreEvidenceRecord
     public RhythmSummary? Rhythm { get; init; }
     public bool? RhythmFavoursAudio { get; init; }
     public IReadOnlyList<GenreGateEvidence>? Gate { get; init; }
+
+    /// <summary>The personal genre head's probabilities by bucket display text (GA11 #256), when it took part.</summary>
+    public IReadOnlyDictionary<string, double>? Personal { get; init; }
+    /// <summary>Which trained head took part (<see cref="PersonalGenreModel.Id"/>), or null. GA10 compares it.</summary>
+    public string? PersonalHead { get; init; }
 
     public string ToJson() => JsonSerializer.Serialize(this, Options);
 

@@ -247,6 +247,10 @@ public class AppConfig
 
     // Phase 8: Upgrade Scout (Self-Healing Library)
     public bool UpgradeScoutEnabled { get; set; } = false; // Background upgrading
+
+    /// <summary>Learn a personal genre head from the user's genre corrections and tags (GA11 #256). Default on; it is
+    /// only blended in when cross-validation shows it beats the audio model on the user's own tracks.</summary>
+    public bool LearnFromGenreCorrections { get; set; } = true;
     public int UpgradeMinBitrateThreshold { get; set; } = 320; // Upgrade everything below this
     public int UpgradeMinGainKbps { get; set; } = 128; // Only upgrade if gain is significant
     public bool UpgradeAutoQueueEnabled { get; set; } = false; // Auto-queue vs just notify

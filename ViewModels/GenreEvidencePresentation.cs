@@ -31,6 +31,10 @@ public sealed class GenreEvidencePresentation
     public IReadOnlyList<GenreScore> AudioBars { get; init; } = Array.Empty<GenreScore>();
     public bool HasAudio => AudioBars.Count > 0;
 
+    /// <summary>"Your library": the personal genre head's probabilities (GA11 #256), when it took part.</summary>
+    public IReadOnlyList<GenreScore> PersonalBars { get; init; } = Array.Empty<GenreScore>();
+    public bool HasPersonal => PersonalBars.Count > 0;
+
     /// <summary>Four-on-the-floor / backbeat / half-time strength.</summary>
     public IReadOnlyList<GenreScore> RhythmBars { get; init; } = Array.Empty<GenreScore>();
     public bool HasRhythm => RhythmBars.Count > 0;
@@ -77,6 +81,10 @@ public sealed class GenreEvidencePresentation
             TagText = string.IsNullOrWhiteSpace(record.MetadataText) ? null : $"{record.MetadataText} · {SourceName(record.MetadataSource)}",
             TagBars = tagBars,
             AudioBars = Shares(record.AudioDistribution),
+            PersonalBars = record.Personal is { Count: > 0 } personal
+                ? personal.Where(kv => kv.Value > 0).OrderByDescending(kv => kv.Value).Take(5)
+                    .Select(kv => new GenreScore(kv.Key, Clamp(kv.Value))).ToArray()
+                : Array.Empty<GenreScore>(),
             RhythmBars = rhythm,
             TempoText = record.Rhythm is { Reliability: > 0, TempoHigh: > 0 } t
                 ? SLSKDONET.Utils.NumFormat.Ui($"{t.TempoLow:0} / {t.TempoHigh:0} BPM")
