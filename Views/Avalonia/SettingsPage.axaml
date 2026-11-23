@@ -1375,6 +1375,10 @@
                                                        Text="Required for fake-lossless detection, spectral quality checks and duplicate hashing. Windows: gyan.dev full build · macOS: brew install ffmpeg · Linux: sudo apt install ffmpeg"/>
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                            <Button Classes="primary small" Content="Install FFmpeg"
+                                                    Command="{Binding InstallFfmpegCommand}"
+                                                    IsVisible="{Binding CanInstallFfmpeg}"
+                                                    ToolTip.Tip="Download and install a checksum-verified FFmpeg build for ORBIT (no admin rights needed)"/>
                                             <Button Classes="ghost small" Content="Get FFmpeg"
                                                     Command="{Binding OpenFfmpegDownloadPageCommand}"
                                                     IsVisible="{Binding !IsFfmpegInstalled}"/>

@@ -26,15 +26,43 @@ public sealed class AudioCorruptionScannerService
     /// </summary>
     private const int MaxRecoverableDecodeErrorLines = 25;
 
+    /// <summary>What a track gets when the FFmpeg decode check couldn't run (#331).</summary>
+    public const string FfmpegMissingDetails = "FFmpeg isn't installed: decode check skipped";
+
     private readonly AudioIngestionPipeline _ingestion;
     private readonly ILogger<AudioCorruptionScannerService> _logger;
+    private readonly IEventBus? _eventBus;
+    private readonly Func<bool> _ffmpegAvailable;
+    private int _missingFfmpegNotified;
 
     public AudioCorruptionScannerService(
         AudioIngestionPipeline ingestion,
-        ILogger<AudioCorruptionScannerService> logger)
+        ILogger<AudioCorruptionScannerService> logger,
+        IEventBus? eventBus = null,
+        Func<bool>? ffmpegAvailable = null)
     {
         _ingestion = ingestion;
         _logger = logger;
+        _eventBus = eventBus;
+        _ffmpegAvailable = ffmpegAvailable ?? AudioIngestionPipeline.IsFfmpegAvailable;
+    }
+
+    /// <summary>
+    /// Missing FFmpeg skips only the decode check (status Unknown = "not checked", so a later scan with FFmpeg
+    /// installed checks it), never the whole analysis. Says so once per session, with a link to Settings where
+    /// FFmpeg can be installed, instead of failing every track.
+    /// </summary>
+    private (CorruptionStatus Status, string? Details) SkipDecodeCheck(string filePath, Exception? cause)
+    {
+        _logger.LogWarning(cause, "[CorruptionScanner] FFmpeg not available; decode check skipped for {File}", Path.GetFileName(filePath));
+        if (Interlocked.Exchange(ref _missingFfmpegNotified, 1) == 0)
+        {
+            _eventBus?.Publish(new NotificationEvent(
+                "FFmpeg isn't installed",
+                "Analysis continues, but files can't be checked for decode errors. Install FFmpeg in Settings → Advanced.",
+                SLSKDONET.Views.NotificationType.Warning) { OpenPage = "Settings" });
+        }
+        return (CorruptionStatus.Unknown, FfmpegMissingDetails);
     }
 
     /// <summary>
@@ -72,8 +100,21 @@ public sealed class AudioCorruptionScannerService
         // data genuinely can't be trusted. Only the latter blocks analysis; the former is a Warning
         // (previously ANY decode error at all was treated as fully Fatal, which blocked real,
         // largely-intact tracks from ever being analysed over a single recovered glitch).
-        var (errorLineCount, ffmpegError) = await _ingestion.ProbeForCorruptionAsync(filePath, cancellationToken)
-            .ConfigureAwait(false);
+        if (!_ffmpegAvailable())
+            return SkipDecodeCheck(filePath, null);
+
+        int errorLineCount;
+        string? ffmpegError;
+        try
+        {
+            (errorLineCount, ffmpegError) = await _ingestion.ProbeForCorruptionAsync(filePath, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            // FFmpeg vanished between the check and the run (or isn't executable): same as missing.
+            return SkipDecodeCheck(filePath, ex);
+        }
         if (ffmpegError is not null)
         {
             if (errorLineCount > MaxRecoverableDecodeErrorLines)

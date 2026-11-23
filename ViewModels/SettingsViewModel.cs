@@ -110,7 +110,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 _config.DownloadDirectory = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(EditLabOutputDirectoryDisplay));
-                SaveSettings(); 
+                SaveSettings();
             }
         }
     }
@@ -448,7 +448,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             }
         }
     }
-    
+
     public bool CheckForDuplicates
     {
         get => _config.CheckForDuplicates;
@@ -1309,7 +1309,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             _eventBus.Publish(new ToastRequestedEvent("Copy failed", $"Type {SpotifyRedirectUri} into the Spotify dashboard.", NotificationType.Warning, TimeSpan.FromSeconds(6)));
         }
     }
-    
+
     public string SpotifyClientSecret
     {
         get => _config.SpotifyClientSecret ?? "";
@@ -1464,7 +1464,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         get => _selectedLibraryFolder;
         set => SetProperty(ref _selectedLibraryFolder, value);
     }
-    
+
     // Phase 2.4: Strategy Command Pattern
     public ObservableCollection<RankingStrategyViewModel> Strategies { get; } = new();
 
@@ -1568,12 +1568,12 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         // Map ID to SearchPolicy
         if (strategyId == "Quality First") _config.SearchPolicy = SearchPolicy.QualityFirst();
         else if (strategyId == "DJ Mode") _config.SearchPolicy = SearchPolicy.DjReady();
-        else 
+        else
         {
             // Balanced / Default
-            _config.SearchPolicy = new SearchPolicy 
-            { 
-                Priority = SearchPriority.QualityFirst, 
+            _config.SearchPolicy = new SearchPolicy
+            {
+                Priority = SearchPriority.QualityFirst,
                 PreferredMinBitrate = 320,
                 RelaxationParams = new() // Moderate relaxation
             };
@@ -1596,14 +1596,14 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             }
         }
     }
-    
+
     // Explicitly update all derived properties when state changes
     private void UpdateDerivedProperties(SpotifyAuthStatus newState)
     {
         IsSpotifyDisconnected = newState == SpotifyAuthStatus.Disconnected;
         IsSpotifyConnecting = newState == SpotifyAuthStatus.Connecting;
         IsSpotifyConnected = newState == SpotifyAuthStatus.Connected;
-        
+
         // Refresh commands
         (ConnectSpotifyCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (DisconnectSpotifyCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
@@ -1662,7 +1662,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 return;
 
             _logger.LogDebug("IsAuthenticating changing from {Old} to {New}", _isAuthenticating, value);
-                
+
             if (SetProperty(ref _isAuthenticating, value))
             {
                 if (value)
@@ -1704,7 +1704,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 {
                     // Increased timeout to 60 seconds to allow for slower user interaction in browser
                     await Task.Delay(TimeSpan.FromSeconds(60), token);
-                    
+
                     if (!token.IsCancellationRequested && IsAuthenticating)
                     {
                         // Double check we haven't been cancelled in the microsecond between check and action
@@ -1752,6 +1752,55 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public ICommand RestartSpotifyAuthCommand { get; }
     public ICommand CheckFfmpegCommand { get; } // Phase 8: Dependency validation
     public ICommand OpenFfmpegDownloadPageCommand { get; }
+
+    private readonly Services.Platform.FfmpegInstallerService? _ffmpegInstaller;
+
+    /// <summary>Installs the pinned, checksum-verified FFmpeg build (#331; the same installer setup uses).</summary>
+    public ICommand InstallFfmpegCommand { get; }
+
+    /// <summary>Offered when FFmpeg is missing and ORBIT can install it on this OS (Windows x64).</summary>
+    public bool CanInstallFfmpeg => _ffmpegInstaller != null && !IsFfmpegInstalled
+        && Services.Platform.FfmpegInstallerService.CanAutoInstall;
+
+    private bool _isInstallingFfmpeg;
+    public bool IsInstallingFfmpeg
+    {
+        get => _isInstallingFfmpeg;
+        private set
+        {
+            if (SetProperty(ref _isInstallingFfmpeg, value))
+                (InstallFfmpegCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    private async Task InstallFfmpegAsync()
+    {
+        if (_ffmpegInstaller == null) return;
+        IsInstallingFfmpeg = true;
+        FfmpegStatus = "Installing…";
+        try
+        {
+            var progress = new Progress<double>(p => FfmpegStatus = SLSKDONET.Utils.NumFormat.Ui($"Installing… {p:P0}"));
+            var result = await _ffmpegInstaller.InstallAsync(progress);
+            if (!result.Success)
+            {
+                FfmpegStatus = "Install failed";
+                _eventBus.Publish(new ToastRequestedEvent("FFmpeg wasn't installed", result.Message, NotificationType.Error, TimeSpan.FromSeconds(8)));
+            }
+            await CheckFfmpegAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "FFmpeg install from Settings failed");
+            FfmpegStatus = "Install failed";
+            _eventBus.Publish(new ToastRequestedEvent("FFmpeg wasn't installed", ex.Message, NotificationType.Error, TimeSpan.FromSeconds(8)));
+        }
+        finally
+        {
+            IsInstallingFfmpeg = false;
+            OnPropertyChanged(nameof(CanInstallFfmpeg));
+        }
+    }
     public ICommand OpenSpotifyDashboardCommand { get; }
     public ICommand CopySpotifyRedirectUriCommand { get; }
     public ICommand ResetDatabaseCommand { get; }
@@ -1784,7 +1833,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         get => _isScanning;
         set => SetProperty(ref _isScanning, value);
     }
-    
+
     private string _scanStatus = "Idle";
     public string ScanStatus
     {
@@ -1837,7 +1886,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         get => _fullSyncStatus;
         set => SetProperty(ref _fullSyncStatus, value);
     }
-    
+
     // Phase 8: FFmpeg Dependency State
     private bool _isFfmpegInstalled;
     public bool IsFfmpegInstalled
@@ -2117,10 +2166,12 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         UpdateViewModel? updateViewModel = null,
         Services.Library.Maintenance.MaintenanceUndoService? maintenanceUndo = null,
         Services.KnowledgeLifecycle.RekordboxHistoryImportService? historyImport = null,
-        Settings.PersonalGenreSettingsViewModel? personalGenre = null)
+        Settings.PersonalGenreSettingsViewModel? personalGenre = null,
+        Services.Platform.FfmpegInstallerService? ffmpegInstaller = null)
     {
         _logger = logger;
         PersonalGenre = personalGenre;
+        _ffmpegInstaller = ffmpegInstaller;
         _config = config;
         _enrichment = enrichment;
         MetadataSources = metadataSources;
@@ -2161,7 +2212,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         {
             _config.SpotifyClientId = DefaultSpotifyClientId;
             // Clear secret if we are setting the public ID, as PKCE doesn't use it
-            _config.SpotifyClientSecret = ""; 
+            _config.SpotifyClientSecret = "";
         }
 
         SaveSettingsCommand = new RelayCommand(SaveSettingsWithConfirmation);
@@ -2175,6 +2226,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         ClearSpotifyCacheCommand = new AsyncRelayCommand(ClearSpotifyCacheAsync);
         RevokeAndReAuthCommand = new AsyncRelayCommand(RevokeAndReAuthAsync);
         CheckFfmpegCommand = new AsyncRelayCommand(CheckFfmpegAsync); // Phase 8
+        InstallFfmpegCommand = new AsyncRelayCommand(InstallFfmpegAsync, () => CanInstallFfmpeg && !IsInstallingFfmpeg); // #331
         OpenFfmpegDownloadPageCommand = new RelayCommand(OpenFfmpegDownloadPage);
         OpenSpotifyDashboardCommand = new RelayCommand(OpenSpotifyDashboard);
         CopySpotifyRedirectUriCommand = new AsyncRelayCommand(CopySpotifyRedirectUriAsync);
@@ -2246,7 +2298,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _engineDiagnosticsSubscription = _eventBus.GetEvent<EngineDiagnosticEvent>().Subscribe(OnEngineDiagnosticEvent);
         _adaptiveLaneStatusSubscription = _eventBus.GetEvent<AdaptiveLaneStatusEvent>().Subscribe(OnAdaptiveLaneStatusEvent);
         _searchPressureSubscription = _eventBus.GetEvent<SearchPressureStatusEvent>().Subscribe(OnSearchPressureStatusEvent);
-        
+
         // Force update of derived properties to ensure UI booleans are in sync with SpotifyState
         UpdateDerivedProperties(SpotifyState);
     }
@@ -2292,7 +2344,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             }
 
             UpdateSpotifyUIState(isAuthenticated);
-            _logger.LogInformation("Spotify UI state synchronized via event: {State}", 
+            _logger.LogInformation("Spotify UI state synchronized via event: {State}",
                 isAuthenticated ? "Connected" : "Disconnected");
         });
     }
@@ -2303,9 +2355,9 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     {
         // Source of True Truth
         SpotifyState = isAuthenticated ? SpotifyAuthStatus.Connected : SpotifyAuthStatus.Disconnected;
-        
+
         SpotifyDisplayName = isAuthenticated ? "Connected" : "Not Connected";
-        
+
         if (isAuthenticated)
         {
             SpotifyUseApi = true;
@@ -2321,10 +2373,10 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             FfmpegStatus = "Checking...";
-            
+
             // Try standard PATH lookup first
             var (success, version) = await TryFfmpegCommandAsync("ffmpeg");
-            
+
             if (!success)
             {
                 // Fallback: Check common install directories (Windows-specific)
@@ -2338,7 +2390,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                         @"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
                         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ffmpeg", "bin", "ffmpeg.exe")
                     };
-                    
+
                     foreach (var path in commonPaths)
                     {
                         if (File.Exists(path))
@@ -2353,30 +2405,30 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                     }
                 }
             }
-            
+
             if (success)
             {
                 IsFfmpegInstalled = true;
                 FfmpegVersion = version;
                 FfmpegStatus = $"✅ Installed (v{version})";
-                
+
                 // Update global config
                 _config.IsFfmpegAvailable = true;
                 _config.FfmpegVersion = version;
                 _configManager.Save(_config);
-                
+
                 _logger.LogInformation("FFmpeg validation successful: v{Version}", version);
             }
             else
             {
                 IsFfmpegInstalled = false;
                 FfmpegStatus = "❌ Not Found in PATH";
-                
+
                 // Update global config
                 _config.IsFfmpegAvailable = false;
                 _config.FfmpegVersion = "";
                 _configManager.Save(_config);
-                
+
                 _logger.LogWarning("FFmpeg not found. Sonic Integrity features will be disabled.");
             }
         }
@@ -2386,8 +2438,9 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             IsFfmpegInstalled = false;
             FfmpegStatus = "❌ Check Failed";
         }
-        
+
         OnPropertyChanged(nameof(IsFfmpegInstalled));
+        OnPropertyChanged(nameof(CanInstallFfmpeg));
         OnPropertyChanged(nameof(FfmpegStatus));
         OnPropertyChanged(nameof(FfmpegVersion));
     }
@@ -2398,7 +2451,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private async Task<(bool success, string version)> TryFfmpegCommandAsync(string ffmpegPath)
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5)); // 5-second timeout
-        
+
         try
         {
             var process = new System.Diagnostics.Process
@@ -2413,29 +2466,29 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                     UseShellExecute = false
                 }
             };
-            
+
             var outputBuilder = new System.Text.StringBuilder();
             process.OutputDataReceived += (s, e) => { if (e.Data != null) outputBuilder.AppendLine(e.Data); };
             process.ErrorDataReceived += (s, e) => { if (e.Data != null) outputBuilder.AppendLine(e.Data); };
-            
+
             process.EnableRaisingEvents = true;
             process.Start();
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
-            
+
             await process.WaitForExitAsync(cts.Token);
-            
+
             if (process.ExitCode == 0)
             {
                 var output = outputBuilder.ToString();
-                
+
                 // Parse version: "ffmpeg version 6.0.1-full_build-www.gyan.dev" or "ffmpeg version N-109688-g5...github.com/BtbN/FFmpeg-Builds"
                 var match = System.Text.RegularExpressions.Regex.Match(output, @"ffmpeg version (\d+(\.\d+)+)");
                 var version = match.Success ? match.Groups[1].Value : "unknown";
-                
+
                 return (true, version);
             }
-            
+
             return (false, "");
         }
         catch (System.ComponentModel.Win32Exception) // File not found
@@ -2464,12 +2517,12 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             IsAuthenticating = true;
-            
+
             // Ensure config is saved first so the service uses the correct Client ID
             _configManager.Save(_config);
 
             var success = await _spotifyAuthService.StartAuthorizationAsync(_connectCts.Token);
-            
+
             if (success)
             {
                 // Update display based on new auth state
@@ -2965,13 +3018,13 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             _logger.LogInformation("Restarting Spotify authentication flow...");
-            
+
             // Forcefully cancel any ongoing attempt
             _connectCts?.Cancel();
-            
+
             // Clear the authenticating flag to re-enable connect logic (triggers cancellation logic in setter too)
             IsAuthenticating = false;
-            
+
             // Immediately start a fresh connect attempt
             await ConnectSpotifyAsync();
         }
@@ -2991,7 +3044,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         if (_isDisposed) return;
 
         _spotifyAuthService.AuthenticationChanged -= OnSpotifyAuthenticationChanged;
-        
+
         _libraryFoldersSubscription?.Dispose();
         _libraryFoldersSubscription = null;
 
@@ -3016,7 +3069,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
         _soulseekLifecycleSubscription?.Dispose();
         _soulseekLifecycleSubscription = null;
-        
+
         _authWatchdogCts?.Cancel();
         _authWatchdogCts?.Dispose();
         _authWatchdogCts = null;
@@ -3131,16 +3184,16 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         {
             IsAuthenticating = true;
             _logger.LogInformation("Revoking cached credentials and re-authenticating...");
-            
+
             await _spotifyAuthService.ClearCachedCredentialsAsync();
             SpotifyState = SpotifyAuthStatus.Disconnected;
             SpotifyDisplayName = "Not Connected";
-            
+
             _logger.LogInformation("Credentials cleared. Starting fresh authentication...");
-            
+
             // Step 2: Start fresh authentication (WITH CANCELLATION TOKEN)
             var success = await _spotifyAuthService.StartAuthorizationAsync(_connectCts.Token);
-            
+
             if (success)
             {
                 // Update display based on new auth state
@@ -3233,11 +3286,11 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
             await System.IO.File.WriteAllTextAsync(markerPath, DateTime.Now.ToString());
             _logger.LogWarning("Force Reset Marker created at {Path}", markerPath);
-            
+
             // Restart Application
-            var processPath = Environment.ProcessPath; 
+            var processPath = Environment.ProcessPath;
             _logger.LogInformation("Attempting to restart application from: {Path}", processPath);
-            
+
             if (!string.IsNullOrEmpty(processPath))
             {
                 System.Diagnostics.Process.Start(processPath);
@@ -3305,7 +3358,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         {
             await using var context = _dbFactory != null ? _dbFactory.CreateDbContext() : new AppDbContext();
             var folder = await context.LibraryFolders.FindAsync(SelectedLibraryFolder.Id);
-            
+
             if (folder != null)
             {
                 context.LibraryFolders.Remove(folder);
@@ -3313,7 +3366,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
                 _eventBus.Publish(new LibraryFoldersChangedEvent());
                 _logger.LogInformation("Removed library folder: {Path}", folder.FolderPath);
-                
+
                 // Clear selection
                 SelectedLibraryFolder = null;
             }
