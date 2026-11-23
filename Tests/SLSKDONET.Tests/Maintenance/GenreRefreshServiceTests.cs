@@ -62,6 +62,7 @@ public sealed class GenreRefreshServiceTests : IDisposable
     private static string Evidence(int fusionVersion, string? genres, string? source) => new GenreEvidenceRecord
     {
         FusionVersion = fusionVersion,
+        ResolverVersion = TrackGenreResolver.ResolverVersion,
         MetadataText = genres,
         MetadataSource = source,
     }.ToJson();
@@ -153,7 +154,8 @@ public sealed class GenreRefreshServiceTests : IDisposable
 
             var techno = GenreEvidenceRecord.TryParse(db.AudioFeatures.Single(f => f.TrackUniqueHash == "genrechanged").GenreEvidenceJson)!;
             Assert.Equal("Techno", techno.MetadataText);
-            Assert.Equal("Techno", techno.Bucket); // a clean file tag beats the audio
+            Assert.Equal("DrumAndBass", techno.Bucket); // strong audio the drums back now outranks a file tag…
+            Assert.NotNull(techno.Conflict);           // …and the disagreement is flagged for review
         }
 
         Assert.Contains("oldfusion", updated);
@@ -197,6 +199,18 @@ public sealed class GenreRefreshServiceTests : IDisposable
         Assert.Equal(0, report.Failed);
     }
 
+    [Fact]
+    public void Classify_RowsFromAnOlderResolver_AreStale()
+    {
+        var row = new GenreRefreshService.StalenessRow
+        {
+            Hash = "h", FusionVersion = GenreFusionEngine.FusionVersion, HasEvidence = true, ResolverVersion = null,
+        };
+        Assert.Equal(GenreStaleness.Refuse, GenreRefreshService.Classify(row, null));
+        row.ResolverVersion = TrackGenreResolver.ResolverVersion;
+        Assert.Equal(GenreStaleness.Fresh, GenreRefreshService.Classify(row, null));
+    }
+
     [Theory]
     [InlineData(3, "House", null, "House", null, GenreStaleness.Fresh)]
     [InlineData(2, "House", null, "House", null, GenreStaleness.Refuse)]
@@ -210,6 +224,7 @@ public sealed class GenreRefreshServiceTests : IDisposable
         var row = new GenreRefreshService.StalenessRow
         {
             Hash = "h", FusionVersion = version, EvidenceGenres = evidenceGenres, EvidenceSource = evidenceSource, HasEvidence = true,
+            ResolverVersion = TrackGenreResolver.ResolverVersion,
         };
         Assert.Equal(expected, GenreRefreshService.Classify(row, new TrackGenreContext(genres, source), currentFusionVersion: 3));
     }

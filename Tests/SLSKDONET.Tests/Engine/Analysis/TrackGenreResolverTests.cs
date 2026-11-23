@@ -73,15 +73,28 @@ public class TrackGenreResolverTests
     }
 
     [Fact]
-    public void FileTag_KeptAgainstStrongAudioBackedByDrums_ButConflictFlagged()
+    public void FileTag_LosesToStrongAudioThatTheDrumsBack_AndTheConflictIsFlagged()
     {
+        // A 10-track online check found doubtful file tags wrong about half the time, so strong audio the drums agree
+        // with now decides; the conflict still goes to the user (Maintenance → genre conflicts).
         var r = TrackGenreResolver.Resolve(Tag("Drum & Bass", "tags"), Audio("Techno", 0.65f, ClubDrums));
+        Assert.Equal(GenreDecision.AudioOverMetadata, r.Decision);
+        Assert.Equal(GenreBucket.Techno, r.Bucket);
+        Assert.Equal(GenreSource.ModelInferred, r.Source);
+        Assert.True(r.HasConflict);
+        Assert.Contains("Drum and Bass", r.Conflict);
+        Assert.True(r.Evidence.RhythmFavoursAudio);
+        Assert.Equal(GenreMetadataStrength.FileTag.ToString(), r.Evidence.MetadataStrength);
+        Assert.Equal(TrackGenreResolver.ResolverVersion, r.Evidence.ResolverVersion);
+    }
+
+    [Fact]
+    public void Beatport_StillKeptAgainstStrongAudioBackedByDrums_ButConflictFlagged()
+    {
+        var r = TrackGenreResolver.Resolve(Tag("Drum & Bass", "beatport"), Audio("Techno", 0.65f, ClubDrums));
         Assert.Equal(GenreDecision.MetadataDespiteConflict, r.Decision);
         Assert.Equal(GenreBucket.DrumAndBass, r.Bucket);
-        Assert.Equal(GenreSource.LocalFileTag, r.Source);
         Assert.True(r.HasConflict);
-        Assert.Contains("Techno", r.Conflict);
-        Assert.True(r.Evidence.RhythmFavoursAudio);
     }
 
     [Fact]

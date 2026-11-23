@@ -23,7 +23,10 @@ public enum GenreMetadataStrength
     Weak,
     /// <summary>MusicBrainz, or a genre of unknown origin (file tags imported before provenance existed).</summary>
     Medium,
-    /// <summary>A clean file tag, Beatport (per track) or Discogs (per release).</summary>
+    /// <summary>A clean file tag: whoever made or shared the file wrote it. It wins unless strong audio that the drums
+    /// back disagrees (a 10-track online check found doubtful tags wrong about half the time).</summary>
+    FileTag,
+    /// <summary>Beatport (per track) or Discogs (per release).</summary>
     Strong,
     /// <summary>The user set it.</summary>
     Authoritative,
@@ -121,6 +124,10 @@ public sealed record ResolvedGenre(
 /// </summary>
 public static class TrackGenreResolver
 {
+    /// <summary>Bumped whenever the precedence rules change, so the genre refresh (GA10) re-resolves stored evidence.
+    /// 1 = GA8. 2 = file tags no longer outrank strong audio that the drums back.</summary>
+    public const int ResolverVersion = 2;
+
     /// <summary>Calibrated audio confidence that counts as "strong" (raw fused ≥ ~0.9, ~59 % observed accuracy).</summary>
     public const float StrongAudioConfidence = 0.59f;
 
@@ -129,6 +136,7 @@ public static class TrackGenreResolver
 
     private const float AuthoritativeConfidence = 1.0f;
     private const float StrongConfidence = 0.9f;
+    private const float FileTagConfidence = 0.85f;
     private const float MediumConfidence = 0.75f;
     private const float WeakConfidence = 0.5f;
 
@@ -153,6 +161,7 @@ public static class TrackGenreResolver
             var evidence = new GenreEvidenceRecord
             {
                 FusionVersion = audio?.FusionVersion ?? 0,
+                ResolverVersion = ResolverVersion,
                 Bucket = bucket.ToString(),
                 Subgenre = sub,
                 Display = display,
@@ -221,6 +230,13 @@ public static class TrackGenreResolver
             case GenreMetadataStrength.Authoritative:
                 return Make(m.Bucket, m.Subgenre, metaConfidence, metaSource, GenreDecision.Metadata, rhythmFavoursAudio: favours);
 
+            case GenreMetadataStrength.FileTag:
+                // Only strong audio that the drums agree with overrides a file tag; without rhythm evidence the tag stays.
+                return strongAudio && favours == true
+                    ? Make(audioView.Bucket, audioView.Subgenre, audioView.Confidence, GenreSource.ModelInferred,
+                        GenreDecision.AudioOverMetadata, conflict, favours)
+                    : Make(m.Bucket, m.Subgenre, metaConfidence, metaSource, GenreDecision.Metadata, rhythmFavoursAudio: favours);
+
             case GenreMetadataStrength.Strong:
                 return strongAudio && favours == true
                     ? Make(m.Bucket, m.Subgenre, metaConfidence, metaSource, GenreDecision.MetadataDespiteConflict, conflict, favours)
@@ -244,7 +260,8 @@ public static class TrackGenreResolver
     public static GenreMetadataStrength StrengthOf(string? source) => source?.Trim().ToLowerInvariant() switch
     {
         "user" => GenreMetadataStrength.Authoritative,
-        "tags" or "beatport" or "discogs" => GenreMetadataStrength.Strong,
+        "tags" => GenreMetadataStrength.FileTag,
+        "beatport" or "discogs" => GenreMetadataStrength.Strong,
         "musicbrainz" => GenreMetadataStrength.Medium,
         "maintenance" => GenreMetadataStrength.AudioDerived,
         // Unknown origin: genres read from file tags at import carry no provenance row (as do genres a very
@@ -269,8 +286,16 @@ public static class TrackGenreResolver
         if (strength == GenreMetadataStrength.Strong && string.Equals(context.Source?.Trim(), "discogs", StringComparison.OrdinalIgnoreCase)
             && values.Select(v => v.Subgenre ?? v.Bucket.ToString()).Distinct(StringComparer.OrdinalIgnoreCase).Count() > DiscogsMaxStyles)
             strength = GenreMetadataStrength.Medium; // compilation / VA style soup
-        if (ambiguous && strength is GenreMetadataStrength.Strong or GenreMetadataStrength.Medium)
-            strength -= 1; // "Techno, House": the tag can't settle it on its own
+        // "Techno, House": the tag can't settle it on its own — drop a trust tier explicitly rather
+        // than relying on enum ordering (which would break silently if a member were inserted).
+        if (ambiguous)
+            strength = strength switch
+            {
+                GenreMetadataStrength.Strong => GenreMetadataStrength.FileTag,
+                GenreMetadataStrength.FileTag => GenreMetadataStrength.Medium,
+                GenreMetadataStrength.Medium => GenreMetadataStrength.Weak,
+                _ => strength,
+            };
 
         return new MetadataView(primary.Bucket, subgenre, strength, ambiguous, values.Count);
     }
@@ -305,6 +330,7 @@ public static class TrackGenreResolver
     {
         GenreMetadataStrength.Authoritative => AuthoritativeConfidence,
         GenreMetadataStrength.Strong => StrongConfidence,
+        GenreMetadataStrength.FileTag => FileTagConfidence,
         GenreMetadataStrength.Medium => MediumConfidence,
         _ => WeakConfidence,
     };
@@ -314,7 +340,7 @@ public static class TrackGenreResolver
     private static GenreSource SourceOf(GenreMetadataStrength strength) => strength switch
     {
         GenreMetadataStrength.Authoritative => GenreSource.UserTag,
-        GenreMetadataStrength.Strong or GenreMetadataStrength.Medium => GenreSource.LocalFileTag,
+        GenreMetadataStrength.Strong or GenreMetadataStrength.FileTag or GenreMetadataStrength.Medium => GenreSource.LocalFileTag,
         _ => GenreSource.ModelInferred,
     };
 }
@@ -344,6 +370,8 @@ public sealed class GenreEvidenceRecord
 
     public int Version { get; init; } = CurrentVersion;
     public int FusionVersion { get; init; }
+    /// <summary><see cref="TrackGenreResolver.ResolverVersion"/> that decided this row; 0 = before it was recorded.</summary>
+    public int ResolverVersion { get; init; }
 
     public string Bucket { get; init; } = nameof(GenreBucket.Other);
     public string? Subgenre { get; init; }
