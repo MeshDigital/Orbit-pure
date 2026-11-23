@@ -74,7 +74,7 @@ public class SmartPlaylistViewModel : INotifyPropertyChanged
         CreateCrateCommand = ReactiveCommand.CreateFromTask(CreateCrateAsync);
         CreateCustomSmartPlaylistCommand = ReactiveCommand.CreateFromTask(CreateCustomSmartPlaylistAsync);
 
-        InitializeSmartPlaylists();
+        _ = InitializeSmartPlaylists();
     }
 
     private async Task CreateCrateAsync()
@@ -158,7 +158,7 @@ public class SmartPlaylistViewModel : INotifyPropertyChanged
     /// <summary>
     /// Initializes the smart playlist definitions.
     /// </summary>
-    public async void InitializeSmartPlaylists()
+    public async Task InitializeSmartPlaylists()
     {
         SmartPlaylists.Clear();
 
