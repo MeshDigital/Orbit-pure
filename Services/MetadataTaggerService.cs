@@ -72,7 +72,7 @@ public class MetadataTaggerService : ITaggerService
                     File.Copy(filePath, tempPath, overwrite: true);
 
                     // STEP 2: Write tags to temp file
-                    await Task.Run(() =>
+                    await Task.Run(async () =>
                     {
                         var fileInfo = new FileInfo(tempPath);
                         if (fileInfo.Length == 0)
@@ -199,7 +199,7 @@ public class MetadataTaggerService : ITaggerService
                             // Embed album art if available (run synchronously in temp file context)
                             if (track.Metadata != null && track.Metadata.TryGetValue("AlbumArtUrl", out var artUrlObj) && artUrlObj is string artUrl)
                             {
-                                TryAddAlbumArtAsync(file, artUrl).GetAwaiter().GetResult();
+                                await TryAddAlbumArtAsync(file, artUrl);
                             }
 
                             // Save tags to temp file
