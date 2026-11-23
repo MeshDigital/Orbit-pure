@@ -45,8 +45,19 @@ public sealed class AudioIngestionPipeline
         CancellationToken cancellationToken = default)
     {
         if (!File.Exists(_ffmpegPath) && !ExistsOnPath(_ffmpegPath))
-            throw new InvalidOperationException(
-                $"FFmpeg not found at '{_ffmpegPath}'. Install FFmpeg and ensure it is on PATH.");
+        {
+            // No FFmpeg (#331): decode with NAudio instead, so analysis still runs for the formats it reads
+            // (WAV, AIFF, MP3, and on Windows FLAC/M4A via Media Foundation).
+            try
+            {
+                return await Task.Run(() => DecodeWithoutFfmpeg(source.FilePath), cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                throw new InvalidOperationException(
+                    $"FFmpeg not found at '{_ffmpegPath}', and the built-in decoder couldn't read '{Path.GetFileName(source.FilePath)}': {ex.Message}. Install FFmpeg (Settings → Advanced).", ex);
+            }
+        }
 
         string tempFile = Path.Combine(Path.GetTempPath(),
             $"orbit_ingest_{Guid.NewGuid():N}.wav");
@@ -296,6 +307,47 @@ public sealed class AudioIngestionPipeline
         }
 
         return (process.ExitCode, stderrBuilder.ToString());
+    }
+
+    /// <summary>
+    /// FFmpeg-free decode (#331): the same output contract as the FFmpeg path — a 44.1 kHz stereo 32-bit float WAV
+    /// in the temp folder — using NAudio's readers and its managed WDL resampler (no Media Foundation resampler).
+    /// </summary>
+    internal string DecodeWithoutFfmpeg(string filePath)
+    {
+        string tempFile = Path.Combine(Path.GetTempPath(), $"orbit_ingest_{Guid.NewGuid():N}.wav");
+        try
+        {
+            using var reader = new NAudio.Wave.AudioFileReader(filePath);
+            NAudio.Wave.ISampleProvider samples = reader;
+            if (samples.WaveFormat.Channels == 1)
+                samples = new NAudio.Wave.SampleProviders.MonoToStereoSampleProvider(samples);
+            else if (samples.WaveFormat.Channels != TargetChannels)
+                throw new NotSupportedException($"{samples.WaveFormat.Channels}-channel audio needs FFmpeg");
+            if (samples.WaveFormat.SampleRate != TargetSampleRate)
+                samples = new NAudio.Wave.SampleProviders.WdlResamplingSampleProvider(samples, TargetSampleRate);
+
+            NAudio.Wave.WaveFileWriter.CreateWaveFile(tempFile, new NAudio.Wave.SampleProviders.SampleToWaveProvider(samples));
+            if (!File.Exists(tempFile) || new FileInfo(tempFile).Length <= 44)
+                throw new InvalidOperationException("no audio was decoded");
+            _logger.LogInformation("[AudioIngestion] Decoded {File} without FFmpeg (built-in decoder)", Path.GetFileName(filePath));
+            return tempFile;
+        }
+        catch
+        {
+            TryDelete(tempFile);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// True when an FFmpeg executable was actually found (bundled, ORBIT-installed, or on PATH). When it wasn't,
+    /// <see cref="ResolveFfmpegPath"/> falls back to the bare name and starting it throws (#331).
+    /// </summary>
+    public static bool IsFfmpegAvailable()
+    {
+        var path = ResolveFfmpegPath();
+        return Path.IsPathRooted(path) && File.Exists(path);
     }
 
     public static string ResolveFfmpegPath()
