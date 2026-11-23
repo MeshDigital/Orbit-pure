@@ -351,6 +351,9 @@ public partial class App : Application
                         // cue/grid changes or Rekordbox writes; no-op after the first completed pass.
                         Services.GetRequiredService<Services.AudioAnalysis.TimeTillDropBackfillService>().StartIfPending();
 
+                        // Personal genre head (GA11 #256): retrains only when genre labels changed; startup check is delayed.
+                        Services.GetRequiredService<Services.Genre.PersonalGenreHeadService>().Start();
+
                         // Activate post-download spectral scan listener (eager resolve so it
                         // subscribes to TrackStateChangedEvent immediately after the engine starts).
                         _ = Services.GetRequiredService<PostDownloadSpectralScanService>();
@@ -988,6 +991,9 @@ public partial class App : Application
         services.AddSingleton<Services.Library.Maintenance.StyleBackfillService>();
         // GA10 (#255): re-fuses genre from stored model outputs (no audio); the Jamendo head is the shared one.
         services.AddSingleton<Services.Library.Maintenance.GenreRefreshService>();
+        // GA11 (#256): personal genre head, retrained in the background from genre corrections.
+        services.AddSingleton<Services.Genre.PersonalGenreHeadService>();
+        services.AddSingleton<ViewModels.Settings.PersonalGenreSettingsViewModel>();
         services.AddSingleton<Services.Library.Maintenance.StylePlaylistApplier>();
         services.AddSingleton<Services.Library.Maintenance.UseAsGenreService>();
         services.AddSingleton<Services.Library.Maintenance.MaintenanceUndoService>();

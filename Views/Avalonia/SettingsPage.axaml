@@ -831,6 +831,31 @@
                 <ScrollViewer>
                     <StackPanel Classes="tab-body">
 
+                        <StackPanel Classes="settings-section" IsVisible="{Binding HasPersonalGenre}">
+                            <StackPanel IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Genre learn corrections personal model tags AI'}">
+                                <TextBlock Classes="section" Text="GENRE LEARNING"/>
+                                <Border Classes="card">
+                                    <StackPanel Spacing="8">
+                                        <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                            <StackPanel Classes="label">
+                                                <TextBlock Classes="body" Text="Learn from my genre corrections"/>
+                                                <TextBlock Classes="caption" TextWrapping="Wrap"
+                                                           Text="Learns your own genre boundaries from the genres you set and your clean file tags. It is only used when it beats the audio model on your own tracks; nothing is written to your files."/>
+                                            </StackPanel>
+                                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding PersonalGenre.LearnFromGenreCorrections, Mode=TwoWay}"
+                                                          AutomationProperties.Name="Learn from my genre corrections"/>
+                                        </Grid>
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Classes="caption muted" Text="{Binding PersonalGenre.StatusText}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                            <Button Grid.Column="1" Classes="secondary small" Content="Retrain now" Margin="8,0,0,0"
+                                                    Command="{Binding PersonalGenre.RetrainCommand}"
+                                                    ToolTip.Tip="Retrain from your current genres now, instead of waiting for the next change"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </StackPanel>
+
                         <StackPanel Classes="settings-section"
                                     IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Library Folders add remove browse scan'}">
                             <Grid ColumnDefinitions="*,Auto">

@@ -7,7 +7,9 @@ using SLSKDONET.Services.AudioAnalysis;
 using SLSKDONET.Services.Similarity;
 
 /// <summary>Model and rhythm inputs computed from audio for one track (cached between runs).</summary>
-sealed record AudioInputs(string Hash, List<GenreLabelScore> Jamendo, float[]? DiscogsScores, RhythmSignature? Rhythm, float Bpm, double Seconds);
+/// <param name="Embedding">The track's EffNet embedding (for --personal, GA11 #256); null in caches from before it was kept.</param>
+sealed record AudioInputs(string Hash, List<GenreLabelScore> Jamendo, float[]? DiscogsScores, RhythmSignature? Rhythm, float Bpm, double Seconds,
+    float[]? Embedding = null);
 
 /// <summary>
 /// <c>--audio</c>: decodes a deterministic sample of labelled files (read-only) with the app's own
@@ -91,6 +93,9 @@ static class AudioBench
         Reliability(withGate.Where(r => !Metrics.IsHoldOut(r.Truth.Hash)).ToList(), "gate, train 80%");
         Reliability(withGate.Where(r => Metrics.IsHoldOut(r.Truth.Hash)).ToList(), "gate, hold-out 20%");
 
+        if (opts.Personal)
+            PersonalHead(scoredInputs, cache, styles, features);
+
         if (opts.GateSweep)
         {
             Console.WriteLine("── gate sweep (same inputs) ──");
@@ -126,6 +131,70 @@ static class AudioBench
             Console.WriteLine($"Summary written to {summaryPath}");
         }
         return 0;
+    }
+
+    /// <summary>
+    /// --personal (GA11 #256): trains the personal genre head on the 80 % train split exactly as the app does (label
+    /// weights, artist-grouped CV gate), then scores the 20 % hold-out with and without it. When the gate disables the
+    /// head, the hold-out is also scored with a forced head (blend 0.35) to show what it would have done.
+    /// </summary>
+    private static void PersonalHead(List<TruthLabel> scored, Dictionary<string, AudioInputs> cache, DiscogsStyleLabels styles,
+        Dictionary<string, FeatureRow> features)
+    {
+        Console.WriteLine("── personal genre head (GA11 #256) ──");
+        GenreFusionResult? Fuse(AudioInputs i, PersonalHeadInput? head = null)
+        {
+            IReadOnlyList<GenreLabelScore>? discogs = i.DiscogsScores is { Length: DiscogsStyleLabels.ExpectedClassCount } d && styles.IsUsable
+                ? styles.All.Select((s, k) => new GenreLabelScore(s.Key, d[k])).ToArray() : null;
+            return GenreFusionEngine.Fuse(new GenreFusionInput(i.Jamendo, i.Bpm, discogs, i.Rhythm, head));
+        }
+        string? Artist(TruthLabel t) => t.Display.Split(" - ", 2) is { Length: 2 } parts ? parts[0] : null;
+
+        var withEmbedding = scored.Where(t => cache[t.Hash].Embedding is { Length: > 0 }).ToList();
+        if (withEmbedding.Count == 0) { Console.WriteLine("No cached embeddings (re-decode with a fresh --audio-cache)."); return; }
+        var train = withEmbedding.Where(t => !Metrics.IsHoldOut(t.Hash)).ToList();
+        var holdOut = withEmbedding.Where(t => Metrics.IsHoldOut(t.Hash)).ToList();
+
+        var samples = train.Select(t =>
+        {
+            var fused = Fuse(cache[t.Hash]);
+            var baseScores = fused is null ? null : SLSKDONET.Services.Genre.PersonalGenreHeadService.BaseScoresFrom(JsonSerializer.Serialize(fused.Distribution));
+            return new PersonalGenreSample(t.Hash, Artist(t), cache[t.Hash].Embedding!, t.Bucket,
+                SLSKDONET.Services.Genre.PersonalGenreHeadService.LabelWeight(t.Source, 1) ?? 0.5f, baseScores);
+        }).ToList();
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var model = PersonalGenreTrainer.Train(samples, "bench", "bench");
+        sw.Stop();
+        Console.WriteLine($"trained on {samples.Count} train-split tracks in {sw.ElapsedMilliseconds} ms: {(model.Enabled ? "ENABLED" : "disabled")}");
+        Console.WriteLine($"  cross-validated macro-F1: base {model.BaseMacroF1:F3} → base+head {model.BlendMacroF1:F3} (blend {model.BlendWeight:F2})");
+        Console.WriteLine($"  {model.Reason}");
+
+        var scoring = model;
+        if (!model.Enabled)
+        {
+            var classes = model.LabelsPerClass.Where(kv => kv.Value >= PersonalGenreTrainer.MinLabelsPerClass)
+                .Select(kv => Enum.Parse<GenreBucket>(kv.Key)).OrderBy(b => b).ToArray();
+            if (classes.Length < 2) { Console.WriteLine(); return; }
+            var fit = PersonalGenreTrainer.Fit(samples.Where(s => classes.Contains(s.Label)).ToList(), classes);
+            scoring = new PersonalGenreModel { Enabled = true, BlendWeight = 0.35f, Classes = fit.Classes, Mean = fit.Mean, Weights = fit.Weights, Bias = fit.Bias };
+            Console.WriteLine("  (hold-out below uses a forced head at blend 0.35 to show what it would do)");
+        }
+
+        List<Scored> Score(PersonalGenreModel? head) => holdOut.Select(t =>
+        {
+            var i = cache[t.Hash];
+            var input = head?.Predict(i.Embedding) is { } p ? new PersonalHeadInput(p, head.BlendWeight, "bench") : null;
+            var fused = Fuse(i, input);
+            var prediction = fused is null ? new Prediction(null, "", 0, Array.Empty<string>()) : new Prediction(fused.Bucket, fused.WinnerLabel, fused.Confidence, Array.Empty<string>());
+            return new Scored(t, features[t.Hash], prediction);
+        }).ToList();
+
+        var baseSummary = Metrics.Compute(Score(null), "hold-out, base");
+        var headSummary = Metrics.Compute(Score(scoring), "hold-out, base+head");
+        Report.Print(baseSummary, $"Hold-out 20 % ({holdOut.Count} tracks): base fusion");
+        Report.Print(headSummary, $"Hold-out 20 % ({holdOut.Count} tracks): base + personal head");
+        Report.Compare(headSummary, baseSummary);
     }
 
     /// <summary>Accuracy per confidence bin: the data a confidence calibration is fitted on.</summary>
@@ -186,7 +255,7 @@ static class AudioBench
                 discogs = e.StylePredictions;
                 jamendo = heads.Classify(e.Embedding).JamendoGenres.Select(g => new GenreLabelScore(g.Label, g.Probability)).ToList();
             }
-            return new AudioInputs(t.Hash, jamendo, discogs, rhythm, row.Bpm, sw.Elapsed.TotalSeconds);
+            return new AudioInputs(t.Hash, jamendo, discogs, rhythm, row.Bpm, sw.Elapsed.TotalSeconds, effnet?.Embedding);
         }
         catch (Exception ex)
         {

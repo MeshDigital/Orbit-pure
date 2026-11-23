@@ -2403,7 +2403,11 @@ public partial class LibraryViewModel
         if (!string.IsNullOrWhiteSpace(artist)) fields.Add(Services.Enrichment.MetadataMerger.Fields.Artist);
         if (!string.IsNullOrWhiteSpace(title)) fields.Add(Services.Enrichment.MetadataMerger.Fields.Title);
         if (!string.IsNullOrWhiteSpace(album)) fields.Add(Services.Enrichment.MetadataMerger.Fields.Album);
-        if (!string.IsNullOrWhiteSpace(genre)) fields.Add(Services.Enrichment.MetadataMerger.Fields.Genre);
+        if (!string.IsNullOrWhiteSpace(genre))
+        {
+            fields.Add(Services.Enrichment.MetadataMerger.Fields.Genre);
+            _eventBus?.Publish(new Services.Genre.GenreLabelsChangedEvent()); // the personal genre head retrains (GA11 #256)
+        }
         if (year) fields.Add(Services.Enrichment.MetadataMerger.Fields.ReleaseDate);
         var list = hashes.Where(h => !string.IsNullOrEmpty(h)).Select(h => h!).Distinct().ToList();
         if (fields.Count == 0 || list.Count == 0) return;

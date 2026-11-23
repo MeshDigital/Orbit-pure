@@ -70,6 +70,7 @@ public sealed class GenreRefreshService
     private readonly ILogger<GenreRefreshService> _logger;
     private readonly IJamendoGenreHead? _jamendo;
     private readonly DiscogsStyleLabels? _styleLabels;
+    private readonly Func<PersonalGenreModel?> _personalModel;
 
     public GenreRefreshService(
         IDbContextFactory<AppDbContext> dbFactory,
@@ -77,8 +78,11 @@ public sealed class GenreRefreshService
         IEventBus eventBus,
         ILogger<GenreRefreshService> logger,
         IJamendoGenreHead? jamendo = null,
-        DiscogsStyleLabels? styleLabels = null)
+        DiscogsStyleLabels? styleLabels = null,
+        Genre.PersonalGenreHeadService? personalGenre = null,
+        Func<PersonalGenreModel?>? personalModel = null)
     {
+        _personalModel = personalModel ?? (() => personalGenre?.ActiveModel);
         _dbFactory = dbFactory;
         _styleBackfill = styleBackfill;
         _eventBus = eventBus;
@@ -95,17 +99,29 @@ public sealed class GenreRefreshService
         public string? EvidenceGenres { get; set; }
         public string? EvidenceSource { get; set; }
         public bool HasEvidence { get; set; }
+        public string? PersonalHead { get; set; }
+        public string? EmbeddingModelTag { get; set; }
+        public bool HasEmbedding { get; set; }
     }
+
+    /// <summary>The personal head id a row fused now would record: the active model's, when its embedding fits.</summary>
+    public static string? ExpectedPersonalHead(StalenessRow row, PersonalGenreModel? active) =>
+        active is { Enabled: true, BlendWeight: > 0 } && row.HasEmbedding
+        && string.Equals(active.EmbeddingModelTag, row.EmbeddingModelTag, StringComparison.Ordinal)
+            ? active.Id : null;
 
     /// <summary>
     /// Pure staleness rule for a row whose model inputs are current (inference staleness is
     /// <see cref="StyleBackfillService"/>'s): stale when there is no evidence yet, the fusion version is older,
     /// or the library genre text or its source differs from what the evidence was fused with.
     /// </summary>
-    public static GenreStaleness Classify(StalenessRow row, TrackGenreContext? current, int currentFusionVersion = GenreFusionEngine.FusionVersion)
+    public static GenreStaleness Classify(StalenessRow row, TrackGenreContext? current, int currentFusionVersion = GenreFusionEngine.FusionVersion,
+        string? expectedPersonalHead = null)
     {
         if (!row.HasEvidence || row.FusionVersion is not { } version || version < currentFusionVersion)
             return GenreStaleness.Refuse;
+        // A personal head was (re)trained, enabled or switched off since this row was fused (GA11 #256).
+        if (!string.Equals(row.PersonalHead, expectedPersonalHead, StringComparison.Ordinal)) return GenreStaleness.Refuse;
         var genres = string.IsNullOrWhiteSpace(current?.Genres) ? null : current!.Genres!.Trim();
         var source = genres is null ? null : current!.Source;
         if (!string.Equals(genres, row.EvidenceGenres, StringComparison.Ordinal)) return GenreStaleness.Refuse;
@@ -131,20 +147,25 @@ public sealed class GenreRefreshService
                    CASE WHEN json_valid(""GenreEvidenceJson"") THEN json_extract(""GenreEvidenceJson"", '$.FusionVersion') END AS ""FusionVersion"",
                    CASE WHEN json_valid(""GenreEvidenceJson"") THEN json_extract(""GenreEvidenceJson"", '$.MetadataText') END AS ""EvidenceGenres"",
                    CASE WHEN json_valid(""GenreEvidenceJson"") THEN json_extract(""GenreEvidenceJson"", '$.MetadataSource') END AS ""EvidenceSource"",
-                   COALESCE(json_valid(""GenreEvidenceJson""), 0) AS ""HasEvidence""
+                   COALESCE(json_valid(""GenreEvidenceJson""), 0) AS ""HasEvidence"",
+                   CASE WHEN json_valid(""GenreEvidenceJson"") THEN json_extract(""GenreEvidenceJson"", '$.PersonalHead') END AS ""PersonalHead"",
+                   ""EmbeddingModelTag"" AS ""EmbeddingModelTag"",
+                   (""EmbeddingBlob"" IS NOT NULL) AS ""HasEmbedding""
             FROM ""audio_features""").ToListAsync(ct).ConfigureAwait(false);
         var rowByHash = new Dictionary<string, StalenessRow>(StringComparer.Ordinal);
         foreach (var row in rows) rowByHash.TryAdd(row.Hash, row);
 
         var contexts = await TrackGenreContextQuery.LoadManyAsync(db, candidates, ct).ConfigureAwait(false);
 
+        var active = _personalModel();
         var refuse = new List<string>();
         var fresh = 0;
         foreach (var hash in candidates)
         {
             // No features row at all is "missing styles", which the style backfill already counted.
             if (!rowByHash.TryGetValue(hash, out var row)) continue;
-            if (Classify(row, contexts.GetValueOrDefault(hash)) == GenreStaleness.Refuse) refuse.Add(hash);
+            if (Classify(row, contexts.GetValueOrDefault(hash), expectedPersonalHead: ExpectedPersonalHead(row, active)) == GenreStaleness.Refuse)
+                refuse.Add(hash);
             else fresh++;
         }
 
@@ -165,6 +186,7 @@ public sealed class GenreRefreshService
         int changed = 0, unchanged = 0, skipped = 0, failed = 0, done = 0;
         var keys = _styleLabels is { IsUsable: true } labels ? labels.Keys : null;
         var jamendoAvailable = _jamendo?.IsAvailable == true;
+        var personal = _personalModel();
         if (!jamendoAvailable)
             _logger.LogInformation("[GenreRefresh] Jamendo head unavailable; re-fusing on the Discogs-400 styles alone");
 
@@ -196,7 +218,7 @@ public sealed class GenreRefreshService
                                 : (IReadOnlyList<GenreLabelScore>)Array.Empty<GenreLabelScore>();
                             var rhythm = AudioGenreOpinion.TryDeserialize<RhythmSignature>(features.RhythmSignatureJson);
                             var after = GenreFeatureWriter.Apply(features, jamendo,
-                                GenreFeatureWriter.DiscogsVotes(features.StyleScores, keys), rhythm, contexts.GetValueOrDefault(hash)).Resolved;
+                                GenreFeatureWriter.DiscogsVotes(features.StyleScores, keys), rhythm, contexts.GetValueOrDefault(hash), personal).Resolved;
                             fusedInChunk++;
                             // Changed = what a view shows changed: the audio label or the resolved genre.
                             if (!string.Equals(features.DetectedSubGenre, audioBefore, StringComparison.Ordinal)

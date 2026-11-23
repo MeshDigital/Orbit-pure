@@ -369,6 +369,11 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>Settings → Library "Learn from my genre corrections" (GA11 #256); null in unit tests.</summary>
+    public Settings.PersonalGenreSettingsViewModel? PersonalGenre { get; }
+
+    public bool HasPersonalGenre => PersonalGenre is not null;
+
     /// <summary>Opt-in background knowledge agents (transition-candidate scan). Applies after restart.</summary>
     public bool EnableKnowledgeAgents
     {
@@ -2111,9 +2116,11 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         MetadataSourcesSettingsViewModel? metadataSources = null,
         UpdateViewModel? updateViewModel = null,
         Services.Library.Maintenance.MaintenanceUndoService? maintenanceUndo = null,
-        Services.KnowledgeLifecycle.RekordboxHistoryImportService? historyImport = null)
+        Services.KnowledgeLifecycle.RekordboxHistoryImportService? historyImport = null,
+        Settings.PersonalGenreSettingsViewModel? personalGenre = null)
     {
         _logger = logger;
+        PersonalGenre = personalGenre;
         _config = config;
         _enrichment = enrichment;
         MetadataSources = metadataSources;

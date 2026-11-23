@@ -334,6 +334,27 @@
                                         </ItemsControl>
                                     </StackPanel>
 
+                                    <!-- Your library: the personal genre head (GA11 #256) -->
+                                    <StackPanel Spacing="4" IsVisible="{Binding GenreEvidence.HasPersonal}">
+                                        <TextBlock Classes="caption muted" Text="Your library"
+                                                   ToolTip.Tip="Learned from your own genres and tags (Settings → Library → Genre learning)"/>
+                                        <ItemsControl ItemsSource="{Binding GenreEvidence.PersonalBars}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><StackPanel Spacing="6"/></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:GenreScore">
+                                                    <Grid Classes="bar-row" ColumnDefinitions="88,*,44">
+                                                        <TextBlock Classes="caption" Text="{Binding Label}" Foreground="{StaticResource BrushText1}"
+                                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Label}"/>
+                                                        <ProgressBar Grid.Column="1" Classes="meter neutral" Maximum="1" Value="{Binding Confidence}"/>
+                                                        <TextBlock Grid.Column="2" Classes="mono pct" Text="{Binding Confidence, Converter={StaticResource NumberConverter}, ConverterParameter=pct}"/>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+
                                     <!-- Drums -->
                                     <StackPanel Spacing="4" IsVisible="{Binding GenreEvidence.HasRhythm}">
                                         <Grid ColumnDefinitions="*,Auto">
