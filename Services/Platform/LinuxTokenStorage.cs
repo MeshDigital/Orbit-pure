@@ -8,64 +8,43 @@ using Microsoft.Extensions.Logging;
 namespace SLSKDONET.Services.Platform;
 
 /// <summary>
-/// Linux-specific secure token storage using AES encryption.
-/// Encrypts tokens with a machine-specific key derived from hardware ID.
+/// Linux Spotify refresh-token storage (#313). The token is encrypted with <see cref="ISecretProtector"/>: AES-256-GCM
+/// under a random data key held in the freedesktop Secret Service (GNOME Keyring / KWallet), or in a user-only key
+/// file when no keyring is reachable. The old file (<c>qmusicslsk/spotify_token.enc</c>, AES-CBC with a key anyone could
+/// recompute from the machine name, user name and OS version) is read once, migrated and deleted.
 /// </summary>
 public class LinuxTokenStorage : ISecureTokenStorage
 {
-    private readonly ILogger<LinuxTokenStorage> _logger;
-    private readonly string _tokenFilePath;
-    private readonly byte[] _machineKey;
+    private const string Purpose = "spotify-refresh-token";
 
-    public LinuxTokenStorage(ILogger<LinuxTokenStorage> logger)
+    private readonly ILogger<LinuxTokenStorage> _logger;
+    private readonly ISecretProtector _protector;
+    private readonly string _tokenFilePath;
+    private readonly string _legacyFilePath;
+
+    public LinuxTokenStorage(ILogger<LinuxTokenStorage> logger, ISecretProtector? protector = null,
+        string? directory = null, string? legacyFilePath = null)
     {
         _logger = logger;
-        
-        // Store in user's .config folder
-        var configPath = SLSKDONET.Data.OrbitPaths.RoamingRoot;
-        if (string.IsNullOrEmpty(configPath))
-        {
-            configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
-        }
-        
-        var appFolder = Path.Combine(configPath, "qmusicslsk");
-        Directory.CreateDirectory(appFolder);
-        
-        _tokenFilePath = Path.Combine(appFolder, "spotify_token.enc");
-        
-        // Generate machine-specific encryption key
-        _machineKey = GenerateMachineKey();
+        _protector = protector ?? SecretProtector.Default;
+        var dir = directory ?? Path.Combine(SLSKDONET.Data.OrbitPaths.LocalRoot, "ORBIT");
+        _tokenFilePath = Path.Combine(dir, "spotify_token.dat");
+        _legacyFilePath = legacyFilePath ?? Path.Combine(
+            string.IsNullOrEmpty(SLSKDONET.Data.OrbitPaths.RoamingRoot)
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config")
+                : SLSKDONET.Data.OrbitPaths.RoamingRoot,
+            "qmusicslsk", "spotify_token.enc");
     }
 
     public async Task SaveRefreshTokenAsync(string refreshToken)
     {
         if (string.IsNullOrWhiteSpace(refreshToken))
             throw new ArgumentException("Refresh token cannot be null or empty", nameof(refreshToken));
-
         try
         {
-            using var aes = Aes.Create();
-            aes.Key = _machineKey;
-            aes.GenerateIV();
-
-            using var encryptor = aes.CreateEncryptor();
-            var tokenBytes = Encoding.UTF8.GetBytes(refreshToken);
-            var encryptedBytes = encryptor.TransformFinalBlock(tokenBytes, 0, tokenBytes.Length);
-
-            // Prepend IV to encrypted data
-            var dataToWrite = new byte[aes.IV.Length + encryptedBytes.Length];
-            Buffer.BlockCopy(aes.IV, 0, dataToWrite, 0, aes.IV.Length);
-            Buffer.BlockCopy(encryptedBytes, 0, dataToWrite, aes.IV.Length, encryptedBytes.Length);
-
-            await File.WriteAllBytesAsync(_tokenFilePath, dataToWrite);
-            
-            // Set file permissions to user-only (chmod 600)
-            if (OperatingSystem.IsLinux())
-            {
-                File.SetUnixFileMode(_tokenFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            }
-            
-            _logger.LogInformation("Refresh token saved securely using AES encryption");
+            var encrypted = _protector.Protect(Encoding.UTF8.GetBytes(refreshToken), Purpose);
+            await Task.Run(() => GcmSecretProtector.WriteUserOnlyBytes(_tokenFilePath, encrypted)).ConfigureAwait(false);
+            _logger.LogInformation("Refresh token saved ({Backend}, AES-256-GCM)", _protector.Backend);
         }
         catch (Exception ex)
         {
@@ -76,39 +55,18 @@ public class LinuxTokenStorage : ISecureTokenStorage
 
     public async Task<string?> LoadRefreshTokenAsync()
     {
-        if (!File.Exists(_tokenFilePath))
-        {
-            _logger.LogDebug("No stored refresh token found");
-            return null;
-        }
-
         try
         {
-            var dataToRead = await File.ReadAllBytesAsync(_tokenFilePath);
-
-            using var aes = Aes.Create();
-            aes.Key = _machineKey;
-
-            // Extract IV from the beginning
-            var iv = new byte[aes.IV.Length];
-            Buffer.BlockCopy(dataToRead, 0, iv, 0, iv.Length);
-            aes.IV = iv;
-
-            // Extract encrypted data
-            var encryptedBytes = new byte[dataToRead.Length - iv.Length];
-            Buffer.BlockCopy(dataToRead, iv.Length, encryptedBytes, 0, encryptedBytes.Length);
-
-            // Decrypt
-            using var decryptor = aes.CreateDecryptor();
-            var tokenBytes = decryptor.TransformFinalBlock(encryptedBytes, 0, encryptedBytes.Length);
-            var refreshToken = Encoding.UTF8.GetString(tokenBytes);
-            
-            _logger.LogInformation("Refresh token loaded successfully");
-            return refreshToken;
+            if (File.Exists(_tokenFilePath))
+            {
+                var data = await File.ReadAllBytesAsync(_tokenFilePath).ConfigureAwait(false);
+                return Encoding.UTF8.GetString(_protector.Unprotect(data, Purpose));
+            }
+            return await MigrateLegacyAsync().ConfigureAwait(false);
         }
         catch (CryptographicException ex)
         {
-            _logger.LogError(ex, "Failed to decrypt refresh token (may be corrupted or from different machine)");
+            _logger.LogError(ex, "Stored refresh token couldn't be decrypted (tampered, or the keyring's data key changed); sign in to Spotify again");
             return null;
         }
         catch (Exception ex)
@@ -122,13 +80,10 @@ public class LinuxTokenStorage : ISecureTokenStorage
     {
         try
         {
-            if (File.Exists(_tokenFilePath))
-            {
-                File.Delete(_tokenFilePath);
-                _logger.LogInformation("Refresh token deleted");
-            }
-            
-            await Task.CompletedTask;
+            if (File.Exists(_tokenFilePath)) File.Delete(_tokenFilePath);
+            if (File.Exists(_legacyFilePath)) File.Delete(_legacyFilePath);
+            _logger.LogInformation("Refresh token deleted");
+            await Task.CompletedTask.ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -137,17 +92,42 @@ public class LinuxTokenStorage : ISecureTokenStorage
         }
     }
 
-    /// <summary>
-    /// Generates a machine-specific encryption key.
-    /// Uses machine name and user name to create a deterministic key.
-    /// </summary>
-    private static byte[] GenerateMachineKey()
+    /// <summary>One-time move from the pre-#313 file; the weak legacy file is deleted once the token is re-saved.</summary>
+    private async Task<string?> MigrateLegacyAsync()
     {
-        // Combine machine-specific identifiers
-        var machineId = $"{Environment.MachineName}|{Environment.UserName}|{Environment.OSVersion}";
-        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(machineId));
-        
-        // Use first 32 bytes for AES-256
-        return hashBytes;
+        if (!File.Exists(_legacyFilePath)) return null;
+        string token;
+        try
+        {
+            token = DecryptLegacy(await File.ReadAllBytesAsync(_legacyFilePath).ConfigureAwait(false));
+        }
+        catch (CryptographicException ex)
+        {
+            _logger.LogWarning(ex, "Legacy refresh token couldn't be read; it is deleted, sign in to Spotify again");
+            File.Delete(_legacyFilePath);
+            return null;
+        }
+
+        await SaveRefreshTokenAsync(token).ConfigureAwait(false);
+        File.Delete(_legacyFilePath);
+        _logger.LogInformation("Migrated the Spotify refresh token from the old weakly-keyed file");
+        return token;
     }
+
+    /// <summary>The pre-#313 format (AES-CBC, IV prefix, machine-derived key). Read-only, for migration.</summary>
+    internal static string DecryptLegacy(byte[] data)
+    {
+        using var aes = Aes.Create();
+        aes.Key = LegacyMachineKey();
+        var iv = new byte[16];
+        if (data.Length <= iv.Length) throw new CryptographicException("Legacy token file is truncated");
+        Buffer.BlockCopy(data, 0, iv, 0, iv.Length);
+        aes.IV = iv;
+        using var decryptor = aes.CreateDecryptor();
+        return Encoding.UTF8.GetString(decryptor.TransformFinalBlock(data, iv.Length, data.Length - iv.Length));
+    }
+
+    /// <summary>The old, guessable key. Kept only so existing tokens can be migrated; never used to write.</summary>
+    internal static byte[] LegacyMachineKey() =>
+        SHA256.HashData(Encoding.UTF8.GetBytes($"{Environment.MachineName}|{Environment.UserName}|{Environment.OSVersion}"));
 }
