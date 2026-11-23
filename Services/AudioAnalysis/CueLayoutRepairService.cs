@@ -169,7 +169,24 @@ public sealed class CueLayoutRepairService
         using var dst = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = target }.ToString());
         src.Open();
         dst.Open();
-        src.BackupDatabase(dst);
+
+        // The library DB can be transiently locked by a concurrent writer (a background analysis
+        // write, or a parallel test). Retry briefly, mirroring LibraryDatabaseMaintenance's backup
+        // path, instead of failing the whole repair (#306).
+        const int attempts = 6;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                src.BackupDatabase(dst);
+                break;
+            }
+            catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6 && attempt < attempts) // BUSY, LOCKED
+            {
+                Thread.Sleep(150 * attempt);
+            }
+        }
+
         SqliteConnection.ClearPool(dst); // release the backup file handle
         return target;
     }
