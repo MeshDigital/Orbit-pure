@@ -304,7 +304,8 @@
                     <TextBlock Classes="subtitle muted" Text="·"/>
                     <TextBlock Classes="subtitle" Classes.warning="{Binding !IsSoulseekConnected}" Text="{Binding ConnectionStatusText}"/>
                     <TextBlock Classes="subtitle warning" IsVisible="{Binding IsBackingOff}"
-                               Text="{Binding BackoffSeconds, StringFormat='· reconnecting in {0}s'}"/>
+                               Text="· waiting to reconnect"
+                               ToolTip.Tip="Downloads resume as soon as Soulseek is connected again. The reconnect timing is shown in the top bar."/>
                 </StackPanel>
             </StackPanel>
 

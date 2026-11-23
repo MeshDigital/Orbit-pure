@@ -263,6 +263,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
         // Phase 8: Automation Subscriptions — store IDisposables so they unsubscribe on Dispose()
         _eventBusSubs.Add(_eventBus.GetEvent<AutoDownloadTrackEvent>().Subscribe(OnAutoDownloadTrack));
+        // #330: SoulseekConnected reads the adapter live, but nothing ever said it changed, so the Downloads header
+        // kept showing whatever it read when the page was built ("Soulseek connected" while disconnected).
+        _eventBusSubs.Add(_eventBus.GetEvent<SoulseekStateChangedEvent>().Subscribe(_ => OnPropertyChanged(nameof(SoulseekConnected))));
+        _eventBusSubs.Add(_eventBus.GetEvent<ConnectionLifecycleStateChangedEvent>().Subscribe(_ => OnPropertyChanged(nameof(SoulseekConnected))));
         _eventBusSubs.Add(_eventBus.GetEvent<AutoDownloadUpgradeEvent>().Subscribe(OnAutoDownloadUpgrade));
         _eventBusSubs.Add(_eventBus.GetEvent<UpgradeAvailableEvent>().Subscribe(OnUpgradeAvailable));
         // Phase 6: Library Interactions
@@ -2592,7 +2596,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     {
                         _logger.LogInformation("Circuit Breaker: Waiting for connection... (Next check in {Seconds}s)", delaySeconds);
                         _eventBus.Publish(new GlobalStatusEvent(
-                            osNetworkAvailable ? $"Disconnected: Retrying in {delaySeconds}s..." : $"No network connection — retrying in {delaySeconds}s...",
+                            // No countdown here (#330): this is the queue's poll interval, not the reconnect timer
+                            // (ConnectionLifecycleService owns that), so a number would contradict the real one.
+                            osNetworkAvailable ? "Disconnected: waiting for Soulseek to reconnect…" : "No network connection — waiting for the network…",
                             true, true));
                     }
 
