@@ -297,7 +297,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         AllFolders.CollectionChanged += (_, _) => ScheduleRebuildTree();
 
         // Subscribe to auth changes
-        _authChangedHandler = (s, authenticated) => 
+        _authChangedHandler = (s, authenticated) =>
         {
              IsSpotifyAuthenticated = authenticated;
              ((AsyncRelayCommand)ImportLikedSongsCommand).RaiseCanExecuteChanged();
@@ -321,14 +321,14 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         });
 
         // Subscribe to events
-        _disposables.Add(eventBus.GetEvent<ProjectAddedEvent>().Subscribe(async evt => 
+        _disposables.Add(eventBus.GetEvent<ProjectAddedEvent>().Subscribe(async evt =>
         {
             var job = await _libraryService.FindPlaylistJobAsync(evt.ProjectId);
             if (job != null) OnPlaylistAdded(this, job);
         }));
         _disposables.Add(eventBus.GetEvent<ProjectUpdatedEvent>().Subscribe(evt => OnProjectUpdated(this, evt.ProjectId)));
         _disposables.Add(eventBus.GetEvent<ProjectDeletedEvent>().Subscribe(evt => OnProjectDeleted(this, evt.ProjectId)));
-        
+
         // Subscribe to track state changes to update active download counts in real-time
         _disposables.Add(eventBus.GetEvent<TrackStateChangedEvent>().Subscribe(OnTrackStateChanged));
 
@@ -400,7 +400,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         _isDisposed = true;
     }
 
-    
+
     private void OnTrackStateChanged(TrackStateChangedEvent evt) => RefreshActiveDownloadStats(evt.ProjectId);
 
     private void RefreshActiveDownloadStats(Guid projectId)
@@ -437,8 +437,8 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     private async Task ExecuteImportLikedSongsAsync()
     {
         _logger.LogInformation("Starting 'Liked Songs' import from Spotify...");
-        
-        // Use the unified orchestrator path. 
+
+        // Use the unified orchestrator path.
         // The orchestrator handles finding existing jobs and showing the preview.
         await _importOrchestrator.StartImportWithPreviewAsync(_spotifyLikedSongsProvider, "spotify:liked");
     }
@@ -481,7 +481,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                 // Clear collection
                 if (AllProjects == null) AllProjects = new ObservableCollection<PlaylistJob>();
                 AllProjects.Clear();
-                
+
                 // Manual order is global across folders; creation time keeps legacy rows stable
                 // until the user explicitly arranges them for the first time.
                 var sortedJobs = jobs
@@ -494,7 +494,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                 }
 
                 _logger.LogInformation("Loaded {Count} projects", AllProjects.Count);
-                
+
                 RefreshFilteredProjects();
 
                 // Database reloads create new PlaylistJob instances. Restore by stable ID so the
@@ -555,9 +555,9 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         // Safety: Ensure filtering runs on UI thread to update ObservableCollection
         Dispatcher.UIThread.Post(async () =>
         {
-            var filtered = string.IsNullOrWhiteSpace(SearchText) 
+            var filtered = string.IsNullOrWhiteSpace(SearchText)
                 ? AllProjects.ToList()
-                : AllProjects.Where(p => 
+                : AllProjects.Where(p =>
                     (p.SourceTitle?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
                     (p.SourceType?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
 
@@ -909,9 +909,9 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             var confirmed = await _dialogService.ConfirmAsync(
-                "Remove Playlist", 
+                "Remove Playlist",
                 $"Remove '{job.SourceTitle}' from the playlist list? Tracks and downloaded files will be kept in the library.");
-            
+
             if (!confirmed) return;
 
             _logger.LogInformation("Deleting project: {Title}", job.SourceTitle);
@@ -969,6 +969,18 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     private void ExecuteOpenSourceUrl(PlaylistJob? job)
     {
         if (job == null || string.IsNullOrWhiteSpace(job.SourceUrl)) return;
+
+        // A local import (CSV/tracklist file) stores file:///… (#332): show the file instead of refusing the URL.
+        if (SLSKDONET.Utils.ExternalUrlHelper.LocalFilePath(job.SourceUrl) is { } localPath)
+        {
+            if (!System.IO.File.Exists(localPath))
+                _notificationService.Show("Source file not found",
+                    $"This playlist was imported from {System.IO.Path.GetFileName(localPath)}, which is no longer at {System.IO.Path.GetDirectoryName(localPath)}.",
+                    Views.NotificationType.Warning);
+            else if (!SLSKDONET.Utils.ExternalUrlHelper.TryRevealLocalFile(localPath))
+                _notificationService.Show("Open Link Error", $"Could not show {System.IO.Path.GetFileName(localPath)} in the file manager.", Views.NotificationType.Error);
+            return;
+        }
 
         if (!TryOpenSourceUrl(job.SourceUrl))
         {
@@ -1150,16 +1162,16 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
             // 1. Add to Master List (Insert at top for Newest First)
             _logger.LogInformation("[UI TRACE] Adding job {JobId} to AllProjects. Current Count: {Count}", job.Id, AllProjects.Count);
             AllProjects.Insert(0, job);
-            
+
             // 2. Conditionally add to Filtered List
             // Only show if no filter active OR if it matches the current filter
             bool emptyFilter = string.IsNullOrWhiteSpace(SearchText);
             bool titleMatch = job.SourceTitle?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false;
             bool typeMatch = job.SourceType?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false;
-            
+
             bool matchesFilter = emptyFilter || titleMatch || typeMatch;
 
-            _logger.LogInformation("[UI TRACE] Filter check for {JobId}: Empty={Empty}, TitleMatch={TitleMatch}, TypeMatch={TypeMatch} => Included={Result}. SourceTitle='{SourceTitle}'", 
+            _logger.LogInformation("[UI TRACE] Filter check for {JobId}: Empty={Empty}, TitleMatch={TitleMatch}, TypeMatch={TypeMatch} => Included={Result}. SourceTitle='{SourceTitle}'",
                 job.Id, emptyFilter, titleMatch, typeMatch, matchesFilter, job.SourceTitle);
 
             if (matchesFilter)
@@ -1168,7 +1180,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                 FilteredProjectCards.Insert(0, new LibraryPlaylistCardViewModel(job, _artworkCacheService, _mosaicService));
                 _logger.LogInformation("[UI TRACE] Added job {JobId} to FilteredProjects", job.Id);
             }
-            else 
+            else
             {
                  _logger.LogInformation("[UI TRACE] Job {JobId} excluded from FilteredProjects due to filter '{Filter}'", job.Id, SearchText);
             }
@@ -1192,7 +1204,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         var updatedJob = await _libraryService.FindPlaylistJobAsync(jobId);
         if (updatedJob == null) return;
 
-        try 
+        try
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
