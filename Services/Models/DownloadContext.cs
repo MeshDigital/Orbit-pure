@@ -14,13 +14,13 @@ public class DownloadContext
     public PlaylistTrack Model { get; }
     public string CorrelationId { get; set; }
     public CancellationTokenSource CancellationTokenSource { get; set; } = new();
-    
+
     // Transient State
     public PlaylistTrackState State { get; set; } = PlaylistTrackState.Pending;
     public double Progress { get; set; }
     public string GlobalId => Model.TrackUniqueHash;
     public string? ErrorMessage { get; set; }
-    
+
     // Industrial Prep Helper Properties
     public string ArtistName => Model.Artist;
     public string TrackTitle => Model.Title;
@@ -35,17 +35,20 @@ public class DownloadContext
 
     // Phase 2.5: Resumable Download Tracking
     public long TotalBytes { get; set; }        // Remote file size
-    
+
     // Phase 2A: Thread-safe progress tracking (Interlocked for atomic updates)
     private long _bytesReceived;
-    public long BytesReceived 
-    { 
+    public long BytesReceived
+    {
         get => Interlocked.Read(ref _bytesReceived);
         set => Interlocked.Exchange(ref _bytesReceived, value);
     }
-    
+
     public bool IsResuming { get; set; }        // UI/Log feedback for "Resuming" vs "Downloading"
-    
+
+    /// <summary>The exact .part path of the current attempt (#328), so cleanup deletes the real file.</summary>
+    public string? PartFilePath { get; set; }
+
     // Phase 0.3: Health Metrics
     public long CurrentSpeed { get; set; }      // Bytes per second
     public int StallCount { get; set; }         // Consecutive stalled ticks
@@ -58,8 +61,8 @@ public class DownloadContext
 
     // Phase 3A: Finalization Guard (prevents heartbeat race conditions)
     // 0 = false, 1 = true
-    private int _isFinalizing; 
-    public bool IsFinalizing 
+    private int _isFinalizing;
+    public bool IsFinalizing
     {
         get => Interlocked.CompareExchange(ref _isFinalizing, 0, 0) == 1;
         set => Interlocked.Exchange(ref _isFinalizing, value ? 1 : 0);
@@ -74,7 +77,7 @@ public class DownloadContext
     // waits for all currently-pending tracks to have at least one attempt before it competes
     // again, rather than immediately re-joining the front of the queue.
     public long? RetryAfterSlot { get; set; }
-    
+
     // Phase: Download Failure Diagnostics
     public DownloadFailureReason? FailureReason { get; set; }
     public List<SearchAttemptLog> SearchAttempts { get; set; } = new();
@@ -82,7 +85,7 @@ public class DownloadContext
     public string? StalledReason { get; set; } // [NEW] Overhaul Phase
     public bool IsVip { get; set; } // [NEW] Overhaul Phase: prioritizes queue selection
     public DateTime? SearchStartedAt { get; set; } // Phase 10
-    
+
     // Issue #9: State lifecycle tracking for stale queue sweeper
     public DateTime LastStateChangeTime { get; set; } = DateTime.UtcNow; // Tracks when current state was entered
 
@@ -97,7 +100,7 @@ public class DownloadContext
         Model = model;
         CorrelationId = Guid.NewGuid().ToString("N");
         SearchStartedAt = model.SearchStartedAt;
-        
+
         // Map initial state from persistence
         if (model.Status == TrackStatus.Downloaded)
         {
@@ -106,7 +109,7 @@ public class DownloadContext
         }
     }
 
-    public bool IsActive => State == PlaylistTrackState.Searching || 
-                           State == PlaylistTrackState.Downloading || 
+    public bool IsActive => State == PlaylistTrackState.Searching ||
+                           State == PlaylistTrackState.Downloading ||
                            State == PlaylistTrackState.Queued;
 }
