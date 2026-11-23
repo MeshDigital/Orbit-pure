@@ -2119,7 +2119,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
              Album = track.Album ?? "Unknown",
              Status = TrackStatus.Missing,
              Priority = priority,
-             ResolvedFilePath = Path.Combine(_config.DownloadDirectory!, _fileNameFormatter.Format(_config.NameFormat ?? "{artist} - {title}", track) + "." + track.GetExtension()),
+             ResolvedFilePath = _pathProvider.GetTrackPath(track),
              TrackUniqueHash = track.UniqueHash
         };
 
