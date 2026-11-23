@@ -1127,7 +1127,7 @@ public sealed class CueGenerationService
         var chosenRun = runs.OrderByDescending(r => r.Count).First();
 
         if (Environment.GetEnvironmentVariable("ORBIT_SANITIZE_DEBUG") == "1")
-            Console.WriteLine($"[SanitizeSegments DEBUG] runs: [{string.Join(", ", runs.Select(r => r.Count))}] chosen size={chosenRun.Count}");
+            Serilog.Log.Debug("[SanitizeSegments DEBUG] runs: [{Runs}] chosen size={ChosenSize}", string.Join(", ", runs.Select(r => r.Count)), chosenRun.Count);
 
         // ── 2. Merge consecutive same-label entries that are effectively back-to-back ──
         const double MergeGapToleranceSeconds = 2.0;
@@ -1162,9 +1162,9 @@ public sealed class CueGenerationService
 
         if (Environment.GetEnvironmentVariable("ORBIT_SANITIZE_DEBUG") == "1")
         {
-            Console.WriteLine($"[SanitizeSegments DEBUG] bpm={bpm} maxClusterDuration={maxClusterDuration:F2} chosenRun.Count={chosenRun.Count} merged.Count={merged.Count}");
+            Serilog.Log.Debug($"[SanitizeSegments DEBUG] bpm={bpm} maxClusterDuration={maxClusterDuration:F2} chosenRun.Count={chosenRun.Count} merged.Count={merged.Count}");
             foreach (var s in merged)
-                Console.WriteLine($"  {s.Label,-10} Start={s.Start,10:F2} Duration={s.Duration,8:F2} End={s.Start + s.Duration,10:F2}");
+                Serilog.Log.Debug($"  {s.Label,-10} Start={s.Start,10:F2} Duration={s.Duration,8:F2} End={s.Start + s.Duration,10:F2}");
         }
 
         return merged;

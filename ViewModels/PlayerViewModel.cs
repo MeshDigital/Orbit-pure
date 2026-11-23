@@ -1102,7 +1102,7 @@ namespace SLSKDONET.ViewModels
                         // deleted since the path was resolved) — nothing playable made it into the
                         // queue. "Playing Album" already fired before this event was processed, so
                         // without this the user sees that toast and then silence with zero clue why.
-                        Console.WriteLine($"[PlayerViewModel] PlayAlbumRequestEvent had {evt.Tracks.Count()} track(s) but none had a file that still exists on disk");
+                        Serilog.Log.Warning("[PlayerViewModel] PlayAlbumRequestEvent had {Count} track(s) but none had a file that still exists on disk", evt.Tracks.Count());
                     }
                 });
             }).DisposeWith(_disposables);
@@ -1824,7 +1824,7 @@ namespace SLSKDONET.ViewModels
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[PlayerViewModel] Failed to save global like status: {ex.Message}");
+                Serilog.Log.Warning(ex, "[PlayerViewModel] Failed to save global like status");
                 // Revert on failure
                 IsCurrentTrackLiked = !newLikedStatus;
             }
@@ -2312,7 +2312,7 @@ namespace SLSKDONET.ViewModels
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"[PlayerViewModel] Auto transition point suggestion failed for {outgoingHash}->{incomingHash}: {ex.Message}");
+                            Serilog.Log.Warning(ex, "[PlayerViewModel] Auto transition point suggestion failed for {Out}->{In}", outgoingHash, incomingHash);
                         }
                     }
                 }
@@ -3025,7 +3025,7 @@ namespace SLSKDONET.ViewModels
 
         private bool LoadTrackCore(string filePath, string title, string artist, bool autoPlay, double? loudnessLufs = null)
         {
-            Console.WriteLine($"[PlayerViewModel] LoadTrackCore called with: {filePath} (autoPlay={autoPlay})");
+            Serilog.Log.Debug("[PlayerViewModel] LoadTrackCore called with: {Path} (autoPlay={AutoPlay})", filePath, autoPlay);
 
             // Phase 9.2: Show loading state
             Dispatcher.UIThread.Post(() =>
@@ -3119,7 +3119,7 @@ namespace SLSKDONET.ViewModels
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[PlayerViewModel] Failed to save queue: {ex.Message}");
+                Serilog.Log.Warning(ex, "[PlayerViewModel] Failed to save queue");
             }
         }
 
@@ -3145,7 +3145,7 @@ namespace SLSKDONET.ViewModels
                     // into a genuinely still-empty queue.
                     if (Queue.Count > 0)
                     {
-                        Console.WriteLine("[PlayerViewModel] Skipped restoring saved queue — a queue is already active");
+                        Serilog.Log.Information("[PlayerViewModel] Skipped restoring saved queue — a queue is already active");
                         return;
                     }
 
@@ -3180,12 +3180,12 @@ namespace SLSKDONET.ViewModels
                         CurrentTrack = Queue[currentIndex];
                     }
 
-                    Console.WriteLine($"[PlayerViewModel] Loaded {Queue.Count} tracks from saved queue" + (skipped > 0 ? $" ({skipped} skipped — file no longer exists)" : ""));
+                    Serilog.Log.Information("[PlayerViewModel] Loaded {Count} tracks from saved queue{Skipped}", Queue.Count, skipped > 0 ? $" ({skipped} skipped — file no longer exists)" : "");
                 });
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[PlayerViewModel] Failed to load queue: {ex.Message}");
+                Serilog.Log.Warning(ex, "[PlayerViewModel] Failed to load queue");
             }
         }
 

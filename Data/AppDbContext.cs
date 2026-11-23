@@ -116,7 +116,7 @@ public class AppDbContext : DbContext
         // Phase 1B: Enable Write-Ahead Logging
         command.CommandText = "PRAGMA journal_mode=WAL;";
         var result = command.ExecuteScalar()?.ToString();
-        System.Console.WriteLine($"[Phase 1B] Journal mode set to: {result}");
+        Serilog.Log.Information("[Phase 1B] Journal mode set to: {Mode}", result);
 
         // Set synchronous mode to NORMAL (safe with WAL, much faster than FULL)
         command.CommandText = "PRAGMA synchronous=NORMAL;";
@@ -134,7 +134,7 @@ public class AppDbContext : DbContext
         command.CommandText = "PRAGMA wal_autocheckpoint=1000;";
         command.ExecuteNonQuery();
 
-        System.Console.WriteLine("[Phase 1B] SQLite WAL mode enabled successfully");
+        Serilog.Log.Information("[Phase 1B] SQLite WAL mode enabled successfully");
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
