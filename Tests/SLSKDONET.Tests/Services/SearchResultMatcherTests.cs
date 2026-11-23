@@ -291,4 +291,48 @@ public class SearchResultMatcherTests
         // Assert
         Assert.True(anchoredResult.Score > plainResult.Score, $"Source anchors should improve score. Anchored={anchoredResult.Score}, Plain={plainResult.Score}");
     }
+
+    // #333: a plain-title request must not be satisfied by a remix/VIP/edit of it.
+    [Fact]
+    public void PlainTitleRequest_RejectsARemixCandidate_ButKeepsTheOriginal()
+    {
+        var model = new PlaylistTrack { Artist = "Frannabik", Title = "Down", CanonicalDuration = 240000 };
+        Track Candidate(string file) => new()
+        {
+            Length = 240, Filename = file,
+            PathSegments = new List<string> { "VA_-_REVISIONS_II-(EXPR2)-WEB-FLAC-2022" },
+        };
+
+        var remix = _matcher.CalculateMatchResult(model, Candidate("09_frannabik_-_down_(bad_legs_remix).flac"));
+        var original = _matcher.CalculateMatchResult(model, Candidate("05_frannabik_-_down.flac"));
+
+        Assert.True(remix.Score < 70, $"remix should fall under the acceptance bar, got {remix.Score}: {remix.ScoreBreakdown}");
+        Assert.Contains("Version: candidate is a remix", remix.ScoreBreakdown);
+        Assert.True(original.Score >= 70, $"original should pass, got {original.Score}: {original.ScoreBreakdown}");
+    }
+
+    [Fact]
+    public void RemixRequest_IsNotPenalisedForBeingARemix()
+    {
+        var model = new PlaylistTrack { Artist = "Frannabik", Title = "Down (Bad Legs Remix)", CanonicalDuration = 240000 };
+        var result = _matcher.CalculateMatchResult(model, new Track { Length = 240, Filename = "09_frannabik_-_down_(bad_legs_remix).flac" });
+        Assert.DoesNotContain("Version:", result.ScoreBreakdown);
+    }
+
+    [Theory]
+    [InlineData("Down (Bad Legs Remix)", "remix")]
+    [InlineData("09_frannabik_-_down_(bad_legs_remix)", "remix")]
+    [InlineData("Sinking VIP", "vip")]
+    [InlineData("Track (Someone Bootleg)", "bootleg")]
+    [InlineData("Track [Club Edit]", null)]           // same recording: neutral
+    [InlineData("Track (Original Mix)", null)]
+    [InlineData("Track (Extended Mix)", null)]
+    [InlineData("Track (Radio Edit)", null)]
+    [InlineData("Track (Dub Mix)", "dub")]
+    [InlineData("Track (Live at Fabric)", "live")]
+    [InlineData("Live Forever", null)]                // "live" outside brackets is part of the title
+    [InlineData("Dub Be Good To Me", null)]
+    [InlineData("Down", null)]
+    public void DerivativeVersionTag_ReadsVersionsNotTitles(string text, string? expected)
+        => Assert.Equal(expected, SearchResultMatcher.DerivativeVersionTag(text));
 }
