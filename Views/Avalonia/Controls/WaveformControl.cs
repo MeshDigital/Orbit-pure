@@ -322,13 +322,13 @@ namespace SLSKDONET.Views.Avalonia.Controls
         static WaveformControl()
         {
             AffectsRender<WaveformControl>(
-                WaveformDataProperty, 
-                ProgressProperty, 
-                IsRollingProperty, 
-                LowBandProperty, 
-                MidBandProperty, 
-                HighBandProperty, 
-                CuesProperty, 
+                WaveformDataProperty,
+                ProgressProperty,
+                IsRollingProperty,
+                LowBandProperty,
+                MidBandProperty,
+                HighBandProperty,
+                CuesProperty,
                 PhraseSegmentsProperty,
                 EnergyCurveProperty,
                 VocalDensityCurveProperty,
@@ -632,24 +632,24 @@ namespace SLSKDONET.Views.Avalonia.Controls
             // Zoom centered on mouse position
             var point = e.GetPosition(this);
             double mouseRatio = point.X / Bounds.Width;
-            
+
             // Calculate zoom delta (Ctrl+scroll for faster zoom)
             double zoomDelta = e.Delta.Y > 0 ? 1.2 : 0.8;
             double oldZoom = ZoomLevel;
             double newZoom = Math.Clamp(oldZoom * zoomDelta, 1.0, 16.0);
-            
+
             if (Math.Abs(newZoom - oldZoom) > 0.01)
             {
                 // Adjust offset to keep mouse position anchored
                 double visibleFraction = 1.0 / oldZoom;
                 double mousePosition = ViewOffset + (mouseRatio * visibleFraction);
-                
+
                 double newVisibleFraction = 1.0 / newZoom;
                 double newOffset = mousePosition - (mouseRatio * newVisibleFraction);
-                
+
                 ZoomLevel = newZoom;
                 ViewOffset = Math.Clamp(newOffset, 0, Math.Max(0, 1.0 - newVisibleFraction));
-                
+
                 _isDirty = true;
                 InvalidateVisual();
             }
@@ -886,7 +886,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
             {
                 double x = Math.Clamp(point.X, 0, Bounds.Width);
                 float newTime = (float)(XToFraction(x, Bounds.Width) * data.DurationSeconds);
-                
+
                 // Landmarks for snapping
                 var landmarks = PhraseSegments?.SelectMany(s => new[] { s.Start, s.Start + s.Duration }) ?? Enumerable.Empty<float>();
                 newTime = SnappingEngine.Snap(newTime, SnappingMode, Bpm, landmarks);
@@ -902,7 +902,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                     float minEnd = _draggedSegment.Start + 0.1f;
                     _draggedSegment.Duration = Math.Max(newTime - _draggedSegment.Start, 0.1f);
                 }
-                
+
                 InvalidateVisual();
             }
             else if (_isDraggingProgress)
@@ -945,12 +945,12 @@ namespace SLSKDONET.Views.Avalonia.Controls
              if (IsRolling)
              {
                   // In Rolling mode, clicking left/right of center seeks relative to playhead?
-                  // Or we just treat the whole strip as 0-1 range still? 
+                  // Or we just treat the whole strip as 0-1 range still?
                   // Usually, clicking a rolling waveform seeks to that spot.
-                  // For simplicity, let's keep the click 0-1 range for the static view, 
+                  // For simplicity, let's keep the click 0-1 range for the static view,
                   // and maybe a relative seek for rolling.
              }
-             
+
              var progress = Math.Clamp(XToFraction(point.X, Bounds.Width), 0.0, 1.0);
 
              if (SeekCommand != null && SeekCommand.CanExecute(progress))
@@ -1127,7 +1127,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
             var data = WaveformData;
             if (data == null || data.IsEmpty || data.PeakData == null || Bounds.Width <= 0 || Bounds.Height <= 0)
             {
-                context.DrawLine(new Pen(Brushes.Gray, 1), new Point(0, Bounds.Height / 2), new Point(Bounds.Width, Bounds.Height / 2));
+                context.DrawLine(RenderResourceCache.Pen(Colors.Gray, 1, 1), new Point(0, Bounds.Height / 2), new Point(Bounds.Width, Bounds.Height / 2));
                 return;
             }
 
@@ -1155,7 +1155,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
 
             // 0. Draw Vocal Ghost Layer (Behind everything)
-            var vocalCurve = VocalDensityCurve?.ToList();
+            var vocalCurve = VocalCurveList();
             if (ShowVocalGhost && vocalCurve != null && vocalCurve.Count > 0)
             {
                 context.Custom(new VocalGhostDrawOperation(new Rect(0, 0, width, height), vocalCurve, data.DurationSeconds, Progress, _ghostOpacity, IsRolling, ZoomLevel, ViewOffset));
@@ -1192,8 +1192,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
             // Draw hover seek cursor (semi-transparent white line, only when not dragging)
             if (_hoverX >= 0 && !_isDraggingProgress && !_isDraggingCue)
             {
-                var hoverPen = new Pen(new SolidColorBrush(Colors.White, 0.35), 1);
-                context.DrawLine(hoverPen, new Point(_hoverX, 0), new Point(_hoverX, height));
+                context.DrawLine(RenderResourceCache.Pen(HoverColor, 0.35, 1), new Point(_hoverX, 0), new Point(_hoverX, height));
 
                 // Time tooltip: show estimated position as % or mm:ss if duration known
                 if (WaveformData != null && WaveformData.DurationSeconds > 0)
@@ -1204,13 +1203,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                     int ss = (int)(hoverSecs % 60);
                     string timeLabel = $"{mm}:{ss:D2}";
 
-                    var tf = new FormattedText(
-                        timeLabel,
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        FlowDirection.LeftToRight,
-                        Typeface.Default,
-                        10,
-                        new SolidColorBrush(Colors.White, 0.75));
+                    var tf = _labels.Get(timeLabel, 10, FontWeight.Normal, HoverColor, 0.75);
 
                     double labelX = (_hoverX + 4 + tf.Width > width) ? _hoverX - tf.Width - 4 : _hoverX + 4;
                     context.DrawText(tf, new Point(labelX, 4));
@@ -1223,7 +1216,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
             double playheadX = IsRolling ? width / 2 : FractionToX(Progress, width);
             if (IsRolling || (playheadX >= 0 && playheadX <= width))
             {
-                context.DrawLine(new Pen(PlayheadBrush ?? Brushes.White, 2), new Point(playheadX, 0), new Point(playheadX, height));
+                context.DrawLine(PlayheadPen(), new Point(playheadX, 0), new Point(playheadX, height));
             }
 
             // Trigger-point marker (Mix Transition Editor) — a persistent flag distinct from the
@@ -1235,18 +1228,9 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 double triggerX = FractionToX(shownTrigger.Value / data.DurationSeconds, width);
                 if (triggerX >= -1 && triggerX <= width + 1)
                 {
-                    var markerBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0xD7, 0x00)); // amber — distinct from the white playhead
-                    context.DrawLine(new Pen(markerBrush, 2), new Point(triggerX, 0), new Point(triggerX, height));
-                    const double flagSize = 8;
-                    var flag = new StreamGeometry();
-                    using (var ctx = flag.Open())
-                    {
-                        ctx.BeginFigure(new Point(triggerX, 0), true);
-                        ctx.LineTo(new Point(triggerX + flagSize, flagSize * 0.6));
-                        ctx.LineTo(new Point(triggerX, flagSize * 1.2));
-                        ctx.EndFigure(true);
-                    }
-                    context.DrawGeometry(markerBrush, null, flag);
+                    context.DrawLine(RenderResourceCache.Pen(TriggerColor, 1, 2), new Point(triggerX, 0), new Point(triggerX, height));
+                    using (context.PushTransform(Matrix.CreateTranslation(triggerX, 0)))
+                        context.DrawGeometry(RenderResourceCache.Brush(TriggerColor), null, TriggerFlag);
                 }
             }
 
@@ -1257,10 +1241,8 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 WaveformData.DurationSeconds > 0 && _snapHighlightAlpha > 0)
             {
                 double snapX = (_snapHighlightSeconds / WaveformData.DurationSeconds) * width;
-                var glowBrush = new SolidColorBrush(Color.FromRgb(0, 207, 255), _snapHighlightAlpha * 0.25f);
-                context.DrawRectangle(glowBrush, null, new Rect(snapX - 4, 0, 8, height));
-                var linePen = new Pen(new SolidColorBrush(Color.FromRgb(0, 207, 255), _snapHighlightAlpha), 2);
-                context.DrawLine(linePen, new Point(snapX, 0), new Point(snapX, height));
+                context.DrawRectangle(RenderResourceCache.Brush(SnapColor, _snapHighlightAlpha * 0.25f), null, new Rect(snapX - 4, 0, 8, height));
+                context.DrawLine(RenderResourceCache.Pen(SnapColor, _snapHighlightAlpha, 2), new Point(snapX, 0), new Point(snapX, height));
             }
         }
 
@@ -1352,7 +1334,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
         private static readonly Pen StaticBasePen = new Pen(Brushes.DimGray, 1);
         private static readonly Pen StaticPlayedPen = new Pen(Brushes.DeepSkyBlue, 1);
-        
+
         // Cache for RGB pens to avoid allocations
         private static readonly Pen LowBasePen = new Pen(new SolidColorBrush(Color.FromRgb(100, 0, 0), 0.35f * 0.8f), 1);
         private static readonly Pen LowPlayedPen = new Pen(new SolidColorBrush(Colors.Red, 0.8f), 1);
@@ -1397,7 +1379,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
             // detail thinly and only let a quarter of it land on-screen at 4x zoom.
             int targetColumns = Math.Max(1, (int)(width * Math.Max(1.0, zoom)));
             int stride = Math.Max(1, samples / targetColumns);
-            
+
             // Segmented Energy Tinting (Phase 25)
             var energyList = SegmentedEnergy?.ToList();
             var cuesList = Cues?.OrderBy(c => c.Timestamp).ToList();
@@ -1423,7 +1405,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
             int safeLen = Math.Min(samples, Math.Min(peak.Length, Math.Min(low.Length, Math.Min(midB.Length, high.Length))));
             for (int i = 0; i < safeLen; i += stride)
             {
-                
+
                 double h = Math.Min((peak[i] / 255.0) * mid * gain, mid);
                 if (h < 0.5) continue;
 
@@ -1455,7 +1437,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                         byte r = (byte)Math.Clamp((l * lowColor.R + m * midColor.R + hf * highColor.R) / total, 0, 255);
                         byte g = (byte)Math.Clamp((l * lowColor.G + m * midColor.G + hf * highColor.G) / total, 0, 255);
                         byte b = (byte)Math.Clamp((l * lowColor.B + m * midColor.B + hf * highColor.B) / total, 0, 255);
-                        
+
                         // Apply Energy Temperature (MIK Parity: Blue -> Green -> Yellow -> Red)
                         // This uses a spectral shift based on energyTint (0.0 - 1.0)
                         float t = energyTint;
@@ -1470,7 +1452,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
                         bool isPlayed = isRolling ? (i <= playedLimit) : isActive;
                         float opacity = isPlayed ? 1.0f : 0.35f;
-                    
+
                     var col = Color.FromArgb((byte)(opacity * 255), r, g, b);
                     context.DrawLine(GetOrCreateRgbColumnPen(col), new Point(x, mid - h), new Point(x, mid + h));
                 }
@@ -1534,7 +1516,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
             double pixelsPerSec = width / windowSec;
             double currentSec = Progress * data.DurationSeconds;
             double startSec = currentSec - (windowSec / 2);
-            
+
             int samplesPerSec = (int)(data.PeakData!.Length / data.DurationSeconds);
             int startIdx = (int)(startSec * samplesPerSec);
             double startX = (width / 2) + ( (startSec - currentSec) * pixelsPerSec );
@@ -1546,7 +1528,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
             if (hasRgb)
             {
-                // step = pixels per sample. 
+                // step = pixels per sample.
                 // pixelsPerSec = width / 10.0
                 // samplesPerSec = total_samples / duration
                 // step = pixelsPerSec / samplesPerSec
@@ -1586,6 +1568,60 @@ namespace SLSKDONET.Views.Avalonia.Controls
         // InvalidateVisual() from OnPointerMoved (segments don't change between hover frames).
         private System.Collections.Generic.IEnumerable<PhraseSegment>? _sortedPhraseSegmentsSource;
         private List<PhraseSegment>? _sortedPhraseSegmentsCache;
+
+        // ── Per-frame drawing resources (#318): nothing below is allocated inside a frame ──────
+        private static readonly Color HoverColor = Colors.White;
+        private static readonly Color TriggerColor = Color.FromRgb(0xFF, 0xD7, 0x00); // amber — distinct from the white playhead
+        private static readonly Color SnapColor = Color.FromRgb(0, 207, 255);
+        private static readonly Color EnergyCurveColor = Color.FromRgb(255, 255, 0);
+        private static readonly Color VocalCurveColor = Color.FromRgb(189, 16, 224);
+        private static readonly Color SuggestedLabelBackground = Color.Parse("#553D2E");
+        private static readonly StreamGeometry TriggerFlag = BuildTriggerFlag();
+        private readonly FormattedTextCache _labels = new();
+        private readonly Dictionary<(System.Collections.Generic.IEnumerable<float> Points, double Width, double Height), StreamGeometry> _curveGeometries = new();
+        private readonly List<(double X, OrbitCue Cue, Color Color)> _regularCues = new();
+        private readonly Dictionary<(string Name, bool Suggested), string> _shortLabels = new();
+        private List<float>? _vocalCurveList;
+        private System.Collections.Generic.IEnumerable<float>? _vocalCurveSource;
+        private IBrush? _playheadPenBrush;
+        private IPen? _playheadPen;
+
+        private static StreamGeometry BuildTriggerFlag()
+        {
+            const double flagSize = 8;
+            var flag = new StreamGeometry();
+            using (var ctx = flag.Open())
+            {
+                ctx.BeginFigure(new Point(0, 0), true);
+                ctx.LineTo(new Point(flagSize, flagSize * 0.6));
+                ctx.LineTo(new Point(0, flagSize * 1.2));
+                ctx.EndFigure(true);
+            }
+            return flag;
+        }
+
+        /// <summary>The vocal curve as a list, re-materialised only when the bound collection changes.</summary>
+        private List<float>? VocalCurveList()
+        {
+            var source = VocalDensityCurve;
+            if (!ReferenceEquals(source, _vocalCurveSource))
+            {
+                _vocalCurveSource = source;
+                _vocalCurveList = source?.ToList();
+            }
+            return _vocalCurveList;
+        }
+
+        private IPen PlayheadPen()
+        {
+            var brush = PlayheadBrush ?? Brushes.White;
+            if (!ReferenceEquals(brush, _playheadPenBrush) || _playheadPen is null)
+            {
+                _playheadPenBrush = brush;
+                _playheadPen = RenderResourceCache.Pen(brush, 2);
+            }
+            return _playheadPen;
+        }
 
         private void RenderPhraseSegments(DrawingContext context, double width, double height)
         {
@@ -1635,8 +1671,8 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
                 if (IsEditing)
                 {
-                    var handleBrush = new SolidColorBrush(labelColor, 0.85f);
-                    var handlePen = new Pen(handleBrush, 2);
+                    var handleBrush = RenderResourceCache.Brush(labelColor, 0.85f);
+                    var handlePen = RenderResourceCache.Pen(labelColor, 0.85f, 2);
 
                     context.DrawRectangle(handleBrush, null, new Rect(x - HandleWidth / 2, 0, HandleWidth, 15));
                     context.DrawLine(handlePen, new Point(x, 15), new Point(x, height));
@@ -1645,8 +1681,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                     context.DrawLine(handlePen, new Point(nextX, 0), new Point(nextX, height - 15));
                 }
 
-                var typeface = new Typeface(FontFamily.Default, FontStyle.Normal, FontWeight.Bold);
-                var formattedText = new FormattedText(s.Label.ToUpper(), System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 9, new SolidColorBrush(labelColor, 0.72f));
+                var formattedText = _labels.Get(s.Label.ToUpperInvariant(), 9, FontWeight.Bold, labelColor, 0.72f);
                 context.DrawText(formattedText, new Point(x + 4, height - formattedText.Height - 4));
             }
         }
@@ -1666,49 +1701,55 @@ namespace SLSKDONET.Views.Avalonia.Controls
             if (label.Contains("outro", StringComparison.OrdinalIgnoreCase))
                 return (OutroPhraseBrush, Color.Parse("#AAB7C4"));
 
-            var parsed = !string.IsNullOrWhiteSpace(segment.Color) ? Color.Parse(segment.Color) : Color.Parse("#708090");
-            return (new SolidColorBrush(parsed, 0.16f), parsed);
+            var parsed = RenderResourceCache.ParseColor(segment.Color, Color.FromRgb(0x70, 0x80, 0x90));
+            return (RenderResourceCache.Brush(parsed, 0.16f), parsed);
         }
 
         private void RenderCurves(DrawingContext context, double width, double height)
         {
             var energy = EnergyCurve;
             var vocals = VocalDensityCurve;
-            
+
             if (energy == null && vocals == null) return;
 
             // Draw Energy Curve (Yellow glow)
             if (energy != null && ShowEnergyCurve)
             {
-                RenderCurve(context, energy, width, height, Color.FromRgb(255, 255, 0), 0.6f);
+                RenderCurve(context, energy, width, height, EnergyCurveColor, 0.6f);
             }
 
             // Draw Vocal Curve (Purple glow) — same toggle as the vocal ghost pulse layer, one
             // "show vocal info" setting rather than splitting it into two.
             if (vocals != null && ShowVocalGhost)
             {
-                RenderCurve(context, vocals, width, height, Color.FromRgb(189, 16, 224), 0.5f);
+                RenderCurve(context, VocalCurveList() ?? vocals, width, height, VocalCurveColor, 0.5f);
             }
         }
 
         private void RenderCurve(DrawingContext context, System.Collections.Generic.IEnumerable<float> points, double width, double height, Color color, float opacity)
         {
-            var list = System.Linq.Enumerable.ToList(points);
-            if (list.Count < 2) return;
-
-            double step = width / (list.Count - 1);
-            var geom = new StreamGeometry();
-            using (var ctx = geom.Open())
+            // The curve only changes when its data or the control size does (#318): reuse the geometry.
+            var key = (points, width, height);
+            if (!_curveGeometries.TryGetValue(key, out var geom))
             {
-                ctx.BeginFigure(new Point(0, height - (list[0] * height)), false);
-                for (int i = 1; i < list.Count; i++)
+                var list = points as IReadOnlyList<float> ?? System.Linq.Enumerable.ToList(points);
+                if (list.Count < 2) return;
+
+                double step = width / (list.Count - 1);
+                geom = new StreamGeometry();
+                using (var ctx = geom.Open())
                 {
-                    ctx.LineTo(new Point(i * step, height - (list[i] * height)));
+                    ctx.BeginFigure(new Point(0, height - (list[0] * height)), false);
+                    for (int i = 1; i < list.Count; i++)
+                    {
+                        ctx.LineTo(new Point(i * step, height - (list[i] * height)));
+                    }
                 }
+                if (_curveGeometries.Count >= 8) _curveGeometries.Clear();
+                _curveGeometries[key] = geom;
             }
 
-            var brush = new SolidColorBrush(color, opacity);
-            context.DrawGeometry(null, new Pen(brush, 1.5, lineCap: PenLineCap.Round, lineJoin: PenLineJoin.Round), geom);
+            context.DrawGeometry(null, RenderResourceCache.Pen(color, opacity, 1.5, PenLineCap.Round, PenLineJoin.Round), geom);
         }
 
         private void RenderCues(DrawingContext context, double width, double height)
@@ -1716,8 +1757,6 @@ namespace SLSKDONET.Views.Avalonia.Controls
             var cues = Cues;
             var data = WaveformData;
             if (cues == null || data == null || data.DurationSeconds <= 0) return;
-
-            var typeface = new Typeface(FontFamily.Default, FontStyle.Normal, FontWeight.Bold);
 
             // Loop regions first (their in/out lines + label are wide apart by nature — the
             // collision problem below is specific to regular point cues, which cluster tightly
@@ -1728,18 +1767,18 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 double x = GetCueX(cue, data);
                 if (x > width) continue;
 
-                var color = Color.Parse(cue.Color ?? "#FFFFFF");
+                var color = RenderResourceCache.ParseColor(cue.Color, Colors.White);
                 double xEnd = FractionToX(cue.LoopEndSeconds / data.DurationSeconds, width);
                 if (x < 0) x = 0;
                 if (xEnd > width) xEnd = width;
                 double bandWidth = xEnd - x;
                 if (bandWidth > 0)
                 {
-                    context.DrawRectangle(new SolidColorBrush(color, 0.18), null, new Rect(x, 0, bandWidth, height));
-                    context.DrawLine(new Pen(new SolidColorBrush(color, 1.0), 2), new Point(x, 0), new Point(x, height));
-                    context.DrawLine(new Pen(new SolidColorBrush(color, 0.7), 2), new Point(xEnd, 0), new Point(xEnd, height));
-                    var ft = new FormattedText(cue.Name ?? "Loop", System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 10, new SolidColorBrush(color));
-                    context.DrawRectangle(new SolidColorBrush(Colors.Black, 0.6), null, new Rect(x + 4, 2, ft.Width + 4, ft.Height));
+                    context.DrawRectangle(RenderResourceCache.Brush(color, 0.18), null, new Rect(x, 0, bandWidth, height));
+                    context.DrawLine(RenderResourceCache.Pen(color, 1.0, 2), new Point(x, 0), new Point(x, height));
+                    context.DrawLine(RenderResourceCache.Pen(color, 0.7, 2), new Point(xEnd, 0), new Point(xEnd, height));
+                    var ft = _labels.Get(cue.Name ?? "Loop", 10, FontWeight.Bold, color);
+                    context.DrawRectangle(RenderResourceCache.Brush(Colors.Black, 0.6), null, new Rect(x + 4, 2, ft.Width + 4, ft.Height));
                     context.DrawText(ft, new Point(x + 6, 2));
                 }
             }
@@ -1750,16 +1789,17 @@ namespace SLSKDONET.Views.Avalonia.Controls
             // so tier assignment is stable and cues that cluster right before a drop (the classic
             // "32 Beats to Drop 1" / "16 Beats to Drop 1" / "Drop 1" trio, a few seconds apart)
             // stagger onto separate rows instead of stacking into illegible mush.
-            var regular = new List<(double X, OrbitCue Cue, Color Color)>();
+            var regular = _regularCues;
+            regular.Clear();
             foreach (var cue in cues)
             {
                 if (cue.IsLoop && cue.LoopEndSeconds > cue.Timestamp) continue;
                 double x = GetCueX(cue, data);
                 if (x > width || x < 0) continue;
 
-                var color = Color.Parse(cue.Color ?? "#FFFFFF");
+                var color = RenderResourceCache.ParseColor(cue.Color, Colors.White);
                 bool suggested = cue.IsSuggested;
-                context.DrawLine(new Pen(new SolidColorBrush(color, suggested ? 1.0 : 0.8), suggested ? 3 : 2), new Point(x, 0), new Point(x, height));
+                context.DrawLine(RenderResourceCache.Pen(color, suggested ? 1.0 : 0.8, suggested ? 3 : 2), new Point(x, 0), new Point(x, height));
                 regular.Add((x, cue, color));
             }
 
@@ -1769,14 +1809,20 @@ namespace SLSKDONET.Views.Avalonia.Controls
             var tierRightEdge = new double[maxTiers];
             for (int i = 0; i < maxTiers; i++) tierRightEdge[i] = double.NegativeInfinity;
 
-            foreach (var (x, cue, color) in regular.OrderBy(c => c.X))
+            regular.Sort(static (a, b) => a.X.CompareTo(b.X));
+            foreach (var (x, cue, color) in regular)
             {
                 bool suggested = cue.IsSuggested;
-                var label = ShortenApproachMarkerLabel(cue.Name ?? cue.Role.ToString());
-                if (suggested) label = $"★ {label}";
+                var name = cue.Name ?? cue.Role.ToString();
+                if (!_shortLabels.TryGetValue((name, suggested), out var label))
+                {
+                    if (_shortLabels.Count > 512) _shortLabels.Clear();
+                    label = ShortenApproachMarkerLabel(name);
+                    if (suggested) label = "★ " + label;
+                    _shortLabels[(name, suggested)] = label;
+                }
 
-                IBrush labelBrush = suggested ? Brushes.Gold : new SolidColorBrush(color);
-                var ft = new FormattedText(label, System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 10, labelBrush);
+                var ft = _labels.Get(label, 10, FontWeight.Bold, suggested ? Colors.Gold : color);
 
                 int tier = 0;
                 while (tier < maxTiers - 1 && x < tierRightEdge[tier] + labelGap) tier++;
@@ -1791,11 +1837,11 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 // label still reads as "belongs to that line", not "belongs to wherever it landed".
                 if (labelX > x + 4 + 0.5)
                 {
-                    context.DrawLine(new Pen(new SolidColorBrush(color, 0.5), 1),
+                    context.DrawLine(RenderResourceCache.Pen(color, 0.5, 1),
                         new Point(x, y + ft.Height), new Point(labelX, y + ft.Height));
                 }
 
-                context.DrawRectangle(new SolidColorBrush(suggested ? Color.Parse("#553D2E") : Colors.Black, suggested ? 0.85 : 0.6), null, new Rect(labelX, y, ft.Width + 4, ft.Height));
+                context.DrawRectangle(RenderResourceCache.Brush(suggested ? SuggestedLabelBackground : Colors.Black, suggested ? 0.85 : 0.6), null, new Rect(labelX, y, ft.Width + 4, ft.Height));
                 context.DrawText(ft, new Point(labelX + 2, y));
 
                 tierRightEdge[tier] = labelX + ft.Width + 4;
@@ -1858,9 +1904,9 @@ namespace SLSKDONET.Views.Avalonia.Controls
             var width = (float)Bounds.Width;
             var height = (float)Bounds.Height;
             var samples = _vocalData.Count;
-            
+
             // Neon Purple (#B450FF) -> SKColor
-            var baseColor = new SKColor(180, 80, 255, (byte)(_opacity * 255)); 
+            var baseColor = new SKColor(180, 80, 255, (byte)(_opacity * 255));
 
             using var paint = new SKPaint
             {
@@ -1869,7 +1915,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 IsAntialias = true,
                 Style = SKPaintStyle.Fill
             };
-            
+
             // Create Gradient Shader (Vertical)
             var colors = new SKColor[] { SKColors.Transparent, baseColor, SKColors.Transparent };
             var pos = new float[] { 0.0f, 0.5f, 1.0f };
@@ -1879,47 +1925,47 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 colors,
                 pos,
                 SKShaderTileMode.Clamp);
-            
+
             paint.Shader = shader;
 
             double duration = _duration > 0 ? _duration : 1.0;
-            
+
             // Visible Range
             double visibleDuration = duration / _zoom;
             double startTime = _offset * duration;
             double endTime = startTime + visibleDuration;
-            
+
             int startIndex = (int)((startTime / duration) * samples);
             int endIndex = (int)((endTime / duration) * samples);
-            
+
             startIndex = Math.Clamp(startIndex, 0, samples - 1);
             endIndex = Math.Clamp(endIndex, 0, samples - 1);
-            
+
             int range = endIndex - startIndex;
             if (range <= 0) { canvas.Restore(); return; }
 
             // Step size for performance
-            int step = Math.Max(1, range / (int)width); 
+            int step = Math.Max(1, range / (int)width);
 
             float lastX = -1;
-            
+
             for (int i = startIndex; i < endIndex; i += step)
             {
                 if (i >= _vocalData.Count) break;
-                
-                float prob = _vocalData[i]; 
-                
+
+                float prob = _vocalData[i];
+
                 // Logic: InstProb < 0.2 means High Vocal Presence (Vocal Pocket)
-                if (prob < 0.2f) 
+                if (prob < 0.2f)
                 {
                     // Map index to X
                     double sampleTime = (i / (double)samples) * duration;
                     double relTime = sampleTime - startTime;
                     double relPos = relTime / visibleDuration;
-                    
+
                     float x = (float)(relPos * width);
                     float w = Math.Max(1.0f, (float)(width / range) * step);
-                    
+
                     if (x > lastX)
                     {
                         canvas.DrawRect(x, 0, w, height, paint);
