@@ -1712,7 +1712,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         var stalledUser = ctx.CurrentUsername;
         if (!string.IsNullOrEmpty(stalledUser))
         {
-            ctx.BlacklistedUsers.Add(stalledUser);
+            lock (ctx.BlacklistedUsers) ctx.BlacklistedUsers.Add(stalledUser); // HashSet isn't thread-safe
             _logger.LogWarning("⚠️ Health Monitor: Blacklisting peer {User} for {Track}", stalledUser, ctx.Model.Title);
 
             // Record failure/stall status to deprioritize bad peers in future searches
