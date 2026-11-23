@@ -94,6 +94,11 @@ public sealed class DemucsOnnxSeparator : IStemSeparator, IDisposable
                 _logger?.LogWarning(ex, "Demucs ONNX: DirectML unavailable, falling back to CPU. Stem separation will be slower.");
             }
 
+            var integrity = _modelManager.CheckIntegrity();
+            if (integrity is not (DemucsModelIntegrity.Verified or DemucsModelIntegrity.Unpinned))
+                throw new InvalidOperationException(_modelManager.UnusableReason() ?? "Demucs model integrity check failed");
+            if (integrity == DemucsModelIntegrity.Unpinned)
+                _logger?.LogWarning("Demucs ONNX: loading an unverified model (no checksum pinned yet), SHA-256 {Sha256}", _modelManager.Sha256);
             _session = new InferenceSession(_modelManager.ModelPath, sessionOptions);
             return _session;
         }
@@ -109,11 +114,12 @@ public sealed class DemucsOnnxSeparator : IStemSeparator, IDisposable
         if (!hardware.IsAllowed)
             throw new InvalidOperationException($"Stem separation is switched off on this PC. {hardware.Reason}");
 
-        if (!IsAvailable)
-            throw new FileNotFoundException(
-                $"Demucs-4s ONNX model not found at '{_modelManager.ModelPath}'. " +
-                $"Download from: {DemucsModelManager.ModelDownloadUrl}",
-                _modelManager.ModelPath);
+        // Integrity first (#319): a file that doesn't match the pinned checksum is never loaded.
+        if (_modelManager.UnusableReason() is { } reason)
+        {
+            _logger?.LogWarning("Demucs ONNX: {Reason}", reason);
+            throw new FileNotFoundException(reason, _modelManager.ModelPath);
+        }
 
         return await Task.Run(
             () => SeparateInternal(inputFilePath, outputDirectory, cancellationToken),

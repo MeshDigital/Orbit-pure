@@ -30,7 +30,7 @@ internal static class VocalStemBench
 
         if (!separator.IsAvailable)
         {
-            Console.Error.WriteLine($"Demucs model not found at '{model.ModelPath}'. Download from {DemucsModelManager.ModelDownloadUrl}.");
+            Console.Error.WriteLine(model.UnusableReason() ?? $"Demucs model not usable at '{model.ModelPath}'.");
             return 2;
         }
 
