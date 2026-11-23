@@ -224,6 +224,8 @@ public sealed class FeedbackReportService
         sb.AppendLine("ORBIT feedback report");
         sb.AppendLine(inv, $"Created:      {now:yyyy-MM-dd HH:mm:ss} ({TimeZoneInfo.Local.Id})");
         sb.AppendLine(inv, $"Version:      {version}");
+        sb.AppendLine(inv, $"Setup ver.:   {SLSKDONET.Services.Setup.FirstRunDetector.CurrentSetupVersion}");
+        sb.AppendLine(inv, $"Install:      {InstallKind(AppContext.BaseDirectory)}");
         sb.AppendLine(inv, $"OS:           {RuntimeInformation.OSDescription} ({RuntimeInformation.OSArchitecture})");
         sb.AppendLine(inv, $"Runtime:      {RuntimeInformation.FrameworkDescription}");
         sb.AppendLine(inv, $"Culture:      {CultureInfo.CurrentCulture.Name} / UI {CultureInfo.CurrentUICulture.Name}");
@@ -241,6 +243,17 @@ public sealed class FeedbackReportService
         sb.AppendLine();
         sb.AppendLine(inv, $"Log window: last {(int)LogWindow.TotalMinutes} minutes from {(logFiles.Count == 0 ? "(none)" : string.Join(", ", logFiles))}");
         return sb.ToString();
+    }
+
+    /// <summary>How this copy was installed (#335): the Inno Setup installer leaves unins000.exe beside the exe.</summary>
+    internal static string InstallKind(string baseDirectory)
+    {
+        if (File.Exists(Path.Combine(baseDirectory, "unins000.exe"))) return "installer";
+        var normalised = baseDirectory.Replace('\\', '/');
+        if (normalised.Contains("/bin/Debug/", StringComparison.OrdinalIgnoreCase)
+            || normalised.Contains("/bin/Release/", StringComparison.OrdinalIgnoreCase))
+            return "development build";
+        return "portable (zip)";
     }
 
     private static string YesNo(bool? value) => value switch { true => "yes", false => "no", null => "unknown" };

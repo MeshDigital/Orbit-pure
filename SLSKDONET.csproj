@@ -13,6 +13,9 @@
          every build at version 0.0.0.0. InternalsVisibleTo is an item further down. -->
     <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
     <Version>0.4.0</Version>
+    <!-- The commit is appended to InformationalVersion ("0.4.0+abc1234", #335) so feedback reports and About
+         identify the exact build; the SourceRevisionId target below fills it from git when available. -->
+    <IncludeSourceRevisionInInformationalVersion>true</IncludeSourceRevisionInInformationalVersion>
     <Authors>SLSK_CSV Contributors</Authors>
     <Description>Soulseek batch downloader using Soulseek.NET - Cross-platform with Avalonia UI</Description>
     <!-- Embeds the icon into the compiled exe itself (Explorer, Alt-Tab, and the taskbar's
@@ -209,4 +212,14 @@
              Properties="Configuration=$(Configuration);OutDir=$([System.IO.Path]::Combine($(MSBuildProjectDirectory), $(OutDir)))Tools\RekordboxBridge\" />
   </Target>
 
+  <!-- #335: stamp the short git commit into InformationalVersion. No git (source tarball) → no suffix, no error. -->
+  <Target Name="OrbitSourceRevisionId" BeforeTargets="InitializeSourceControlInformation;GetAssemblyVersion;GenerateAssemblyInfo" Condition="'$(SourceRevisionId)' == ''">
+    <Exec Command="git rev-parse --short=8 HEAD" ConsoleToMSBuild="true" StandardOutputImportance="low" StandardErrorImportance="low" IgnoreExitCode="true" ContinueOnError="true" WorkingDirectory="$(MSBuildProjectDirectory)">
+      <Output TaskParameter="ConsoleOutput" PropertyName="OrbitGitSha" />
+      <Output TaskParameter="ExitCode" PropertyName="OrbitGitExit" />
+    </Exec>
+    <PropertyGroup Condition="'$(OrbitGitExit)' == '0' And '$(OrbitGitSha)' != ''">
+      <SourceRevisionId>$(OrbitGitSha)</SourceRevisionId>
+    </PropertyGroup>
+  </Target>
 </Project>
