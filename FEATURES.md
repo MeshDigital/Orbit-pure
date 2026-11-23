@@ -77,7 +77,7 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
   Inspector rather than a single winner-takes-all label — replaces a previously silently-dead
   Essentia TensorFlow layer that produced empty results for every track
   (see [ARCHITECTURE.md](ARCHITECTURE.md) → Real-Time Genre, Mood & Embeddings)
-- **Stem Separation**: Real-time vocal/accompaniment isolation (optional ONNX/Spleeter) with model-version-aware caching
+- **Stem Separation**: Demucs v4 4-stem separation (ONNX Runtime, DirectML or CPU) with model-version-aware caching
 - **Stem Cache Versioning**: Cache keys include model tag (e.g. `spleeter-5stems!{hash}_{start}_{dur}_{stem}.wav`); `PurgeStaleEntriesAsync` auto-evicts stems from superseded models on upgrade
 - **Spectral Forensics**: Frequency cutoff detection and energy distribution analysis
 - **Quality Metrics**: Dynamic range, loudness, and true peak measurements

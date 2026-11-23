@@ -546,41 +546,22 @@ EffnetClassifierHeadService            Services/Similarity/EffnetClassifierHeadS
 
 ### Stem Separation (`Services/StemSeparationService.cs`)
 
-`StemSeparationService` coordinates a three-tier provider chain:
+Stem separation has one engine: **Demucs v4 (4-stem) on ONNX Runtime**.
 
 ```
 Track File
     │
     ▼
-1. SpleeterCliSeparator   (highest accuracy – requires spleeter Python CLI)
-    │  on failure ↓
-2. OnnxStemSeparator      (DirectML GPU – requires spleeter-5stems.onnx model)
-    │  on failure ↓
-3. Mock Fallback           (zero external dependencies – silent WAV stubs)
+CachedStemSeparator          (cache-through, keyed by the model tag)
+    │  cache miss ↓
+DemucsOnnxSeparator          (DirectML GPU → CPU fallback; chunked overlap-add inference)
+    │  model: demucs-4s.onnx, checked against a pinned SHA-256 (DemucsModelManager, #319)
 ```
 
-Separated stem WAV files are cached under `%APPDATA%/Antigravity/Stems/<trackId>/`
-and reused on subsequent requests (`HasStems` check).
-
-Cache keys embed the active model tag (e.g. `spleeter-5stems!{hash}_{start}_{dur}_{stem}.wav`).
-`StemCacheService.PurgeStaleEntriesAsync(currentModelTag)` removes stems produced by superseded
-models so that a model upgrade triggers a clean re-separation rather than serving stale output.
-`IStemSeparator` exposes a `ModelTag` property that each provider implements independently.
-
-#### Spleeter CLI Provider (`Services/Audio/Separation/SpleeterCliSeparator.cs`)
-
-- Invokes the `spleeter separate -p spleeter:4stems` command.
-- Checks availability with `spleeter --version` before dispatch.
-- Streams stdout/stderr to the console for real-time diagnostics.
-- Cancellation is forwarded via `CancellationToken` → `Process.Kill()`.
-
-#### ONNX DirectML Provider (`Services/Audio/Separation/OnnxStemSeparator.cs`)
-
-- Loads `Tools/Essentia/models/spleeter-5stems.onnx`.
-- Appends the **DirectML** execution provider (`AppendExecutionProvider_DML(deviceId: 0)`)
-  for GPU inference; silently falls back to CPU if DirectML is unavailable.
-- De-interleaves stereo audio into a `[samples, 2]` tensor, runs inference, and
-  re-interleaves each stem output back to WAV.
+Separated stems are cached by `StemCacheService`; cache keys embed the model tag (a SHA-256 prefix of the
+model file), and `PurgeStaleEntriesAsync(currentModelTag)` removes stems from a superseded model, so a model
+change triggers a clean re-separation. The old Spleeter CLI and Spleeter-ONNX providers, the 197 MB Spleeter
+TensorFlow model and the `RealTimeStemEngine` prototype were removed as dead code (#320, #321).
 
 #### DSP Support (`Services/Audio/Separation/DSP/`)
 
@@ -637,8 +618,9 @@ dependency and handles the GPU ↔ CPU fallback at the ONNX Runtime level.
 - `Data/Essentia/EssentiaModels.cs`
 - `Services/StemSeparationService.cs`
 - `Services/Audio/Separation/IStemSeparator.cs`
-- `Services/Audio/Separation/SpleeterCliSeparator.cs`
-- `Services/Audio/Separation/OnnxStemSeparator.cs`
+- `Services/Audio/Separation/DemucsOnnxSeparator.cs`
+- `Services/Audio/Separation/DemucsModelManager.cs`
+- `Services/Audio/Separation/CachedStemSeparator.cs`
 - `Services/Audio/Separation/DSP/ExactSTFT.cs`
 - `Services/Audio/Separation/DSP/TensorUtils.cs`
 - `Services/AnalysisQueueService.cs`
