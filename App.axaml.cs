@@ -1126,6 +1126,9 @@ public partial class App : Application
         services.AddSingleton<Services.Audio.ITransitionPreviewPlayer, Services.Audio.TransitionPreviewPlayer>();
         services.AddSingleton<Services.IWaveformCacheService, Services.WaveformCacheService>();
 
+        // ── Vocal activity (#285): on-demand vocal span/density from the Demucs vocal stem ──
+        services.AddSingleton<Services.AudioAnalysis.IVocalActivityService, Services.AudioAnalysis.VocalActivityService>();
+
         // ── Edit Lab: stems + track editing (replaces the old, unreachable Stems page) ──
         // None of these do I/O in their constructors, so they can't poison the container.
         services.AddSingleton<SLSKDONET.Services.EditLab.EditProjectStore>(sp =>

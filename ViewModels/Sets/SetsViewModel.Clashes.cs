@@ -52,7 +52,14 @@ public sealed partial class SetsViewModel
         try
         {
             var slots = Slots.Select(s => new ClashSlot(s.SlotId, s.Number, s.Slot.TrackUniqueHash, s.Title, s.Artist, s.Slot.Bpm)).ToList();
-            var mix = await _sets.GetMixDataAsync(slots.Select(s => s.TrackUniqueHash).ToList());
+            var hashes = slots.Select(s => s.TrackUniqueHash).ToList();
+
+            // On-demand vocal data (#285): the vocal span/density are only derived from the Demucs
+            // vocal stem when the DJ checks clashes, so tracks missing them get measured here (cached).
+            if (_vocalActivity is not null)
+                await _vocalActivity.EnsureVocalDataAsync(hashes);
+
+            var mix = await _sets.GetMixDataAsync(hashes);
 
             var fits = new Dictionary<(string, string), double>();
             if (_sectionVectors is not null)

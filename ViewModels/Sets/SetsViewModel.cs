@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using ReactiveUI;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Services;
+using SLSKDONET.Services.AudioAnalysis;
 using SLSKDONET.Services.Sets;
 using SLSKDONET.Utils;
 using SLSKDONET.Views;
@@ -58,6 +59,7 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
     private readonly SetTransitionRepository? _setTransitions;
     private readonly IServiceProvider? _services;
     private readonly SLSKDONET.Services.Similarity.SectionVectorService? _sectionVectors;
+    private readonly IVocalActivityService? _vocalActivity;
     private readonly SetEditHistory _history = new();
 
     /// <summary>The track pool drawer (P2.5).</summary>
@@ -182,13 +184,15 @@ public sealed partial class SetsViewModel : ReactiveObject, IDisposable
         SetTransitionRepository? setTransitions = null,
         IServiceProvider? services = null,
         SLSKDONET.Services.Similarity.SectionVectorService? sectionVectors = null,
-        SLSKDONET.Services.Copilot.IOrbitCopilot? copilot = null)
+        SLSKDONET.Services.Copilot.IOrbitCopilot? copilot = null,
+        IVocalActivityService? vocalActivity = null)
     {
         _copilot = copilot;
         _sets = sets;
         _setTransitions = setTransitions;
         _services = services;
         _sectionVectors = sectionVectors;
+        _vocalActivity = vocalActivity;
         _dialogs = dialogs;
         _notifications = notifications;
         _logger = logger;
