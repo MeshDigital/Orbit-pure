@@ -47,6 +47,48 @@ public class ConnectionLifecycleServiceTests
 
     // ── tests ─────────────────────────────────────────────────────────────
 
+    // #329: connect timeouts are not evictions by a competing login.
+    private static void Evict(EventBusService bus) =>
+        bus.Publish(new SoulseekConnectionStatusEvent("disconnecting", "me", "UNKNOWN_UNPLANNED_DROP_LOGGED_IN"));
+
+    [Fact]
+    public async Task ConnectTimeouts_AfterOneEviction_AreNotCountedAsEvictions_AndEndTheConflict()
+    {
+        var (service, bus, soulseek) = CreateService();
+        service.AutoReconnectEnabled = false;
+        Evict(bus);
+        Assert.Equal(1, service.EvictionCount);
+        Assert.True(service.InLoginConflict);
+
+        soulseek.Setup(s => s.ConnectAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new System.Net.Sockets.SocketException(10060));
+        for (var i = 0; i < 3; i++)
+            await service.RequestConnectAsync("password");
+
+        Assert.Equal(1, service.EvictionCount);   // still one real eviction, not "3 evictions"
+        Assert.False(service.InLoginConflict);    // the server didn't answer: normal network backoff applies
+    }
+
+    [Fact]
+    public async Task RealEvictions_AddUpAcrossLogins()
+    {
+        var (service, bus, soulseek) = CreateService();
+        for (var i = 0; i < ConnectionLifecycleService.EvictionEscalationThreshold; i++)
+        {
+            await DriveToLoggedIn(service, bus, soulseek); // a login in between must not reset the count
+            Evict(bus);
+        }
+        Assert.Equal(ConnectionLifecycleService.EvictionEscalationThreshold, service.EvictionCount);
+    }
+
+    [Fact]
+    public void NetworkFailures_AreRecognisedThroughWrappers()
+    {
+        Assert.True(ConnectionLifecycleService.IsNetworkFailure(new InvalidOperationException("x", new System.Net.Sockets.SocketException(10061))));
+        Assert.True(ConnectionLifecycleService.IsNetworkFailure(new TimeoutException()));
+        Assert.False(ConnectionLifecycleService.IsNetworkFailure(new InvalidOperationException("login refused")));
+    }
+
     [Fact]
     public async Task RequestConnectAsync_WhenDisconnected_TransitionsToConnecting()
     {

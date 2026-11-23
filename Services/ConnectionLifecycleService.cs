@@ -82,6 +82,31 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
     private CancellationTokenSource? _activeConnectCts;
     private string? _lastDisconnectStatusReason;
     private bool _inLoginConflict; // set when UNKNOWN_UNPLANNED_DROP_LOGGED_IN detected
+
+    // #329: real evictions (LOGGED_IN drops) are counted on their own. _reconnectRetryCount also counts plain connect
+    // timeouts, which made three server timeouts read as "evicted 3× by a competing login". Evictions within
+    // EvictionWindow of each other add up across logins, so a genuine login ping-pong still escalates.
+    private static readonly TimeSpan EvictionWindow = TimeSpan.FromMinutes(30);
+    internal const int EvictionEscalationThreshold = 3;
+    private int _evictionCount;
+    private DateTime _lastEvictionUtc = DateTime.MinValue;
+
+    /// <summary>Real competing-login evictions in the current window (tests and diagnostics).</summary>
+    internal int EvictionCount => _evictionCount;
+
+    /// <summary>True while a competing-login cooldown governs reconnects (tests and diagnostics).</summary>
+    internal bool InLoginConflict => _inLoginConflict;
+
+    /// <summary>A connect that failed at the network level (timeout, refused, unreachable), not a login conflict.</summary>
+    internal static bool IsNetworkFailure(Exception ex)
+    {
+        for (var e = ex; e is not null; e = e.InnerException)
+        {
+            if (e is System.Net.Sockets.SocketException or TimeoutException or System.IO.IOException) return true;
+            if (e.GetType().Name is "ConnectionException" or "ConnectionReadException" or "ConnectionWriteException") return true;
+        }
+        return false;
+    }
     private int _consecutiveLoginDrops; // counts LoggingIn→Disconnected mid-handshake drops
     private DateTime _lastHostSignalRecoveryUtc = DateTime.MinValue;
     // Windows fires NetworkAddressChanged on every mesh WiFi roam, IPv6 temp-address rotation,
@@ -201,6 +226,13 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
                     // Invalid credentials are not a transient network failure.
                     // Suppress reconnect looping until the user explicitly retries.
                     _manualDisconnect = true;
+                }
+                else if (_inLoginConflict && IsNetworkFailure(ex))
+                {
+                    // #329: the server didn't answer — that's the network, not a competing login. Leave the
+                    // login-conflict path so the normal network backoff (and its wording) applies.
+                    _inLoginConflict = false;
+                    _logger.LogInformation("[LIFECYCLE] Reconnect failed at the network level ({Reason}); no longer treating this as a login conflict.", ex.Message);
                 }
 
                 _logger.LogError(
@@ -393,6 +425,13 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
         var isLoginConflict = !string.IsNullOrWhiteSpace(evt.Reason)
             && evt.Reason.Contains("UNKNOWN_UNPLANNED_DROP_LOGGED_IN", StringComparison.Ordinal);
 
+        if (isLoginConflict)
+        {
+            var now = DateTime.UtcNow;
+            _evictionCount = now - _lastEvictionUtc > EvictionWindow ? 1 : _evictionCount + 1;
+            _lastEvictionUtc = now;
+        }
+
         if (isLoginConflict && !_inLoginConflict)
         {
             _inLoginConflict = true;
@@ -574,13 +613,13 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
                         }
 
                         // Escalate after 3 consecutive failures — the competing session is still active
-                        if (_reconnectRetryCount >= 3 && _inLoginConflict)
+                        if (_evictionCount >= EvictionEscalationThreshold && _inLoginConflict)
                         {
                             _coolingUntilUtc = DateTime.UtcNow.AddSeconds(300);
-                            _logger.LogWarning("[LIFECYCLE] Persistent session conflict — {Count} evictions. Extended cooldown 300s.", _reconnectRetryCount);
+                            _logger.LogWarning("[LIFECYCLE] Persistent session conflict — {Count} evictions. Extended cooldown 300s.", _evictionCount);
                             _eventBus.Publish(new NotificationEvent(
                                 "Persistent Session Conflict",
-                                $"ORBIT keeps getting evicted ({_reconnectRetryCount}×). Check for Soulseek running on another device or phone. Retrying in 5 min.",
+                                $"ORBIT keeps getting evicted ({_evictionCount}×). Check for Soulseek running on another device or phone. Retrying in 5 min.",
                                 NotificationType.Warning,
                                 TimeSpan.FromSeconds(15)));
                             await Task.Delay(300_000);
