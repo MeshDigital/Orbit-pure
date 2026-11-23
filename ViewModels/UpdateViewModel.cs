@@ -17,6 +17,7 @@ namespace SLSKDONET.ViewModels;
 public sealed class UpdateViewModel : ReactiveObject
 {
     private readonly GitHubUpdateService _updater;
+    private readonly IHttpClientFactory _httpClientFactory;
 
     public IReadOnlyList<UpdateChannel> ChannelOptions { get; } = new[]
     {
@@ -49,9 +50,10 @@ public sealed class UpdateViewModel : ReactiveObject
     public ReactiveCommand<Unit, Unit> CheckForUpdatesCommand { get; }
     public ReactiveCommand<Unit, Unit> DownloadUpdateCommand { get; }
 
-    public UpdateViewModel(GitHubUpdateService updater)
+    public UpdateViewModel(GitHubUpdateService updater, IHttpClientFactory httpClientFactory)
     {
         _updater = updater;
+        _httpClientFactory = httpClientFactory;
         CheckForUpdatesCommand = ReactiveCommand.CreateFromTask(CheckForUpdatesAsync);
         DownloadUpdateCommand = ReactiveCommand.CreateFromTask(DownloadUpdateAsync);
     }
@@ -91,7 +93,7 @@ public sealed class UpdateViewModel : ReactiveObject
             var fileName = Path.GetFileName(new Uri(installerUrl).AbsolutePath);
             var installerPath = Path.Combine(Path.GetTempPath(), fileName);
 
-            using var http = new HttpClient();
+            using var http = _httpClientFactory.CreateClient();
             await using (var src = await http.GetStreamAsync(installerUrl).ConfigureAwait(true))
             await using (var dst = File.Create(installerPath))
                 await src.CopyToAsync(dst).ConfigureAwait(true);
