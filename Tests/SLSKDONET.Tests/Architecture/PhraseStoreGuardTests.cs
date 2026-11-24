@@ -22,6 +22,7 @@ public class PhraseStoreGuardTests
     {
         "Data/Entities/AudioFeaturesEntity.cs",                 // the column itself
         "Services/Data/SchemaMigratorService.cs",               // schema
+        "Services/Data/SchemaMigratorService.Patches.cs",       // schema patches (#307 split)
         "Services/AudioAnalysis/PhraseBarMigrationService.cs",  // the migration into TrackPhrases
     };
 
