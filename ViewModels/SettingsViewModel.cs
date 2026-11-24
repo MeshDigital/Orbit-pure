@@ -7,6 +7,7 @@ using System.Windows.Input;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Configuration;
 using SLSKDONET.Services;
+using SLSKDONET.Services.Library.Files;
 using SLSKDONET.Services.Models;
 using SLSKDONET.Services.Platform;
 using SLSKDONET.Views; // For AsyncRelayCommand
@@ -444,10 +445,49 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             {
                 _config.NameFormat = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(FileNameFormatPreview));
                 SaveSettings();
             }
         }
     }
+
+    /// <summary>A named, editable file-name template preset (#343, LF1).</summary>
+    public sealed record FileNameFormatPreset(string Name, string Template);
+
+    public static IReadOnlyList<FileNameFormatPreset> FileNameFormatPresets { get; } = new[]
+    {
+        new FileNameFormatPreset("DJ Singles", "{genre|\"Unsorted\"}/{artist} - {title} ({mix})"),
+        new FileNameFormatPreset("Collector", "{albumartist|artist}/{year} - {album|\"Singles\"}/{track:00} - {title}"),
+        new FileNameFormatPreset("Harmonic / USB", "{key|\"No Key\"}/{bpm_bracket}/{artist} - {title}"),
+        new FileNameFormatPreset("Source mirror", "{user}/{filename}"),
+        new FileNameFormatPreset("Flat pool", "{artist} - {title} ({mix})"),
+    };
+
+    private FileNameFormatPreset? _selectedPreset;
+    public FileNameFormatPreset? SelectedPreset
+    {
+        get => _selectedPreset;
+        set
+        {
+            if (_selectedPreset == value) return;
+            _selectedPreset = value;
+            OnPropertyChanged();
+            if (value != null)
+                FileNameFormat = value.Template;
+        }
+    }
+
+    // Three representative sample tracks for the live template preview. Using fixed samples keeps
+    // the preview synchronous and independent of the library; real-library tracks are a follow-up.
+    private static readonly TrackFacts[] PreviewTracks =
+    {
+        new(Artist: "Tiësto", Title: "Adagio for Strings", Album: "Just Be", TrackNumber: 7, Year: 2004, Genre: "Trance", Key: "8A", Bpm: 138.0, BpmBracket: "135-140", Mix: "VIP"),
+        new(Artist: "Calibre", Title: "Even If", Album: "Shelflife", Genre: "Drum & Bass", Key: "5A", Bpm: 174.0, BpmBracket: "170-175"),
+        new(Artist: "Various Artists", Title: "Unknown Track", Album: null, Filename: "track01", User: "unknown_peer"),
+    };
+
+    public IReadOnlyList<string> FileNameFormatPreview =>
+        PreviewTracks.Select(t => PathTemplateEngine.Render(FileNameFormat, t).RelativePath).ToList();
 
     public bool CheckForDuplicates
     {

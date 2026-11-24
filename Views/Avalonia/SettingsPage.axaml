@@ -436,8 +436,27 @@
                                             <TextBlock Classes="body" Text="File name format"/>
                                             <TextBlock Classes="caption" Text="{}{artist} {title} {album} {filename} {bitrate} {bpm} {key} {energy} {format} {length} {user}"/>
                                         </StackPanel>
-                                        <TextBox Grid.Column="1" Classes="field mono"
-                                                 Text="{Binding FileNameFormat, Mode=TwoWay}"/>
+                                        <StackPanel Grid.Column="1" Spacing="6" Width="400">
+                                            <ComboBox ItemsSource="{Binding FileNameFormatPresets}"
+                                                      SelectedItem="{Binding SelectedPreset, Mode=TwoWay}"
+                                                      PlaceholderText="Choose a preset…"
+                                                      HorizontalAlignment="Stretch">
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding Name}"/>
+                                                    </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                            <TextBox Classes="field mono"
+                                                     Text="{Binding FileNameFormat, Mode=TwoWay}"/>
+                                            <ItemsControl ItemsSource="{Binding FileNameFormatPreview}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Classes="caption mono" Text="{Binding}"/>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
                                     </Grid>
                                 </StackPanel>
                             </Border>
