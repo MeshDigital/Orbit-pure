@@ -258,4 +258,27 @@ public class FileRelocationServiceTests : IDisposable
         Assert.Equal(source, verify.PlaylistTracks.Single(t => t.TrackUniqueHash == hash).ResolvedFilePath);
         Assert.Equal(source, verify.Tracks.Single(t => t.GlobalId == hash).LocalFilePath);
     }
+
+    [Fact]
+    public async Task Execute_MovesTheStemFolderAlongside()
+    {
+        var hash = "h-stems";
+        var source = Path.Combine(_dir, "Artist", "track.flac");
+        var target = Path.Combine(_dir, "Artist2", "track2.flac");
+        Directory.CreateDirectory(Path.GetDirectoryName(source)!);
+        File.WriteAllText(source, "audio");
+
+        var stemFolder = Path.Combine(Path.GetDirectoryName(source)!, "Stems", "track");
+        Directory.CreateDirectory(stemFolder);
+        File.WriteAllText(Path.Combine(stemFolder, "vocals.wav"), "stem");
+        Seed(hash, source);
+
+        var svc = MakeService(new FakeEventBus());
+        var plan = svc.Plan(new[] { new RelocationRequest(hash, source, target) });
+        await svc.ExecuteAsync(plan);
+
+        var targetStem = Path.Combine(Path.GetDirectoryName(target)!, "Stems", "track2");
+        Assert.True(Directory.Exists(targetStem), "the stem folder must move alongside the track");
+        Assert.True(File.Exists(Path.Combine(targetStem, "vocals.wav")));
+    }
 }

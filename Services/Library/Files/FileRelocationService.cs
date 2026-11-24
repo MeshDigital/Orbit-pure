@@ -148,6 +148,15 @@ public class FileRelocationService
                     }
                     throw;
                 }
+                // Best-effort: move sidecar stem folders alongside (a failure here doesn't undo the track move).
+                try
+                {
+                    await MoveStemFoldersAsync(move.SourcePath, move.TargetPath, ct).ConfigureAwait(false);
+                }
+                catch (Exception stemEx)
+                {
+                    _logger.LogWarning(stemEx, "Stem folder move failed for {Hash}; the track moved but its stem folder may be orphaned", move.Hash);
+                }
                 journal.Add(new LibraryActionLogEntity
                 {
                     BatchId = batchId,
@@ -193,6 +202,55 @@ public class FileRelocationService
                 throw new IOException($"Copy verify failed for {target} (size mismatch)");
             File.Delete(source);
         }
+    }
+
+    /// <summary>Moves the sidecar stem folders (Stems/&lt;name&gt;/, &lt;name&gt;_Stems/, _stems/&lt;name&gt;/) alongside a relocated track (#344).</summary>
+    private async Task MoveStemFoldersAsync(string sourceTrack, string targetTrack, CancellationToken ct)
+    {
+        var sourceDir = Path.GetDirectoryName(sourceTrack);
+        var targetDir = Path.GetDirectoryName(targetTrack);
+        if (string.IsNullOrEmpty(sourceDir) || string.IsNullOrEmpty(targetDir)) return;
+
+        var sourceName = Path.GetFileNameWithoutExtension(sourceTrack);
+        var targetName = Path.GetFileNameWithoutExtension(targetTrack);
+        if (sourceName == targetName) return; // same filename — the folders don't change
+
+        var patterns = new (string Source, string Target)[]
+        {
+            (Path.Combine(sourceDir, "Stems", sourceName), Path.Combine(targetDir, "Stems", targetName)),
+            (Path.Combine(sourceDir, sourceName + "_Stems"), Path.Combine(targetDir, targetName + "_Stems")),
+            (Path.Combine(sourceDir, "_stems", sourceName), Path.Combine(targetDir, "_stems", targetName)),
+        };
+
+        foreach (var (source, target) in patterns)
+        {
+            if (Directory.Exists(source))
+                await MoveDirectoryAsync(source, target, ct).ConfigureAwait(false);
+        }
+    }
+
+    private async Task MoveDirectoryAsync(string source, string target, CancellationToken ct)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        try
+        {
+            Directory.Move(source, target);
+        }
+        catch (IOException)
+        {
+            // Cross-volume — copy recursively, then delete the source.
+            await Task.Run(() => CopyDirectory(source, target), ct).ConfigureAwait(false);
+            Directory.Delete(source, recursive: true);
+        }
+    }
+
+    private static void CopyDirectory(string source, string target)
+    {
+        Directory.CreateDirectory(target);
+        foreach (var file in Directory.GetFiles(source))
+            File.Copy(file, Path.Combine(target, Path.GetFileName(file)), overwrite: true);
+        foreach (var dir in Directory.GetDirectories(source))
+            CopyDirectory(dir, Path.Combine(target, Path.GetFileName(dir)));
     }
 
     private async Task UpdatePathsAsync(string hash, string newPath, CancellationToken ct)
