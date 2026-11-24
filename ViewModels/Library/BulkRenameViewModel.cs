@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using ReactiveUI;
+using SLSKDONET.Services.Library.Files;
 
 namespace SLSKDONET.ViewModels.Library;
 
@@ -25,16 +26,6 @@ public sealed class BulkRenamePreviewTrack
 
 public sealed class BulkRenameViewModel : ReactiveObject
 {
-    private static readonly (string Token, Func<BulkRenamePreviewTrack, string> Select)[] Tokens =
-    {
-        ("{artist}", t => t.Artist),
-        ("{title}", t => t.Title),
-        ("{album}", t => t.Album),
-        ("{tracknumber}", t => t.TrackNumber),
-        ("{year}", t => t.Year),
-        ("{genre}", t => t.Genre),
-    };
-
     private string _pattern = "{artist} - {title}";
 
     public int TrackCount { get; }
@@ -66,9 +57,8 @@ public sealed class BulkRenameViewModel : ReactiveObject
 
     /// <summary>
     /// Resolves every <c>{token}</c> in <paramref name="pattern"/> against one track's field
-    /// values. Shared by the dialog's live preview and the real rename execution
-    /// (<c>LibraryViewModel.Commands.ExecuteBulkRenameAsync</c>) so both always agree on the
-    /// resulting filename.
+    /// values via <see cref="PathTemplateEngine"/> (#343, LF1), so the live preview and the real
+    /// rename always agree on the resulting filename — and share the same sanitisation.
     /// </summary>
     public static string Resolve(string pattern, string artist, string title, string album, string trackNumber, string year, string genre) =>
         Resolve(pattern, new BulkRenamePreviewTrack
@@ -77,11 +67,16 @@ public sealed class BulkRenameViewModel : ReactiveObject
             TrackNumber = trackNumber, Year = year, Genre = genre,
         });
 
-    private static string Resolve(string pattern, BulkRenamePreviewTrack t)
-    {
-        var result = pattern;
-        foreach (var (token, select) in Tokens)
-            result = result.Replace(token, select(t), StringComparison.OrdinalIgnoreCase);
-        return result;
-    }
+    private static string Resolve(string pattern, BulkRenamePreviewTrack t) =>
+        PathTemplateEngine.Render(pattern, ToFacts(t)).Leaf;
+
+    private static TrackFacts ToFacts(BulkRenamePreviewTrack t) => new(
+        Artist: t.Artist,
+        Title: t.Title,
+        Album: t.Album,
+        TrackNumber: ParseInt(t.TrackNumber),
+        Year: ParseInt(t.Year),
+        Genre: t.Genre);
+
+    private static int? ParseInt(string? value) => int.TryParse(value, out var n) ? n : null;
 }

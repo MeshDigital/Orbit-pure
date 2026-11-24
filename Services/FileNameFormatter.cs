@@ -1,119 +1,62 @@
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using SLSKDONET.Models;
-using SLSKDONET.Utils;
+using SLSKDONET.Services.Library.Files;
 
 namespace SLSKDONET.Services;
 
 /// <summary>
 /// Formats track filenames using template expressions.
-/// Supports variables, conditionals, and sanitization.
-/// 
-/// Examples:
-/// - "{artist} - {title}" → "Artist - Title"
-/// - "{artist|filename}" → Artist if available, otherwise filename
-/// - "{albumartist}/{album}/{track}. {title}"
+/// Token resolution and sanitisation are delegated to <see cref="PathTemplateEngine"/> (#343, LF1).
 /// </summary>
 public class FileNameFormatter
 {
-    private const string VariablePattern = @"\{([^}]+)\}";
-
     /// <summary>
-    /// Formats a filename using the provided template.
+    /// Renders a template to a single sanitised filename (folder separators are flattened out).
     /// </summary>
     public string Format(string template, Track track)
     {
-        var result = FormatTemplate(template, track);
-        return FileFormattingUtils.SanitizeFilename(result);
+        var rendered = PathTemplateEngine.Render(template, ToFacts(track));
+        return ApplyFallback(rendered.Leaf, track);
     }
 
     /// <summary>
-    /// Replaces template variables and applies the "no usable content" fallback, but does NOT
-    /// sanitise. Callers that build sub-folders split this on '/' / '\' and sanitise each segment
-    /// themselves, so a template like "{artist}/{album}/{title}" stays a nested path (#341).
+    /// Renders a template to a sanitised relative path ('/' joined). Callers that build sub-folders
+    /// must split on '/' / '\' and use the segments directly — they are already sanitised (#341).
     /// </summary>
     internal string FormatTemplate(string template, Track track)
     {
-        var result = template;
+        var rendered = PathTemplateEngine.Render(template, ToFacts(track));
+        return ApplyFallback(rendered.RelativePath, track);
+    }
 
-        // Replace variables
-        result = Regex.Replace(result, VariablePattern, match =>
-        {
-            var expr = match.Groups[1].Value;
-            return GetVariable(expr, track);
-        });
+    private static TrackFacts ToFacts(Track track) => new(
+        Artist: track.Artist,
+        Title: track.Title,
+        Album: track.Album,
+        Bpm: track.BPM,
+        Key: track.MusicalKey,
+        Energy: track.Energy,
+        Format: track.GetExtension(),
+        Bitrate: track.Bitrate,
+        User: track.Username,
+        Filename: string.IsNullOrEmpty(track.Filename) ? null : Path.GetFileNameWithoutExtension(track.Filename),
+        LengthSeconds: track.Length,
+        SizeFormatted: track.GetFormattedSize());
 
-        // Global Fallback Strategy:
-        // If the resulting name has no actual alphanumeric content (only separators/spaces)
-        // or contains "Unknown - Unknown", we fallback to the uploader's original filename.
-        var hasContent = Regex.IsMatch(result, @"[a-zA-Z0-9]");
-        if (!hasContent || result.Contains("Unknown - Unknown"))
+    /// <summary>
+    /// Legacy fallback: when the template yields no usable content, use the uploader's original
+    /// filename instead of an empty or separator-only name.
+    /// </summary>
+    private static string ApplyFallback(string rendered, Track track)
+    {
+        if (!rendered.Any(char.IsLetterOrDigit) || rendered.Contains("Unknown - Unknown"))
         {
             if (!string.IsNullOrEmpty(track.Filename))
-            {
                 return Path.GetFileNameWithoutExtension(track.Filename);
-            }
         }
-
-        return result;
-    }
-
-    /// <summary>
-    /// Gets a variable value from track, supporting:
-    /// - Simple: {artist}, {title}
-    /// - Fallback: {artist|filename}
-    /// - Nested: {artist|{filename}}
-    /// - Conditional: {artist( - )title} (only add literal if artist is present)
-    /// </summary>
-    private string GetVariable(string expr, Track track)
-    {
-        // Handle fallback: var1|var2|var3
-        if (expr.Contains('|'))
-        {
-            var alternatives = expr.Split('|');
-            foreach (var alt in alternatives)
-            {
-                var value = GetSingleVariable(alt.Trim(), track);
-                if (!string.IsNullOrEmpty(value))
-                    return value;
-            }
-            return "";
-        }
-
-        // Handle literal wrapping: tag(literal)
-        var match = Regex.Match(expr, @"^(\w+)\(([^)]*)\)$");
-        if (match.Success)
-        {
-            var varName = match.Groups[1].Value;
-            var literal = match.Groups[2].Value;
-            var value = GetSingleVariable(varName, track);
-            return string.IsNullOrEmpty(value) ? "" : value + literal;
-        }
-
-        return GetSingleVariable(expr, track);
-    }
-
-    /// <summary>
-    /// Gets a single variable value.
-    /// </summary>
-    private string GetSingleVariable(string varName, Track track)
-    {
-        return varName.ToLower() switch
-        {
-            "artist" => track.Artist ?? "",
-            "title" => track.Title ?? "",
-            "album" => track.Album ?? "",
-            "filename" => Path.GetFileNameWithoutExtension(track.Filename) ?? "",
-            "bitrate" => track.Bitrate.ToString(),
-            "bpm" => track.BPM?.ToString("0") ?? "",
-            "key" => track.MusicalKey ?? "",
-            "energy" => (track.Energy * 100)?.ToString("0") ?? "",
-            "format" => track.GetExtension(),
-            "length" => track.Length?.ToString() ?? "",
-            "user" or "username" => track.Username ?? "",
-            "size" => track.GetFormattedSize(),
-            _ => ""
-        };
+        return rendered;
     }
 
     /// <summary>

@@ -41,13 +41,11 @@ public class PathProviderService
         var formatted = _fileNameFormatter.FormatTemplate(template, track);
         var extension = track.GetExtension();
 
-        // Handle subfolders in the template (e.g. "{artist}/{album}/{title}") — split first, then
-        // sanitise each segment, so the separators survive instead of being flattened by the whole-
-        // string sanitise (#341).
+        // FormatTemplate delegates to PathTemplateEngine (#343), which already sanitises each
+        // segment and drops empty ones. Split on the folder separators and combine (#341).
         var segments = formatted.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
-        var safeSegments = segments.Select(Slugify).ToArray();
 
-        var relativePath = Path.Combine(safeSegments) + "." + extension;
+        var relativePath = Path.Combine(segments) + "." + extension;
         var fullPath = ResolveWithinDownloadDirectory(relativePath);
 
         // Ensure directory exists
