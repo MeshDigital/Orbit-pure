@@ -319,6 +319,16 @@ public class SearchResultMatcherTests
         Assert.DoesNotContain("Version:", result.ScoreBreakdown);
     }
 
+    // #386: a specific derivative request must be penalised when a DIFFERENT derivative is offered.
+    [Fact]
+    public void RemixRequest_VipCandidate_IsPenalisedForVersionMismatch()
+    {
+        var model = new PlaylistTrack { Artist = "Frannabik", Title = "Down (Bad Legs Remix)", CanonicalDuration = 240000 };
+        var result = _matcher.CalculateMatchResult(model, new Track { Length = 240, Filename = "09_frannabik_-_down_(bad_legs_vip).flac" });
+
+        Assert.Contains("Version: candidate is vip but requested remix", result.ScoreBreakdown);
+    }
+
     [Theory]
     [InlineData("Down (Bad Legs Remix)", "remix")]
     [InlineData("09_frannabik_-_down_(bad_legs_remix)", "remix")]
