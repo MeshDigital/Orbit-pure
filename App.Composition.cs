@@ -37,6 +37,17 @@ public partial class App
     /// </summary>
     public static void ConfigureSharedServices(IServiceCollection services)
     {
+        AddOrbitCore(services);
+        AddOrbitConnectivity(services);
+        AddOrbitLibrary(services);
+        AddOrbitPresentation(services);
+        AddOrbitSetup(services);
+        AddOrbitAnalysis(services);
+        AddOrbitAudioAndWorkers(services);
+    }
+
+    private static void AddOrbitCore(IServiceCollection services)
+    {
         // Logging - Use Serilog
         services.AddLogging(builder =>
         {
@@ -96,6 +107,10 @@ public partial class App
         services.AddSingleton<AvailabilityStateReconciliationService>(); // Fixes tracks stuck "FILE MISSING" despite the file existing on disk
         services.AddSingleton<DurationBackfillService>(); // One-time TagLib duration sweep for tracks that predate PostDownloadDurationCaptureService
         services.AddSingleton<DragAdornerService>();
+    }
+
+    private static void AddOrbitConnectivity(IServiceCollection services)
+    {
         
         // Session 3: Performance Optimization - Polymorphic taggers
 
@@ -143,6 +158,10 @@ public partial class App
         services.AddSingleton<Services.Transitions.IUserTransitionPresetService, Services.Transitions.UserTransitionPresetService>(); // "My presets" in the transition editor (#204 D5)
         services.AddSingleton<Services.Transitions.TransitionPlanService>(); // Mixxx-style sections + DnB transition planning
         services.AddSingleton<PlaylistDiscoveryViewModel>();
+    }
+
+    private static void AddOrbitLibrary(IServiceCollection services)
+    {
 
         // Input parsers
         services.AddSingleton<CsvInputSource>();
@@ -230,6 +249,10 @@ public partial class App
         services.AddSingleton<SLSKDONET.Services.Repositories.ITransitionRepository, SLSKDONET.Services.Repositories.TransitionRepository>();
         services.AddSingleton<DatabaseService>();
         services.AddSingleton<IMetadataService, MetadataService>();
+    }
+
+    private static void AddOrbitPresentation(IServiceCollection services)
+    {
 
         // Navigation and UI services
         services.AddSingleton<INavigationService, NavigationService>();
@@ -313,6 +336,10 @@ public partial class App
         services.AddSingleton<SearchFilterViewModel>(); // [FIX] Added missing registration
         services.AddSingleton<ConnectionViewModel>();
         services.AddSingleton<SettingsViewModel>();
+    }
+
+    private static void AddOrbitSetup(IServiceCollection services)
+    {
 
         // First-run setup wizard + quick tour (DOCS/FIRST_RUN_SETUP.md). The wizard's view models
         // only see these interfaces; the implementations reuse the services Settings uses.
@@ -433,6 +460,10 @@ public partial class App
         services.AddSingleton<Services.WorkstationSessionService>();
         services.AddSingleton<Services.OrbSessionBundleService>();
         services.AddSingleton<Services.IUndoService, Services.UndoService>();
+    }
+
+    private static void AddOrbitAnalysis(IServiceCollection services)
+    {
 
 
         // ── Rekordbox PSSI phrase analysis (optional — reads Rekordbox's own local analysis cache) ──
@@ -615,6 +646,10 @@ public partial class App
         services.AddSingleton<Services.Similarity.TrackSimilarityService>();
         services.AddSingleton<Services.Similarity.TransitionStyleClassifier>();
         services.AddSingleton<Services.Playlist.PlaylistIntelligenceService>();
+    }
+
+    private static void AddOrbitAudioAndWorkers(IServiceCollection services)
+    {
 
         // ── Tasks 5.1-5.5: Dual Deck Engine + Sync ───────────────────────
         services.AddSingleton<ViewModels.DeckViewModel>();
