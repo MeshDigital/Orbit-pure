@@ -1408,7 +1408,7 @@ public class LibraryService : ILibraryService
             TrackUniqueHash = entity.TrackUniqueHash,
             Status = entity.Status,
             IsClearedFromDownloadCenter = entity.IsClearedFromDownloadCenter,
-            ResolvedFilePath = entity.ResolvedFilePath,
+            ResolvedFilePath = entity.ResolvedFilePath ?? "",
             TrackNumber = entity.TrackNumber,
             Rating = entity.Rating,
             IsLiked = entity.IsLiked,

@@ -1018,7 +1018,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
                     Album = t.Album,
                     TrackUniqueHash = t.TrackUniqueHash,
                     Status = t.Status,
-                    ResolvedFilePath = t.ResolvedFilePath,
+                    ResolvedFilePath = t.ResolvedFilePath ?? "",
                     SpotifyTrackId = t.SpotifyTrackId,
                     AlbumArtUrl = t.AlbumArtUrl,
                     Format = t.Format,

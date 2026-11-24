@@ -528,7 +528,7 @@ public class DashboardService
             Album = entity.Album,
             TrackUniqueHash = entity.TrackUniqueHash,
             Status = entity.Status,
-            ResolvedFilePath = entity.ResolvedFilePath,
+            ResolvedFilePath = entity.ResolvedFilePath ?? "",
             TrackNumber = entity.TrackNumber,
             Bitrate = entity.Bitrate,
             Format = entity.Format,
