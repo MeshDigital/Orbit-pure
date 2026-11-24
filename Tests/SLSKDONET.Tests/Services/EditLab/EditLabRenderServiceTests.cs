@@ -17,6 +17,7 @@ using Xunit;
 namespace SLSKDONET.Tests.Services.EditLab;
 
 /// <summary>Render-to-library against the isolated test database (ORBIT_DB_PATH).</summary>
+[Collection(NonParallelCollection.Name)] // FreshDatabaseScope swaps the process-wide ORBIT_DB_PATH
 public sealed class EditLabRenderServiceTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "orbit-editlab-library", Guid.NewGuid().ToString("N"));

@@ -17,6 +17,7 @@ using Xunit;
 namespace SLSKDONET.Tests.Maintenance;
 
 /// <summary>Issue #238: exact-duplicate review, merge and the opt-in Recycle Bin step (isolated DB).</summary>
+[Collection(NonParallelCollection.Name)] // writes to the shared test DB; was flaky under parallel load
 public sealed class ExactDuplicateMergeTests : IDisposable
 {
     private readonly string _dir;

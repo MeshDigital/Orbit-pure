@@ -14,6 +14,7 @@ namespace SLSKDONET.Tests.Services.Sets;
 /// <see cref="SetProjectService"/> against a real SQLite file next to the isolated test library
 /// (ORBIT_DB_PATH, set by TestDatabaseSetup) — never the user's live library.db.
 /// </summary>
+[Collection(NonParallelCollection.Name)] // FreshDatabaseScope swaps the process-wide ORBIT_DB_PATH
 public sealed class SetProjectServiceTests : IDisposable
 {
     private readonly SetsTestDatabase _db = new("set-project-service");

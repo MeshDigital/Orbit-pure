@@ -16,6 +16,7 @@ using Xunit;
 namespace SLSKDONET.Tests.Services.AudioAnalysis;
 
 /// <summary>Bar-indexed phrase migration (issue #225). Uses the isolated DB and a throwaway data dir.</summary>
+[Collection(NonParallelCollection.Name)] // writes to the shared test DB; was flaky under parallel load
 public class PhraseBarMigrationTests
 {
     [Fact]
