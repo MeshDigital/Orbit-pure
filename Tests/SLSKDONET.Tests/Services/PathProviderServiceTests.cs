@@ -50,4 +50,14 @@ public class PathProviderServiceTests
 
         Assert.Equal(Path.Combine(@"C:\music", "Artist - Title.flac"), path);
     }
+
+    [Fact]
+    public void GetTrackPath_AllTokensEmpty_FallsBackToDefaultStructure()
+    {
+        // #391: every token empty (and no filename to fall back to) → default Artist/Album/Title,
+        // never a hidden ".flac" in the download root.
+        var path = MakeService("{artist}/{album}/{title}").GetTrackPath(MakeTrack("", "", "", filename: ""));
+
+        Assert.Equal(Path.Combine(@"C:\music", "Unknown", "Unknown", "Unknown"), path);
+    }
 }
