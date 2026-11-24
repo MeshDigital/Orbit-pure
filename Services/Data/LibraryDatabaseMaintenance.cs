@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
 
 namespace SLSKDONET.Services;
@@ -78,7 +79,7 @@ public static class LibraryDatabaseMaintenance
     /// returns the backup path. Throws if the source database doesn't exist or the backup fails,
     /// so callers can tell the user the truth.
     /// </summary>
-    public static string CreateBackup(string? dbPath = null, string? targetPath = null)
+    public static async Task<string> CreateBackupAsync(string? dbPath = null, string? targetPath = null)
     {
         dbPath ??= SLSKDONET.Data.OrbitPaths.LibraryDbPath;
         if (!File.Exists(dbPath))
@@ -114,7 +115,7 @@ public static class LibraryDatabaseMaintenance
             }
             catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6 && attempt < attempts) // BUSY, LOCKED
             {
-                System.Threading.Thread.Sleep(150 * attempt);
+                await Task.Delay(150 * attempt).ConfigureAwait(false);
             }
         }
     }

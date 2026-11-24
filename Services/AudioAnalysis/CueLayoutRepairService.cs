@@ -109,7 +109,7 @@ public sealed class CueLayoutRepairService
             return new CueLayoutRepairSummary(0, 0, 0, 0);
         }
 
-        string backup = BackupLibrary();
+        string backup = await BackupLibraryAsync().ConfigureAwait(false);
         _logger.LogInformation("[CueLayoutRepair] {Late} tracks with a Drop 2 in the last 16 bars, {Rename} to rename (backup: {Backup})",
             late.Count, renameOnly.Count, backup);
 
@@ -161,7 +161,7 @@ public sealed class CueLayoutRepairService
         return renamed;
     }
 
-    private string BackupLibrary()
+    private async Task<string> BackupLibraryAsync()
     {
         Directory.CreateDirectory(DataDirectory);
         string target = Path.Combine(DataDirectory, $"library.db.bak-{PassName}-{DateTime.Now:yyyyMMdd-HHmmss}");
@@ -183,7 +183,7 @@ public sealed class CueLayoutRepairService
             }
             catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6 && attempt < attempts) // BUSY, LOCKED
             {
-                Thread.Sleep(150 * attempt);
+                await Task.Delay(150 * attempt).ConfigureAwait(false);
             }
         }
 

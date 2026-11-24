@@ -2561,14 +2561,14 @@ public class DatabaseService
     /// committed pages still in the -wal file. Throws on failure so the caller can report it —
     /// it used to log and return as if it had succeeded.
     /// </summary>
-    public Task<string> BackupDatabaseAsync(string? backupPath = null)
+    public async Task<string> BackupDatabaseAsync(string? backupPath = null)
     {
-        return Task.Run(() =>
+        return await Task.Run(async () =>
         {
-            var path = SLSKDONET.Services.LibraryDatabaseMaintenance.CreateBackup(targetPath: backupPath);
+            var path = await SLSKDONET.Services.LibraryDatabaseMaintenance.CreateBackupAsync(targetPath: backupPath).ConfigureAwait(false);
             _logger.LogInformation("Database backup created at {Path}", path);
             return path;
-        });
+        }).ConfigureAwait(false);
     }
 
     public async Task<List<PlaylistTrackEntity>> SearchPlaylistTracksAsync(string query, int limit = 50)

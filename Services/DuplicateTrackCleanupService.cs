@@ -47,7 +47,7 @@ public sealed class DuplicateTrackCleanupService
     {
         await Task.Yield();
 
-        var backupPath = TryCreateSafetyBackup("pre-dedup-cleanup");
+        var backupPath = await TryCreateSafetyBackupAsync("pre-dedup-cleanup");
         if (backupPath == null)
         {
             const string reason = "Aborted: could not create a safety backup before cleanup (see log for details).";
@@ -152,7 +152,7 @@ public sealed class DuplicateTrackCleanupService
     {
         await Task.Yield();
 
-        var backupPath = TryCreateSafetyBackup("pre-exact-duplicate-merge");
+        var backupPath = await TryCreateSafetyBackupAsync("pre-exact-duplicate-merge");
         if (backupPath == null)
         {
             const string reason = "Aborted: could not create a safety backup before merging (see log for details).";
@@ -411,7 +411,7 @@ public sealed class DuplicateTrackCleanupService
     /// (ORBIT_DB_PATH) never write into the real one. Refuses to back up, and thus refuses to run
     /// the cleanup at all, if the database fails a basic integrity check.
     /// </summary>
-    private string? TryCreateSafetyBackup(string label)
+    private async Task<string?> TryCreateSafetyBackupAsync(string label)
     {
         try
         {
@@ -436,7 +436,7 @@ public sealed class DuplicateTrackCleanupService
             // second backup failed, which aborted that merge (seen as a flaky test).
             var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss-fff", System.Globalization.CultureInfo.InvariantCulture);
             var backupPath = Path.Combine(backupDir, $"library.backup.{label}.{timestamp}.{Guid.NewGuid().ToString("N")[..6]}.db");
-            LibraryDatabaseMaintenance.CreateBackup(dbPath, backupPath);
+            await LibraryDatabaseMaintenance.CreateBackupAsync(dbPath, backupPath).ConfigureAwait(false);
 
             _logger.LogInformation("[DuplicateCleanup] Safety backup created at {Path}", backupPath);
             return backupPath;
