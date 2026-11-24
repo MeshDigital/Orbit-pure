@@ -206,53 +206,37 @@ public sealed class VocalActivityService : IVocalActivityService
         return null;
     }
 
-    /// <summary>Reads an isolated vocal stem into one RMS value per <paramref name="windowSeconds"/> window.</summary>
+    /// <summary>
+    /// Reads an isolated vocal stem into one RMS value per <paramref name="windowSeconds"/> window,
+    /// streaming window-at-a-time so a long stem is never loaded as one full allocation (#303).
+    /// </summary>
     internal static float[] ReadStemRms(string vocalPath, double windowSeconds, CancellationToken ct)
     {
-        float[] samples;
-        int rate, channels;
-        using (var reader = new AudioFileReader(vocalPath))
-        {
-            rate = reader.WaveFormat.SampleRate;
-            channels = reader.WaveFormat.Channels;
-            var total = (int)(reader.Length / sizeof(float));
-            var buffer = new float[total];
-            var read = reader.Read(buffer, 0, total);
-            samples = buffer[..read];
-        }
+        using var reader = new AudioFileReader(vocalPath);
+        var rate = reader.WaveFormat.SampleRate;
+        var channels = reader.WaveFormat.Channels;
+        var windowFrames = Math.Max(1, (int)Math.Round(rate * windowSeconds));
+        var windowSamples = windowFrames * channels;
 
-        return ComputeWindowRms(samples, channels, rate, windowSeconds, ct);
-    }
-
-    /// <summary>RMS per window over interleaved float PCM, averaged to mono. The final partial window is kept.</summary>
-    internal static float[] ComputeWindowRms(float[] interleaved, int channels, int sampleRate, double windowSeconds, CancellationToken ct = default)
-    {
-        if (interleaved.Length == 0 || channels <= 0 || sampleRate <= 0 || windowSeconds <= 0)
-            return Array.Empty<float>();
-
-        var windowFrames = Math.Max(1, (int)Math.Round(sampleRate * windowSeconds));
-        var frames = interleaved.Length / channels;
-        var windowCount = (int)Math.Ceiling(frames / (double)windowFrames);
-        var rms = new float[windowCount];
-
-        for (var w = 0; w < windowCount; w++)
+        var rms = new List<float>();
+        var buffer = new float[windowSamples];
+        int read;
+        while ((read = reader.Read(buffer, 0, windowSamples)) > 0)
         {
             ct.ThrowIfCancellationRequested();
-            var startFrame = w * windowFrames;
-            var endFrame = Math.Min(frames, startFrame + windowFrames);
+            var frames = read / channels;
             double sumSquares = 0.0;
-            for (var f = startFrame; f < endFrame; f++)
+            for (var f = 0; f < frames; f++)
             {
                 float sample = 0f;
                 for (var c = 0; c < channels; c++)
-                    sample += interleaved[f * channels + c];
+                    sample += buffer[f * channels + c];
                 sample /= channels;
                 sumSquares += (double)sample * sample;
             }
-            var count = endFrame - startFrame;
-            rms[w] = count > 0 ? (float)Math.Sqrt(sumSquares / count) : 0f;
+            rms.Add(frames > 0 ? (float)Math.Sqrt(sumSquares / frames) : 0f);
         }
 
-        return rms;
+        return rms.ToArray();
     }
 }

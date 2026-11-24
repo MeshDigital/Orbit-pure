@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
 
@@ -110,6 +111,38 @@ public static class VocalActivity
     /// <summary>True when a row has been measured (a successful run always writes a curve, even for instrumentals).</summary>
     public static bool IsMeasured(AudioFeaturesEntity features) =>
         !string.IsNullOrEmpty(features.VocalDensityCurveJson) && features.VocalDensityCurveJson != "[]";
+
+    /// <summary>RMS per window over interleaved float PCM, averaged to mono. The final partial window is kept (#303).</summary>
+    public static float[] ComputeWindowRms(float[] interleaved, int channels, int sampleRate, double windowSeconds, CancellationToken ct = default)
+    {
+        if (interleaved.Length == 0 || channels <= 0 || sampleRate <= 0 || windowSeconds <= 0)
+            return Array.Empty<float>();
+
+        var windowFrames = Math.Max(1, (int)Math.Round(sampleRate * windowSeconds));
+        var frames = interleaved.Length / channels;
+        var windowCount = (int)Math.Ceiling(frames / (double)windowFrames);
+        var rms = new float[windowCount];
+
+        for (var w = 0; w < windowCount; w++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var startFrame = w * windowFrames;
+            var endFrame = Math.Min(frames, startFrame + windowFrames);
+            double sumSquares = 0.0;
+            for (var f = startFrame; f < endFrame; f++)
+            {
+                float sample = 0f;
+                for (var c = 0; c < channels; c++)
+                    sample += interleaved[f * channels + c];
+                sample /= channels;
+                sumSquares += (double)sample * sample;
+            }
+            var count = endFrame - startFrame;
+            rms[w] = count > 0 ? (float)Math.Sqrt(sumSquares / count) : 0f;
+        }
+
+        return rms;
+    }
 
     private static string Curve(IReadOnlyList<float> rms, float peak)
     {

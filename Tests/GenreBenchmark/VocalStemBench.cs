@@ -77,37 +77,12 @@ internal static class VocalStemBench
 
     private static float[] ReadRms(string wav, double windowSeconds)
     {
-        float[] samples;
-        int rate, channels;
-        using (var reader = new AudioFileReader(wav))
-        {
-            rate = reader.WaveFormat.SampleRate;
-            channels = reader.WaveFormat.Channels;
-            var total = (int)(reader.Length / sizeof(float));
-            var buffer = new float[total];
-            var read = reader.Read(buffer, 0, total);
-            samples = buffer[..read];
-        }
-
-        var windowFrames = Math.Max(1, (int)Math.Round(rate * windowSeconds));
-        var frames = samples.Length / channels;
-        var windowCount = (int)Math.Ceiling(frames / (double)windowFrames);
-        var rms = new float[windowCount];
-        for (var w = 0; w < windowCount; w++)
-        {
-            var startFrame = w * windowFrames;
-            var endFrame = Math.Min(frames, startFrame + windowFrames);
-            double sum = 0.0;
-            for (var f = startFrame; f < endFrame; f++)
-            {
-                float s = 0f;
-                for (var c = 0; c < channels; c++) s += samples[f * channels + c];
-                s /= channels;
-                sum += (double)s * s;
-            }
-            var count = endFrame - startFrame;
-            rms[w] = count > 0 ? (float)Math.Sqrt(sum / count) : 0f;
-        }
-        return rms;
+        using var reader = new AudioFileReader(wav);
+        var rate = reader.WaveFormat.SampleRate;
+        var channels = reader.WaveFormat.Channels;
+        var total = (int)(reader.Length / sizeof(float));
+        var buffer = new float[total];
+        var read = reader.Read(buffer, 0, total);
+        return VocalActivity.ComputeWindowRms(buffer[..read], channels, rate, windowSeconds);
     }
 }
