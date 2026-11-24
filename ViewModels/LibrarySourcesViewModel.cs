@@ -68,7 +68,7 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
         _importLauncher = importLauncher;
 
         AddLibraryFolderCommand = new AsyncRelayCommand(AddLibraryFolderAsync);
-        RemoveLibraryFolderCommand = new RelayCommand<LibraryFolderViewModel?>(RemoveLibraryFolder);
+        RemoveLibraryFolderCommand = new AsyncRelayCommand<LibraryFolderViewModel?>(RemoveLibraryFolder);
         ScanAllLibraryFoldersCommand = new AsyncRelayCommand(ScanAllLibraryFoldersAsync);
         ToggleWatchCommand = new AsyncRelayCommand<LibraryFolderViewModel?>(ToggleWatchAsync);
 
@@ -135,7 +135,7 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private async void RemoveLibraryFolder(LibraryFolderViewModel? folderVm)
+    private async Task RemoveLibraryFolder(LibraryFolderViewModel? folderVm)
     {
         if (folderVm == null) return;
 
