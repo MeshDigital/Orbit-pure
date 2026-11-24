@@ -45,6 +45,13 @@ public class PathProviderService
         // segment and drops empty ones. Split on the folder separators and combine (#341).
         var segments = formatted.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
 
+        if (segments.Length == 0)
+        {
+            // #391: every template token evaluated empty — fall back to the default structure
+            // instead of writing a hidden ".flac" into the download root.
+            return GetTrackPath(track.Artist ?? "Unknown", track.Album ?? "Unknown", track.Title ?? "Unknown", extension);
+        }
+
         var relativePath = Path.Combine(segments) + "." + extension;
         var fullPath = ResolveWithinDownloadDirectory(relativePath);
 
