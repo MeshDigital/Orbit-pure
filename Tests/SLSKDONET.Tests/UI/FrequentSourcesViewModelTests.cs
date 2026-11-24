@@ -8,7 +8,6 @@ using Moq;
 using SLSKDONET.Configuration;
 using SLSKDONET.Services;
 using SLSKDONET.Services.Input;
-using SLSKDONET.Tests.Helpers;
 using SLSKDONET.ViewModels;
 using SLSKDONET.ViewModels.Settings;
 using SLSKDONET.Views;
@@ -112,7 +111,7 @@ public class FrequentSourcesViewModelTests
         return new SutContext(vm, fileInteraction, configPath);
     }
 
-    [ProfileTest("frequent-sources")]
+    [Fact]
     public void ViewModelLoadsSourcesWhenEnabled()
     {
         using var sut = BuildSut(enableFrequentSources: true, frequentSourcesStagingPath: @"C:\Orbit\FrequentSources");
@@ -122,7 +121,7 @@ public class FrequentSourcesViewModelTests
         Assert.NotNull(sut.ViewModel.BrowseFrequentSourcesStagingPathCommand);
     }
 
-    [ProfileTest("frequent-sources")]
+    [Fact]
     public async Task BrowseCommandOpensDialog()
     {
         using var sut = BuildSut(enableFrequentSources: false, frequentSourcesStagingPath: string.Empty);
