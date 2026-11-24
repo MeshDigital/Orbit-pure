@@ -60,6 +60,6 @@ public class PathProviderServiceTests
         // never a hidden ".flac" in the download root.
         var path = MakeService("{artist}/{album}/{title}").GetTrackPath(MakeTrack("", "", "", filename: ""));
 
-        Assert.Equal(Path.Combine(@"C:\music", "Unknown", "Unknown", "Unknown"), path);
+        Assert.Equal(Path.Combine(DownloadDir, "Unknown", "Unknown", "Unknown"), path);
     }
 }
