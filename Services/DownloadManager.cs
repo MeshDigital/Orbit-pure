@@ -1712,7 +1712,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
         var stalledUser = ctx.CurrentUsername;
         if (!string.IsNullOrEmpty(stalledUser))
         {
-            ctx.BlacklistedUsers.Add(stalledUser);
+            lock (ctx.BlacklistedUsers) ctx.BlacklistedUsers.Add(stalledUser); // HashSet isn't thread-safe
             _logger.LogWarning("⚠️ Health Monitor: Blacklisting peer {User} for {Track}", stalledUser, ctx.Model.Title);
 
             // Record failure/stall status to deprioritize bad peers in future searches
@@ -2119,7 +2119,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
              Album = track.Album ?? "Unknown",
              Status = TrackStatus.Missing,
              Priority = priority,
-             ResolvedFilePath = Path.Combine(_config.DownloadDirectory!, _fileNameFormatter.Format(_config.NameFormat ?? "{artist} - {title}", track) + "." + track.GetExtension()),
+             ResolvedFilePath = _pathProvider.GetTrackPath(track),
              TrackUniqueHash = track.UniqueHash
         };
 
@@ -3250,6 +3250,23 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
 
                 var transferDisposition = ClassifyTransferFailure(ex);
 
+                // #334: a file-read error on a resumed transfer is usually our stale resume offset
+                // (the peer's file changed or is shorter than our .part), not the peer's fault.
+                // Discard the partial and retry from offset 0 rather than blacklisting an innocent peer.
+                var resetPartForRetry = transferDisposition.ResetPartAndRetry && ctx.IsResuming;
+                if (resetPartForRetry)
+                {
+                    _logger.LogWarning(
+                        "File-read error on resumed transfer for {Title}; discarding the partial file and retrying from 0. detail={Detail}",
+                        ctx.Model.Title,
+                        ex.Message);
+                    foreach (var deleted in Downloads.PartFileGuard.DeletePartFiles(ctx.PartFilePath, ctx.Model.ResolvedFilePath))
+                        _logger.LogInformation("Discarded partial file on file-read error: {Path}", deleted);
+                    ctx.PartFilePath = null;
+                    ctx.IsResuming = false;
+                    ctx.BytesReceived = 0;
+                }
+
                 if (transferDisposition.AllowHedgeFailover)
                 {
                     _logger.LogWarning(
@@ -3263,7 +3280,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
                         return;
                     }
                 }
-                else
+                else if (!resetPartForRetry)
                 {
                     _logger.LogError(
                         ex,
@@ -3273,18 +3290,20 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
                         ctx.CorrelationId ?? "-");
                 }
 
-                // FIX: Blacklist the failing peer so we don't pick them again instantly
-                if (!string.IsNullOrEmpty(ctx.CurrentUsername))
+                // FIX: Blacklist the failing peer so we don't pick them again instantly.
+                // Skipped for a file-read error on resume — that is our stale offset, not the peer.
+                if (!resetPartForRetry && !string.IsNullOrEmpty(ctx.CurrentUsername))
                 {
                     lock (ctx.BlacklistedUsers) // HashSet isn't thread-safe
                     {
                         if (ctx.BlacklistedUsers.Add(ctx.CurrentUsername))
                         {
                             _logger.LogWarning(
-                                "Blacklisted peer {User} for {Track}. reason={Reason} correlationId={CorrelationId}",
+                                "Blacklisted peer {User} for {Track}. reason={Reason} detail={Detail} correlationId={CorrelationId}",
                                 ctx.CurrentUsername,
                                 ctx.Model.Title,
                                 transferDisposition.OperatorMessage,
+                                ex.Message,
                                 ctx.CorrelationId ?? "-");
                         }
                     }

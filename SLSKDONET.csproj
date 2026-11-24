@@ -13,6 +13,9 @@
          every build at version 0.0.0.0. InternalsVisibleTo is an item further down. -->
     <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
     <Version>0.4.0</Version>
+    <!-- The commit is appended to InformationalVersion ("0.4.0+abc1234", #335) so feedback reports and About
+         identify the exact build; the SourceRevisionId target below fills it from git when available. -->
+    <IncludeSourceRevisionInInformationalVersion>true</IncludeSourceRevisionInInformationalVersion>
     <Authors>SLSK_CSV Contributors</Authors>
     <Description>Soulseek batch downloader using Soulseek.NET - Cross-platform with Avalonia UI</Description>
     <!-- Embeds the icon into the compiled exe itself (Explorer, Alt-Tab, and the taskbar's
@@ -91,7 +94,6 @@
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="NWaves" Version="0.9.6" />
     <PackageReference Include="QuestPDF" Version="2024.12.3" />
-    <PackageReference Include="SciSharp.TensorFlow.Redist" Version="2.16.0" />
     <PackageReference Include="SkiaSharp" Version="2.88.9" />
     <PackageReference Include="System.IO.Hashing" Version="9.0.0" />
 
@@ -155,7 +157,6 @@
     <PackageReference Include="Simple-Avalonia-DragnDrop-Service" Version="2.4.3" />
     <PackageReference Include="Microsoft.ML" Version="3.0.1" />
     <PackageReference Include="Microsoft.ML.LightGbm" Version="3.0.1" />
-    <PackageReference Include="TensorFlow.NET" Version="0.150.0" />
     <PackageReference Include="Xabe.FFmpeg" Version="5.2.6" />
   </ItemGroup>
 
@@ -209,4 +210,14 @@
              Properties="Configuration=$(Configuration);OutDir=$([System.IO.Path]::Combine($(MSBuildProjectDirectory), $(OutDir)))Tools\RekordboxBridge\" />
   </Target>
 
+  <!-- #335: stamp the short git commit into InformationalVersion. No git (source tarball) → no suffix, no error. -->
+  <Target Name="OrbitSourceRevisionId" BeforeTargets="InitializeSourceControlInformation;GetAssemblyVersion;GenerateAssemblyInfo" Condition="'$(SourceRevisionId)' == ''">
+    <Exec Command="git rev-parse --short=8 HEAD" ConsoleToMSBuild="true" StandardOutputImportance="low" StandardErrorImportance="low" IgnoreExitCode="true" ContinueOnError="true" WorkingDirectory="$(MSBuildProjectDirectory)">
+      <Output TaskParameter="ConsoleOutput" PropertyName="OrbitGitSha" />
+      <Output TaskParameter="ExitCode" PropertyName="OrbitGitExit" />
+    </Exec>
+    <PropertyGroup Condition="'$(OrbitGitExit)' == '0' And '$(OrbitGitSha)' != ''">
+      <SourceRevisionId>$(OrbitGitSha)</SourceRevisionId>
+    </PropertyGroup>
+  </Target>
 </Project>

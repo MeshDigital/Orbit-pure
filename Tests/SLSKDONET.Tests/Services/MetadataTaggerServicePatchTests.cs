@@ -27,7 +27,7 @@ public class MetadataTaggerServicePatchTests : IDisposable
     }
 
     private static MetadataTaggerService CreateService() =>
-        new(NullLogger<MetadataTaggerService>.Instance, new FakeFileWriteService());
+        new(NullLogger<MetadataTaggerService>.Instance, new FakeFileWriteService(), new StubHttpClientFactory());
 
     private string CreateWav(string name)
     {

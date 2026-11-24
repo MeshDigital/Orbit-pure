@@ -39,7 +39,13 @@ public partial class DownloadManager
         /// Fixed retry delay.  Null means use exponential seconds backoff (1s → 2s → 4s → 8s …).
         /// </summary>
         TimeSpan? Delay,
-        string OperatorMessage);
+        string OperatorMessage,
+        /// <summary>
+        /// True when the peer reported a file-read error, which on a resumed transfer usually means
+        /// our resume offset is stale (the peer's file changed or is shorter than our .part), not
+        /// that the peer is bad. The caller discards the partial and retries from offset 0 (#334).
+        /// </summary>
+        bool ResetPartAndRetry = false);
 
     internal static async Task<DownloadDiscoveryService.DiscoveryResult> ResolveDiscoveryWithStrictGateAsync(
         bool strictModeEnabled,
@@ -84,6 +90,21 @@ public partial class DownloadManager
                 AllowHedgeFailover: false,
                 Delay: null,
                 OperatorMessage: "peer denied transfer access");
+        }
+
+        // #334: the Soulseek library reports a stale resume offset as a TransferRejectedException
+        // whose message is "File read error". That is our fault (the peer's file changed or is
+        // shorter than our .part), not a queue rejection, so classify it separately — the caller
+        // discards the partial and retries from offset 0 instead of blacklisting the peer.
+        if (message.Contains("read error", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("file read", StringComparison.OrdinalIgnoreCase))
+        {
+            return new TransferFailureDisposition(
+                DownloadFailureReason.TransferFailed,
+                AllowHedgeFailover: false,
+                Delay: null,
+                OperatorMessage: "file read error",
+                ResetPartAndRetry: true);
         }
 
         if (ex.GetType().Name.Contains("TransferRejectedException", StringComparison.OrdinalIgnoreCase) ||

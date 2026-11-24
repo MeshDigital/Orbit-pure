@@ -20,10 +20,10 @@ public class SpotifyScraperInputSource
     private readonly ILogger<SpotifyScraperInputSource> _logger;
     private readonly HttpClient _httpClient;
 
-    public SpotifyScraperInputSource(ILogger<SpotifyScraperInputSource> logger)
+    public SpotifyScraperInputSource(ILogger<SpotifyScraperInputSource> logger, IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
-        _httpClient = new HttpClient();
+        _httpClient = httpClientFactory.CreateClient();
         _httpClient.DefaultRequestHeaders.Add("User-Agent", 
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
         _httpClient.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.9");

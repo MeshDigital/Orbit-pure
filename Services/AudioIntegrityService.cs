@@ -259,7 +259,17 @@ public sealed class AudioIntegrityService : IAudioIntegrityService
         using var proc = Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start FFmpeg process.");
 
-        using var reg = ct.Register(() => { try { proc.Kill(); } catch { } });
+        using var reg = ct.Register(() =>
+        {
+            try
+            {
+                proc.Kill();
+            }
+            catch
+            {
+                // intentional: the process may already have exited.
+            }
+        });
 
         // Read raw s16le bytes and convert to float samples (normalised to ±1).
         using var ms = new MemoryStream();
@@ -311,7 +321,14 @@ public sealed class AudioIntegrityService : IAudioIntegrityService
         if (pathEnv == null) return false;
         foreach (var dir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
-            try { if (System.IO.File.Exists(Path.Combine(dir.Trim(), name))) return true; } catch { }
+            try
+            {
+                if (System.IO.File.Exists(Path.Combine(dir.Trim(), name))) return true;
+            }
+            catch
+            {
+                // intentional: a malformed PATH entry is not fatal to the lookup.
+            }
         }
         return false;
     }

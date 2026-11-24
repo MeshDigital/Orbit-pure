@@ -168,7 +168,7 @@ public static class RekordboxXmlMerger
                     (string?)freshTrack.Attribute("Location"), existingId, freshId);
             }
 
-            PatchTrack(matched, freshTrack, overwriteExisting);
+            PatchTrack(matched, freshTrack, overwriteExisting, logger);
         }
 
         existingCollection.SetAttributeValue("Entries", existingCollection.Elements("TRACK").Count());
@@ -202,10 +202,27 @@ public static class RekordboxXmlMerger
         return null;
     }
 
-    private static void PatchTrack(XElement existingTrack, XElement freshTrack, bool overwriteExisting)
+    private static void PatchTrack(XElement existingTrack, XElement freshTrack, bool overwriteExisting, ILogger logger)
     {
         foreach (var attrName in ManagedAttributes)
         {
+            // #342: Location is ORBIT-owned file truth, not a user-editable Rekordbox field. A move
+            // or rename in ORBIT changes the real path, so the fresh Location must always win — the
+            // old path would otherwise point at a file that no longer exists.
+            if (attrName == "Location")
+            {
+                var oldLocation = (string?)existingTrack.Attribute("Location");
+                var newLocation = (string?)freshTrack.Attribute("Location");
+                if (!string.Equals(oldLocation, newLocation, StringComparison.Ordinal))
+                {
+                    existingTrack.SetAttributeValue("Location", newLocation);
+                    logger.LogInformation(
+                        "Rekordbox merge: updated Location for '{Name}' from '{Old}' to '{New}'.",
+                        (string?)existingTrack.Attribute("Name"), oldLocation, newLocation);
+                }
+                continue;
+            }
+
             if (overwriteExisting)
                 existingTrack.SetAttributeValue(attrName, freshTrack.Attribute(attrName)?.Value);
             else

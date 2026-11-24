@@ -20,8 +20,19 @@ jobs:
         with:
           dotnet-version: '9.0.x'
 
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
       - name: Restore
         run: dotnet restore SLSKDONET.csproj
+
+      - name: Audit dependencies for known vulnerabilities
+        run: dotnet list SLSKDONET.csproj package --vulnerable --include-transitive
 
       - name: Build (main)
         run: dotnet build SLSKDONET.csproj -c Release --no-restore -nologo

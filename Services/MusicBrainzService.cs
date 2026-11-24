@@ -49,12 +49,13 @@ public class MusicBrainzService : IMusicBrainzService
     public MusicBrainzService(
         ILogger<MusicBrainzService> logger,
         DatabaseService databaseService,
-        ITrackRepository trackRepository)
+        ITrackRepository trackRepository,
+        IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
         _databaseService = databaseService;
         _trackRepository = trackRepository;
-        _httpClient = new HttpClient();
+        _httpClient = httpClientFactory.CreateClient();
         _httpClient.DefaultRequestHeaders.Add("User-Agent", UserAgent);
         _httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
     }

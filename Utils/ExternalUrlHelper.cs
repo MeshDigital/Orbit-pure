@@ -38,4 +38,49 @@ public static class ExternalUrlHelper
             return false;
         }
     }
+
+    /// <summary>
+    /// The local path behind a <c>file:</c> URI (a CSV import's source, #332), or null for anything else. The file is
+    /// never opened or executed: callers only reveal it in the file manager (<see cref="TryRevealLocalFile"/>).
+    /// </summary>
+    public static string? LocalFilePath(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return null;
+        return Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.IsFile ? uri.LocalPath : null;
+    }
+
+    /// <summary>
+    /// Shows <paramref name="path"/> selected in the OS file manager (Explorer / Finder / the folder on Linux). It never
+    /// runs the file. False (logged) when it couldn't.
+    /// </summary>
+    public static bool TryRevealLocalFile(string path)
+    {
+        try
+        {
+            ProcessStartInfo psi;
+            if (OperatingSystem.IsWindows())
+            {
+                psi = new ProcessStartInfo("explorer.exe") { UseShellExecute = false };
+                psi.ArgumentList.Add($"/select,{path}");
+            }
+            else if (OperatingSystem.IsMacOS())
+            {
+                psi = new ProcessStartInfo("open") { UseShellExecute = false };
+                psi.ArgumentList.Add("-R");
+                psi.ArgumentList.Add(path);
+            }
+            else
+            {
+                psi = new ProcessStartInfo("xdg-open") { UseShellExecute = false };
+                psi.ArgumentList.Add(System.IO.Path.GetDirectoryName(path) ?? path);
+            }
+            Process.Start(psi);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "[ExternalUrlHelper] Couldn't show {Path} in the file manager", path);
+            return false;
+        }
+    }
 }

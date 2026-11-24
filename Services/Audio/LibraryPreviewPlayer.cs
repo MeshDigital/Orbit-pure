@@ -211,9 +211,19 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
             _output?.Stop();
             _output?.Dispose();
         }
-        catch { }
+        catch
+        {
+            // intentional: best-effort teardown — a dispose error must not break preview shutdown.
+        }
 
-        try { _reader?.Dispose(); } catch { }
+        try
+        {
+            _reader?.Dispose();
+        }
+        catch
+        {
+            // intentional: best-effort teardown.
+        }
 
         _output = null;
         _reader = null;

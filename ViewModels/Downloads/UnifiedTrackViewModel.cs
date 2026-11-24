@@ -1704,7 +1704,7 @@ public partial class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, 
                  _hasStems = found;
                  this.RaisePropertyChanged(nameof(HasStems));
              });
-         } catch {}
+         } catch (Exception ex) { Serilog.Log.Warning(ex, "UnifiedTrackViewModel: stem availability probe failed"); }
     }
 
     // Event Handlers
