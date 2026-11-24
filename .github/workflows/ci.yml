@@ -8,7 +8,11 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ windows-latest, ubuntu-latest, macos-latest ]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
 
     steps:
@@ -37,5 +41,12 @@ jobs:
       - name: Build (main)
         run: dotnet build SLSKDONET.csproj -c Release --no-restore -nologo
 
-      - name: Test
-        run: dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj -c Release -nologo --blame-hang-timeout 2m --logger "console;verbosity=minimal"
+      - name: Test (with coverage)
+        run: dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj -c Release -nologo --blame-hang-timeout 2m --logger "console;verbosity=minimal" --collect:"XPlat Code Coverage" --results-directory ./TestResults
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.os }}
+          path: TestResults/**/coverage.cobertura.xml
+          if-no-files-found: warn
