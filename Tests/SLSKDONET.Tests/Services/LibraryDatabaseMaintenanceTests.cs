@@ -60,7 +60,7 @@ public class LibraryDatabaseMaintenanceTests : IDisposable
     }
 
     [Fact]
-    public void CreateBackup_IncludesRowsStillInTheWalFile()
+    public async Task CreateBackup_IncludesRowsStillInTheWalFile()
     {
         using var conn = OpenWalDb();
         using (var cmd = conn.CreateCommand())
@@ -70,16 +70,16 @@ public class LibraryDatabaseMaintenanceTests : IDisposable
         }
         Assert.True(File.Exists(DbPath + "-wal"));
 
-        var backup = LibraryDatabaseMaintenance.CreateBackup(DbPath);
+        var backup = await LibraryDatabaseMaintenance.CreateBackupAsync(DbPath);
 
         Assert.StartsWith(Path.Combine(_dir, "Backups"), backup);
         Assert.Equal(3, Count(backup));
     }
 
     [Fact]
-    public void CreateBackup_MissingDatabase_Throws()
+    public async Task CreateBackup_MissingDatabase_Throws()
     {
-        Assert.Throws<FileNotFoundException>(() => LibraryDatabaseMaintenance.CreateBackup(Path.Combine(_dir, "nope.db")));
+        await Assert.ThrowsAsync<FileNotFoundException>(() => LibraryDatabaseMaintenance.CreateBackupAsync(Path.Combine(_dir, "nope.db")));
     }
 
     [Fact]

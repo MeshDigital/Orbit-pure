@@ -594,6 +594,8 @@ public class ConfigManager
             }
             catch (IOException) when (attempt < 5)
             {
+                // Deliberate sync retry backoff: WriteAtomically is sync-by-design and its whole
+                // call chain (Save) is offloaded via SaveAsync's Task.Run, so this never blocks the UI.
                 Thread.Sleep(50 * attempt);
             }
         }

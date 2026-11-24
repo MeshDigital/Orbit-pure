@@ -190,11 +190,11 @@ public class SchemaMigratorService
 
             // Use Copy to allow decent backup even if file checks fail later,
             // but wrap in Task.Run to not block startup significantly if large
-            await Task.Run(() =>
+            await Task.Run(async () =>
             {
                 // SQLite online backup, not File.Copy: a WAL-mode DB after an unclean shutdown
                 // can hold committed pages in library.db-wal that a plain copy would drop.
-                LibraryDatabaseMaintenance.CreateBackup(dbPath, backupPath);
+                await LibraryDatabaseMaintenance.CreateBackupAsync(dbPath, backupPath).ConfigureAwait(false);
                 _logger.LogInformation("Database backed up to: {Path}", backupPath);
 
                 // Rotate backups: Keep last 5

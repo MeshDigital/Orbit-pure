@@ -123,6 +123,8 @@ public sealed class EditPreviewStream : ISampleProvider, IDisposable
             {
                 if (Interlocked.Read(ref _queuedFrames) >= _aheadFrames)
                 {
+                    // Deliberate producer-thread yield (not a retry backoff): avoid busy-spinning
+                    // while the consumer catches up. This thread has no sync context to return to.
                     Thread.Sleep(4);
                     continue;
                 }

@@ -3234,7 +3234,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     {
         try
         {
-            var path = await Task.Run(() => SLSKDONET.Services.LibraryDatabaseMaintenance.CreateBackup());
+            var path = await Task.Run(() => SLSKDONET.Services.LibraryDatabaseMaintenance.CreateBackupAsync());
             LastLibraryBackupText = $"Last backup: {System.IO.Path.GetFileName(path)}";
             _eventBus.Publish(new ToastRequestedEvent("Library backed up", $"Saved {System.IO.Path.GetFileName(path)} to the Backups folder.", NotificationType.Success, TimeSpan.FromSeconds(5)));
         }
@@ -3279,7 +3279,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             // Safety net first: if this fails, don't delete anything.
-            var safety = await Task.Run(() => SLSKDONET.Services.LibraryDatabaseMaintenance.CreateBackup());
+            var safety = await Task.Run(() => SLSKDONET.Services.LibraryDatabaseMaintenance.CreateBackupAsync());
             _logger.LogWarning("Pre-reset safety backup written to {Path}", safety);
 
             var markerPath = SchemaMigratorService.ForceResetMarkerPath();
