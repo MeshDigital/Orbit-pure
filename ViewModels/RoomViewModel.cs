@@ -150,9 +150,9 @@ public class RoomViewModel : ReactiveObject, IDisposable
             .Subscribe(e =>
             {
                 var existing = Members.FirstOrDefault(m => string.Equals(m.Username, e.Username, StringComparison.OrdinalIgnoreCase));
-                if (e.Joined && existing.Username is null)
+                if (e.Joined && existing?.Username is null)
                     _ = HandleMemberJoinedAsync(e.Username);
-                else if (!e.Joined && existing.Username is not null)
+                else if (!e.Joined && existing?.Username is not null)
                     Members.Remove(existing);
             })
             .DisposeWith(_disposables);

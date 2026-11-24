@@ -1988,7 +1988,7 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
         else _libraryPreviewPlayer?.RequestPreview(path, track!.Model?.BPM, seconds);
         deck.LastAuditionSeconds = seconds;
         IsPreviewSeekPlaying = true;
-        PreviewSeekStatusText = $"▶ Previewing {track.Title} @ {FormatTimestamp(seconds)}";
+        PreviewSeekStatusText = $"▶ Previewing {track?.Title} @ {FormatTimestamp(seconds)}";
     }
 
     private void StopPreviewSeek()

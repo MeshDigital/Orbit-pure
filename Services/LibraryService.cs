@@ -254,7 +254,7 @@ public class LibraryService : ILibraryService
 
                     _eventBus.Publish(new FileMissingDetectedEvent(
                         track.TrackUniqueHash,
-                        track.ResolvedFilePath,
+                        track.ResolvedFilePath ?? "",
                         DateTime.UtcNow,
                         "LibraryService.SyncLibraryEntriesFromTracksAsync"));
                     continue;
@@ -336,7 +336,7 @@ public class LibraryService : ILibraryService
                     _eventBus.Publish(new FileIngestionCompletedEvent(
                         hash,
                         track.Id,
-                        track.ResolvedFilePath,
+                        track.ResolvedFilePath ?? "",
                         DateTime.UtcNow));
                 }
             }
@@ -1678,7 +1678,7 @@ public class LibraryService : ILibraryService
             FilePath = entity.FilePath,
             Bitrate = entity.Bitrate,
             DurationSeconds = entity.DurationSeconds,
-            Format = SLSKDONET.Models.AudioFileFormat.Resolve(entity.Format, entity.FilePath),
+            Format = SLSKDONET.Models.AudioFileFormat.Resolve(entity.Format, entity.FilePath) ?? "",
             AvailabilityState = entity.AvailabilityState,
             SpotifyPlaylistId = entity.SpotifyPlaylistId,
             SpotifyUri = entity.SpotifyUri,
