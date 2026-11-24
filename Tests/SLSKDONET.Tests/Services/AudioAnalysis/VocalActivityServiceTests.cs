@@ -1,6 +1,6 @@
 using System;
 using System.Threading;
-using SLSKDONET.Services.AudioAnalysis;
+using SLSKDONET.Engine.Analysis;
 using Xunit;
 
 namespace SLSKDONET.Tests.Services.AudioAnalysis;
@@ -15,7 +15,7 @@ public class VocalActivityServiceTests
         var mono = new float[150];
         for (var i = 0; i < 100; i++) mono[i] = 0.5f;
 
-        var rms = VocalActivityService.ComputeWindowRms(mono, channels: 1, sampleRate: 100, windowSeconds: 0.5);
+        var rms = VocalActivity.ComputeWindowRms(mono, channels: 1, sampleRate: 100, windowSeconds: 0.5);
 
         Assert.Equal(new[] { 0.5f, 0.5f, 0f }, rms);
     }
@@ -31,7 +31,7 @@ public class VocalActivityServiceTests
             stereo[f * 2 + 1] = 0.5f;
         }
 
-        var rms = VocalActivityService.ComputeWindowRms(stereo, channels: 2, sampleRate: 100, windowSeconds: 0.5);
+        var rms = VocalActivity.ComputeWindowRms(stereo, channels: 2, sampleRate: 100, windowSeconds: 0.5);
 
         Assert.Equal(2, rms.Length);
         Assert.Equal(0.5f, rms[0], 4);
@@ -45,7 +45,7 @@ public class VocalActivityServiceTests
         var mono = new float[120];
         for (var i = 0; i < 120; i++) mono[i] = 0.5f;
 
-        var rms = VocalActivityService.ComputeWindowRms(mono, channels: 1, sampleRate: 100, windowSeconds: 0.5);
+        var rms = VocalActivity.ComputeWindowRms(mono, channels: 1, sampleRate: 100, windowSeconds: 0.5);
 
         Assert.Equal(3, rms.Length);
         Assert.Equal(0.5f, rms[2], 4);
@@ -54,6 +54,6 @@ public class VocalActivityServiceTests
     [Fact]
     public void ComputeWindowRms_EmptyInput_ReturnsEmpty()
     {
-        Assert.Empty(VocalActivityService.ComputeWindowRms(Array.Empty<float>(), 1, 44100, 0.5));
+        Assert.Empty(VocalActivity.ComputeWindowRms(Array.Empty<float>(), 1, 44100, 0.5));
     }
 }
