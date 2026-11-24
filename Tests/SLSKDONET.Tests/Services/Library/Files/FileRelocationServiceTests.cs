@@ -40,6 +40,12 @@ public class FileRelocationServiceTests : IDisposable
         public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default) => Task.FromResult(new AppDbContext());
     }
 
+    private sealed class ThrowingDbFactory : IDbContextFactory<AppDbContext>
+    {
+        public AppDbContext CreateDbContext() => throw new InvalidOperationException("db down");
+        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default) => throw new InvalidOperationException("db down");
+    }
+
     private sealed class FakeEventBus : IEventBus
     {
         public List<object> Published { get; } = new();
@@ -183,5 +189,23 @@ public class FileRelocationServiceTests : IDisposable
 
         Assert.Single(plan.Moves);
         Assert.Empty(plan.Problems);
+    }
+
+    [Fact]
+    public async Task Execute_DbWriteFailure_RollsBackTheFileMove()
+    {
+        var source = Path.Combine(_dir, "src.flac");
+        var target = Path.Combine(_dir, "tgt.flac");
+        File.WriteAllText(source, "audio");
+
+        var svc = new FileRelocationService(new ThrowingDbFactory(), new FakeEventBus(), NullLogger<FileRelocationService>.Instance);
+        var plan = svc.Plan(new[] { new RelocationRequest("h-rollback", source, target) });
+
+        var outcome = await svc.ExecuteAsync(plan);
+
+        Assert.Equal(0, outcome.Moved);
+        Assert.Single(outcome.Failures);
+        Assert.True(File.Exists(source), "the move must be rolled back to the source");
+        Assert.False(File.Exists(target));
     }
 }

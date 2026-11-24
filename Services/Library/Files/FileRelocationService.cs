@@ -129,7 +129,23 @@ public class FileRelocationService
             try
             {
                 await MoveFileAsync(move.SourcePath, move.TargetPath, ct).ConfigureAwait(false);
-                await UpdatePathsAsync(move.Hash, move.TargetPath, ct).ConfigureAwait(false);
+                try
+                {
+                    await UpdatePathsAsync(move.Hash, move.TargetPath, ct).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Roll the file move back so disk and DB never diverge (#344).
+                    try
+                    {
+                        await MoveFileAsync(move.TargetPath, move.SourcePath, ct).ConfigureAwait(false);
+                    }
+                    catch (Exception rollbackEx)
+                    {
+                        _logger.LogError(rollbackEx, "Rollback failed for {Hash} after a DB write failure", move.Hash);
+                    }
+                    throw;
+                }
                 moved++;
             }
             catch (Exception ex)
