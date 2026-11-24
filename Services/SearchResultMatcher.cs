@@ -314,6 +314,14 @@ public class SearchResultMatcher
             score -= VersionMismatchPenalty;
             breakdown.Add($"Version: candidate is a {offeredVersion}, the request isn't (-{VersionMismatchPenalty})");
         }
+        else if (requestedVersion is not null && offeredVersion is not null &&
+                 !string.Equals(requestedVersion, offeredVersion, StringComparison.OrdinalIgnoreCase))
+        {
+            // #386: the user explicitly asked for one derivative (e.g. "acoustic") but was offered
+            // a different one (e.g. "remix") — penalize so the requested version wins when present.
+            score -= VersionMismatchPenalty;
+            breakdown.Add($"Version: candidate is {offeredVersion} but requested {requestedVersion} (-{VersionMismatchPenalty})");
+        }
 
         // 4. Purist Format Priority (AIFF=100, FLAC=90, WAV=80 baseline profile)
         // We apply this as a bounded bonus so metadata fit still matters, but format preference is explicit.
