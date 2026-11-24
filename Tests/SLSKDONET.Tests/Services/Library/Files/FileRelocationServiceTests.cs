@@ -228,4 +228,34 @@ public class FileRelocationServiceTests : IDisposable
         Assert.Equal(target, log.DestinationPath);
         Assert.Equal(LibraryActionType.Rename, log.ActionType); // same directory
     }
+
+    [Fact]
+    public async Task RevertBatch_UndoesTheMove()
+    {
+        var hash = "h-undo";
+        var source = Path.Combine(_dir, "undo-src.flac");
+        var target = Path.Combine(_dir, "undo-tgt.flac");
+        File.WriteAllText(source, "audio");
+        Seed(hash, source);
+
+        var svc = MakeService(new FakeEventBus());
+        var plan = svc.Plan(new[] { new RelocationRequest(hash, source, target) });
+        await svc.ExecuteAsync(plan);
+        Assert.True(File.Exists(target));
+
+        Guid batchId;
+        using (var db = new AppDbContext())
+            batchId = db.LibraryActionLogs.Single().BatchId;
+
+        var reverted = await svc.RevertBatchAsync(batchId);
+        Assert.Equal(1, reverted);
+
+        Assert.True(File.Exists(source));
+        Assert.False(File.Exists(target));
+
+        using var verify = new AppDbContext();
+        Assert.Equal(source, verify.LibraryEntries.Single(e => e.UniqueHash == hash).FilePath);
+        Assert.Equal(source, verify.PlaylistTracks.Single(t => t.TrackUniqueHash == hash).ResolvedFilePath);
+        Assert.Equal(source, verify.Tracks.Single(t => t.GlobalId == hash).LocalFilePath);
+    }
 }

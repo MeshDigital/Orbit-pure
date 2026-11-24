@@ -224,4 +224,63 @@ public class FileRelocationService
         db.LibraryActionLogs.AddRange(journal);
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Reverts a journaled relocation batch: for each logged move (in reverse order) the file is moved
+    /// back to its source and the three path columns are restored. Returns how many were reverted.
+    /// </summary>
+    public async Task<int> RevertBatchAsync(Guid batchId, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var logs = await db.LibraryActionLogs
+            .Where(l => l.BatchId == batchId)
+            .OrderByDescending(l => l.Id)
+            .ToListAsync(ct).ConfigureAwait(false);
+
+        var reverted = 0;
+        foreach (var log in logs)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                await RevertFileAsync(log, ct).ConfigureAwait(false);
+                reverted++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Undo failed for {Source} -> {Destination}", log.SourcePath, log.DestinationPath);
+            }
+        }
+        return reverted;
+    }
+
+    private async Task RevertFileAsync(LibraryActionLogEntity log, CancellationToken ct)
+    {
+        // Only move the file back when it is still at the destination (the user may have moved it on).
+        if (File.Exists(log.DestinationPath) && !File.Exists(log.SourcePath))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(log.SourcePath)!);
+            File.Move(log.DestinationPath, log.SourcePath);
+        }
+
+        // Restore every path column that points at the destination back to the source (path-keyed,
+        // since the journal ledger records paths rather than the track hash).
+        await using var db = await _dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var entries = await db.LibraryEntries.Where(e => e.FilePath == log.DestinationPath).ToListAsync(ct).ConfigureAwait(false);
+        foreach (var e in entries)
+        {
+            e.FilePath = log.SourcePath;
+            e.FilePathUpdatedAt = DateTime.UtcNow;
+        }
+
+        var playlistTracks = await db.PlaylistTracks.Where(t => t.ResolvedFilePath == log.DestinationPath).ToListAsync(ct).ConfigureAwait(false);
+        foreach (var t in playlistTracks)
+            t.ResolvedFilePath = log.SourcePath;
+
+        var tracks = await db.Tracks.Where(t => t.LocalFilePath == log.DestinationPath).ToListAsync(ct).ConfigureAwait(false);
+        foreach (var t in tracks)
+            t.LocalFilePath = log.SourcePath;
+
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+    }
 }
