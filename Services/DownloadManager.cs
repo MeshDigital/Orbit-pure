@@ -3046,7 +3046,11 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
         var finalPath = _pathProvider.GetTrackPath(namingTrack);
         ctx.Model.ResolvedFilePath = finalPath; // Set early so UI can probe the path (will look for .part)
 
-        var partPath = finalPath + ".part";
+        // LF3 (#345): download the .part into the hidden staging folder, then commit to the final
+        // path after verification — the library tree never sees a half-written file.
+        var downloadDir = DownloadDirectory ?? "Downloads";
+        var partPath = DownloadStagingPath.GetPartPath(downloadDir, ctx.Model.TrackUniqueHash ?? ctx.GlobalId);
+        Directory.CreateDirectory(Path.GetDirectoryName(partPath)!);
         ctx.PartFilePath = partPath; // the one real .part path, for every cleanup path (#328)
         long startPosition = 0;
 
