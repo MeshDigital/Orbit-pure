@@ -19,11 +19,13 @@ public class BulkRenameViewModelTests
     [Fact]
     public void Resolve_MissingFieldsBecomeEmptyNotLiteralToken()
     {
+        // LF1: the empty optional group drops itself (and its adjacent separator), so we no
+        // longer produce a dangling "Title []".
         var result = BulkRenameViewModel.Resolve(
             "{artist} - {title} [{tracknumber}]",
             artist: "Artist", title: "Title", album: "", trackNumber: "", year: "", genre: "");
 
-        Assert.Equal("Artist - Title []", result);
+        Assert.Equal("Artist - Title", result);
     }
 
     [Fact]

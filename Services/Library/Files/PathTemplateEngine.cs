@@ -27,7 +27,8 @@ public sealed record TrackFacts(
     string? User = null,
     string? Filename = null,
     int? LengthSeconds = null,
-    long? SizeBytes = null);
+    long? SizeBytes = null,
+    string? SizeFormatted = null);
 
 /// <summary>Rendering options: ASCII-safe (USB) mode and a per-segment length budget.</summary>
 public sealed record RenderOptions(bool AsciiSafe = false, int MaxSegmentLength = 255);
@@ -202,7 +203,7 @@ public static class PathTemplateEngine
             "user" or "username" => facts.User ?? string.Empty,
             "filename" => facts.Filename ?? string.Empty,
             "length" => facts.LengthSeconds?.ToString() ?? string.Empty,
-            "size" => facts.SizeBytes?.ToString() ?? string.Empty,
+            "size" => facts.SizeFormatted ?? facts.SizeBytes?.ToString() ?? string.Empty,
             _ => string.Empty,
         };
     }
