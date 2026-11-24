@@ -18,17 +18,23 @@ namespace SLSKDONET.Services.InputParsers;
 public class SpotifyScraperInputSource
 {
     private readonly ILogger<SpotifyScraperInputSource> _logger;
-    private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
 
     public SpotifyScraperInputSource(ILogger<SpotifyScraperInputSource> logger, IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
-        _httpClient = httpClientFactory.CreateClient();
-        _httpClient.DefaultRequestHeaders.Add("User-Agent", 
+        _httpClientFactory = httpClientFactory;
+    }
+
+    private HttpClient CreateClient()
+    {
+        var client = _httpClientFactory.CreateClient();
+        client.DefaultRequestHeaders.Add("User-Agent", 
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-        _httpClient.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.9");
-        _httpClient.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8");
-        _httpClient.Timeout = TimeSpan.FromSeconds(15);
+        client.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.9");
+        client.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8");
+        client.Timeout = TimeSpan.FromSeconds(15);
+        return client;
     }
 
     /// <summary>
@@ -170,7 +176,8 @@ public class SpotifyScraperInputSource
             _logger.LogDebug("Attempting OEmbed extraction");
             
             var oembedUrl = $"https://embed.spotify.com/oembed?url={Uri.EscapeDataString(url)}";
-            var response = await _httpClient.GetAsync(oembedUrl);
+            using var client = CreateClient();
+            var response = await client.GetAsync(oembedUrl);
             
             if (!response.IsSuccessStatusCode)
                 return null;
@@ -215,7 +222,8 @@ public class SpotifyScraperInputSource
             // Rate limiting to avoid IP bans
             await Task.Delay(Random.Shared.Next(500, 1500));
 
-            var html = await _httpClient.GetStringAsync(embedUrl);
+            using var client = CreateClient();
+            var html = await client.GetStringAsync(embedUrl);
 
             if (string.IsNullOrWhiteSpace(html))
             {
