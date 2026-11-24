@@ -3043,7 +3043,13 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
             Username = bestMatch.Username, // For {user} variable
             Length = ctx.Model.CanonicalDuration // For {length} variable
         };
-        var finalPath = _pathProvider.GetTrackPath(namingTrack);
+        var templatePath = _pathProvider.GetTrackPath(namingTrack);
+        // LF3 (#345): Inbox mode lands the verified download in Inbox/ for review instead of the
+        // template path; "File to library" re-files it later via the single move path (LF2).
+        var finalPath = _config.DownloadCommitMode == "Inbox"
+            ? Path.Combine(DownloadDirectory ?? "Downloads", "Inbox", Path.GetFileName(templatePath))
+            : templatePath;
+        Directory.CreateDirectory(Path.GetDirectoryName(finalPath)!);
         ctx.Model.ResolvedFilePath = finalPath; // Set early so UI can probe the path (will look for .part)
 
         // LF3 (#345): download the .part into the hidden staging folder, then commit to the final
