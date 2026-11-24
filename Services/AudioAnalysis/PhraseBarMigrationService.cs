@@ -80,7 +80,7 @@ public sealed class PhraseBarMigrationService
         }
         if (features.Count == 0) { WriteMarker("no analysed tracks"); return; }
 
-        string backup = BackupLibrary();
+        string backup = await BackupLibraryAsync().ConfigureAwait(false);
         _logger.LogInformation("[PhraseBarMigration] Converting phrase data to bars for {Count} tracks (backup: {Backup})", features.Count, backup);
 
         int converted = 0, backfilled = 0;
@@ -173,7 +173,7 @@ public sealed class PhraseBarMigrationService
         return PhraseType.Unknown;
     }
 
-    private string BackupLibrary()
+    private async Task<string> BackupLibraryAsync()
     {
         string source = OrbitPaths.LibraryDbPath;
         Directory.CreateDirectory(DataDirectory);
@@ -183,7 +183,7 @@ public sealed class PhraseBarMigrationService
         using var dst = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = target }.ToString());
         src.Open();
         dst.Open();
-        src.BackupDatabase(dst);
+        await SqliteBackupHelper.BackupWithRetryAsync(src, dst).ConfigureAwait(false);
         SqliteConnection.ClearPool(dst);
         return target;
     }

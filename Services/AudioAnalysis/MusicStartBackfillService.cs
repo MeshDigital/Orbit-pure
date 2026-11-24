@@ -78,7 +78,7 @@ public sealed class MusicStartBackfillService
         }
         if (candidates.Count == 0) { WriteMarker("no candidates"); return; }
 
-        string backup = BackupLibrary();
+        string backup = await BackupLibraryAsync().ConfigureAwait(false);
         _logger.LogInformation("[MusicStartBackfill] Estimating music start for {Count} tracks (backup: {Backup})", candidates.Count, backup);
 
         int filled = 0;
@@ -110,7 +110,7 @@ public sealed class MusicStartBackfillService
                 NotificationType.Success, TimeSpan.FromSeconds(8)));
     }
 
-    private string BackupLibrary()
+    private async Task<string> BackupLibraryAsync()
     {
         string source = OrbitPaths.LibraryDbPath;
         Directory.CreateDirectory(DataDirectory);
@@ -120,7 +120,7 @@ public sealed class MusicStartBackfillService
         using var dst = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = target }.ToString());
         src.Open();
         dst.Open();
-        src.BackupDatabase(dst);
+        await SqliteBackupHelper.BackupWithRetryAsync(src, dst).ConfigureAwait(false);
         SqliteConnection.ClearPool(dst);
         return target;
     }
