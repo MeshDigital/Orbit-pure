@@ -23,6 +23,17 @@ public class FileNameFormatter
     /// </summary>
     public string Format(string template, Track track)
     {
+        var result = FormatTemplate(template, track);
+        return FileFormattingUtils.SanitizeFilename(result);
+    }
+
+    /// <summary>
+    /// Replaces template variables and applies the "no usable content" fallback, but does NOT
+    /// sanitise. Callers that build sub-folders split this on '/' / '\' and sanitise each segment
+    /// themselves, so a template like "{artist}/{album}/{title}" stays a nested path (#341).
+    /// </summary>
+    internal string FormatTemplate(string template, Track track)
+    {
         var result = template;
 
         // Replace variables
@@ -44,8 +55,6 @@ public class FileNameFormatter
             }
         }
 
-        // Sanitize filename
-        result = FileFormattingUtils.SanitizeFilename(result);
         return result;
     }
 

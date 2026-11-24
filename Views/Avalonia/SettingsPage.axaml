@@ -434,7 +434,7 @@
                                     <Grid Classes="row" ColumnDefinitions="*,Auto">
                                         <StackPanel Classes="label">
                                             <TextBlock Classes="body" Text="File name format"/>
-                                            <TextBlock Classes="caption" Text="{}{artist} {title} {album} {filename} {bitrate} {format} {length} {user}"/>
+                                            <TextBlock Classes="caption" Text="{}{artist} {title} {album} {filename} {bitrate} {bpm} {key} {energy} {format} {length} {user}"/>
                                         </StackPanel>
                                         <TextBox Grid.Column="1" Classes="field mono"
                                                  Text="{Binding FileNameFormat, Mode=TwoWay}"/>
