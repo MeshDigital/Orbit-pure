@@ -47,7 +47,8 @@ public class TransferFailureFileReadTests
     public void ClassifyTransferFailure_TransferRejectedWrappedInAggregate_StillQueueDenied()
     {
         // #385: async paths wrap the rejection in an AggregateException; the classifier must unwrap it.
-        var result = DownloadManager.ClassifyTransferFailure(new AggregateException(new TestTransferRejectedException("peer queue rejected transfer")));
+        // The message deliberately omits "queue" so only the type-name unwrap can classify this.
+        var result = DownloadManager.ClassifyTransferFailure(new AggregateException(new TestTransferRejectedException("peer rejected transfer")));
 
         Assert.Equal(DownloadFailureReason.RemoteQueueDenied, result.RetryFailureReason);
     }
