@@ -117,10 +117,12 @@ public class FileRelocationService
         return new RelocationPlan(moves, problems);
     }
 
-    /// <summary>Executes a plan: moves each file, updates the three path columns, and publishes one refresh event.</summary>
+    /// <summary>Executes a plan: moves each file, updates the three path columns, journals the move, and publishes one refresh event.</summary>
     public async Task<RelocationOutcome> ExecuteAsync(RelocationPlan plan, CancellationToken ct = default)
     {
         var failures = new List<RelocationProblem>();
+        var journal = new List<LibraryActionLogEntity>();
+        var batchId = Guid.NewGuid();
         var moved = 0;
 
         foreach (var move in plan.Moves)
@@ -146,6 +148,13 @@ public class FileRelocationService
                     }
                     throw;
                 }
+                journal.Add(new LibraryActionLogEntity
+                {
+                    BatchId = batchId,
+                    ActionType = IsRename(move) ? LibraryActionType.Rename : LibraryActionType.ManualMove,
+                    SourcePath = move.SourcePath,
+                    DestinationPath = move.TargetPath,
+                });
                 moved++;
             }
             catch (Exception ex)
@@ -156,10 +165,16 @@ public class FileRelocationService
         }
 
         if (moved > 0)
+        {
+            await WriteJournalAsync(journal, ct).ConfigureAwait(false);
             _eventBus.Publish(new LibraryUpdatedEvent("library files relocated"));
+        }
 
         return new RelocationOutcome(moved, failures);
     }
+
+    private static bool IsRename(RelocationRequest move) =>
+        string.Equals(Path.GetDirectoryName(move.SourcePath), Path.GetDirectoryName(move.TargetPath), StringComparison.OrdinalIgnoreCase);
 
     private async Task MoveFileAsync(string source, string target, CancellationToken ct)
     {
@@ -199,6 +214,14 @@ public class FileRelocationService
         foreach (var t in tracks)
             t.LocalFilePath = newPath;
 
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+    }
+
+    private async Task WriteJournalAsync(IReadOnlyList<LibraryActionLogEntity> journal, CancellationToken ct)
+    {
+        if (journal.Count == 0) return;
+        await using var db = await _dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        db.LibraryActionLogs.AddRange(journal);
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 }

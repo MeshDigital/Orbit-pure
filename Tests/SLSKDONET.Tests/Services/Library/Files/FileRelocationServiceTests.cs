@@ -208,4 +208,24 @@ public class FileRelocationServiceTests : IDisposable
         Assert.True(File.Exists(source), "the move must be rolled back to the source");
         Assert.False(File.Exists(target));
     }
+
+    [Fact]
+    public async Task Execute_JournalsTheMove()
+    {
+        var hash = "h-journal";
+        var source = Path.Combine(_dir, "journal-src.flac");
+        var target = Path.Combine(_dir, "journal-tgt.flac");
+        File.WriteAllText(source, "audio");
+        Seed(hash, source);
+
+        var svc = MakeService(new FakeEventBus());
+        var plan = svc.Plan(new[] { new RelocationRequest(hash, source, target) });
+        await svc.ExecuteAsync(plan);
+
+        using var db = new AppDbContext();
+        var log = Assert.Single(db.LibraryActionLogs.ToList());
+        Assert.Equal(source, log.SourcePath);
+        Assert.Equal(target, log.DestinationPath);
+        Assert.Equal(LibraryActionType.Rename, log.ActionType); // same directory
+    }
 }
