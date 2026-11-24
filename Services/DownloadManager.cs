@@ -185,6 +185,14 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
     public bool IsBackingOff => CurrentBackoffSeconds > 0;
     public int CurrentBackoffSeconds { get; private set; }
 
+    /// <summary>Returns a frozen copy of a context's blacklist so the discovery service can read it
+    /// while other threads mutate the live set (#316).</summary>
+    private static HashSet<string> SnapshotBlacklistedUsers(DownloadContext ctx)
+    {
+        lock (ctx.BlacklistedUsers)
+            return new HashSet<string>(ctx.BlacklistedUsers, StringComparer.OrdinalIgnoreCase);
+    }
+
     // Lets the circuit breaker's backoff wait wake up the instant Windows reports the network
     // came back (e.g. Wi-Fi reconnected), instead of always sitting out the current exponential
     // backoff step (up to 60s) even though the underlying cause already cleared. Released only on
@@ -2916,7 +2924,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
                         _config.EnableAutoDownloadStrictMode,
                         _config.AutoDownloadAllowFuzzyFallback,
                         () => _autoSearchService.FindBestMatchAsync(ctx.Model, trackCt),
-                        () => _discoveryService.FindBestMatchAsync(ctx.Model, trackCt, ctx.BlacklistedUsers, ctx.CorrelationId),
+                        () => _discoveryService.FindBestMatchAsync(ctx.Model, trackCt, SnapshotBlacklistedUsers(ctx), ctx.CorrelationId),
                         strictDiagnostics =>
                         {
                             if (_config.AutoDownloadDiagnosticsEnabled)
