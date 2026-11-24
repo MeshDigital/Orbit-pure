@@ -107,6 +107,25 @@ public class RekordboxXmlMergerTests
     }
 
     [Fact]
+    public void Merge_MovedTrack_TakesFreshLocationButPreservesRekordboxEdits()
+    {
+        // Same TrackID, but ORBIT moved the file: existing Location points at the old path, fresh at the new (#342).
+        var existing = BuildDoc(new[] { BuildTrack("X", @"C:\old\a.mp3", rating: "255", colour: "FF0000", comments: "hand note", withCue: true) }, "MyPlaylist");
+        var fresh = BuildDoc(new[] { BuildTrack("X", @"C:\new\a.mp3", rating: "51", colour: "0000FF", comments: "orbit note", withCue: false) }, "MyPlaylist");
+
+        var merged = RekordboxXmlMerger.MergeIntoExisting(existing, fresh, new[] { "ROOT", "MyPlaylist" }, NullLogger.Instance);
+        var track = FindTrack(merged, "X")!;
+
+        // Location is ORBIT-owned file truth and must follow the move.
+        Assert.Equal(@"C:\new\a.mp3", (string)track.Attribute("Location")!);
+        // Rekordbox-side edits are still preserved in the default merge.
+        Assert.Equal("255", (string)track.Attribute("Rating")!);
+        Assert.Equal("FF0000", (string)track.Attribute("Colour")!);
+        Assert.Equal("hand note", (string)track.Attribute("Comments")!);
+        Assert.Single(track.Elements("POSITION_MARK"));
+    }
+
+    [Fact]
     public void Merge_MatchedTrack_FillsColourCommentsCuesFromFreshWhenAbsentOnDisk()
     {
         var existing = BuildDoc(new[] { BuildTrack("1", @"C:\a.mp3", colour: null, comments: "", withCue: false) }, "MyPlaylist");
@@ -121,7 +140,7 @@ public class RekordboxXmlMergerTests
     }
 
     [Fact]
-    public void Merge_MatchedTrack_PreservesTempoLocationAndFileMetadataByDefault()
+    public void Merge_MatchedTrack_PreservesTempoAndFileMetadataByDefault()
     {
         var existing = BuildDoc(new[] { BuildTrack("1", @"C:\old-path.mp3", bpm: "120.00", name: "Old Name") }, "MyPlaylist");
         var fresh = BuildDoc(new[] { BuildTrack("1", @"C:\old-path.mp3", bpm: "128.00", name: "New Name") }, "MyPlaylist");
