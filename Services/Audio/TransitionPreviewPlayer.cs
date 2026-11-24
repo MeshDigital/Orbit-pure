@@ -227,10 +227,31 @@ namespace SLSKDONET.Services.Audio
         {
             if (stopOutput)
             {
-                try { _output?.Stop(); } catch { /* already stopped/disposed */ }
+                try
+                {
+                    _output?.Stop();
+                }
+                catch
+                {
+                    // intentional: the output may already be stopped/disposed.
+                }
             }
-            try { _output?.Dispose(); } catch { }
-            try { _reader?.Dispose(); } catch { }
+            try
+            {
+                _output?.Dispose();
+            }
+            catch
+            {
+                // intentional: best-effort teardown.
+            }
+            try
+            {
+                _reader?.Dispose();
+            }
+            catch
+            {
+                // intentional: best-effort teardown.
+            }
             _output = null;
             _reader = null;
 

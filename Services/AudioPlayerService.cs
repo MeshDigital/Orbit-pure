@@ -121,7 +121,11 @@ namespace SLSKDONET.Services
                 var previous = SeekTask;
                 SeekTask = System.Threading.Tasks.Task.Run(async () =>
                 {
-                    if (previous != null) { try { await previous; } catch { } }
+                    if (previous != null)
+                    {
+                        try { await previous; }
+                        catch (Exception ex) { Serilog.Log.Warning(ex, "[AudioPlayerService] Previous seek task failed"); }
+                    }
                     SLSKDONET.Services.Audio.ExactSeek.Seek(file, FilePath, seconds);
                     VariSpeed?.Reset();
                     Metronome?.Seek(seconds);

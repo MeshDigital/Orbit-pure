@@ -148,7 +148,14 @@ public static class PlayableAudio
         var error = process.StandardError.ReadToEnd();
         if (!process.WaitForExit(120_000))
         {
-            try { process.Kill(); } catch { }
+            try
+            {
+                process.Kill();
+            }
+            catch
+            {
+                // intentional: the process may already have exited.
+            }
             throw new TimeoutException("ffmpeg decode timed out");
         }
         if (process.ExitCode != 0)
