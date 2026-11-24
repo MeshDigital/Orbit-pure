@@ -119,4 +119,69 @@ public class FileRelocationServiceTests : IDisposable
         Assert.Single(plan.Problems);
         Assert.Contains("collision", plan.Problems[0].Reason, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public async Task PlanAsync_LockedTrack_IsReportedAsProblem()
+    {
+        var hash = "h-locked";
+        var source = Path.Combine(_dir, "locked.flac");
+        var target = Path.Combine(_dir, "moved.flac");
+        File.WriteAllText(source, "audio");
+
+        using (var db = new AppDbContext())
+        {
+            db.LibraryEntries.Add(new LibraryEntryEntity { UniqueHash = hash, FilePath = source, PathLockedAt = DateTime.UtcNow });
+            db.SaveChanges();
+        }
+
+        var svc = MakeService(new FakeEventBus());
+        var plan = await svc.PlanAsync(new[] { new RelocationRequest(hash, source, target) });
+
+        Assert.Empty(plan.Moves);
+        Assert.Single(plan.Problems);
+        Assert.Contains("locked", plan.Problems[0].Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PlanAsync_LinkedFolderTrack_IsReportedAsProblem()
+    {
+        var hash = "h-linked";
+        var source = Path.Combine(_dir, "linked.flac");
+        var target = Path.Combine(_dir, "moved2.flac");
+        File.WriteAllText(source, "audio");
+
+        using (var db = new AppDbContext())
+        {
+            db.LibraryEntries.Add(new LibraryEntryEntity { UniqueHash = hash, FilePath = source, FileOrigin = FileOriginDeriver.LinkedFolder });
+            db.SaveChanges();
+        }
+
+        var svc = MakeService(new FakeEventBus());
+        var plan = await svc.PlanAsync(new[] { new RelocationRequest(hash, source, target) });
+
+        Assert.Empty(plan.Moves);
+        Assert.Single(plan.Problems);
+        Assert.Contains("linked folder", plan.Problems[0].Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PlanAsync_UnlockedDownloadedTrack_IsMoved()
+    {
+        var hash = "h-downloaded";
+        var source = Path.Combine(_dir, "downloaded.flac");
+        var target = Path.Combine(_dir, "moved3.flac");
+        File.WriteAllText(source, "audio");
+
+        using (var db = new AppDbContext())
+        {
+            db.LibraryEntries.Add(new LibraryEntryEntity { UniqueHash = hash, FilePath = source, FileOrigin = FileOriginDeriver.Downloaded });
+            db.SaveChanges();
+        }
+
+        var svc = MakeService(new FakeEventBus());
+        var plan = await svc.PlanAsync(new[] { new RelocationRequest(hash, source, target) });
+
+        Assert.Single(plan.Moves);
+        Assert.Empty(plan.Problems);
+    }
 }

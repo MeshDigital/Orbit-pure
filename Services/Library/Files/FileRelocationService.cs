@@ -78,6 +78,45 @@ public class FileRelocationService
         return new RelocationPlan(moves, problems);
     }
 
+    /// <summary>
+    /// Validates a batch up front AND applies LF4 path protection: a locked track (PathLockedAt set,
+    /// e.g. first Rekordbox/USB export) and a linked-folder track (FileOrigin == LinkedFolder) are
+    /// reported as problems instead of being auto-moved.
+    /// </summary>
+    public async Task<RelocationPlan> PlanAsync(IReadOnlyList<RelocationRequest> requests, CancellationToken ct = default)
+    {
+        var plan = Plan(requests);
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var hashes = plan.Moves.Select(m => m.Hash).Distinct(StringComparer.Ordinal).ToList();
+        var entries = hashes.Count == 0
+            ? new Dictionary<string, LibraryEntryEntity>(StringComparer.Ordinal)
+            : await db.LibraryEntries.Where(e => hashes.Contains(e.UniqueHash))
+                .ToDictionaryAsync(e => e.UniqueHash, StringComparer.Ordinal, ct).ConfigureAwait(false);
+
+        var moves = new List<RelocationRequest>(plan.Moves.Count);
+        var problems = new List<RelocationProblem>(plan.Problems);
+        foreach (var move in plan.Moves)
+        {
+            if (entries.TryGetValue(move.Hash, out var entry))
+            {
+                if (entry.PathLockedAt is not null)
+                {
+                    problems.Add(new RelocationProblem(move.Hash, "Path is locked"));
+                    continue;
+                }
+                if (string.Equals(entry.FileOrigin, FileOriginDeriver.LinkedFolder, StringComparison.OrdinalIgnoreCase))
+                {
+                    problems.Add(new RelocationProblem(move.Hash, "Linked folder — not auto-moved"));
+                    continue;
+                }
+            }
+            moves.Add(move);
+        }
+
+        return new RelocationPlan(moves, problems);
+    }
+
     /// <summary>Executes a plan: moves each file, updates the three path columns, and publishes one refresh event.</summary>
     public async Task<RelocationOutcome> ExecuteAsync(RelocationPlan plan, CancellationToken ct = default)
     {
