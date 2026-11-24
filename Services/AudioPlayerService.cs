@@ -774,7 +774,7 @@ namespace SLSKDONET.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[AudioPlayerService] Preload failed for {filePath}: {ex.Message}");
+                Serilog.Log.Warning(ex, "[AudioPlayerService] Preload failed for {File}", filePath);
                 lock (_deckLock)
                 {
                     _next = null;
@@ -866,7 +866,7 @@ namespace SLSKDONET.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[AudioPlayerService] Playback error: {ex.Message}");
+                Serilog.Log.Warning(ex, "[AudioPlayerService] Playback error");
                 throw;
             }
         }
@@ -1127,7 +1127,7 @@ namespace SLSKDONET.Services
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[AudioPlayerService] Deferred disposal of finished deck failed: {ex.Message}");
+                    Serilog.Log.Warning(ex, "[AudioPlayerService] Deferred disposal of finished deck failed");
                 }
             });
 

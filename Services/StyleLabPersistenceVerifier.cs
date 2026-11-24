@@ -21,7 +21,6 @@ namespace SLSKDONET.Services
         public async Task VerifyPersistenceAsync()
         {
             _logger.LogInformation("🧪 STARTING STYLE LAB PERSISTENCE VERIFICATION...");
-            Console.WriteLine("🧪 STARTING STYLE LAB PERSISTENCE VERIFICATION...");
 
             var testStyleName = "VERIFY_PERSISTENCE_" + Guid.NewGuid().ToString().Substring(0, 8);
             var testTrackHash = "TEST_HASH_" + Guid.NewGuid();
