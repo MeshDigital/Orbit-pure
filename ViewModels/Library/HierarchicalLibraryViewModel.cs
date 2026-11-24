@@ -11,6 +11,7 @@ using Avalonia.Data;
 using Avalonia.Data.Converters;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Microsoft.Extensions.Logging;
 using SLSKDONET.Configuration;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
@@ -29,15 +30,17 @@ public class HierarchicalLibraryViewModel : IDisposable
     public ITreeDataGridRowSelectionModel<ILibraryNode>? Selection => Source.RowSelection;
 
     private readonly ArtworkCacheService? _artworkCacheService;
+    private readonly ILogger? _logger;
     private IEventBus? _eventBus;
     private bool _disposed;
 
-    public HierarchicalLibraryViewModel(AppConfig config, DownloadManager? downloadManager = null, ArtworkCacheService? artworkCacheService = null, IEventBus? eventBus = null)
+    public HierarchicalLibraryViewModel(AppConfig config, DownloadManager? downloadManager = null, ArtworkCacheService? artworkCacheService = null, IEventBus? eventBus = null, ILogger? logger = null)
     {
         _config = config;
         _downloadManager = downloadManager;
         _artworkCacheService = artworkCacheService;
         _eventBus = eventBus;
+        _logger = logger;
         Source = new HierarchicalTreeDataGridSource<ILibraryNode>(_albums);
         Source.RowSelection!.SingleSelect = false;
 
@@ -71,7 +74,7 @@ public class HierarchicalLibraryViewModel : IDisposable
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            Serilog.Log.Error(ex, "Failed to save column layout");
+            _logger?.LogError(ex, "Failed to save column layout");
         }
     }
 
