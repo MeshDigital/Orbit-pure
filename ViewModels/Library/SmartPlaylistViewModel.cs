@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
+using SLSKDONET.Helpers;
 using System.Text.Json;
 using SLSKDONET.Views;
 using Avalonia.Threading;
@@ -74,7 +75,9 @@ public class SmartPlaylistViewModel : INotifyPropertyChanged
         CreateCrateCommand = ReactiveCommand.CreateFromTask(CreateCrateAsync);
         CreateCustomSmartPlaylistCommand = ReactiveCommand.CreateFromTask(CreateCustomSmartPlaylistAsync);
 
-        _ = InitializeSmartPlaylists();
+        // #389: constructors can't await, so observe the init task explicitly — an unobserved
+        // exception here would otherwise be swallowed silently.
+        InitializeSmartPlaylists().FireAndForgetSafe(_logger, "SmartPlaylistViewModel.InitializeSmartPlaylists");
     }
 
     private async Task CreateCrateAsync()
