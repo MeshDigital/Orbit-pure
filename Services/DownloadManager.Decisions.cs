@@ -79,7 +79,13 @@ public partial class DownloadManager
 
     internal static TransferFailureDisposition ClassifyTransferFailure(Exception ex)
     {
-        var message = ex.Message ?? string.Empty;
+        // #385: async paths surface the real failure wrapped in an AggregateException; unwrap it so
+        // the TransferRejectedException type check (and the IOException/TimeoutException checks) match.
+        var rootEx = ex is AggregateException ae && ae.InnerExceptions.Count == 1
+            ? ae.InnerExceptions[0]
+            : (ex.GetBaseException() ?? ex);
+        var message = rootEx.Message ?? string.Empty;
+        var typeName = rootEx.GetType().Name;
 
         if (message.Contains("banned", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("not authorized", StringComparison.OrdinalIgnoreCase) ||
@@ -107,7 +113,7 @@ public partial class DownloadManager
                 ResetPartAndRetry: true);
         }
 
-        if (ex.GetType().Name.Contains("TransferRejectedException", StringComparison.OrdinalIgnoreCase) ||
+        if (typeName.Contains("TransferRejectedException", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("Too many files", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("queue", StringComparison.OrdinalIgnoreCase))
         {
@@ -121,7 +127,7 @@ public partial class DownloadManager
         if (message.Contains("refused", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("aborted", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("Unable to read", StringComparison.OrdinalIgnoreCase) ||
-            ex is IOException)
+            rootEx is IOException)
         {
             // Transient TCP failure → seconds-scale back-off (Epic 4.1)
             return new TransferFailureDisposition(
@@ -131,7 +137,7 @@ public partial class DownloadManager
                 OperatorMessage: "network transfer error");
         }
 
-        if (ex is TimeoutException)
+        if (rootEx is TimeoutException)
         {
             // Transient timeout → seconds-scale back-off (Epic 4.1)
             return new TransferFailureDisposition(
