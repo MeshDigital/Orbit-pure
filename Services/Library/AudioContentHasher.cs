@@ -78,10 +78,10 @@ public class AudioContentHasher
 
         bool last = false;
         byte[]? streamInfoMd5 = null;
+        Span<byte> header = stackalloc byte[4];
         while (!last)
         {
             ct.ThrowIfCancellationRequested();
-            Span<byte> header = stackalloc byte[4];
             if (fs.Read(header) != 4) break;
             last = (header[0] & 0x80) != 0;
             int blockType = header[0] & 0x7F;
@@ -130,10 +130,10 @@ public class AudioContentHasher
             return HashWholeFile(fs, "payload", ct);
 
         // Walk chunks
+        Span<byte> chunkHeader = stackalloc byte[8];
         while (fs.Position < fs.Length)
         {
             ct.ThrowIfCancellationRequested();
-            Span<byte> chunkHeader = stackalloc byte[8];
             if (fs.Read(chunkHeader) != 8) break;
             var id = System.Text.Encoding.ASCII.GetString(chunkHeader[..4]);
             uint size = BinaryPrimitives.ReadUInt32LittleEndian(chunkHeader[4..]);
@@ -209,11 +209,11 @@ public class AudioContentHasher
     {
         // Find mdat atom
         fs.Seek(0, SeekOrigin.Begin);
+        Span<byte> header = stackalloc byte[8];
         while (fs.Position < fs.Length - 8)
         {
             ct.ThrowIfCancellationRequested();
             long atomStart = fs.Position;
-            Span<byte> header = stackalloc byte[8];
             if (fs.Read(header) != 8) break;
             uint size32 = BinaryPrimitives.ReadUInt32BigEndian(header[..4]);
             var type = System.Text.Encoding.ASCII.GetString(header[4..8]);
@@ -246,11 +246,11 @@ public class AudioContentHasher
         if (fs.Read(form) != 12) return HashWholeFile(fs, "payload", ct);
         if (form[0] != 'F' || form[1] != 'O' || form[2] != 'R' || form[3] != 'M') return HashWholeFile(fs, "payload", ct);
 
+        Span<byte> ch = stackalloc byte[8];
         while (fs.Position < fs.Length - 8)
         {
             ct.ThrowIfCancellationRequested();
             long chunkStart = fs.Position;
-            Span<byte> ch = stackalloc byte[8];
             if (fs.Read(ch) != 8) break;
             var id = System.Text.Encoding.ASCII.GetString(ch[..4]);
             uint size = BinaryPrimitives.ReadUInt32BigEndian(ch[4..]);

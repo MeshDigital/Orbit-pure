@@ -1326,7 +1326,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         Changed(status);
     }
 
-    private void Changed(string status)
+    private new void Changed(string status)
     {
         IsDirty = true;
         RefreshHotCuePads();
