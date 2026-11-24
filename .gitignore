@@ -20,6 +20,7 @@ config.ini
 /downloads/
 /music/
 /temp/
+free-claude-code/
 
 # NuGet
 *.nupkg
