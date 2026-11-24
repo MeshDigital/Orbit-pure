@@ -63,7 +63,7 @@ public class SchemaMigratorService
         {
             if (await IsSqliteDatabaseHealthyAsync(backup.FullName).ConfigureAwait(false))
             {
-                DeleteDatabaseFiles(dbPath);
+                await DeleteDatabaseFilesAsync(dbPath).ConfigureAwait(false);
                 System.IO.File.Copy(backup.FullName, dbPath, overwrite: true);
                 _logger.LogInformation("✅ Database restored from healthy backup: {Backup}", backup.Name);
                 return true;
@@ -97,7 +97,7 @@ public class SchemaMigratorService
 
                 if (await IsSqliteDatabaseHealthyAsync(repairedPath).ConfigureAwait(false))
                 {
-                    DeleteDatabaseFiles(dbPath);
+                    await DeleteDatabaseFilesAsync(dbPath).ConfigureAwait(false);
                     System.IO.File.Copy(repairedPath, dbPath, overwrite: true);
                     _logger.LogInformation("✅ Database restored from repaired backup: {Backup}", backup.Name);
                     return true;
@@ -119,7 +119,7 @@ public class SchemaMigratorService
         return false;
     }
 
-    private void DeleteDatabaseFiles(string dbPath)
+    private async Task DeleteDatabaseFilesAsync(string dbPath)
     {
         SqliteConnection.ClearAllPools();
 
@@ -144,7 +144,7 @@ public class SchemaMigratorService
                 }
                 catch when (i < 2)
                 {
-                    System.Threading.Thread.Sleep(150);
+                    await Task.Delay(150).ConfigureAwait(false);
                 }
             }
         }
@@ -304,7 +304,7 @@ public class SchemaMigratorService
                 if (!restored)
                 {
                     _logger.LogWarning("No healthy backup found. Recreating database from scratch.");
-                    DeleteDatabaseFiles(dbPath);
+                    await DeleteDatabaseFilesAsync(dbPath).ConfigureAwait(false);
                 }
                 else
                 {
@@ -312,7 +312,7 @@ public class SchemaMigratorService
                     if (!restoredHealthy)
                     {
                         _logger.LogWarning("Recovered backup still malformed. Recreating database from scratch.");
-                        DeleteDatabaseFiles(dbPath);
+                        await DeleteDatabaseFilesAsync(dbPath).ConfigureAwait(false);
                     }
                 }
             }
