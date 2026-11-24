@@ -19,6 +19,7 @@ namespace SLSKDONET.Tests.Services;
 /// batched writes with one completion event, throttled progress, cancel-keeps-what-was-added, and
 /// the folder watcher holding back its own events while the folder is under import.
 /// </summary>
+[Collection(NonParallelCollection.Name)] // writes to the shared test DB; was flaky under parallel load
 public class LibraryImportPipelineTests : IDisposable
 {
     private readonly string _folder;

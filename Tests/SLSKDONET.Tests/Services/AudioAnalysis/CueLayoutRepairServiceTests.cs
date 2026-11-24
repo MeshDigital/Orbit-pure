@@ -18,6 +18,7 @@ namespace SLSKDONET.Tests.Services.AudioAnalysis;
 /// regenerated, every other auto Drop 2 gets its countdowns renamed to [IN2 …], and nothing the
 /// user placed is touched. Runs against the isolated test database (ORBIT_DB_PATH).
 /// </summary>
+[Collection(NonParallelCollection.Name)] // FreshDatabaseScope swaps the process-wide ORBIT_DB_PATH
 public sealed class CueLayoutRepairServiceTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), $"orbit-cue-repair-{Guid.NewGuid():N}");

@@ -24,6 +24,7 @@ namespace SLSKDONET.Tests.Services.AudioAnalysis;
 /// isolated test library (ORBIT_DB_PATH, set by TestDatabaseSetup), so candidate counts aren't
 /// polluted by other tests and the user's live library.db is never touched.
 /// </summary>
+[Collection(NonParallelCollection.Name)] // FreshDatabaseScope swaps the process-wide ORBIT_DB_PATH
 public sealed class LoudnessBackfillServiceTests : IDisposable
 {
     private readonly ITestOutputHelper _output;
