@@ -275,6 +275,18 @@ public partial class LibraryViewModel
     /// </summary>
     private async void OnProjectSelected(object? sender, PlaylistJob? project)
     {
+        try
+        {
+            await OnProjectSelectedCoreAsync(project);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unhandled error in OnProjectSelected for project {ProjectId}", project?.Id);
+        }
+    }
+
+    private async Task OnProjectSelectedCoreAsync(PlaylistJob? project)
+    {
         // LibraryViewModel.SelectedProject is a pass-through wrapper over Projects.SelectedProject
         // (kept for XAML binding convenience) that never raised its own PropertyChanged — anything
         // bound to {Binding SelectedProject} on this ViewModel (rather than Projects.SelectedProject
@@ -332,6 +344,18 @@ public partial class LibraryViewModel
     /// Coordinates updating track list.
     /// </summary>
     private async void OnSmartPlaylistSelected(object? sender, Library.SmartPlaylist? playlist)
+    {
+        try
+        {
+            await OnSmartPlaylistSelectedCoreAsync(playlist);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unhandled error in OnSmartPlaylistSelected for playlist {PlaylistId}", playlist?.Id);
+        }
+    }
+
+    private async Task OnSmartPlaylistSelectedCoreAsync(Library.SmartPlaylist? playlist)
     {
         if (playlist == null) return;
 
