@@ -74,7 +74,9 @@ public class SmartPlaylistViewModel : INotifyPropertyChanged
         CreateCrateCommand = ReactiveCommand.CreateFromTask(CreateCrateAsync);
         CreateCustomSmartPlaylistCommand = ReactiveCommand.CreateFromTask(CreateCustomSmartPlaylistAsync);
 
-        _ = InitializeSmartPlaylists();
+        _ = InitializeSmartPlaylists().ContinueWith(
+            t => _logger.LogError(t.Exception, "[SmartPlaylistViewModel] Failed to initialize smart playlists"),
+            TaskContinuationOptions.OnlyOnFaulted);
     }
 
     private async Task CreateCrateAsync()
