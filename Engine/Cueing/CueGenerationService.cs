@@ -756,7 +756,7 @@ public sealed class CueGenerationService
             result.Drop2.FinalScore, preset.Genre);
 
         foreach (var c in result.Ranked.Take(4))
-            _logger.LogInformation(
+            _logger?.LogInformation(
                 "[DropShadow] {Hash} candidate {Time:F2}s score={Score:F3} bars={Bars:F1} sub={Sub:F2} flux={Flux:F2} energy={Energy:F2} phrase={Phrase:F2} role={Role}",
                 trackHash, c.TimeSeconds, c.FinalScore, c.SectionDurationBars,
                 c.SubBassReturnStrength, c.SpectralFluxNovelty, c.SustainedPostEnergy,

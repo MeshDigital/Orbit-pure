@@ -1053,7 +1053,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         return new LibraryEntry
         {
             UniqueHash = entity.TrackUniqueHash,
-            FilePath = entity.ResolvedFilePath,
+            FilePath = entity.ResolvedFilePath ?? "",
             Title = entity.Title,
             Artist = entity.Artist,
             Album = entity.Album,

@@ -1915,7 +1915,7 @@ public class DatabaseService
                     Album = trackEntity.Album,
                     TrackUniqueHash = trackEntity.TrackUniqueHash,
                     Status = trackEntity.Status,
-                    ResolvedFilePath = trackEntity.ResolvedFilePath,
+                    ResolvedFilePath = trackEntity.ResolvedFilePath ?? "",
                     TrackNumber = trackEntity.TrackNumber,
                     Priority = trackEntity.Priority,
                     SourcePlaylistId = trackEntity.SourcePlaylistId,

@@ -58,7 +58,7 @@ public class TrackAuditLogger : ITrackAuditLogger, IDisposable
         _channel.Writer.TryWrite(new AuditLogEntry(trackHash, message, isError, DateTime.Now));
     }
 
-    public void LogSearchCandidate(string trackHash, string peer, int bitrate, string format, string action, string reason)
+    public void LogSearchCandidate(string trackHash, string? peer, int bitrate, string? format, string action, string reason)
     {
         var formattedMsg = $"[CANDIDATE {action}] Peer: '{peer}' | Bitrate: {bitrate}kbps | Format: {format} | Reason: {reason}";
         Log(trackHash, formattedMsg, action == "REJECTED" || action == "IGNORED");

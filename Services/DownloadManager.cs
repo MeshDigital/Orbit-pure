@@ -1026,7 +1026,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
                     Album = t.Album,
                     TrackUniqueHash = t.TrackUniqueHash,
                     Status = t.Status,
-                    ResolvedFilePath = t.ResolvedFilePath,
+                    ResolvedFilePath = t.ResolvedFilePath ?? "",
                     SpotifyTrackId = t.SpotifyTrackId,
                     AlbumArtUrl = t.AlbumArtUrl,
                     Format = t.Format,
@@ -3765,7 +3765,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
                                     _logger.LogDebug("📋 Queue position update: {Artist} - {Title} → #{Position} (peer: {Peer})",
                                         ctx.Model.Artist, ctx.Model.Title, ctx.CurrentQueuePosition, bestMatch.Username);
                                     _eventBus.Publish(new TrackQueuePositionUpdatedEvent(
-                                        ctx.GlobalId, ctx.CurrentQueuePosition, bestMatch.Username));
+                                        ctx.GlobalId, ctx.CurrentQueuePosition, bestMatch.Username ?? ""));
                                     break;
                                 case TransferLifecyclePhase.Transferring:
                                     ctx.CurrentQueuePosition = 0; // We're no longer in queue

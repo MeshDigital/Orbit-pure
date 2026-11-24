@@ -2620,7 +2620,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     /// </summary>
     private async Task ResetToDefaultsAsync()
     {
-        var confirmed = await _dialogService.ConfirmAsync(
+        var confirmed = await _dialogService!.ConfirmAsync(
             "Reset to Defaults",
             "This resets every setting on this page back to its default value and saves immediately. This cannot be undone. Continue?",
             confirmLabel: "Reset",

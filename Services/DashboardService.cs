@@ -254,7 +254,7 @@ public class DashboardService
                 ? new Dictionary<Guid, List<string>>()
                 : (await context.PlaylistTracks
                     .Where(t => missingArtIds.Contains(t.PlaylistId) && t.AlbumArtUrl != null && t.AlbumArtUrl != "")
-                    .Select(t => new { t.PlaylistId, t.AlbumArtUrl })
+                    .Select(t => new { t.PlaylistId, AlbumArtUrl = t.AlbumArtUrl! })
                     .Distinct()
                     .ToListAsync())
                     .GroupBy(t => t.PlaylistId)
@@ -528,7 +528,7 @@ public class DashboardService
             Album = entity.Album,
             TrackUniqueHash = entity.TrackUniqueHash,
             Status = entity.Status,
-            ResolvedFilePath = entity.ResolvedFilePath,
+            ResolvedFilePath = entity.ResolvedFilePath ?? "",
             TrackNumber = entity.TrackNumber,
             Bitrate = entity.Bitrate,
             Format = entity.Format,

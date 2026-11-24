@@ -786,11 +786,11 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
 
         try
         {
-            Deck.LoadTrack(track.ResolvedFilePath, track.BPM.HasValue ? (double)track.BPM.Value : 0);
+            Deck.LoadTrack(track!.ResolvedFilePath, track.BPM.HasValue ? (double)track.BPM.Value : 0);
         }
         catch (Exception ex)
         {
-            Serilog.Log.Warning(ex, "Workstation deck {Deck}: failed to load {Path}", DeckLabel, track.ResolvedFilePath);
+            Serilog.Log.Warning(ex, "Workstation deck {Deck}: failed to load {Path}", DeckLabel, track!.ResolvedFilePath);
             TrackLoadError = ex.InnerException?.Message ?? ex.Message;
             return;
         }

@@ -761,7 +761,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             {
                 var newName = _downloadManager.GetPlaylistSourceName(evt.ProjectId);
                 if (string.IsNullOrEmpty(newName)) return;
-                foreach (var grp in _activeGroups)
+                foreach (var grp in _activeGroups!)
                 {
                     if (grp.GroupKey == evt.ProjectId)
                         grp.Title = newName;
@@ -835,7 +835,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
         RetryAllFailedCommand = ReactiveCommand.CreateFromTask(async () =>
         {
-            var failedItems = _failedDownloads.ToList();
+            var failedItems = _failedDownloads!.ToList();
             Notify($"Retrying {failedItems.Count} failed download(s)", NotificationType.Information);
             for (var i = 0; i < failedItems.Count; i++)
             {

@@ -456,7 +456,7 @@ public class SearchOrchestrationService
                 progressiveCandidateCount++;
                 yield return track;
 
-                if (_config.EnableAccumulatorPerfectMatchShortCircuit && IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
+                if (_config!.EnableAccumulatorPerfectMatchShortCircuit && IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
                 {
                     _logger.LogInformation(
                         "Search accumulator short-circuit: found ideal candidate for '{Query}' from {User}.",
@@ -513,7 +513,7 @@ public class SearchOrchestrationService
                     _safetyFilter.EvaluateSafety(track, normalizedQuery, allowLossy, _config?.SearchPolicy);
                     bufferedTracks.Add(track);
 
-                    if (_config.EnableAccumulatorPerfectMatchShortCircuit && IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
+                    if (_config!.EnableAccumulatorPerfectMatchShortCircuit && IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
                     {
                         _logger.LogInformation(
                             "Search accumulator short-circuit: found ideal candidate for '{Query}' from {User}.",
@@ -613,7 +613,7 @@ public class SearchOrchestrationService
             {
                 bufferedTracks.Add(track);
 
-                if (_config.EnableAccumulatorPerfectMatchShortCircuit && IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
+                if (_config!.EnableAccumulatorPerfectMatchShortCircuit && IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
                 {
                     _logger.LogInformation(
                         "Desperate lane short-circuit: found ideal candidate for '{Query}' from {User}.",

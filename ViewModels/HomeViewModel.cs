@@ -812,7 +812,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
             // at a time — bounded to 8 recommendations, so this stays cheap even run every load.
             var lookupTasks = tracks
                 .Where(t => !string.IsNullOrEmpty(t.ISRC))
-                .Select(async track => track.InLibrary = await _databaseService.FindLibraryEntryAsync(track.ISRC) != null)
+                .Select(async track => track.InLibrary = await _databaseService.FindLibraryEntryAsync(track.ISRC!) != null)
                 .ToList();
             await Task.WhenAll(lookupTasks);
 
