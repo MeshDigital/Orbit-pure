@@ -119,4 +119,33 @@ public class FileRelocationServiceTests : IDisposable
         Assert.Single(plan.Problems);
         Assert.Contains("collision", plan.Problems[0].Reason, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public async Task Execute_Rename_MovesStemFoldersAlongside()
+    {
+        var hash = "h-stems";
+        var source = Path.Combine(_dir, "old", "a.flac");
+        var target = Path.Combine(_dir, "new", "b.flac");
+        Directory.CreateDirectory(Path.GetDirectoryName(source)!);
+        File.WriteAllText(source, "audio");
+
+        // Strategy A (Stems/<name>) + Strategy B (<name>_Stems) from StemAvailabilityProbe.
+        var stemA = Path.Combine(_dir, "old", "Stems", "a");
+        var stemB = Path.Combine(_dir, "old", "a_Stems");
+        Directory.CreateDirectory(stemA);
+        Directory.CreateDirectory(stemB);
+        File.WriteAllText(Path.Combine(stemA, "vocals.wav"), "stem");
+
+        Seed(hash, source);
+        var svc = MakeService(new FakeEventBus());
+
+        var plan = svc.Plan(new[] { new RelocationRequest(hash, source, target) });
+        var outcome = await svc.ExecuteAsync(plan);
+
+        Assert.Equal(1, outcome.Moved);
+        Assert.True(Directory.Exists(Path.Combine(_dir, "new", "Stems", "b")));
+        Assert.True(Directory.Exists(Path.Combine(_dir, "new", "b_Stems")));
+        Assert.False(Directory.Exists(stemA));
+        Assert.False(Directory.Exists(stemB));
+    }
 }

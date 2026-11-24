@@ -123,6 +123,53 @@ public class FileRelocationService
                 throw new IOException($"Copy verify failed for {target} (size mismatch)");
             File.Delete(source);
         }
+
+        MoveStemFolders(source, target);
+    }
+
+    /// <summary>Moves the sidecar stem folders keyed to the track's filename (#344). The shared legacy
+    /// <c>_stems</c> folder is intentionally left alone — it is not per-track.</summary>
+    private static void MoveStemFolders(string source, string target)
+    {
+        var srcDir = Path.GetDirectoryName(source);
+        var dstDir = Path.GetDirectoryName(target);
+        if (string.IsNullOrEmpty(srcDir) || string.IsNullOrEmpty(dstDir)) return;
+
+        var srcName = Path.GetFileNameWithoutExtension(source);
+        var dstName = Path.GetFileNameWithoutExtension(target);
+
+        // Strategy A + B from StemAvailabilityProbe.
+        var pairs = new[]
+        {
+            (Src: Path.Combine(srcDir, "Stems", srcName), Dst: Path.Combine(dstDir, "Stems", dstName)),
+            (Src: Path.Combine(srcDir, srcName + "_Stems"), Dst: Path.Combine(dstDir, dstName + "_Stems")),
+        };
+
+        foreach (var (src, dst) in pairs)
+        {
+            if (string.Equals(src, dst, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!Directory.Exists(src)) continue;
+            Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+            try
+            {
+                Directory.Move(src, dst);
+            }
+            catch (IOException)
+            {
+                // Cross-volume — copy recursively, then delete the source.
+                CopyDirectory(src, dst);
+                Directory.Delete(src, recursive: true);
+            }
+        }
+    }
+
+    private static void CopyDirectory(string source, string target)
+    {
+        Directory.CreateDirectory(target);
+        foreach (var file in Directory.GetFiles(source))
+            File.Copy(file, Path.Combine(target, Path.GetFileName(file)), overwrite: true);
+        foreach (var dir in Directory.GetDirectories(source))
+            CopyDirectory(dir, Path.Combine(target, Path.GetFileName(dir)));
     }
 
     private async Task UpdatePathsAsync(string hash, string newPath, CancellationToken ct)
