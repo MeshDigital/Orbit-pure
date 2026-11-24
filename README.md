@@ -4,6 +4,12 @@ ORBIT is a music library and DJ prep tool. It finds tracks on Soulseek, checks t
 
 Think of it as: search + downloads + a music library + a lightweight DJ workstation, in one app.
 
+## Support
+
+ORBIT is free, and all the analysis runs on your own machine — no cloud, no per-track AI tab. The only thing actually burning money here is the developer: the time, the effort, and a coding-assistant subscription that still can't mix in key.
+
+[☕ Buy the developer a coffee](https://www.buymeacoffee.com/qonscript)
+
 ## Download
 
 **Early stable — ORBIT 0.2.3** for Windows x64: **[download the installer](https://github.com/MeshDigital/Orbit-pure/releases/latest)** ·
