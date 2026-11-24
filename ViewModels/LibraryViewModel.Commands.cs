@@ -2468,6 +2468,9 @@ public partial class LibraryViewModel
             var dbEntriesByHash = await context.LibraryEntries
                 .Where(e => trackHashes.Contains(e.UniqueHash))
                 .ToDictionaryAsync(e => e.UniqueHash);
+            var dbTrackRowsByHash = await context.Tracks
+                .Where(t => trackHashes.Contains(t.GlobalId))
+                .ToDictionaryAsync(t => t.GlobalId);
 
             foreach (var trackVm in selected)
             {
@@ -2522,6 +2525,11 @@ public partial class LibraryViewModel
                         {
                             dbEntry.FilePath = destPath;
                             context.LibraryEntries.Update(dbEntry);
+                        }
+                        if (dbTrackRowsByHash.TryGetValue(track.TrackUniqueHash, out var dbTrackRow))
+                        {
+                            dbTrackRow.LocalFilePath = destPath;
+                            context.Tracks.Update(dbTrackRow);
                         }
                         touchedHashes.Add(track.TrackUniqueHash);
                     }
@@ -2598,6 +2606,9 @@ public partial class LibraryViewModel
             var dbEntriesByHash = modeResult.IsCopy ? null : await context.LibraryEntries
                 .Where(e => trackHashes.Contains(e.UniqueHash))
                 .ToDictionaryAsync(e => e.UniqueHash);
+            var dbTrackRowsByHash = modeResult.IsCopy ? null : await context.Tracks
+                .Where(t => trackHashes.Contains(t.GlobalId))
+                .ToDictionaryAsync(t => t.GlobalId);
 
             foreach (var trackVm in selected)
             {
@@ -2643,6 +2654,11 @@ public partial class LibraryViewModel
                             {
                                 dbEntry.FilePath = destPath;
                                 context.LibraryEntries.Update(dbEntry);
+                            }
+                            if (dbTrackRowsByHash != null && dbTrackRowsByHash.TryGetValue(track.TrackUniqueHash, out var dbTrackRow))
+                            {
+                                dbTrackRow.LocalFilePath = destPath;
+                                context.Tracks.Update(dbTrackRow);
                             }
                             touchedHashes.Add(track.TrackUniqueHash);
                         }
