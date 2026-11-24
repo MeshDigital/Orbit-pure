@@ -75,6 +75,17 @@ public class TransferFailureClassificationTests
     }
 
     [Fact]
+    public void ClassifyTransferFailure_AggregateExceptionWrappingTransferRejected_ReturnsRemoteQueueDenied()
+    {
+        // #385: async continuations wrap the real failure in an AggregateException; the
+        // classifier must unwrap it instead of falling through to PeerRejected.
+        var ex = new AggregateException(new TransferRejectedException("peer rejected transfer"));
+        var result = DownloadManager.ClassifyTransferFailure(ex);
+
+        Assert.Equal(DownloadFailureReason.RemoteQueueDenied, result.RetryFailureReason);
+    }
+
+    [Fact]
     public void ClassifyTransferFailure_QueueDenied_AllowsHedgeWithTwoMinuteDelay()
     {
         var ex = new Exception("queue rejected");
