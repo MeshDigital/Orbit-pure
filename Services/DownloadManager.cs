@@ -3250,6 +3250,23 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                 var transferDisposition = ClassifyTransferFailure(ex);
 
+                // #334: a file-read error on a resumed transfer is usually our stale resume offset
+                // (the peer's file changed or is shorter than our .part), not the peer's fault.
+                // Discard the partial and retry from offset 0 rather than blacklisting an innocent peer.
+                var resetPartForRetry = transferDisposition.ResetPartAndRetry && ctx.IsResuming;
+                if (resetPartForRetry)
+                {
+                    _logger.LogWarning(
+                        "File-read error on resumed transfer for {Title}; discarding the partial file and retrying from 0. detail={Detail}",
+                        ctx.Model.Title,
+                        ex.Message);
+                    foreach (var deleted in Downloads.PartFileGuard.DeletePartFiles(ctx.PartFilePath, ctx.Model.ResolvedFilePath))
+                        _logger.LogInformation("Discarded partial file on file-read error: {Path}", deleted);
+                    ctx.PartFilePath = null;
+                    ctx.IsResuming = false;
+                    ctx.BytesReceived = 0;
+                }
+
                 if (transferDisposition.AllowHedgeFailover)
                 {
                     _logger.LogWarning(
@@ -3263,7 +3280,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         return;
                     }
                 }
-                else
+                else if (!resetPartForRetry)
                 {
                     _logger.LogError(
                         ex,
@@ -3273,18 +3290,20 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         ctx.CorrelationId ?? "-");
                 }
 
-                // FIX: Blacklist the failing peer so we don't pick them again instantly
-                if (!string.IsNullOrEmpty(ctx.CurrentUsername))
+                // FIX: Blacklist the failing peer so we don't pick them again instantly.
+                // Skipped for a file-read error on resume — that is our stale offset, not the peer.
+                if (!resetPartForRetry && !string.IsNullOrEmpty(ctx.CurrentUsername))
                 {
                     lock (ctx.BlacklistedUsers) // HashSet isn't thread-safe
                     {
                         if (ctx.BlacklistedUsers.Add(ctx.CurrentUsername))
                         {
                             _logger.LogWarning(
-                                "Blacklisted peer {User} for {Track}. reason={Reason} correlationId={CorrelationId}",
+                                "Blacklisted peer {User} for {Track}. reason={Reason} detail={Detail} correlationId={CorrelationId}",
                                 ctx.CurrentUsername,
                                 ctx.Model.Title,
                                 transferDisposition.OperatorMessage,
+                                ex.Message,
                                 ctx.CorrelationId ?? "-");
                         }
                     }
@@ -3329,7 +3348,13 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         /// Fixed retry delay.  Null means use exponential seconds backoff (1s → 2s → 4s → 8s …).
         /// </summary>
         TimeSpan? Delay,
-        string OperatorMessage);
+        string OperatorMessage,
+        /// <summary>
+        /// True when the peer reported a file-read error, which on a resumed transfer usually means
+        /// our resume offset is stale (the peer's file changed or is shorter than our .part), not
+        /// that the peer is bad. The caller discards the partial and retries from offset 0 (#334).
+        /// </summary>
+        bool ResetPartAndRetry = false);
 
     internal static async Task<DownloadDiscoveryService.DiscoveryResult> ResolveDiscoveryWithStrictGateAsync(
         bool strictModeEnabled,
@@ -3374,6 +3399,21 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 AllowHedgeFailover: false,
                 Delay: null,
                 OperatorMessage: "peer denied transfer access");
+        }
+
+        // #334: the Soulseek library reports a stale resume offset as a TransferRejectedException
+        // whose message is "File read error". That is our fault (the peer's file changed or is
+        // shorter than our .part), not a queue rejection, so classify it separately — the caller
+        // discards the partial and retries from offset 0 instead of blacklisting the peer.
+        if (message.Contains("read error", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("file read", StringComparison.OrdinalIgnoreCase))
+        {
+            return new TransferFailureDisposition(
+                DownloadFailureReason.TransferFailed,
+                AllowHedgeFailover: false,
+                Delay: null,
+                OperatorMessage: "file read error",
+                ResetPartAndRetry: true);
         }
 
         if (ex.GetType().Name.Contains("TransferRejectedException", StringComparison.OrdinalIgnoreCase) ||
