@@ -8,7 +8,6 @@ using Moq;
 using SLSKDONET.Configuration;
 using SLSKDONET.Data;
 using SLSKDONET.Services;
-using SLSKDONET.Tests.Helpers;
 using Xunit;
 
 namespace SLSKDONET.Tests.Services;
@@ -31,7 +30,7 @@ public sealed class SoulseekAdapterFrequentSourceHookTests : IDisposable
         setup.Database.EnsureCreated();
     }
 
-    [ProfileTest("frequent-sources")]
+    [Fact]
     public void TryExtractRemoteFolderPath_NormalizesAndExtractsExpectedFolder()
     {
         var cases = new (string? RemoteFilename, string? Expected)[]
@@ -51,7 +50,7 @@ public sealed class SoulseekAdapterFrequentSourceHookTests : IDisposable
         }
     }
 
-    [ProfileTest("frequent-sources")]
+    [Fact]
     public async Task OnTransferCompletedForFrequentSourcesAsync_UpsertsFrequentSource()
     {
         var frequentSourceService = CreateSut(enabled: true);
@@ -73,7 +72,7 @@ public sealed class SoulseekAdapterFrequentSourceHookTests : IDisposable
         Assert.Equal(timestampUtc, entry.LastDownloadedAtUtc);
     }
 
-    [ProfileTest("frequent-sources")]
+    [Fact]
     public async Task OnTransferCompletedForFrequentSourcesAsync_NullService_NoThrow()
     {
         var timestampUtc = new DateTime(2026, 5, 28, 10, 5, 0, DateTimeKind.Utc);
@@ -86,7 +85,7 @@ public sealed class SoulseekAdapterFrequentSourceHookTests : IDisposable
             timestampUtc);
     }
 
-    [ProfileTest("frequent-sources")]
+    [Fact]
     public async Task OnTransferCompletedForFrequentSourcesAsync_DisabledFeature_DoesNotWrite()
     {
         var frequentSourceService = CreateSut(enabled: false);
@@ -103,7 +102,7 @@ public sealed class SoulseekAdapterFrequentSourceHookTests : IDisposable
         Assert.Empty(ranked);
     }
 
-    [ProfileTest("frequent-sources")]
+    [Fact]
     public async Task TryRecordFrequentSourceDownloadAsync_UsesObservedBytesWhenExpectedSizeMissing()
     {
         var frequentSourceService = CreateSut(enabled: true);
@@ -125,7 +124,7 @@ public sealed class SoulseekAdapterFrequentSourceHookTests : IDisposable
         Assert.Equal(321L, entry.TotalBytesDownloaded);
     }
 
-    [ProfileTest("frequent-sources")]
+    [Fact]
     public async Task TryRecordFrequentSourceDownloadAsync_InvalidRemoteFilename_DoesNotWrite()
     {
         var frequentSourceService = CreateSut(enabled: true);
@@ -143,7 +142,7 @@ public sealed class SoulseekAdapterFrequentSourceHookTests : IDisposable
         Assert.Empty(ranked);
     }
 
-    [ProfileTest("frequent-sources")]
+    [Fact]
     public async Task TryRecordFrequentSourceDownloadAsync_CanceledToken_PropagatesCancellation()
     {
         var dbFactoryMock = new Mock<IDbContextFactory<AppDbContext>>();

@@ -108,7 +108,7 @@ public sealed class BeatGridRecomputeService
         }
         if (hashes.Count == 0) { WriteMarker("no analysed tracks"); return; }
 
-        string backup = BackupLibrary();
+        string backup = await BackupLibraryAsync();
         _logger.LogInformation("[BeatGridRecompute] Re-fitting {Count} tracks (backup: {Backup})", hashes.Count, backup);
 
         int changed = 0, unchanged = 0, unfittable = 0, cueFailures = 0, fromRekordbox = 0, protected_ = 0;
@@ -184,19 +184,14 @@ public sealed class BeatGridRecomputeService
                 NotificationType.Success, TimeSpan.FromSeconds(8)));
     }
 
-    private string BackupLibrary()
+    private async Task<string> BackupLibraryAsync()
     {
         string source = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
         string dir = Path.Combine(OrbitDataDir, "Backups");
         Directory.CreateDirectory(dir);
         string target = Path.Combine(dir, $"library.db.bak-{PassName}-{DateTime.Now:yyyyMMdd-HHmmss}");
 
-        using var src = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = source, Mode = SqliteOpenMode.ReadOnly }.ToString());
-        using var dst = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = target }.ToString());
-        src.Open();
-        dst.Open();
-        src.BackupDatabase(dst);
-        SqliteConnection.ClearPool(dst); // release the backup file handle
+        await SqliteBackupHelper.BackupWithRetryAsync(source, target).ConfigureAwait(false);
         return target;
     }
 

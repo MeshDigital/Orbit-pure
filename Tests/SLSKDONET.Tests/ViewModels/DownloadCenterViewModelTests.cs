@@ -25,7 +25,7 @@ public class DownloadCenterViewModelTests
     [Fact]
     public void BuildIngestionDisplayName_UsesFileNameWhenPathProvided()
     {
-        var value = DownloadCenterViewModel.BuildIngestionDisplayName(@"C:\\music\\artist\\track.flac", "hash123");
+        var value = DownloadCenterViewModel.BuildIngestionDisplayName(System.IO.Path.Combine("music", "artist", "track.flac"), "hash123");
 
         Assert.Equal("track.flac", value);
     }

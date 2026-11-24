@@ -69,7 +69,7 @@ public class TagIssueDetectorTests
     [Fact]
     public void SwappedFields_HighWhenFilenameAgrees()
     {
-        var p = Detect("Glue", "Bicep", @"C:\m\Bicep - Glue.mp3");
+        var p = Detect("Glue", "Bicep", System.IO.Path.Combine("m", "Bicep - Glue.mp3"));
         Assert.NotNull(p);
         Assert.Equal(TagIssueRule.SwappedFields.ToString(), p!.Rule);
         Assert.Equal("Bicep", Field(p, TagField.Artist));
@@ -80,7 +80,7 @@ public class TagIssueDetectorTests
     [Fact]
     public void LabelInArtist_MovesLabelAndDerivesArtistFromFilename()
     {
-        var p = Detect("Hospital Records", "Hold Your Colour", @"C:\m\Pendulum - Hold Your Colour.flac");
+        var p = Detect("Hospital Records", "Hold Your Colour", System.IO.Path.Combine("m", "Pendulum - Hold Your Colour.flac"));
         Assert.NotNull(p);
         Assert.Equal(TagIssueRule.LabelInArtist.ToString(), p!.Rule);
         Assert.Equal("Pendulum", Field(p, TagField.Artist));
@@ -90,7 +90,7 @@ public class TagIssueDetectorTests
     [Fact]
     public void LabelInArtist_NoDerivableArtist_NeedsReviewNoChange()
     {
-        var p = Detect("Hospital Records", "Hold Your Colour", @"C:\m\track01.flac");
+        var p = Detect("Hospital Records", "Hold Your Colour", System.IO.Path.Combine("m", "track01.flac"));
         Assert.NotNull(p);
         Assert.Equal(TagIssueRule.LabelInArtist.ToString(), p!.Rule);
         Assert.Equal(ProposalConfidence.NeedsReview, p!.Confidence);

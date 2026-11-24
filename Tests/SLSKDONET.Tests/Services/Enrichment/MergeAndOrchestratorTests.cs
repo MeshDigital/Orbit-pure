@@ -144,7 +144,7 @@ public class MetadataMergerTests
     [Fact]
     public void Identity_ReplacesOnlyPlaceholders_AtHighConfidence()
     {
-        var weak = new EnrichmentTrack { Hash = "h", Artist = "Unknown Artist", Title = "track01", FilePath = @"C:\m\track01.mp3" };
+        var weak = new EnrichmentTrack { Hash = "h", Artist = "Unknown Artist", Title = "track01", FilePath = System.IO.Path.Combine("m", "track01.mp3") };
         var patch = new MetadataPatch("h");
         MetadataMerger.Apply(weak, new Dictionary<string, MetadataProvenanceEntity>(),
             new MetadataCandidate { Artist = "Calibre", Title = "Even If", Confidence = 0.8 }, "acoustid", patch);

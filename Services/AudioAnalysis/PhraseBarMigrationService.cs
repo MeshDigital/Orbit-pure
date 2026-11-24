@@ -80,7 +80,7 @@ public sealed class PhraseBarMigrationService
         }
         if (features.Count == 0) { WriteMarker("no analysed tracks"); return; }
 
-        string backup = BackupLibrary();
+        string backup = await BackupLibraryAsync();
         _logger.LogInformation("[PhraseBarMigration] Converting phrase data to bars for {Count} tracks (backup: {Backup})", features.Count, backup);
 
         int converted = 0, backfilled = 0;
@@ -173,18 +173,13 @@ public sealed class PhraseBarMigrationService
         return PhraseType.Unknown;
     }
 
-    private string BackupLibrary()
+    private async Task<string> BackupLibraryAsync()
     {
         string source = OrbitPaths.LibraryDbPath;
         Directory.CreateDirectory(DataDirectory);
         string target = Path.Combine(DataDirectory, $"library.db.bak-{PassName}-{DateTime.Now:yyyyMMdd-HHmmss}");
 
-        using var src = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = source, Mode = SqliteOpenMode.ReadOnly }.ToString());
-        using var dst = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = target }.ToString());
-        src.Open();
-        dst.Open();
-        src.BackupDatabase(dst);
-        SqliteConnection.ClearPool(dst);
+        await SqliteBackupHelper.BackupWithRetryAsync(source, target).ConfigureAwait(false);
         return target;
     }
 

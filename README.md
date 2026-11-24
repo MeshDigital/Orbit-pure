@@ -8,7 +8,7 @@ Think of it as: search + downloads + a music library + a lightweight DJ workstat
 
 ORBIT is free, and all the analysis runs on your own machine — no cloud, no per-track AI tab. The only thing actually burning money here is the developer: the time, the effort, and a coding-assistant subscription that still can't mix in key.
 
-[☕ Buy the developer a coffee](https://www.buymeacoffee.com/qonscript)
+[🍺 Buy the developer a beer](https://www.buymeacoffee.com/orbit365)
 
 ## Download
 

@@ -461,6 +461,12 @@ public class LibraryEntryEntity
     public DateTime LastUsedAt { get; set; }
     public DateTime? FilePathUpdatedAt { get; set; }
 
+    // LF4: path protection (#346).
+    /// <summary>When the path was locked (manually, or automatically on first Rekordbox/USB export).</summary>
+    public DateTime? PathLockedAt { get; set; }
+    /// <summary>How the file entered the library: Downloaded, LinkedFolder or Imported.</summary>
+    public string? FileOrigin { get; set; }
+
     // Spotify Metadata
     public string? SpotifyTrackId { get; set; }
     public string? ISRC { get; set; }

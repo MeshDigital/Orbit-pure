@@ -42,6 +42,16 @@ public class TransferFailureFileReadTests
         Assert.False(result.ResetPartAndRetry);
         Assert.Equal(DownloadFailureReason.RemoteQueueDenied, result.RetryFailureReason);
     }
+
+    [Fact]
+    public void ClassifyTransferFailure_TransferRejectedWrappedInAggregate_StillQueueDenied()
+    {
+        // #385: async paths wrap the rejection in an AggregateException; the classifier must unwrap it.
+        // The message deliberately omits "queue" so only the type-name unwrap can classify this.
+        var result = DownloadManager.ClassifyTransferFailure(new AggregateException(new TestTransferRejectedException("peer rejected transfer")));
+
+        Assert.Equal(DownloadFailureReason.RemoteQueueDenied, result.RetryFailureReason);
+    }
 }
 
 /// <summary>Stand-in for Soulseek.TransferRejectedException (the classifier matches on type-name string).</summary>

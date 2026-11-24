@@ -10,11 +10,13 @@ namespace SLSKDONET.Tests.Services;
 /// <summary>#341: download naming templates with '/' or '\' must build sub-folders, not flatten to one file.</summary>
 public class PathProviderServiceTests
 {
+    private static readonly string DownloadDir = Path.Combine(Path.GetTempPath(), "orbit-tests", "music");
+
     private static Track MakeTrack(string artist, string album, string title, string filename = "track.flac") =>
         new() { Artist = artist, Album = album, Title = title, Filename = filename };
 
-    private static PathProviderService MakeService(string nameFormat, string downloadDir = @"C:\music") =>
-        new(new AppConfig { NameFormat = nameFormat, DownloadDirectory = downloadDir },
+    private static PathProviderService MakeService(string nameFormat, string? downloadDir = null) =>
+        new(new AppConfig { NameFormat = nameFormat, DownloadDirectory = downloadDir ?? DownloadDir },
             new FileNameFormatter(),
             NullLogger<PathProviderService>.Instance);
 
@@ -23,7 +25,7 @@ public class PathProviderServiceTests
     {
         var path = MakeService("{artist}/{album}/{title}").GetTrackPath(MakeTrack("Artist", "Album", "Title"));
 
-        Assert.Equal(Path.Combine(@"C:\music", "Artist", "Album", "Title.flac"), path);
+        Assert.Equal(Path.Combine(DownloadDir, "Artist", "Album", "Title.flac"), path);
     }
 
     [Fact]
@@ -31,7 +33,7 @@ public class PathProviderServiceTests
     {
         var path = MakeService("{artist}/{album}/{title}").GetTrackPath(MakeTrack("Artist", "", "Title"));
 
-        Assert.Equal(Path.Combine(@"C:\music", "Artist", "Title.flac"), path);
+        Assert.Equal(Path.Combine(DownloadDir, "Artist", "Title.flac"), path);
     }
 
     [Fact]
@@ -39,7 +41,7 @@ public class PathProviderServiceTests
     {
         var path = MakeService("{artist}/../{title}").GetTrackPath(MakeTrack("Artist", "Album", "Title"));
 
-        Assert.True(path.StartsWith(@"C:\music" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+        Assert.True(path.StartsWith(DownloadDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain("..", path);
     }
 
@@ -48,7 +50,7 @@ public class PathProviderServiceTests
     {
         var path = MakeService("{artist|filename} - {title}").GetTrackPath(MakeTrack("Artist", "Album", "Title"));
 
-        Assert.Equal(Path.Combine(@"C:\music", "Artist - Title.flac"), path);
+        Assert.Equal(Path.Combine(DownloadDir, "Artist - Title.flac"), path);
     }
 
     [Fact]
