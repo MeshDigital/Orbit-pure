@@ -53,14 +53,16 @@ public sealed class UpdateCheckService : IUpdateCheckService
         AppConfig config,
         ConfigManager configManager,
         INotificationService notificationService,
-        ILogger<UpdateCheckService> logger)
+        ILogger<UpdateCheckService> logger,
+        IHttpClientFactory httpClientFactory)
     {
         _config = config;
         _configManager = configManager;
         _notificationService = notificationService;
         _logger = logger;
 
-        _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        _httpClient = httpClientFactory.CreateClient();
+        _httpClient.Timeout = TimeSpan.FromSeconds(10);
         _httpClient.DefaultRequestHeaders.Add("User-Agent", UserAgent);
         _httpClient.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
     }

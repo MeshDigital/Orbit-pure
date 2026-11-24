@@ -35,7 +35,7 @@ public class MetadataTaggerServiceTests : IDisposable
     private static readonly List<string> _debugLog = new();
 
     private MetadataTaggerService CreateService() =>
-        new(new CapturingLogger<MetadataTaggerService>(_debugLog), new FakeFileWriteService());
+        new(new CapturingLogger<MetadataTaggerService>(_debugLog), new FakeFileWriteService(), new StubHttpClientFactory());
 
     private sealed class CapturingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
     {
@@ -156,4 +156,10 @@ public class MetadataTaggerServiceTests : IDisposable
 
         Assert.False(success);
     }
+}
+
+/// <summary>Minimal IHttpClientFactory for tests that just need a fresh, disposable client.</summary>
+internal sealed class StubHttpClientFactory : System.Net.Http.IHttpClientFactory
+{
+    public System.Net.Http.HttpClient CreateClient(string name) => new();
 }

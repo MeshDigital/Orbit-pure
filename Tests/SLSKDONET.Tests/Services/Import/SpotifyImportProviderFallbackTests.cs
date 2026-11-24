@@ -33,7 +33,7 @@ public class SpotifyImportProviderFallbackTests
         return new SpotifyImportProvider(
             NullLogger<SpotifyImportProvider>.Instance,
             new SpotifyInputSource(NullLogger<SpotifyInputSource>.Instance, config, auth),
-            new SpotifyScraperInputSource(NullLogger<SpotifyScraperInputSource>.Instance),
+            new SpotifyScraperInputSource(NullLogger<SpotifyScraperInputSource>.Instance, new StubHttpClientFactory()),
             config)
         {
             IsApiConfigured = () => true,

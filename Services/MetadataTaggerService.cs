@@ -30,10 +30,11 @@ public class MetadataTaggerService : ITaggerService
 
     public MetadataTaggerService(
         ILogger<MetadataTaggerService> logger,
-        IFileWriteService fileWriteService) // Phase 1A
+        IFileWriteService fileWriteService, // Phase 1A
+        IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
-        _httpClient = new HttpClient();
+        _httpClient = httpClientFactory.CreateClient();
         _httpClient.Timeout = TimeSpan.FromSeconds(10);
         _fileWriteService = fileWriteService; // Phase 1A
     }
