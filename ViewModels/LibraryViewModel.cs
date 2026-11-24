@@ -63,6 +63,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     private readonly SimilarityIndex? _similarityIndex;
     private readonly TransitionStyleClassifier? _transitionStyleClassifier;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly SLSKDONET.Services.Library.Files.FileRelocationService _fileRelocationService;
     private readonly Services.Library.Maintenance.TrackMetadataWriter? _metadataWriter;
     
     public Library.ProjectListViewModel Projects { get; }
@@ -557,6 +558,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         Services.Library.PlaylistExportService exportService,
         Services.Export.UsbExportOrchestrator exportOrchestrator,
         IDbContextFactory<AppDbContext> dbFactory,
+        SLSKDONET.Services.Library.Files.FileRelocationService fileRelocationService,
         PlaylistIntelligenceService? playlistIntelligenceService = null,
         ISavedDoublesService? savedDoublesService = null,
         TrackSimilarityService? trackSimilarityService = null,
@@ -565,6 +567,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         Services.Library.Maintenance.TrackMetadataWriter? metadataWriter = null)
     {
         _dbFactory = dbFactory;
+        _fileRelocationService = fileRelocationService;
         _logger = logger;
         _navigationService = navigationService;
         _importHistoryViewModel = importHistoryViewModel;

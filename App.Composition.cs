@@ -179,6 +179,7 @@ public partial class App
         services.AddSingleton<ColumnConfigurationService>();
         services.AddSingleton<SmartCrateService>();
         services.AddSingleton<PlaylistExportService>();
+        services.AddSingleton<Services.Library.Files.FileRelocationService>();
         services.AddSingleton<Services.Export.UsbExportOrchestrator>();
 
         // Audio Player

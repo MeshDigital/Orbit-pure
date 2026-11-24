@@ -10,6 +10,7 @@ using SLSKDONET.Models;
 using SLSKDONET.ViewModels.Library;
 using SLSKDONET.Services.Models;
 using SLSKDONET.Services;
+using SLSKDONET.Services.Library.Files;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Views;
@@ -2444,104 +2445,56 @@ public partial class LibraryViewModel
 
         _logger.LogInformation("Bulk rename for {Count} tracks starting with pattern '{Pattern}'.", selected.Count, result.Pattern);
 
-        int renamedCount = 0;
+        // Delegate the move + three-table path update to the single relocation path (#344, LF2),
+        // which updates LibraryEntries.FilePath, PlaylistTracks.ResolvedFilePath AND Tracks.LocalFilePath.
+        var nameByHash = selected
+            .Where(t => !string.IsNullOrEmpty(t.Model.TrackUniqueHash))
+            .ToDictionary(t => t.Model.TrackUniqueHash!, t => $"{t.Model.Artist} - {t.Model.Title}");
+
+        var requests = new List<RelocationRequest>();
         var skippedTracks = new List<string>();
-        var touchedHashes = new HashSet<string>();
 
-        await Task.Run(async () =>
+        foreach (var trackVm in selected)
         {
-            await using var context = _dbFactory.CreateDbContext();
-            var trackHashes = selected.Select(t => t.Model.TrackUniqueHash).Where(h => !string.IsNullOrEmpty(h)).ToList();
+            var track = trackVm.Model;
+            if (string.IsNullOrEmpty(track.TrackUniqueHash) || string.IsNullOrEmpty(track.ResolvedFilePath) || !System.IO.File.Exists(track.ResolvedFilePath))
+                continue;
 
-            // Keyed by TrackUniqueHash, not PlaylistTrack.Id — the same physical file can be
-            // referenced by rows in multiple playlists, and every one of them denormalizes its
-            // own ResolvedFilePath (read back verbatim by LibraryService.EntityToPlaylistTrack,
-            // never re-resolved from LibraryEntries). Scoping this to only the selected rows'
-            // Ids left every other playlist's copy pointing at the old, now-moved path — same
-            // class of bug already fixed once for cue points (see UpdateTrackCuePointsAsync).
-            var dbTracksByHash = (await context.PlaylistTracks
-                .Where(t => trackHashes.Contains(t.TrackUniqueHash))
-                .ToListAsync())
-                .Where(t => !string.IsNullOrEmpty(t.TrackUniqueHash))
-                .GroupBy(t => t.TrackUniqueHash!)
-                .ToDictionary(g => g.Key, g => g.ToList());
-            var dbEntriesByHash = await context.LibraryEntries
-                .Where(e => trackHashes.Contains(e.UniqueHash))
-                .ToDictionaryAsync(e => e.UniqueHash);
+            var resolvedBase = BulkRenameViewModel.Resolve(
+                result.Pattern,
+                track.Artist ?? "", track.Title ?? "", track.Album ?? "",
+                track.TrackNumber > 0 ? track.TrackNumber.ToString() : "",
+                track.ReleaseDate?.Year.ToString() ?? "",
+                track.Genres ?? "");
 
-            foreach (var trackVm in selected)
+            var safeName = resolvedBase.Replace('/', '_').Replace('\\', '_').Replace(':', '_').Trim();
+            if (string.IsNullOrWhiteSpace(safeName))
             {
-                var track = trackVm.Model;
-                if (string.IsNullOrEmpty(track.ResolvedFilePath) || !System.IO.File.Exists(track.ResolvedFilePath))
-                    continue;
-
-                var resolvedBase = BulkRenameViewModel.Resolve(
-                    result.Pattern,
-                    track.Artist ?? "", track.Title ?? "", track.Album ?? "",
-                    track.TrackNumber > 0 ? track.TrackNumber.ToString() : "",
-                    track.ReleaseDate?.Year.ToString() ?? "",
-                    track.Genres ?? "");
-
-                var safeName = resolvedBase.Replace('/', '_').Replace('\\', '_').Replace(':', '_').Trim();
-                if (string.IsNullOrWhiteSpace(safeName))
-                {
-                    skippedTracks.Add($"{track.Artist} - {track.Title}");
-                    continue;
-                }
-
-                var dir = System.IO.Path.GetDirectoryName(track.ResolvedFilePath)!;
-                var ext = System.IO.Path.GetExtension(track.ResolvedFilePath);
-                var destPath = System.IO.Path.Combine(dir, safeName + ext);
-
-                if (string.Equals(destPath, track.ResolvedFilePath, StringComparison.OrdinalIgnoreCase))
-                    continue; // already matches the pattern — nothing to do
-
-                if (System.IO.File.Exists(destPath))
-                {
-                    _logger.LogWarning("Bulk rename skipped: target file already exists: {Path}", destPath);
-                    skippedTracks.Add($"{track.Artist} - {track.Title}");
-                    continue;
-                }
-
-                try
-                {
-                    System.IO.File.Move(track.ResolvedFilePath, destPath);
-                    track.ResolvedFilePath = destPath;
-
-                    if (!string.IsNullOrEmpty(track.TrackUniqueHash))
-                    {
-                        if (dbTracksByHash.TryGetValue(track.TrackUniqueHash, out var dbTracks))
-                        {
-                            foreach (var dbTrack in dbTracks)
-                            {
-                                dbTrack.ResolvedFilePath = destPath;
-                                context.PlaylistTracks.Update(dbTrack);
-                            }
-                        }
-                        if (dbEntriesByHash.TryGetValue(track.TrackUniqueHash, out var dbEntry))
-                        {
-                            dbEntry.FilePath = destPath;
-                            context.LibraryEntries.Update(dbEntry);
-                        }
-                        touchedHashes.Add(track.TrackUniqueHash);
-                    }
-
-                    renamedCount++;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Bulk rename failed for {Path}", track.ResolvedFilePath);
-                    skippedTracks.Add($"{track.Artist} - {track.Title}");
-                }
+                skippedTracks.Add($"{track.Artist} - {track.Title}");
+                continue;
             }
 
-            await context.SaveChangesAsync();
-        });
+            var dir = System.IO.Path.GetDirectoryName(track.ResolvedFilePath)!;
+            var ext = System.IO.Path.GetExtension(track.ResolvedFilePath);
+            var destPath = System.IO.Path.Combine(dir, safeName + ext);
+
+            if (string.Equals(destPath, track.ResolvedFilePath, StringComparison.OrdinalIgnoreCase))
+                continue; // already matches the pattern — nothing to do
+
+            requests.Add(new RelocationRequest(track.TrackUniqueHash, track.ResolvedFilePath, destPath));
+        }
+
+        var plan = _fileRelocationService.Plan(requests);
+        var outcome = await _fileRelocationService.ExecuteAsync(plan);
+        var renamedCount = outcome.Moved;
+
+        foreach (var problem in plan.Problems.Concat(outcome.Failures))
+            skippedTracks.Add(nameByHash.TryGetValue(problem.Hash, out var name) ? name : problem.Hash);
 
         // Other open playlists may hold PlaylistTrackViewModel instances for the same hash with
         // the now-stale ResolvedFilePath baked in — a full refresh re-reads from the DB rows we
-        // just updated above rather than leaving them silently pointing at a moved-away file.
-        if (touchedHashes.Count > 0)
+        // just updated rather than leaving them silently pointing at a moved-away file.
+        if (outcome.Moved > 0)
             await ExecuteRefreshLibraryAsync();
 
         var message = $"Renamed {renamedCount} file(s).";
