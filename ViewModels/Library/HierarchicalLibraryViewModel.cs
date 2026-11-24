@@ -15,6 +15,7 @@ using SLSKDONET.Configuration;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Views; // For RelayCommand and AsyncRelayCommand
+using Microsoft.Extensions.Logging;
 
 namespace SLSKDONET.ViewModels.Library;
 
@@ -24,6 +25,7 @@ public class HierarchicalLibraryViewModel : IDisposable
     private readonly AppConfig _config;
     private readonly DownloadManager? _downloadManager;
     private readonly Dictionary<IColumn<ILibraryNode>, string> _columnToIdMap = new();
+    private readonly ILogger? _logger;
     private CancellationTokenSource? _saveDebounceCts;
     public HierarchicalTreeDataGridSource<ILibraryNode> Source { get; }
     public ITreeDataGridRowSelectionModel<ILibraryNode>? Selection => Source.RowSelection;
@@ -32,12 +34,13 @@ public class HierarchicalLibraryViewModel : IDisposable
     private IEventBus? _eventBus;
     private bool _disposed;
 
-    public HierarchicalLibraryViewModel(AppConfig config, DownloadManager? downloadManager = null, ArtworkCacheService? artworkCacheService = null, IEventBus? eventBus = null)
+    public HierarchicalLibraryViewModel(AppConfig config, DownloadManager? downloadManager = null, ArtworkCacheService? artworkCacheService = null, IEventBus? eventBus = null, ILogger? logger = null)
     {
         _config = config;
         _downloadManager = downloadManager;
         _artworkCacheService = artworkCacheService;
         _eventBus = eventBus;
+        _logger = logger;
         Source = new HierarchicalTreeDataGridSource<ILibraryNode>(_albums);
         Source.RowSelection!.SingleSelect = false;
 
@@ -58,13 +61,24 @@ public class HierarchicalLibraryViewModel : IDisposable
         _saveDebounceCts = new CancellationTokenSource();
         var token = _saveDebounceCts.Token;
 
-        Task.Delay(500, token).ContinueWith(t =>
+        _ = DebounceSaveAsync(token);
+    }
+
+    private async Task DebounceSaveAsync(CancellationToken token)
+    {
+        try
         {
-            if (!t.IsCanceled)
-            {
-                SaveColumnLayout();
-            }
-        }, TaskScheduler.Default);
+            await Task.Delay(500, token);
+            SaveColumnLayout();
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded by a newer reorder — expected, ignore.
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to save column layout");
+        }
     }
 
     private void InitializeColumns()

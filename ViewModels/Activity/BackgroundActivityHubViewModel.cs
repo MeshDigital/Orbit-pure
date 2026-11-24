@@ -268,7 +268,20 @@ public sealed class BackgroundActivityHubViewModel : ActivityObservable, IDispos
             _post(ApplyScheduled);
             return;
         }
-        _ = Task.Delay(Throttle).ContinueWith(_ => _post(ApplyScheduled), TaskScheduler.Default);
+        _ = ApplyAfterThrottleAsync();
+    }
+
+    private async Task ApplyAfterThrottleAsync()
+    {
+        try
+        {
+            await Task.Delay(Throttle);
+            _post(ApplyScheduled);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Activity hub: applying scheduled snapshot failed");
+        }
     }
 
     private void ApplyScheduled()

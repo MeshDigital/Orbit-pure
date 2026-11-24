@@ -1119,7 +1119,7 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
         SuggestReorderForBetterFlowCommand = ReactiveCommand.CreateFromTask(SuggestReorderForBetterFlowAsync);
         DismissFlowWarningCommand = ReactiveCommand.Create(() => { FlowWarningDismissed = true; });
 
-        Hierarchical = new HierarchicalLibraryViewModel(config, downloadManager, artworkCache, eventBus);
+        Hierarchical = new HierarchicalLibraryViewModel(config, downloadManager, artworkCache, eventBus, _logger);
         
         ToggleColumnFilterStripCommand = ReactiveCommand.Create(() => IsColumnFilterStripVisible = !IsColumnFilterStripVisible);
 
