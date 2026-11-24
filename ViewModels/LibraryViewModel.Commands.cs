@@ -2532,30 +2532,58 @@ public partial class LibraryViewModel
 
         int processedCount = 0;
         var skippedTracks = new List<string>();
-        var touchedHashes = new HashSet<string>();
 
-        await Task.Run(async () =>
+        if (modeResult.IsCopy)
         {
-            await using var context = _dbFactory.CreateDbContext();
-            var trackHashes = selected.Select(t => t.Model.TrackUniqueHash).Where(h => !string.IsNullOrEmpty(h)).ToList();
+            // Copy: duplicate files for external use (e.g. staging a USB stick); the DB is
+            // deliberately untouched.
+            await Task.Run(() =>
+            {
+                foreach (var trackVm in selected)
+                {
+                    var track = trackVm.Model;
+                    if (string.IsNullOrEmpty(track.ResolvedFilePath) || !System.IO.File.Exists(track.ResolvedFilePath))
+                        continue;
 
-            // Keyed by TrackUniqueHash, not PlaylistTrack.Id — see ExecuteBulkRenameAsync for why:
-            // the same physical file can be referenced by rows in multiple playlists, each with
-            // its own denormalized ResolvedFilePath that must all move together.
-            var dbTracksByHash = modeResult.IsCopy ? null : (await context.PlaylistTracks
-                .Where(t => trackHashes.Contains(t.TrackUniqueHash))
-                .ToListAsync())
-                .Where(t => !string.IsNullOrEmpty(t.TrackUniqueHash))
-                .GroupBy(t => t.TrackUniqueHash!)
-                .ToDictionary(g => g.Key, g => g.ToList());
-            var dbEntriesByHash = modeResult.IsCopy ? null : await context.LibraryEntries
-                .Where(e => trackHashes.Contains(e.UniqueHash))
-                .ToDictionaryAsync(e => e.UniqueHash);
+                    var fileName = System.IO.Path.GetFileName(track.ResolvedFilePath);
+                    var destPath = System.IO.Path.Combine(destinationFolder, fileName);
 
+                    if (string.Equals(System.IO.Path.GetFullPath(destPath), System.IO.Path.GetFullPath(track.ResolvedFilePath), StringComparison.OrdinalIgnoreCase))
+                        continue; // already there
+
+                    if (System.IO.File.Exists(destPath))
+                    {
+                        _logger.LogWarning("Bulk copy skipped: target file already exists: {Path}", destPath);
+                        skippedTracks.Add($"{track.Artist} - {track.Title}");
+                        continue;
+                    }
+
+                    try
+                    {
+                        System.IO.File.Copy(track.ResolvedFilePath, destPath);
+                        processedCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Bulk copy failed for {Path}", track.ResolvedFilePath);
+                        skippedTracks.Add($"{track.Artist} - {track.Title}");
+                    }
+                }
+            });
+        }
+        else
+        {
+            // Move: delegate to the single relocation path, which updates all three path columns
+            // (LibraryEntries.FilePath, PlaylistTracks.ResolvedFilePath, Tracks.LocalFilePath) — #344.
+            var nameByHash = selected
+                .Where(t => !string.IsNullOrEmpty(t.Model.TrackUniqueHash))
+                .ToDictionary(t => t.Model.TrackUniqueHash!, t => $"{t.Model.Artist} - {t.Model.Title}");
+
+            var requests = new List<RelocationRequest>();
             foreach (var trackVm in selected)
             {
                 var track = trackVm.Model;
-                if (string.IsNullOrEmpty(track.ResolvedFilePath) || !System.IO.File.Exists(track.ResolvedFilePath))
+                if (string.IsNullOrEmpty(track.TrackUniqueHash) || string.IsNullOrEmpty(track.ResolvedFilePath) || !System.IO.File.Exists(track.ResolvedFilePath))
                     continue;
 
                 var fileName = System.IO.Path.GetFileName(track.ResolvedFilePath);
@@ -2564,62 +2592,21 @@ public partial class LibraryViewModel
                 if (string.Equals(System.IO.Path.GetFullPath(destPath), System.IO.Path.GetFullPath(track.ResolvedFilePath), StringComparison.OrdinalIgnoreCase))
                     continue; // already there
 
-                if (System.IO.File.Exists(destPath))
-                {
-                    _logger.LogWarning("Bulk {Mode} skipped: target file already exists: {Path}", modeResult.IsCopy ? "copy" : "move", destPath);
-                    skippedTracks.Add($"{track.Artist} - {track.Title}");
-                    continue;
-                }
-
-                try
-                {
-                    if (modeResult.IsCopy)
-                    {
-                        System.IO.File.Copy(track.ResolvedFilePath, destPath);
-                    }
-                    else
-                    {
-                        System.IO.File.Move(track.ResolvedFilePath, destPath);
-                        track.ResolvedFilePath = destPath;
-
-                        if (!string.IsNullOrEmpty(track.TrackUniqueHash))
-                        {
-                            if (dbTracksByHash != null && dbTracksByHash.TryGetValue(track.TrackUniqueHash, out var dbTracks))
-                            {
-                                foreach (var dbTrack in dbTracks)
-                                {
-                                    dbTrack.ResolvedFilePath = destPath;
-                                    context.PlaylistTracks.Update(dbTrack);
-                                }
-                            }
-                            if (dbEntriesByHash != null && dbEntriesByHash.TryGetValue(track.TrackUniqueHash, out var dbEntry))
-                            {
-                                dbEntry.FilePath = destPath;
-                                context.LibraryEntries.Update(dbEntry);
-                            }
-                            touchedHashes.Add(track.TrackUniqueHash);
-                        }
-                    }
-
-                    processedCount++;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Bulk {Mode} failed for {Path}", modeResult.IsCopy ? "copy" : "move", track.ResolvedFilePath);
-                    skippedTracks.Add($"{track.Artist} - {track.Title}");
-                }
+                requests.Add(new RelocationRequest(track.TrackUniqueHash, track.ResolvedFilePath, destPath));
             }
 
-            if (!modeResult.IsCopy)
-                await context.SaveChangesAsync();
-        });
+            var plan = _fileRelocationService.Plan(requests);
+            var outcome = await _fileRelocationService.ExecuteAsync(plan);
+            processedCount = outcome.Moved;
 
-        // Other open playlists may hold PlaylistTrackViewModel instances for the same hash with
-        // the now-stale ResolvedFilePath baked in — refresh so they re-read the updated DB rows
-        // rather than silently pointing at a moved-away file. Copy never touches the DB, so
-        // touchedHashes stays empty and this is a no-op for that mode.
-        if (touchedHashes.Count > 0)
-            await ExecuteRefreshLibraryAsync();
+            foreach (var problem in plan.Problems.Concat(outcome.Failures))
+                skippedTracks.Add(nameByHash.TryGetValue(problem.Hash, out var name) ? name : problem.Hash);
+
+            // Copy never touches the DB; Move refreshes open playlists so stale ResolvedFilePath
+            // copies are re-read from the updated rows.
+            if (outcome.Moved > 0)
+                await ExecuteRefreshLibraryAsync();
+        }
 
         var verb = modeResult.IsCopy ? "Copied" : "Moved";
         var message = $"{verb} {processedCount} file(s) to {destinationFolder}.";
