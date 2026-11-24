@@ -10,6 +10,7 @@ namespace SLSKDONET.Tests.Services;
 
 /// <summary>
 /// What ORBIT shares on Soulseek (audited 2026-09-29 after a peer's leech check flagged the account).
+/// Relative paths use '/', which both Path.Combine and the service (normalising '/' -> '\') accept on every OS.
 /// </summary>
 public class ShareIndexServiceTests : IDisposable
 {
@@ -22,7 +23,7 @@ public class ShareIndexServiceTests : IDisposable
 
     private string File(string relative, int bytes = 10)
     {
-        var path = Path.Combine(_root, relative);
+        var path = Path.GetFullPath(Path.Combine(_root, relative));
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         System.IO.File.WriteAllBytes(path, new byte[bytes]);
         return path;
@@ -34,12 +35,12 @@ public class ShareIndexServiceTests : IDisposable
     [Fact]
     public void SharesMusicOnly_NotPartialDownloadsArtworkOrEmptyFiles()
     {
-        File(@"Music\Artist\Track.flac");
-        File(@"Music\Artist\Track2.mp3");
-        File(@"Music\Artist\cover.jpg");
-        File(@"Music\Artist\Downloading.flac.part");
-        File(@"Music\Artist\notes.txt");
-        File(@"Music\Artist\Empty.flac", bytes: 0);
+        File("Music/Artist/Track.flac");
+        File("Music/Artist/Track2.mp3");
+        File("Music/Artist/cover.jpg");
+        File("Music/Artist/Downloading.flac.part");
+        File("Music/Artist/notes.txt");
+        File("Music/Artist/Empty.flac", bytes: 0);
 
         var index = Service(Path.Combine(_root, "Music"));
         index.EnsureFresh();
@@ -53,8 +54,8 @@ public class ShareIndexServiceTests : IDisposable
     [Fact]
     public void VirtualPaths_StartAtTheShareName_AndNeverExposeTheLocalPath()
     {
-        var track = File(@"Private\Users\someone\Music\Artist\Track.flac");
-        var index = Service(Path.Combine(_root, @"Private\Users\someone\Music"));
+        var track = File("Private/Users/someone/Music/Artist/Track.flac");
+        var index = Service(Path.Combine(_root, "Private/Users/someone/Music"));
 
         var dirs = index.GetAllDirectories();
 
@@ -68,8 +69,8 @@ public class ShareIndexServiceTests : IDisposable
     [Fact]
     public void Search_MatchesTheVirtualPath_NotTheHiddenLocalFolders()
     {
-        File(@"someone\Music\Metrik\Gravity.flac");
-        var index = Service(Path.Combine(_root, @"someone\Music"));
+        File("someone/Music/Metrik/Gravity.flac");
+        var index = Service(Path.Combine(_root, "someone/Music"));
 
         Assert.Single(index.Search(new Soulseek.SearchQuery("metrik gravity")));
         Assert.Empty(index.Search(new Soulseek.SearchQuery("someone")));
@@ -78,10 +79,10 @@ public class ShareIndexServiceTests : IDisposable
     [Fact]
     public void FolderCount_IsTheFoldersPeersSee_NotTheNumberOfRoots()
     {
-        File(@"Music\A\1.flac");
-        File(@"Music\A\2.flac");
-        File(@"Music\B\1.flac");
-        File(@"Music\B\Sub\1.flac");
+        File("Music/A/1.flac");
+        File("Music/A/2.flac");
+        File("Music/B/1.flac");
+        File("Music/B/Sub/1.flac");
         var index = Service(Path.Combine(_root, "Music"));
         index.EnsureFresh();
 
@@ -92,8 +93,8 @@ public class ShareIndexServiceTests : IDisposable
     [Fact]
     public void NestedRoot_IsIndexedOnce()
     {
-        File(@"Music\Downloads\New.flac");
-        var index = Service(Path.Combine(_root, "Music"), downloadFolder: Path.Combine(_root, @"Music\Downloads"));
+        File("Music/Downloads/New.flac");
+        var index = Service(Path.Combine(_root, "Music"), downloadFolder: Path.Combine(_root, "Music/Downloads"));
         index.EnsureFresh();
 
         Assert.Equal(1, index.FileCount);
@@ -102,16 +103,23 @@ public class ShareIndexServiceTests : IDisposable
     [Fact]
     public void Aliases_AreUniqueWhenRootsShareAName()
     {
-        var aliases = ShareIndexService.AssignAliases(new[] { @"C:\a\Music", @"D:\Music\", @"C:\a\Music\Sub", @"E:\Other" });
+        var root = Path.GetTempPath();
+        var aliases = ShareIndexService.AssignAliases(new[]
+        {
+            Path.Combine(root, "a", "Music"),
+            Path.Combine(root, "d", "Music") + Path.DirectorySeparatorChar,
+            Path.Combine(root, "a", "Music", "Sub"),
+            Path.Combine(root, "e", "Other"),
+        });
 
-        Assert.Equal(3, aliases.Count); // C:\a\Music\Sub is inside C:\a\Music
+        Assert.Equal(3, aliases.Count); // .../a/Music/Sub is inside .../a/Music
         Assert.Equal(new[] { "Music", "Music (2)", "Other" }, aliases.Select(a => a.Alias).OrderBy(a => a));
     }
 
     [Fact]
     public void CountsChanged_FiresOnlyWhenTheCountsChange()
     {
-        File(@"Music\A\1.flac");
+        File("Music/A/1.flac");
         var index = Service(Path.Combine(_root, "Music"));
         int raised = 0;
         index.CountsChanged += (_, _) => raised++;
@@ -119,7 +127,7 @@ public class ShareIndexServiceTests : IDisposable
         index.EnsureFresh();
         index.Invalidate();
         index.EnsureFresh();          // same files → no event
-        File(@"Music\A\2.flac");
+        File("Music/A/2.flac");
         index.Invalidate();
         index.EnsureFresh();          // one more → event
 
