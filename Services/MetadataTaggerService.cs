@@ -22,7 +22,7 @@ namespace SLSKDONET.Services;
 public class MetadataTaggerService : ITaggerService
 {
     private readonly ILogger<MetadataTaggerService> _logger;
-    private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly IFileWriteService _fileWriteService; // Phase 1A
 
     /// <summary>Containers TagLib# writes tags into (AIFF/WAV via their ID3 chunk). AIFF-C is not one of them.</summary>
@@ -34,9 +34,15 @@ public class MetadataTaggerService : ITaggerService
         IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
-        _httpClient = httpClientFactory.CreateClient();
-        _httpClient.Timeout = TimeSpan.FromSeconds(10);
+        _httpClientFactory = httpClientFactory;
         _fileWriteService = fileWriteService; // Phase 1A
+    }
+
+    private HttpClient CreateClient()
+    {
+        var client = _httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(10);
+        return client;
     }
 
     /// <summary>
@@ -442,7 +448,8 @@ public class MetadataTaggerService : ITaggerService
 
             _logger.LogDebug("Downloading album art from: {Url}", artUrl);
 
-            var imageData = await _httpClient.GetByteArrayAsync(artUrl);
+            using var client = CreateClient();
+            var imageData = await client.GetByteArrayAsync(artUrl);
             if (imageData == null || imageData.Length == 0)
             {
                 _logger.LogDebug("No image data received from {Url}", artUrl);

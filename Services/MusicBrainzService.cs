@@ -31,7 +31,7 @@ public class MusicBrainzService : IMusicBrainzService
     private readonly ILogger<MusicBrainzService> _logger;
     private readonly DatabaseService _databaseService;
     private readonly ITrackRepository _trackRepository;
-    private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
 
     private const string BaseUrl = "https://musicbrainz.org/ws/2/";
     /// <summary>
@@ -55,9 +55,15 @@ public class MusicBrainzService : IMusicBrainzService
         _logger = logger;
         _databaseService = databaseService;
         _trackRepository = trackRepository;
-        _httpClient = httpClientFactory.CreateClient();
-        _httpClient.DefaultRequestHeaders.Add("User-Agent", UserAgent);
-        _httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
+        _httpClientFactory = httpClientFactory;
+    }
+
+    private HttpClient CreateClient()
+    {
+        var client = _httpClientFactory.CreateClient();
+        client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
+        client.DefaultRequestHeaders.Add("Accept", "application/json");
+        return client;
     }
 
     // ---------------------------------------------------------------------------
@@ -80,7 +86,8 @@ public class MusicBrainzService : IMusicBrainzService
             }
 
             _lastRequestTime = DateTime.UtcNow;
-            return await _httpClient.GetAsync(url, ct);
+            using var client = CreateClient();
+            return await client.GetAsync(url, ct);
         }
         finally
         {

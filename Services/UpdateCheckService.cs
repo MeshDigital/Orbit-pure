@@ -47,7 +47,7 @@ public sealed class UpdateCheckService : IUpdateCheckService
     private readonly ConfigManager _configManager;
     private readonly INotificationService _notificationService;
     private readonly ILogger<UpdateCheckService> _logger;
-    private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
 
     public UpdateCheckService(
         AppConfig config,
@@ -60,11 +60,16 @@ public sealed class UpdateCheckService : IUpdateCheckService
         _configManager = configManager;
         _notificationService = notificationService;
         _logger = logger;
+        _httpClientFactory = httpClientFactory;
+    }
 
-        _httpClient = httpClientFactory.CreateClient();
-        _httpClient.Timeout = TimeSpan.FromSeconds(10);
-        _httpClient.DefaultRequestHeaders.Add("User-Agent", UserAgent);
-        _httpClient.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
+    private HttpClient CreateClient()
+    {
+        var client = _httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(10);
+        client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
+        client.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
+        return client;
     }
 
     public async Task CheckForUpdatesAsync(CancellationToken ct = default)
@@ -77,7 +82,8 @@ public sealed class UpdateCheckService : IUpdateCheckService
 
         try
         {
-            using var response = await _httpClient.GetAsync(ReleasesApiUrl, ct).ConfigureAwait(false);
+            using var client = CreateClient();
+            using var response = await client.GetAsync(ReleasesApiUrl, ct).ConfigureAwait(false);
 
             // Record the attempt regardless of outcome — a 404 (no releases yet) or a rate limit
             // shouldn't cause this to retry on every single app launch.
