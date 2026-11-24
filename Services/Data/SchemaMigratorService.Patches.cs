@@ -1,0 +1,2763 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using SLSKDONET.Data;
+using SLSKDONET.Services.Models;
+
+namespace SLSKDONET.Services;
+
+/// <summary>The all-or-nothing schema-patch application (#317) — extracted from the 3,200-line SchemaMigratorService (#307).</summary>
+public partial class SchemaMigratorService
+{
+    /// <summary>
+    /// Applies every schema patch as <b>one transaction</b> (#317): SQLite DDL is transactional, so a statement that
+    /// fails part-way rolls all of them back and the schema stays exactly as it was, instead of being left half-patched.
+    /// The patches are re-attempted at the next start (their exists-guards make them idempotent), and
+    /// <see cref="SchemaReconciler"/> still runs afterwards as the additive safety net.
+    /// </summary>
+    private async Task ApplySchemaPatchesAsync(AppDbContext context, System.Data.Common.DbConnection connection)
+    {
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync();
+        await RunAtomicallyAsync(connection, () => ApplySchemaPatchesCoreAsync(context, connection), _logger);
+    }
+
+    /// <summary>
+    /// Runs <paramref name="patches"/> inside <c>BEGIN IMMEDIATE … COMMIT</c> on <paramref name="connection"/>, rolling
+    /// back on any failure. Plain SQL is used instead of <c>BeginTransaction()</c> on purpose: Microsoft.Data.Sqlite
+    /// rejects every command whose <c>Transaction</c> isn't set while an ADO transaction is active, and the patches
+    /// create commands in many places. Returns false (logged) when the patches were rolled back.
+    /// </summary>
+    internal static async Task<bool> RunAtomicallyAsync(System.Data.Common.DbConnection connection, Func<Task> patches, ILogger logger)
+    {
+        async Task Exec(string sql)
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = sql;
+            await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+        }
+
+        await Exec("BEGIN IMMEDIATE;").ConfigureAwait(false);
+        try
+        {
+            await patches().ConfigureAwait(false);
+            await Exec("COMMIT;").ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                await Exec("ROLLBACK;").ConfigureAwait(false);
+                logger.LogError(ex, "Schema patching failed and was rolled back; the database schema is unchanged and the patches will be retried at the next start.");
+            }
+            catch (Exception rollbackEx)
+            {
+                logger.LogCritical(rollbackEx, "Schema patching failed ({Error}) and the rollback failed too; the database may be partially patched.", ex.Message);
+            }
+            return false;
+        }
+    }
+
+    private async Task ApplySchemaPatchesCoreAsync(AppDbContext context, System.Data.Common.DbConnection connection)
+    {
+        try
+        {
+            using var command = connection.CreateCommand();
+
+            // Helper to check if column exists
+            bool ColumnExists(string tableName, string columnName)
+            {
+                using var checkCmd = connection.CreateCommand();
+                checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{tableName}') WHERE LOWER(name)=LOWER('{columnName}')";
+                var result = checkCmd.ExecuteScalar();
+                return Convert.ToInt32(result) > 0;
+            }
+
+            // Helper to check if table exists
+            bool TableExists(string tableName)
+            {
+                using var checkCmd = connection.CreateCommand();
+                checkCmd.CommandText = $"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{tableName}'";
+                var result = checkCmd.ExecuteScalar();
+                return Convert.ToInt32(result) > 0;
+            }
+
+            // 1. TechnicalDetails Table
+            if (!TableExists("TechnicalDetails"))
+            {
+                _logger.LogInformation("Patching Schema: Creating TechnicalDetails table...");
+                command.CommandText = @"
+                    CREATE TABLE ""TechnicalDetails"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_TechnicalDetails"" PRIMARY KEY,
+                        ""PlaylistTrackId"" TEXT NOT NULL,
+                        ""WaveformData"" BLOB NULL,
+                        ""RmsData"" BLOB NULL,
+                        ""LowData"" BLOB NULL,
+                        ""MidData"" BLOB NULL,
+                        ""HighData"" BLOB NULL,
+                        ""AiEmbeddingJson"" TEXT NULL,
+                        ""CuePointsJson"" TEXT NULL,
+                        ""AudioFingerprint"" TEXT NULL,
+                        ""SpectralHash"" TEXT NULL,
+                        ""LastUpdated"" TEXT NOT NULL,
+                        ""IsPrepared"" INTEGER NOT NULL DEFAULT 0,
+                        ""PrimaryGenre"" TEXT NULL,
+                        CONSTRAINT ""FK_TechnicalDetails_PlaylistTracks_PlaylistTrackId"" FOREIGN KEY (""PlaylistTrackId"") REFERENCES ""PlaylistTracks"" (""Id"") ON DELETE CASCADE
+                    );
+                    CREATE UNIQUE INDEX ""IX_TechnicalDetails_PlaylistTrackId"" ON ""TechnicalDetails"" (""PlaylistTrackId"");
+                ";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Phase: Inbox Overhaul - Stalled Detection
+            if (!ColumnExists("PlaylistTracks", "StalledReason"))
+            {
+                _logger.LogInformation("Patching Schema: Adding StalledReason to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""StalledReason"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            if (!ColumnExists("Tracks", "StalledReason"))
+            {
+                _logger.LogInformation("Patching Schema: Adding StalledReason to Tracks...");
+                command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""StalledReason"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Phase: FLAC-Gold Download Resilience & Failure Escalation
+            if (!ColumnExists("Tracks", "SearchRetryCount"))
+            {
+                _logger.LogInformation("Patching Schema: Adding SearchRetryCount to Tracks...");
+                command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SearchRetryCount"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("Tracks", "NotFoundRestartCount"))
+            {
+                _logger.LogInformation("Patching Schema: Adding NotFoundRestartCount to Tracks...");
+                command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""NotFoundRestartCount"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("PlaylistTracks", "SearchRetryCount"))
+            {
+                _logger.LogInformation("Patching Schema: Adding SearchRetryCount to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""SearchRetryCount"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("PlaylistTracks", "NotFoundRestartCount"))
+            {
+                _logger.LogInformation("Patching Schema: Adding NotFoundRestartCount to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""NotFoundRestartCount"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Phase: Engagement, Intelligence & Sonic Tracking
+            var primaryTables = new[] { "Tracks", "PlaylistTracks", "LibraryEntries" };
+            foreach (var table in primaryTables)
+            {
+                // Engagement fields
+                if (!ColumnExists(table, "IsLiked"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding IsLiked to {Table}...", table);
+                    command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"IsLiked\" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists(table, "Rating"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding Rating to {Table}...", table);
+                    command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"Rating\" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists(table, "PlayCount"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding PlayCount to {Table}...", table);
+                    command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"PlayCount\" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists(table, "LastPlayedAt"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding LastPlayedAt to {Table}...", table);
+                    command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"LastPlayedAt\" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                // AI & Sonic Intelligence fields
+                if (!ColumnExists(table, "InstrumentalProbability"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding InstrumentalProbability to {Table}...", table);
+                    command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"InstrumentalProbability\" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists(table, "DetectedSubGenre"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding DetectedSubGenre to {Table}...", table);
+                    command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"DetectedSubGenre\" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists(table, "SubGenreConfidence"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding SubGenreConfidence to {Table}...", table);
+                    command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"SubGenreConfidence\" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists(table, "PrimaryGenre"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding PrimaryGenre to {Table}...", table);
+                    command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"PrimaryGenre\" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists(table, "DropTimestamp"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding DropTimestamp to {Table}...", table);
+                    command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"DropTimestamp\" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists(table, "ManualEnergy"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding ManualEnergy to {Table}...", table);
+                    command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"ManualEnergy\" INTEGER NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists(table, "SourceProvenance"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding SourceProvenance to {Table}...", table);
+                    command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"SourceProvenance\" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                if (!ColumnExists(table, "AvailabilityState"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding AvailabilityState to {Table}...", table);
+                    command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"AvailabilityState\" TEXT NOT NULL DEFAULT 'Ready';";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists(table, "SpotifyPlaylistId"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding SpotifyPlaylistId to {Table}...", table);
+                    command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"SpotifyPlaylistId\" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists(table, "SpotifyUri"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding SpotifyUri to {Table}...", table);
+                    command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"SpotifyUri\" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                // Vocal Intelligence (Currently only in PlaylistTracks and LibraryEntries)
+                if (table != "Tracks")
+                {
+                    if (!ColumnExists(table, "VocalType"))
+                    {
+                        _logger.LogInformation("Patching Schema: Adding VocalType to {Table}...", table);
+                        command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"VocalType\" INTEGER NOT NULL DEFAULT 0;";
+                        await command.ExecuteNonQueryAsync();
+                    }
+                    if (!ColumnExists(table, "VocalIntensity"))
+                    {
+                        _logger.LogInformation("Patching Schema: Adding VocalIntensity to {Table}...", table);
+                        command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"VocalIntensity\" REAL NULL;";
+                        await command.ExecuteNonQueryAsync();
+                    }
+                    if (!ColumnExists(table, "VocalStartSeconds"))
+                    {
+                        _logger.LogInformation("Patching Schema: Adding VocalStartSeconds to {Table}...", table);
+                        command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"VocalStartSeconds\" REAL NULL;";
+                        await command.ExecuteNonQueryAsync();
+                    }
+                    if (!ColumnExists(table, "VocalEndSeconds"))
+                    {
+                        _logger.LogInformation("Patching Schema: Adding VocalEndSeconds to {Table}...", table);
+                        command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"VocalEndSeconds\" REAL NULL;";
+                        await command.ExecuteNonQueryAsync();
+                    }
+                }
+            }
+
+            // 1C. StemPreferences Table (Phase 5: Engagement)
+            if (!TableExists("StemPreferences"))
+            {
+                _logger.LogInformation("Patching Schema: Creating StemPreferences table...");
+                command.CommandText = @"
+                    CREATE TABLE ""StemPreferences"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_StemPreferences"" PRIMARY KEY,
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""AlwaysMutedJson"" TEXT NULL,
+                        ""AlwaysSoloJson"" TEXT NULL,
+                        ""LastModified"" TEXT NOT NULL,
+                        CONSTRAINT ""FK_StemPreferences_LibraryEntries_TrackUniqueHash"" FOREIGN KEY (""TrackUniqueHash"") REFERENCES ""LibraryEntries"" (""UniqueHash"") ON DELETE CASCADE
+                    );
+                    CREATE UNIQUE INDEX ""IX_StemPreferences_TrackUniqueHash"" ON ""StemPreferences"" (""TrackUniqueHash"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                
+                // Trigger migration from JSON file if it exists
+                _ = Task.Run(async () =>
+                {
+                    try { await MigrateStemPreferencesFromJsonAsync(); }
+                    catch (Exception ex) { _logger.LogError(ex, "Background stem preferences JSON migration failed"); }
+                });
+            }
+
+            // Phase: Library Entry Enrichment Retry
+            if (!ColumnExists("LibraryEntries", "EnrichmentAttempts"))
+            {
+                _logger.LogInformation("Patching Schema: Adding EnrichmentAttempts to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""EnrichmentAttempts"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "LastEnrichmentAttempt"))
+            {
+                _logger.LogInformation("Patching Schema: Adding LastEnrichmentAttempt to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""LastEnrichmentAttempt"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 1B. AudioFeatures Table (Phase 21: AI Brain)
+            if (!TableExists("audio_features"))
+            {
+                _logger.LogInformation("Patching Schema: Creating AudioFeatures table (AI Brain)...");
+                command.CommandText = @"
+                    CREATE TABLE ""audio_features"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_audio_features"" PRIMARY KEY,
+                        ""TrackUniqueHash"" TEXT NOT NULL UNIQUE,
+                        ""TrackDuration"" REAL NOT NULL DEFAULT 0,
+
+                        -- Core Musical Features
+                        ""Bpm"" REAL NOT NULL DEFAULT 0,
+                        ""BpmConfidence"" REAL NOT NULL DEFAULT 0,
+                        ""Key"" TEXT NOT NULL DEFAULT '',
+                        ""Scale"" TEXT NOT NULL DEFAULT '',
+                        ""KeyConfidence"" REAL NOT NULL DEFAULT 0,
+                        ""CamelotKey"" TEXT NOT NULL DEFAULT '',
+
+                        -- Sonic Characteristics
+                        ""Energy"" REAL NOT NULL DEFAULT 0,
+                        ""Danceability"" REAL NOT NULL DEFAULT 0,
+                        ""Intensity"" REAL NOT NULL DEFAULT 0,
+                        ""SpectralCentroid"" REAL NOT NULL DEFAULT 0,
+                        ""SpectralComplexity"" REAL NOT NULL DEFAULT 0,
+                        ""OnsetRate"" REAL NOT NULL DEFAULT 0,
+                        ""DynamicComplexity"" REAL NOT NULL DEFAULT 0,
+                        ""LoudnessLUFS"" REAL NOT NULL DEFAULT 0,
+
+                        -- Drop Detection & DJ Cues
+                        ""DropTimeSeconds"" REAL NULL,
+                        ""DropConfidence"" REAL NOT NULL DEFAULT 0,
+                        ""CueIntro"" REAL NOT NULL DEFAULT 0,
+                        ""CueBuild"" REAL NULL,
+                        ""CueDrop"" REAL NULL,
+                        ""CuePhraseStart"" REAL NULL,
+
+                        -- Forensic Librarian
+                        ""BpmStability"" REAL NOT NULL DEFAULT 1.0,
+                        ""IsDynamicCompressed"" INTEGER NOT NULL DEFAULT 0,
+
+                        -- AI Layer (Vibe & Vocals)
+                        ""InstrumentalProbability"" REAL NOT NULL DEFAULT 0,
+                        ""MoodTag"" TEXT NOT NULL DEFAULT '',
+                        ""MoodConfidence"" REAL NOT NULL DEFAULT 0,
+                        ""MusicBrainzId"" TEXT NOT NULL DEFAULT '',
+
+                        -- EDM Specialist Models
+                        ""Arousal"" REAL NOT NULL DEFAULT 5,
+                        ""Valence"" REAL NOT NULL DEFAULT 5,
+                        ""Sadness"" REAL NULL,
+                        ""VectorEmbedding"" BLOB NULL,
+                        ""ElectronicSubgenre"" TEXT NOT NULL DEFAULT '',
+                        ""ElectronicSubgenreConfidence"" REAL NOT NULL DEFAULT 0,
+                        ""IsDjTool"" INTEGER NOT NULL DEFAULT 0,
+                        ""TonalProbability"" REAL NOT NULL DEFAULT 0.5,
+
+                        -- Advanced Harmonic Mixing
+                        ""ChordProgression"" TEXT NOT NULL DEFAULT '',
+
+                        -- Identity & Metadata
+                        ""Fingerprint"" TEXT NOT NULL DEFAULT '',
+                        ""AnalysisVersion"" TEXT NOT NULL DEFAULT '',
+                        ""AnalyzedAt"" TEXT NOT NULL,
+
+                        -- Sonic Taxonomy (Style Lab)
+                        ""DetectedSubGenre"" TEXT NOT NULL DEFAULT '',
+                        ""SubGenreConfidence"" REAL NOT NULL DEFAULT 0,
+                        ""GenreDistributionJson"" TEXT NOT NULL DEFAULT '{}',
+
+                        -- ML.NET Brain
+                        ""AiEmbeddingJson"" TEXT NOT NULL DEFAULT '',
+                        ""PredictedVibe"" TEXT NOT NULL DEFAULT '',
+                        ""PredictionConfidence"" REAL NOT NULL DEFAULT 0,
+                        ""EmbeddingMagnitude"" REAL NOT NULL DEFAULT 0,
+
+                        -- Provenance & Reliability
+                        ""CurationConfidence"" INTEGER NOT NULL DEFAULT 0,
+                        ""Source"" INTEGER NOT NULL DEFAULT 0,
+                        ""ProvenanceJson"" TEXT NOT NULL DEFAULT '',
+
+                        -- Phase 1 Foundations: Structural & curves
+                        ""PhraseSegmentsJson"" TEXT NOT NULL DEFAULT '[]',
+                        ""EnergyCurveJson"" TEXT NOT NULL DEFAULT '[]',
+                        ""VocalDensityCurveJson"" TEXT NOT NULL DEFAULT '[]',
+                        ""AnalysisReasoningJson"" TEXT NOT NULL DEFAULT '{}',
+
+                        -- Phase 3.5: Vocal Intelligence
+                        ""DetectedVocalType"" INTEGER NOT NULL DEFAULT 0,
+                        ""VocalIntensity"" REAL NOT NULL DEFAULT 0,
+                        ""VocalStartSeconds"" REAL NULL,
+                        ""VocalEndSeconds"" REAL NULL
+                    );
+                    CREATE UNIQUE INDEX ""IX_audio_features_TrackUniqueHash"" ON ""audio_features"" (""TrackUniqueHash"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ AudioFeatures table created successfully");
+            }
+
+            // 1B-2. AudioAnalysis Table (Phase 21: Deep Learning Cortex)
+            // Ensure VectorEmbeddingJson exists - Force Attempt
+            try
+            {
+                _logger.LogInformation("Patching Schema: Checking/Adding VectorEmbeddingJson to audio_analysis...");
+                command.CommandText = @"ALTER TABLE ""audio_analysis"" ADD COLUMN ""VectorEmbeddingJson"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ Added VectorEmbeddingJson to audio_analysis");
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.Message.Contains("duplicate column"))
+            {
+                _logger.LogInformation("VectorEmbeddingJson column already exists in audio_analysis, skipping");
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.Message.Contains("no such table"))
+            {
+                _logger.LogWarning("audio_analysis table missing! It should have been created by EF Core migrations.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to patch audio_analysis table");
+            }
+
+            if (!ColumnExists("audio_features", "MusicBrainzId"))
+            {
+                _logger.LogInformation("Patching Schema: Adding MusicBrainzId to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""MusicBrainzId"" TEXT NOT NULL DEFAULT '';";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Phase 1 Foundations: Structural & curves patches
+            if (!ColumnExists("audio_features", "PhraseSegmentsJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding PhraseSegmentsJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""PhraseSegmentsJson"" TEXT NOT NULL DEFAULT '[]';";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            if (!ColumnExists("audio_features", "EnergyCurveJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding EnergyCurveJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""EnergyCurveJson"" TEXT NOT NULL DEFAULT '[]';";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            if (!ColumnExists("audio_features", "VocalDensityCurveJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding VocalDensityCurveJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""VocalDensityCurveJson"" TEXT NOT NULL DEFAULT '[]';";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            if (!ColumnExists("audio_features", "AnalysisReasoningJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding AnalysisReasoningJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""AnalysisReasoningJson"" TEXT NOT NULL DEFAULT '{}';";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            if (!ColumnExists("audio_features", "AnomaliesJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding AnomaliesJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""AnomaliesJson"" TEXT NOT NULL DEFAULT '[]';";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            if (!ColumnExists("audio_features", "TrackDuration"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TrackDuration to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""TrackDuration"" REAL NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            if (!ColumnExists("audio_features", "StructuralVersion"))
+            {
+                _logger.LogInformation("Patching Schema: Adding StructuralVersion to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""StructuralVersion"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            if (!ColumnExists("audio_features", "StructuralHash"))
+            {
+                _logger.LogInformation("Patching Schema: Adding StructuralHash to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""StructuralHash"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Phase 4: DetectedVocalType for Vocal Intelligence
+            if (!ColumnExists("audio_features", "DetectedVocalType"))
+            {
+                _logger.LogInformation("Patching Schema: Adding DetectedVocalType to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""DetectedVocalType"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "VocalIntensity"))
+            {
+                _logger.LogInformation("Patching Schema: Adding VocalIntensity to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""VocalIntensity"" REAL NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "VocalStartSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding VocalStartSeconds to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""VocalStartSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "VocalEndSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding VocalEndSeconds to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""VocalEndSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // CUE-DETR cue point cache (JSON, nullable = never run)
+            if (!ColumnExists("audio_features", "CueDetrJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding CueDetrJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""CueDetrJson"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Phase 5: VocalDensity for advanced matching transparency
+            if (!ColumnExists("audio_features", "VocalDensity"))
+            {
+                _logger.LogInformation("Patching Schema: Adding VocalDensity to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""VocalDensity"" REAL NOT NULL DEFAULT 0.0;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Phase 6: EnergyScore for DJ-style 1-10 energy rating
+            if (!ColumnExists("audio_features", "EnergyScore"))
+            {
+                _logger.LogInformation("Patching Schema: Adding EnergyScore to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""EnergyScore"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Phase 6B: SegmentedEnergyJson for 8-point energy curve
+            if (!ColumnExists("audio_features", "SegmentedEnergyJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding SegmentedEnergyJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""SegmentedEnergyJson"" TEXT NOT NULL DEFAULT '[]';";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Tier 3: Specialized Analysis columns
+            if (!ColumnExists("audio_features", "AvgPitch"))
+            {
+                _logger.LogInformation("Patching Schema: Adding AvgPitch to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""AvgPitch"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "PitchConfidence"))
+            {
+                _logger.LogInformation("Patching Schema: Adding PitchConfidence to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""PitchConfidence"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "VggishEmbeddingJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding VggishEmbeddingJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""VggishEmbeddingJson"" TEXT NOT NULL DEFAULT '';";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "VisualizationVectorJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding VisualizationVectorJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""VisualizationVectorJson"" TEXT NOT NULL DEFAULT '';";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Task 1.5: Beatgrid detection columns
+            if (!ColumnExists("audio_features", "BeatGridJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding BeatGridJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""BeatGridJson"" TEXT NOT NULL DEFAULT '[]';";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "DownbeatOffsetSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding DownbeatOffsetSeconds to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""DownbeatOffsetSeconds"" REAL NOT NULL DEFAULT 0.0;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Beat-grid provenance & confidence (issue #221)
+            if (!ColumnExists("audio_features", "GridSource"))
+            {
+                _logger.LogInformation("Patching Schema: Adding GridSource to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""GridSource"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "GridVerified"))
+            {
+                _logger.LogInformation("Patching Schema: Adding GridVerified to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""GridVerified"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "GridEditedAt"))
+            {
+                _logger.LogInformation("Patching Schema: Adding GridEditedAt to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""GridEditedAt"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "GridConfidence"))
+            {
+                _logger.LogInformation("Patching Schema: Adding GridConfidence to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""GridConfidence"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "AnalysedGridJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding AnalysedGridJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""AnalysedGridJson"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "MusicStartSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding MusicStartSeconds to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""MusicStartSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "MusicStartSource"))
+            {
+                _logger.LogInformation("Patching Schema: Adding MusicStartSource to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""MusicStartSource"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "IsVariableTempo"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsVariableTempo to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""IsVariableTempo"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Backfill GridSource for rows that predate the column (issue #221). Idempotent: after the
+            // first run nothing is NULL. A manual BPM edit is the only retroactive evidence of a user
+            // grid; Rekordbox adoption is not recorded on old rows, so everything else is "Analysis".
+            command.CommandText = @"UPDATE ""audio_features""
+                SET ""GridSource"" = 'User'
+                WHERE ""GridSource"" IS NULL
+                  AND ""TrackUniqueHash"" IN (SELECT ""UniqueHash"" FROM ""LibraryEntries"" WHERE ""ManualBPM"" IS NOT NULL);";
+            await command.ExecuteNonQueryAsync();
+            command.CommandText = @"UPDATE ""audio_features"" SET ""GridSource"" = 'Analysis' WHERE ""GridSource"" IS NULL;";
+            await command.ExecuteNonQueryAsync();
+
+            // Task 1.6: Waveform blob columns
+            if (!ColumnExists("audio_features", "WaveformBlob"))
+            {
+                _logger.LogInformation("Patching Schema: Adding WaveformBlob to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""WaveformBlob"" BLOB NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "WaveformBlobSampleCount"))
+            {
+                _logger.LogInformation("Patching Schema: Adding WaveformBlobSampleCount to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""WaveformBlobSampleCount"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 1C. AnalysisRuns Table (Phase 21: Analysis Run Tracking)
+            if (!TableExists("analysis_runs"))
+            {
+                _logger.LogInformation("Patching Schema: Creating AnalysisRuns table (Run Tracking & Error Logging)...");
+                command.CommandText = @"
+                    CREATE TABLE ""analysis_runs"" (
+                        ""RunId"" TEXT NOT NULL CONSTRAINT ""PK_analysis_runs"" PRIMARY KEY,
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""TrackTitle"" TEXT NOT NULL DEFAULT '',
+                        ""FilePath"" TEXT NOT NULL DEFAULT '',
+
+                        -- Run Metadata
+                        ""StartedAt"" TEXT NOT NULL,
+                        ""CompletedAt"" TEXT NULL,
+                        ""DurationMs"" INTEGER NOT NULL DEFAULT 0,
+
+                        -- Status Tracking
+                        ""Status"" INTEGER NOT NULL DEFAULT 0,
+                        ""RetryAttempt"" INTEGER NOT NULL DEFAULT 0,
+                        ""WorkerThreadId"" INTEGER NOT NULL DEFAULT 0,
+
+                        -- Error Handling
+                        ""ErrorMessage"" TEXT NULL,
+                        ""ErrorStackTrace"" TEXT NULL,
+                        ""FailedStage"" TEXT NULL,
+
+                        -- Partial Success Tracking
+                        ""WaveformGenerated"" INTEGER NOT NULL DEFAULT 0,
+                        ""FfmpegAnalysisCompleted"" INTEGER NOT NULL DEFAULT 0,
+                        ""EssentiaAnalysisCompleted"" INTEGER NOT NULL DEFAULT 0,
+                        ""DatabaseSaved"" INTEGER NOT NULL DEFAULT 0,
+
+                        -- Performance Metrics
+                        ""FfmpegDurationMs"" INTEGER NOT NULL DEFAULT 0,
+                        ""EssentiaDurationMs"" INTEGER NOT NULL DEFAULT 0,
+                        ""DatabaseSaveDurationMs"" INTEGER NOT NULL DEFAULT 0,
+
+                        -- Provenance
+                        ""AnalysisVersion"" TEXT NOT NULL DEFAULT '',
+                        ""TriggerSource"" TEXT NOT NULL DEFAULT '',
+                        ""Tier"" INTEGER NOT NULL DEFAULT 1
+                    );
+                    CREATE INDEX ""IX_analysis_runs_TrackUniqueHash"" ON ""analysis_runs"" (""TrackUniqueHash"");
+                    CREATE INDEX ""IX_analysis_runs_Status"" ON ""analysis_runs"" (""Status"");
+                    CREATE INDEX ""IX_analysis_runs_StartedAt"" ON ""analysis_runs"" (""StartedAt"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ AnalysisRuns table created successfully");
+            }
+
+            // Patch the table whichever way it was made. This used to be an `else` of the CREATE
+            // above, so a freshly created table (whose CREATE lacks the newer columns) was never
+            // patched — a brand-new install had no BpmConfidence/KeyConfidence/IntegrityScore/
+            // CurrentStage (2026-10-19; SchemaReconciler now also catches this class of drift).
+            {
+                if (!ColumnExists("analysis_runs", "Tier"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding Tier to AnalysisRuns...");
+                    command.CommandText = @"ALTER TABLE ""analysis_runs"" ADD COLUMN ""Tier"" INTEGER NOT NULL DEFAULT 1;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("analysis_runs", "AnalysisVersion"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding AnalysisVersion to AnalysisRuns...");
+                    command.CommandText = @"ALTER TABLE ""analysis_runs"" ADD COLUMN ""AnalysisVersion"" TEXT NOT NULL DEFAULT '';";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("analysis_runs", "TriggerSource"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding TriggerSource to AnalysisRuns...");
+                    command.CommandText = @"ALTER TABLE ""analysis_runs"" ADD COLUMN ""TriggerSource"" TEXT NOT NULL DEFAULT '';";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("analysis_runs", "BpmConfidence"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding BpmConfidence to AnalysisRuns...");
+                    command.CommandText = @"ALTER TABLE ""analysis_runs"" ADD COLUMN ""BpmConfidence"" REAL NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("analysis_runs", "KeyConfidence"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding KeyConfidence to AnalysisRuns...");
+                    command.CommandText = @"ALTER TABLE ""analysis_runs"" ADD COLUMN ""KeyConfidence"" REAL NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("analysis_runs", "IntegrityScore"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding IntegrityScore to AnalysisRuns...");
+                    command.CommandText = @"ALTER TABLE ""analysis_runs"" ADD COLUMN ""IntegrityScore"" REAL NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("analysis_runs", "CurrentStage"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding CurrentStage to AnalysisRuns...");
+                    command.CommandText = @"ALTER TABLE ""analysis_runs"" ADD COLUMN ""CurrentStage"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            // 1D. Tracks Table
+            if (TableExists("Tracks"))
+            {
+                if (!ColumnExists("Tracks", "Label"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding Label to Tracks...");
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""Label"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "Comments"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding Comments to Tracks...");
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""Comments"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "ColorTag"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding ColorTag to Tracks...");
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""ColorTag"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "DropTimestamp"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding DropTimestamp to Tracks...");
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""DropTimestamp"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "ManualEnergy"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding ManualEnergy to Tracks...");
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""ManualEnergy"" INTEGER NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SourceProvenance"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding SourceProvenance to Tracks...");
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SourceProvenance"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "MusicBrainzId"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding MusicBrainzId to Tracks...");
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""MusicBrainzId"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "MoodTag"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding MoodTag to Tracks...");
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""MoodTag"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "AnalysisStatus"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding AnalysisStatus to Tracks...");
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""AnalysisStatus"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "Arousal"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""Arousal"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "InstrumentalProbability"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""InstrumentalProbability"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "IsDjTool"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""IsDjTool"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "VocalType"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""VocalType"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "VocalIntensity"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""VocalIntensity"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "VocalStartSeconds"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""VocalStartSeconds"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "VocalEndSeconds"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""VocalEndSeconds"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "EnrichmentAttempts"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""EnrichmentAttempts"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "LastEnrichmentAttempt"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""LastEnrichmentAttempt"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "CommentsPayload"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""CommentsPayload"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralForensicsData"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralForensicsData"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "IsLocalFile"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""IsLocalFile"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "LocalFilePath"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""LocalFilePath"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "Status"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""Status"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SortOrder"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SortOrder"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "IsUserPaused"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""IsUserPaused"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "IsClearedFromDownloadCenter"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""IsClearedFromDownloadCenter"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralSampleRateHz"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralSampleRateHz"" INTEGER NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralBitDepth"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralBitDepth"" INTEGER NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralRolloffSteepness"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralRolloffSteepness"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralMidBandEnergy"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralMidBandEnergy"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralHighBandEnergy"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralHighBandEnergy"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralRmsDbfs"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralRmsDbfs"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralCrestFactorDb"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralCrestFactorDb"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralNoiseFloorDbfs"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralNoiseFloorDbfs"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            // 2. PlaylistTracks Columns
+            if (!ColumnExists("PlaylistTracks", "PrimaryGenre"))
+            {
+                _logger.LogInformation("Patching Schema: Adding PrimaryGenre to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""PrimaryGenre"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("PlaylistTracks", "VocalType"))
+            {
+                _logger.LogInformation("Patching Schema: Adding VocalType to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""VocalType"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("PlaylistTracks", "VocalIntensity"))
+            {
+                _logger.LogInformation("Patching Schema: Adding VocalIntensity to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""VocalIntensity"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("PlaylistTracks", "VocalStartSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding VocalStartSeconds to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""VocalStartSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("PlaylistTracks", "VocalEndSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding VocalEndSeconds to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""VocalEndSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("PlaylistTracks", "Label"))
+            {
+                _logger.LogInformation("Patching Schema: Adding Label to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""Label"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("PlaylistTracks", "Comments"))
+            {
+                _logger.LogInformation("Patching Schema: Adding Comments to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""Comments"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("PlaylistTracks", "ColorTag"))
+            {
+                _logger.LogInformation("Patching Schema: Adding ColorTag to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""ColorTag"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("PlaylistTracks", "IsPrepared"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsPrepared to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""IsPrepared"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("PlaylistTracks", "ActualDurationSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding ActualDurationSeconds to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""ActualDurationSeconds"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("PlaylistTracks", "DropTimestamp"))
+            {
+                _logger.LogInformation("Patching Schema: Adding DropTimestamp to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""DropTimestamp"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("PlaylistTracks", "ManualEnergy"))
+            {
+                _logger.LogInformation("Patching Schema: Adding ManualEnergy to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""ManualEnergy"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("PlaylistTracks", "SourceProvenance"))
+            {
+                _logger.LogInformation("Patching Schema: Adding SourceProvenance to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""SourceProvenance"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("PlaylistTracks", "MusicBrainzId"))
+            {
+                _logger.LogInformation("Patching Schema: Adding MusicBrainzId to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""MusicBrainzId"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("PlaylistTracks", "MoodTag"))
+            {
+                _logger.LogInformation("Patching Schema: Adding MoodTag to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""MoodTag"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            if (!ColumnExists("PlaylistTracks", "IsUserPaused"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsUserPaused to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""IsUserPaused"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 3. LibraryEntries Columns
+            if (!ColumnExists("LibraryEntries", "PrimaryGenre"))
+            {
+                _logger.LogInformation("Patching Schema: Adding PrimaryGenre to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""PrimaryGenre"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "Label"))
+            {
+                _logger.LogInformation("Patching Schema: Adding Label to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""Label"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "Comments"))
+            {
+                _logger.LogInformation("Patching Schema: Adding Comments to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""Comments"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "ColorTag"))
+            {
+                _logger.LogInformation("Patching Schema: Adding ColorTag to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""ColorTag"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "AudioContentHash"))
+            {
+                _logger.LogInformation("Patching Schema: Adding AudioContentHash to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""AudioContentHash"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            // index
+            try
+            {
+                command.CommandText = @"CREATE INDEX IF NOT EXISTS ""IX_LibraryEntries_AudioContentHash"" ON ""LibraryEntries"" (""AudioContentHash"");";
+                await command.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "AudioContentHash index creation skipped");
+            }
+            if (!ColumnExists("LibraryEntries", "EnergyRatio"))
+            {
+                _logger.LogInformation("Patching Schema: Adding EnergyRatio to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""EnergyRatio"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "QualityDetails"))
+            {
+                _logger.LogInformation("Patching Schema: Adding QualityDetails to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""QualityDetails"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "SpectralHash"))
+            {
+                _logger.LogInformation("Patching Schema: Adding SpectralHash to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""SpectralHash"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "VocalType"))
+            {
+                _logger.LogInformation("Patching Schema: Adding VocalType to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""VocalType"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "VocalIntensity"))
+            {
+                _logger.LogInformation("Patching Schema: Adding VocalIntensity to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""VocalIntensity"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "VocalStartSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding VocalStartSeconds to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""VocalStartSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "VocalEndSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding VocalEndSeconds to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""VocalEndSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "WaveformData"))
+            {
+                _logger.LogInformation("Patching Schema: Adding WaveformData to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""WaveformData"" BLOB NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "RmsData"))
+            {
+                _logger.LogInformation("Patching Schema: Adding RmsData to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""RmsData"" BLOB NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "LowData"))
+            {
+                _logger.LogInformation("Patching Schema: Adding LowData to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""LowData"" BLOB NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "MidData"))
+            {
+                _logger.LogInformation("Patching Schema: Adding MidData to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""MidData"" BLOB NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "HighData"))
+            {
+                _logger.LogInformation("Patching Schema: Adding HighData to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""HighData"" BLOB NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "IsPrepared"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsPrepared to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""IsPrepared"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "CuePointsJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding CuePointsJson to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""CuePointsJson"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "DropTimestamp"))
+            {
+                _logger.LogInformation("Patching Schema: Adding DropTimestamp to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""DropTimestamp"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "ManualEnergy"))
+            {
+                _logger.LogInformation("Patching Schema: Adding ManualEnergy to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""ManualEnergy"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "SourceProvenance"))
+            {
+                _logger.LogInformation("Patching Schema: Adding SourceProvenance to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""SourceProvenance"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "MusicBrainzId"))
+            {
+                _logger.LogInformation("Patching Schema: Adding MusicBrainzId to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""MusicBrainzId"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "MoodTag"))
+            {
+                _logger.LogInformation("Patching Schema: Adding MoodTag to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""MoodTag"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "Rating"))
+            {
+                _logger.LogInformation("Patching Schema: Adding Rating to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""Rating"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "IsLiked"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsLiked to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""IsLiked"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "PlayCount"))
+            {
+                _logger.LogInformation("Patching Schema: Adding PlayCount to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""PlayCount"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "LastPlayedAt"))
+            {
+                _logger.LogInformation("Patching Schema: Adding LastPlayedAt to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""LastPlayedAt"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "IsTranscoded"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsTranscoded to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""IsTranscoded"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 4. TechnicalDetails Table Columns (for existing tables)
+            if (TableExists("TechnicalDetails"))
+            {
+                if (!ColumnExists("TechnicalDetails", "IsPrepared"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding IsPrepared to TechnicalDetails...");
+                    command.CommandText = @"ALTER TABLE ""TechnicalDetails"" ADD COLUMN ""IsPrepared"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("TechnicalDetails", "CurationConfidence"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding CurationConfidence to TechnicalDetails...");
+                    command.CommandText = @"ALTER TABLE ""TechnicalDetails"" ADD COLUMN ""CurationConfidence"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("TechnicalDetails", "ProvenanceJson"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding ProvenanceJson to TechnicalDetails...");
+                    command.CommandText = @"ALTER TABLE ""TechnicalDetails"" ADD COLUMN ""ProvenanceJson"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("TechnicalDetails", "IsReviewNeeded"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding IsReviewNeeded to TechnicalDetails...");
+                    command.CommandText = @"ALTER TABLE ""TechnicalDetails"" ADD COLUMN ""IsReviewNeeded"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("TechnicalDetails", "PrimaryGenre"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding PrimaryGenre to TechnicalDetails...");
+                    command.CommandText = @"ALTER TABLE ""TechnicalDetails"" ADD COLUMN ""PrimaryGenre"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            // 5. AudioFeatures Table Columns - Force attempt (table may not exist yet during cold start)
+            try
+            {
+                _logger.LogInformation("Attempting to add missing columns to audio_features...");
+                
+                // AiEmbeddingJson
+                try {
+                    command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""AiEmbeddingJson"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                    _logger.LogInformation("✅ AiEmbeddingJson column added to audio_features");
+                } catch (Microsoft.Data.Sqlite.SqliteException ex) { _logger.LogDebug(ex, "AiEmbeddingJson column already exists — skipping"); }
+
+                // CuePointsJson [Phase 17/Sprint 5 Fix]
+                try {
+                    command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""CuePointsJson"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                    _logger.LogInformation("✅ CuePointsJson column added to audio_features");
+                } catch (Microsoft.Data.Sqlite.SqliteException ex) { _logger.LogDebug(ex, "CuePointsJson column already exists — skipping"); }
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.Message.Contains("no such table"))
+            {
+                _logger.LogInformation("AudioFeatures table doesn't exist yet, skipping (will be created with column)");
+            }
+
+            // 6. Phase 17: EDM Specialist Columns for AudioFeatures
+            // Using force-add pattern - try to add and catch duplicate errors
+            _logger.LogInformation("Phase 17: Checking EDM specialist columns for AudioFeatures...");
+
+            var edmColumns = new[]
+            {
+                ("Arousal", "REAL NOT NULL DEFAULT 5"),
+                ("Valence", "REAL NOT NULL DEFAULT 5"),
+                ("Sadness", "REAL NULL"),
+                ("ElectronicSubgenre", "TEXT NULL DEFAULT ''"),
+                ("ElectronicSubgenreConfidence", "REAL NOT NULL DEFAULT 0"),
+                ("IsDjTool", "INTEGER NOT NULL DEFAULT 0"),
+                ("TonalProbability", "REAL NOT NULL DEFAULT 0.5"),
+                ("Intensity", "REAL NOT NULL DEFAULT 0"),
+                ("AvgPitch", "REAL NULL"),
+                ("PitchConfidence", "REAL NULL"),
+                ("VggishEmbeddingJson", "TEXT NULL DEFAULT ''"),
+                ("VisualizationVectorJson", "TEXT NULL DEFAULT ''")
+            };
+
+            foreach (var (columnName, columnDef) in edmColumns)
+            {
+                try
+                {
+                    command.CommandText = $@"ALTER TABLE ""audio_features"" ADD COLUMN ""{columnName}"" {columnDef};";
+                    await command.ExecuteNonQueryAsync();
+                    _logger.LogInformation("✅ Added column {Column} to audio_features", columnName);
+                }
+                catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.Message.Contains("duplicate column"))
+                {
+                    // Column already exists, skip silently
+                }
+                catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.Message.Contains("no such table"))
+                {
+                    _logger.LogWarning("audio_features table doesn't exist yet, will be created by EF Core");
+                    break; // No point continuing if table doesn't exist
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to add column {Column} to audio_features", columnName);
+                }
+            }
+
+            // 7. Phase 17: TrackPhrases Table
+            if (!TableExists("TrackPhrases"))
+            {
+                _logger.LogInformation("Patching Schema: Creating TrackPhrases table...");
+                command.CommandText = @"
+                    CREATE TABLE ""TrackPhrases"" (
+                        ""Id"" INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""Type"" INTEGER NOT NULL,
+                        ""StartTimeSeconds"" REAL NOT NULL,
+                        ""EndTimeSeconds"" REAL NOT NULL,
+                        ""EnergyLevel"" REAL NOT NULL DEFAULT 0,
+                        ""Confidence"" REAL NOT NULL DEFAULT 0,
+                        ""OrderIndex"" INTEGER NOT NULL DEFAULT 0,
+                        ""Label"" TEXT NULL,
+                        ""SectionEmbeddingJson"" TEXT NULL,
+                        ""EmbeddingMagnitude"" REAL NOT NULL DEFAULT 0,
+                        ""EmbeddingModel"" TEXT NOT NULL DEFAULT ''
+                    );
+                    CREATE INDEX ""IX_TrackPhrases_TrackUniqueHash"" ON ""TrackPhrases"" (""TrackUniqueHash"");
+                ";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            if (TableExists("TrackPhrases"))
+            {
+                if (!ColumnExists("TrackPhrases", "SectionEmbeddingJson"))
+                {
+                    command.CommandText = @"ALTER TABLE ""TrackPhrases"" ADD COLUMN ""SectionEmbeddingJson"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                if (!ColumnExists("TrackPhrases", "EmbeddingMagnitude"))
+                {
+                    command.CommandText = @"ALTER TABLE ""TrackPhrases"" ADD COLUMN ""EmbeddingMagnitude"" REAL NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                if (!ColumnExists("TrackPhrases", "EmbeddingModel"))
+                {
+                    command.CommandText = @"ALTER TABLE ""TrackPhrases"" ADD COLUMN ""EmbeddingModel"" TEXT NOT NULL DEFAULT '';";
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                // Bar-indexed phrase map (issue #225)
+                if (!ColumnExists("TrackPhrases", "StartBar"))
+                {
+                    command.CommandText = @"ALTER TABLE ""TrackPhrases"" ADD COLUMN ""StartBar"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                if (!ColumnExists("TrackPhrases", "BarCount"))
+                {
+                    command.CommandText = @"ALTER TABLE ""TrackPhrases"" ADD COLUMN ""BarCount"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                if (!ColumnExists("TrackPhrases", "Source"))
+                {
+                    command.CommandText = @"ALTER TABLE ""TrackPhrases"" ADD COLUMN ""Source"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            // 8. Phase 17: GenreCueTemplates Table
+            if (!TableExists("GenreCueTemplates"))
+            {
+                _logger.LogInformation("Patching Schema: Creating GenreCueTemplates table...");
+                command.CommandText = @"
+                    CREATE TABLE ""GenreCueTemplates"" (
+                        ""Id"" INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ""GenreName"" TEXT NOT NULL,
+                        ""DisplayName"" TEXT NULL,
+                        ""IsBuiltIn"" INTEGER NOT NULL DEFAULT 0,
+                        ""Cue1Target"" INTEGER NOT NULL DEFAULT 0,
+                        ""Cue1OffsetBars"" INTEGER NOT NULL DEFAULT 0,
+                        ""Cue1Color"" TEXT NOT NULL DEFAULT '#FF0000',
+                        ""Cue1Label"" TEXT NULL,
+                        ""Cue2Target"" INTEGER NOT NULL DEFAULT 0,
+                        ""Cue2OffsetBars"" INTEGER NOT NULL DEFAULT 0,
+                        ""Cue2Color"" TEXT NOT NULL DEFAULT '#00FF00',
+                        ""Cue2Label"" TEXT NULL,
+                        ""Cue3Target"" INTEGER NOT NULL DEFAULT 0,
+                        ""Cue3OffsetBars"" INTEGER NOT NULL DEFAULT 0,
+                        ""Cue3Color"" TEXT NOT NULL DEFAULT '#0000FF',
+                        ""Cue3Label"" TEXT NULL,
+                        ""Cue4Target"" INTEGER NOT NULL DEFAULT 0,
+                        ""Cue4OffsetBars"" INTEGER NOT NULL DEFAULT 0,
+                        ""Cue4Color"" TEXT NOT NULL DEFAULT '#FFFF00',
+                        ""Cue4Label"" TEXT NULL,
+                        ""Cue5Target"" INTEGER NULL,
+                        ""Cue5OffsetBars"" INTEGER NULL,
+                        ""Cue5Color"" TEXT NULL,
+                        ""Cue5Label"" TEXT NULL,
+                        ""Cue6Target"" INTEGER NULL,
+                        ""Cue6OffsetBars"" INTEGER NULL,
+                        ""Cue6Color"" TEXT NULL,
+                        ""Cue6Label"" TEXT NULL,
+                        ""Cue7Target"" INTEGER NULL,
+                        ""Cue7OffsetBars"" INTEGER NULL,
+                        ""Cue7Color"" TEXT NULL,
+                        ""Cue7Label"" TEXT NULL,
+                        ""Cue8Target"" INTEGER NULL,
+                        ""Cue8OffsetBars"" INTEGER NULL,
+                        ""Cue8Color"" TEXT NULL,
+                        ""Cue8Label"" TEXT NULL
+                    );
+                    CREATE INDEX ""IX_GenreCueTemplates_GenreName"" ON ""GenreCueTemplates"" (""GenreName"");
+                ";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 9. Phase 20: Smart Playlists (Projects Table)
+            if (TableExists("Projects"))
+            {
+                if (!ColumnExists("Projects", "IsSmartPlaylist"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding IsSmartPlaylist to Projects...");
+                    command.CommandText = @"ALTER TABLE ""Projects"" ADD COLUMN ""IsSmartPlaylist"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Projects", "SmartCriteriaJson"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding SmartCriteriaJson to Projects...");
+                    command.CommandText = @"ALTER TABLE ""Projects"" ADD COLUMN ""SmartCriteriaJson"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Projects", "AnalysisStatus"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding AnalysisStatus to Projects...");
+                    command.CommandText = @"ALTER TABLE ""Projects"" ADD COLUMN ""AnalysisStatus"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            // 10. Phase 18.2: Sonic Visualizations
+            if (TableExists("PlaylistTracks"))
+            {
+                if (!ColumnExists("PlaylistTracks", "InstrumentalProbability"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding InstrumentalProbability to PlaylistTracks...");
+                    command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""InstrumentalProbability"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("PlaylistTracks", "Arousal"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding Arousal to PlaylistTracks...");
+                    command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""Arousal"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("PlaylistTracks", "IsDjTool"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding IsDjTool to PlaylistTracks...");
+                    command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""IsDjTool"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+            if (TableExists("LibraryEntries"))
+            {
+                if (!ColumnExists("LibraryEntries", "InstrumentalProbability"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding InstrumentalProbability to LibraryEntries...");
+                    command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""InstrumentalProbability"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("LibraryEntries", "Arousal"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding Arousal to LibraryEntries...");
+                    command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""Arousal"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("LibraryEntries", "IsDjTool"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding IsDjTool to LibraryEntries...");
+                    command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""IsDjTool"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+            if (TableExists("audio_features"))
+            {
+                try
+                {
+                    if (!ColumnExists("audio_features", "InstrumentalProbability"))
+                    {
+                        _logger.LogInformation("Patching Schema: Adding InstrumentalProbability to audio_features...");
+                        command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""InstrumentalProbability"" REAL NULL;";
+                        await command.ExecuteNonQueryAsync();
+                    }
+                }
+                catch (Exception ex) { _logger.LogWarning(ex, "Failed to patch InstrumentalProbability"); }
+
+                try
+                {
+                    if (!ColumnExists("audio_features", "Arousal"))
+                    {
+                        _logger.LogInformation("Patching Schema: Adding Arousal to audio_features...");
+                        command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""Arousal"" REAL NULL;";
+                        await command.ExecuteNonQueryAsync();
+                    }
+                }
+                catch (Exception ex) { _logger.LogWarning(ex, "Failed to patch Arousal"); }
+
+                try
+                {
+                    if (!ColumnExists("audio_features", "Sadness"))
+                    {
+                        _logger.LogInformation("Patching Schema: Adding Sadness to audio_features...");
+                        command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""Sadness"" REAL NULL;";
+                        await command.ExecuteNonQueryAsync();
+                    }
+                }
+                catch (Exception ex) { _logger.LogWarning(ex, "Failed to patch Sadness"); }
+
+                try
+                {
+                    if (!ColumnExists("audio_features", "CamelotKey"))
+                    {
+                        _logger.LogInformation("Patching Schema: Adding CamelotKey to audio_features...");
+                        command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""CamelotKey"" TEXT NOT NULL DEFAULT '';";
+                        await command.ExecuteNonQueryAsync();
+                    }
+                }
+                catch (Exception ex) { _logger.LogWarning(ex, "Failed to patch CamelotKey"); }
+            }
+
+            // 11. Phase 21: Smart Enrichment Retry System
+            if (TableExists("PlaylistTracks"))
+            {
+                if (!ColumnExists("PlaylistTracks", "LastEnrichmentAttempt"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding LastEnrichmentAttempt to PlaylistTracks...");
+                    command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""LastEnrichmentAttempt"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("PlaylistTracks", "Rating"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding Rating to PlaylistTracks...");
+                    command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""Rating"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("PlaylistTracks", "IsLiked"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding IsLiked to PlaylistTracks...");
+                    command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""IsLiked"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("PlaylistTracks", "PlayCount"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding PlayCount to PlaylistTracks...");
+                    command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""PlayCount"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("PlaylistTracks", "LastPlayedAt"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding LastPlayedAt to PlaylistTracks...");
+                    command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""LastPlayedAt"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("PlaylistTracks", "Loudness"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding Loudness to PlaylistTracks...");
+                    command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""Loudness"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("PlaylistTracks", "TruePeak"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding TruePeak to PlaylistTracks...");
+                    command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""TruePeak"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("PlaylistTracks", "DynamicRange"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding DynamicRange to PlaylistTracks...");
+                    command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""DynamicRange"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("PlaylistTracks", "EnrichmentAttempts"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding EnrichmentAttempts to PlaylistTracks...");
+                    command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""EnrichmentAttempts"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("PlaylistTracks", "AnalysisStatus"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding AnalysisStatus to PlaylistTracks...");
+                    command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""AnalysisStatus"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+            if (TableExists("LibraryEntries"))
+            {
+                if (!ColumnExists("LibraryEntries", "LastEnrichmentAttempt"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding LastEnrichmentAttempt to LibraryEntries...");
+                    command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""LastEnrichmentAttempt"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("LibraryEntries", "EnrichmentAttempts"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding EnrichmentAttempts to LibraryEntries...");
+                    command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""EnrichmentAttempts"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("LibraryEntries", "Loudness"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding Loudness to LibraryEntries...");
+                    command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""Loudness"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("LibraryEntries", "TruePeak"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding TruePeak to LibraryEntries...");
+                    command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""TruePeak"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("LibraryEntries", "DynamicRange"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding DynamicRange to LibraryEntries...");
+                    command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""DynamicRange"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("LibraryEntries", "AnalysisStatus"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding AnalysisStatus to LibraryEntries...");
+                    command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""AnalysisStatus"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            // 12. Phase 23: Smart Crates
+            if (!TableExists("smart_crate_definitions"))
+            {
+                _logger.LogInformation("Patching Schema: Creating smart_crate_definitions table...");
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS ""smart_crate_definitions"" (
+                        ""Id"" TEXT PRIMARY KEY,
+                        ""Name"" TEXT NOT NULL,
+                        ""RulesJson"" TEXT NOT NULL,
+                        ""SortOrder"" INTEGER NOT NULL,
+                        ""CreatedAt"" TEXT NOT NULL,
+                        ""UpdatedAt"" TEXT NOT NULL
+                    );";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 13. Phase 0: FTS5 Virtual Table for Instant Search
+            // Fix: Reliance on rowid is fragile (e.g. after VACUUM).
+            // We now store the GlobalId as an unindexed column for stable linking.
+            bool isIncorrectlyConfigured = false;
+            if (TableExists("TracksFts"))
+            {
+                using var checkCmd = connection.CreateCommand();
+                checkCmd.CommandText = "SELECT sql FROM sqlite_master WHERE name='TracksFts'";
+                var sql = (await checkCmd.ExecuteScalarAsync())?.ToString();
+
+                // Drop if it's missing the GlobalId column or the new Key column
+                if (sql != null && (!sql.Contains("GlobalId") || !sql.Contains(", Key")))
+                {
+                    isIncorrectlyConfigured = true;
+                    _logger.LogWarning("TracksFts is incorrectly configured. Dropping and recreating...");
+                    command.CommandText = "DROP TABLE TracksFts;";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            if (!TableExists("TracksFts") || isIncorrectlyConfigured)
+            {
+                _logger.LogInformation("Patching Schema: Creating robust FTS5 Virtual Table (TracksFts)...");
+                command.CommandText = "CREATE VIRTUAL TABLE IF NOT EXISTS TracksFts USING fts5(Artist, Title, Key, GlobalId UNINDEXED);";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            _logger.LogInformation("Patching Schema: Ensuring TracksFts triggers are correct...");
+            command.CommandText = @"
+                DROP TRIGGER IF EXISTS tbl_tracks_ai;
+                CREATE TRIGGER tbl_tracks_ai AFTER INSERT ON Tracks BEGIN
+                    INSERT INTO TracksFts(Artist, Title, Key, GlobalId) VALUES (
+                        new.Artist,
+                        new.Title,
+                        COALESCE(new.MusicalKey, '') || ' ' || (CASE new.MusicalKey
+                            WHEN 'Abm' THEN '1A' WHEN 'G#m' THEN '1A' WHEN 'B' THEN '1B' WHEN 'Cb' THEN '1B'
+                            WHEN 'Ebm' THEN '2A' WHEN 'D#m' THEN '2A' WHEN 'F#' THEN '2B' WHEN 'Gb' THEN '2B'
+                            WHEN 'Bbm' THEN '3A' WHEN 'A#m' THEN '3A' WHEN 'Db' THEN '3B' WHEN 'C#' THEN '3B'
+                            WHEN 'Fm' THEN '4A' WHEN 'Ab' THEN '4B' WHEN 'G#' THEN '4B'
+                            WHEN 'Cm' THEN '5A' WHEN 'Eb' THEN '5B' WHEN 'D#' THEN '5B'
+                            WHEN 'Gm' THEN '6A' WHEN 'Bb' THEN '6B' WHEN 'A#' THEN '6B'
+                            WHEN 'Dm' THEN '7A' WHEN 'F' THEN '7B'
+                            WHEN 'Am' THEN '8A' WHEN 'C' THEN '8B'
+                            WHEN 'Em' THEN '9A' WHEN 'G' THEN '9B'
+                            WHEN 'Bm' THEN '10A' WHEN 'D' THEN '10B'
+                            WHEN 'F#m' THEN '11A' WHEN 'Gbm' THEN '11A' WHEN 'A' THEN '11B'
+                            WHEN 'Dbm' THEN '12A' WHEN 'C#m' THEN '12A' WHEN 'E' THEN '12B'
+                            ELSE ''
+                        END),
+                        new.GlobalId
+                    );
+                END;
+
+                DROP TRIGGER IF EXISTS tbl_tracks_ad;
+                CREATE TRIGGER tbl_tracks_ad AFTER DELETE ON Tracks BEGIN
+                    DELETE FROM TracksFts WHERE GlobalId = old.GlobalId;
+                END;
+
+                DROP TRIGGER IF EXISTS tbl_tracks_au;
+                CREATE TRIGGER tbl_tracks_au AFTER UPDATE ON Tracks BEGIN
+                    DELETE FROM TracksFts WHERE GlobalId = old.GlobalId;
+                    INSERT INTO TracksFts(Artist, Title, Key, GlobalId) VALUES (
+                        new.Artist,
+                        new.Title,
+                        COALESCE(new.MusicalKey, '') || ' ' || (CASE new.MusicalKey
+                            WHEN 'Abm' THEN '1A' WHEN 'G#m' THEN '1A' WHEN 'B' THEN '1B' WHEN 'Cb' THEN '1B'
+                            WHEN 'Ebm' THEN '2A' WHEN 'D#m' THEN '2A' WHEN 'F#' THEN '2B' WHEN 'Gb' THEN '2B'
+                            WHEN 'Bbm' THEN '3A' WHEN 'A#m' THEN '3A' WHEN 'Db' THEN '3B' WHEN 'C#' THEN '3B'
+                            WHEN 'Fm' THEN '4A' WHEN 'Ab' THEN '4B' WHEN 'G#' THEN '4B'
+                            WHEN 'Cm' THEN '5A' WHEN 'Eb' THEN '5B' WHEN 'D#' THEN '5B'
+                            WHEN 'Gm' THEN '6A' WHEN 'Bb' THEN '6B' WHEN 'A#' THEN '6B'
+                            WHEN 'Dm' THEN '7A' WHEN 'F' THEN '7B'
+                            WHEN 'Am' THEN '8A' WHEN 'C' THEN '8B'
+                            WHEN 'Em' THEN '9A' WHEN 'G' THEN '9B'
+                            WHEN 'Bm' THEN '10A' WHEN 'D' THEN '10B'
+                            WHEN 'F#m' THEN '11A' WHEN 'Gbm' THEN '11A' WHEN 'A' THEN '11B'
+                            WHEN 'Dbm' THEN '12A' WHEN 'C#m' THEN '12A' WHEN 'E' THEN '12B'
+                            ELSE ''
+                        END),
+                        new.GlobalId
+                    );
+                END;
+            ";
+            await command.ExecuteNonQueryAsync();
+
+            // Seed initial data if table is empty
+            command.CommandText = "SELECT COUNT(*) FROM TracksFts";
+            var ftsCount = Convert.ToInt64(await command.ExecuteScalarAsync());
+            if (ftsCount == 0 || isIncorrectlyConfigured)
+            {
+                _logger.LogInformation("Seeding FTS5 index from existing tracks...");
+                command.CommandText = @"
+                    INSERT INTO TracksFts(Artist, Title, Key, GlobalId)
+                    SELECT Artist, Title,
+                           COALESCE(MusicalKey, '') || ' ' || (CASE MusicalKey
+                            WHEN 'Abm' THEN '1A' WHEN 'G#m' THEN '1A' WHEN 'B' THEN '1B' WHEN 'Cb' THEN '1B'
+                            WHEN 'Ebm' THEN '2A' WHEN 'D#m' THEN '2A' WHEN 'F#' THEN '2B' WHEN 'Gb' THEN '2B'
+                            WHEN 'Bbm' THEN '3A' WHEN 'A#m' THEN '3A' WHEN 'Db' THEN '3B' WHEN 'C#' THEN '3B'
+                            WHEN 'Fm' THEN '4A' WHEN 'Ab' THEN '4B' WHEN 'G#' THEN '4B'
+                            WHEN 'Cm' THEN '5A' WHEN 'Eb' THEN '5B' WHEN 'D#' THEN '5B'
+                            WHEN 'Gm' THEN '6A' WHEN 'Bb' THEN '6B' WHEN 'A#' THEN '6B'
+                            WHEN 'Dm' THEN '7A' WHEN 'F' THEN '7B'
+                            WHEN 'Am' THEN '8A' WHEN 'C' THEN '8B'
+                            WHEN 'Em' THEN '9A' WHEN 'G' THEN '9B'
+                            WHEN 'Bm' THEN '10A' WHEN 'D' THEN '10B'
+                            WHEN 'F#m' THEN '11A' WHEN 'Gbm' THEN '11A' WHEN 'A' THEN '11B'
+                            WHEN 'Dbm' THEN '12A' WHEN 'C#m' THEN '12A' WHEN 'E' THEN '12B'
+                            ELSE ''
+                        END),
+                        GlobalId FROM Tracks;";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ FTS5 search index seeded successfully.");
+            }
+
+            // 14. Phase 0: FTS5 Virtual Table for LibraryEntries (Main Library)
+            bool isLibFtsIncorrect = false;
+            if (TableExists("LibraryEntriesFts"))
+            {
+                using var checkCmd = connection.CreateCommand();
+                checkCmd.CommandText = "SELECT sql FROM sqlite_master WHERE name='LibraryEntriesFts'";
+                var sql = (await checkCmd.ExecuteScalarAsync())?.ToString();
+
+                // sqlite_master stores CREATE TABLE text close to verbatim, including the
+                // multi-line formatting below — so ", Key" (single space) never actually matches
+                // "Album,\n    Key," and this check was permanently true, dropping/recreating the
+                // table (and logging a false "incorrectly configured" warning) on every startup.
+                // Collapse whitespace runs before comparing so formatting can't affect the result.
+                var normalizedSql = sql != null
+                    ? string.Join(" ", sql.Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries))
+                    : null;
+
+                // Drop if it's missing the UniqueHash column or the new Key column or has legacy content mapping
+                if (normalizedSql != null && (!normalizedSql.Contains("UniqueHash") || !normalizedSql.Contains(", Key") || normalizedSql.Contains("content=")))
+                {
+                    isLibFtsIncorrect = true;
+                    _logger.LogWarning("LibraryEntriesFts is incorrectly configured. Dropping and recreating...");
+                    command.CommandText = "DROP TABLE LibraryEntriesFts;";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            if (!TableExists("LibraryEntriesFts") || isLibFtsIncorrect)
+            {
+                _logger.LogInformation("Patching Schema: Creating robust FTS5 Virtual Table (LibraryEntriesFts)...");
+                command.CommandText = @"
+                    CREATE VIRTUAL TABLE IF NOT EXISTS LibraryEntriesFts USING fts5(
+                        Artist,
+                        Title,
+                        Album,
+                        Key,
+                        UniqueHash UNINDEXED
+                    );";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Trigger rowid alignment: LibraryEntriesFts's implicit rowid must be set explicitly
+            // to LibraryEntries.rowid on every insert/update. Without this, SQLite assigns the FTS
+            // table's rowid from its own independent auto-increment sequence — the two tables'
+            // rowids drift apart (badly, since tbl_lib_au deletes+reinserts on every update), and
+            // `WHERE rowid IN (SELECT rowid FROM LibraryEntriesFts WHERE ... MATCH ...)` — the join
+            // every library search query uses — silently returns whatever LibraryEntries row
+            // happens to currently hold that (unrelated) rowid instead of the actual match. This
+            // was a real, confirmed bug: searching a track title returned a completely different,
+            // unrelated track.
+            _logger.LogInformation("Patching Schema: Ensuring LibraryEntriesFts triggers are correct...");
+            command.CommandText = @"
+                DROP TRIGGER IF EXISTS tbl_lib_ai;
+                CREATE TRIGGER tbl_lib_ai AFTER INSERT ON LibraryEntries BEGIN
+                    INSERT INTO LibraryEntriesFts(rowid, Artist, Title, Album, Key, UniqueHash) VALUES (
+                        new.rowid,
+                        new.Artist,
+                        new.Title,
+                        new.Album,
+                        COALESCE(new.MusicalKey, '') || ' ' || (CASE new.MusicalKey
+                            WHEN 'Abm' THEN '1A' WHEN 'G#m' THEN '1A' WHEN 'B' THEN '1B' WHEN 'Cb' THEN '1B'
+                            WHEN 'Ebm' THEN '2A' WHEN 'D#m' THEN '2A' WHEN 'F#' THEN '2B' WHEN 'Gb' THEN '2B'
+                            WHEN 'Bbm' THEN '3A' WHEN 'A#m' THEN '3A' WHEN 'Db' THEN '3B' WHEN 'C#' THEN '3B'
+                            WHEN 'Fm' THEN '4A' WHEN 'Ab' THEN '4B' WHEN 'G#' THEN '4B'
+                            WHEN 'Cm' THEN '5A' WHEN 'Eb' THEN '5B' WHEN 'D#' THEN '5B'
+                            WHEN 'Gm' THEN '6A' WHEN 'Bb' THEN '6B' WHEN 'A#' THEN '6B'
+                            WHEN 'Dm' THEN '7A' WHEN 'F' THEN '7B'
+                            WHEN 'Am' THEN '8A' WHEN 'C' THEN '8B'
+                            WHEN 'Em' THEN '9A' WHEN 'G' THEN '9B'
+                            WHEN 'Bm' THEN '10A' WHEN 'D' THEN '10B'
+                            WHEN 'F#m' THEN '11A' WHEN 'Gbm' THEN '11A' WHEN 'A' THEN '11B'
+                            WHEN 'Dbm' THEN '12A' WHEN 'C#m' THEN '12A' WHEN 'E' THEN '12B'
+                            ELSE ''
+                        END),
+                        new.UniqueHash
+                    );
+                END;
+
+                DROP TRIGGER IF EXISTS tbl_lib_ad;
+                CREATE TRIGGER tbl_lib_ad AFTER DELETE ON LibraryEntries BEGIN
+                    DELETE FROM LibraryEntriesFts WHERE rowid = old.rowid;
+                END;
+
+                DROP TRIGGER IF EXISTS tbl_lib_au;
+                CREATE TRIGGER tbl_lib_au AFTER UPDATE ON LibraryEntries BEGIN
+                    DELETE FROM LibraryEntriesFts WHERE rowid = old.rowid;
+                    INSERT INTO LibraryEntriesFts(rowid, Artist, Title, Album, Key, UniqueHash) VALUES (
+                        new.rowid,
+                        new.Artist,
+                        new.Title,
+                        new.Album,
+                        COALESCE(new.MusicalKey, '') || ' ' || (CASE new.MusicalKey
+                            WHEN 'Abm' THEN '1A' WHEN 'G#m' THEN '1A' WHEN 'B' THEN '1B' WHEN 'Cb' THEN '1B'
+                            WHEN 'Ebm' THEN '2A' WHEN 'D#m' THEN '2A' WHEN 'F#' THEN '2B' WHEN 'Gb' THEN '2B'
+                            WHEN 'Bbm' THEN '3A' WHEN 'A#m' THEN '3A' WHEN 'Db' THEN '3B' WHEN 'C#' THEN '3B'
+                            WHEN 'Fm' THEN '4A' WHEN 'Ab' THEN '4B' WHEN 'G#' THEN '4B'
+                            WHEN 'Cm' THEN '5A' WHEN 'Eb' THEN '5B' WHEN 'D#' THEN '5B'
+                            WHEN 'Gm' THEN '6A' WHEN 'Bb' THEN '6B' WHEN 'A#' THEN '6B'
+                            WHEN 'Dm' THEN '7A' WHEN 'F' THEN '7B'
+                            WHEN 'Am' THEN '8A' WHEN 'C' THEN '8B'
+                            WHEN 'Em' THEN '9A' WHEN 'G' THEN '9B'
+                            WHEN 'Bm' THEN '10A' WHEN 'D' THEN '10B'
+                            WHEN 'F#m' THEN '11A' WHEN 'Gbm' THEN '11A' WHEN 'A' THEN '11B'
+                            WHEN 'Dbm' THEN '12A' WHEN 'C#m' THEN '12A' WHEN 'E' THEN '12B'
+                            ELSE ''
+                        END),
+                        new.UniqueHash
+                    );
+                END;
+            ";
+            await command.ExecuteNonQueryAsync();
+
+            // Seed initial data
+            command.CommandText = "SELECT COUNT(*) FROM LibraryEntriesFts";
+            var libFtsCount = Convert.ToInt64(await command.ExecuteScalarAsync());
+            if (libFtsCount == 0 || isLibFtsIncorrect)
+            {
+                _logger.LogInformation("Seeding FTS5 library index...");
+                command.CommandText = @"
+                    INSERT INTO LibraryEntriesFts(rowid, Artist, Title, Album, Key, UniqueHash)
+                    SELECT rowid, Artist, Title, Album,
+                           COALESCE(MusicalKey, '') || ' ' || (CASE MusicalKey
+                            WHEN 'Abm' THEN '1A' WHEN 'G#m' THEN '1A' WHEN 'B' THEN '1B' WHEN 'Cb' THEN '1B'
+                            WHEN 'Ebm' THEN '2A' WHEN 'D#m' THEN '2A' WHEN 'F#' THEN '2B' WHEN 'Gb' THEN '2B'
+                            WHEN 'Bbm' THEN '3A' WHEN 'A#m' THEN '3A' WHEN 'Db' THEN '3B' WHEN 'C#' THEN '3B'
+                            WHEN 'Fm' THEN '4A' WHEN 'Ab' THEN '4B' WHEN 'G#' THEN '4B'
+                            WHEN 'Cm' THEN '5A' WHEN 'Eb' THEN '5B' WHEN 'D#' THEN '5B'
+                            WHEN 'Gm' THEN '6A' WHEN 'Bb' THEN '6B' WHEN 'A#' THEN '6B'
+                            WHEN 'Dm' THEN '7A' WHEN 'F' THEN '7B'
+                            WHEN 'Am' THEN '8A' WHEN 'C' THEN '8B'
+                            WHEN 'Em' THEN '9A' WHEN 'G' THEN '9B'
+                            WHEN 'Bm' THEN '10A' WHEN 'D' THEN '10B'
+                            WHEN 'F#m' THEN '11A' WHEN 'Gbm' THEN '11A' WHEN 'A' THEN '11B'
+                            WHEN 'Dbm' THEN '12A' WHEN 'C#m' THEN '12A' WHEN 'E' THEN '12B'
+                            ELSE ''
+                        END),
+                        UniqueHash FROM LibraryEntries;";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ Library FTS5 search index seeded successfully.");
+            }
+            else
+            {
+                // Repair pass for an existing index built before the rowid fix above: spot-check
+                // one row's rowid alignment between the two tables (cheap — 1 row) and, if it's
+                // drifted, fully rebuild the index with correct rowid alignment. Self-correcting:
+                // once repaired, this check passes and the rebuild is skipped on future startups.
+                command.CommandText = @"
+                    SELECT le.rowid, fts.rowid
+                    FROM LibraryEntries le
+                    LEFT JOIN LibraryEntriesFts fts ON fts.UniqueHash = le.UniqueHash
+                    LIMIT 1";
+                bool misaligned = false;
+                using (var reader = await command.ExecuteReaderAsync())
+                {
+                    if (await reader.ReadAsync() && !await reader.IsDBNullAsync(1))
+                    {
+                        misaligned = reader.GetInt64(0) != reader.GetInt64(1);
+                    }
+                }
+
+                if (misaligned)
+                {
+                    _logger.LogWarning("LibraryEntriesFts rowid is misaligned with LibraryEntries — full-text search could silently return the wrong track. Rebuilding index with explicit rowid alignment...");
+                    command.CommandText = "DELETE FROM LibraryEntriesFts;";
+                    await command.ExecuteNonQueryAsync();
+                    command.CommandText = @"
+                        INSERT INTO LibraryEntriesFts(rowid, Artist, Title, Album, Key, UniqueHash)
+                        SELECT rowid, Artist, Title, Album,
+                               COALESCE(MusicalKey, '') || ' ' || (CASE MusicalKey
+                                WHEN 'Abm' THEN '1A' WHEN 'G#m' THEN '1A' WHEN 'B' THEN '1B' WHEN 'Cb' THEN '1B'
+                                WHEN 'Ebm' THEN '2A' WHEN 'D#m' THEN '2A' WHEN 'F#' THEN '2B' WHEN 'Gb' THEN '2B'
+                                WHEN 'Bbm' THEN '3A' WHEN 'A#m' THEN '3A' WHEN 'Db' THEN '3B' WHEN 'C#' THEN '3B'
+                                WHEN 'Fm' THEN '4A' WHEN 'Ab' THEN '4B' WHEN 'G#' THEN '4B'
+                                WHEN 'Cm' THEN '5A' WHEN 'Eb' THEN '5B' WHEN 'D#' THEN '5B'
+                                WHEN 'Gm' THEN '6A' WHEN 'Bb' THEN '6B' WHEN 'A#' THEN '6B'
+                                WHEN 'Dm' THEN '7A' WHEN 'F' THEN '7B'
+                                WHEN 'Am' THEN '8A' WHEN 'C' THEN '8B'
+                                WHEN 'Em' THEN '9A' WHEN 'G' THEN '9B'
+                                WHEN 'Bm' THEN '10A' WHEN 'D' THEN '10B'
+                                WHEN 'F#m' THEN '11A' WHEN 'Gbm' THEN '11A' WHEN 'A' THEN '11B'
+                                WHEN 'Dbm' THEN '12A' WHEN 'C#m' THEN '12A' WHEN 'E' THEN '12B'
+                                ELSE ''
+                            END),
+                            UniqueHash FROM LibraryEntries;";
+                    await command.ExecuteNonQueryAsync();
+                    _logger.LogInformation("✅ LibraryEntriesFts rebuilt with correct rowid alignment.");
+                }
+            }
+
+            // Phase 3: Set-Prep Intelligence tables
+            if (!TableExists("SetLists"))
+            {
+                _logger.LogInformation("Patching Schema: Creating SetLists table...");
+                command.CommandText = @"
+                    CREATE TABLE ""SetLists"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_SetLists"" PRIMARY KEY,
+                        ""Name"" TEXT NOT NULL,
+                        ""CreatedAt"" TEXT NOT NULL,
+                        ""LastModifiedAt"" TEXT NOT NULL,
+                        ""FlowHealth"" REAL NOT NULL,
+                        ""ForensicLogsJson"" TEXT NULL
+                    );";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            if (!TableExists("SetTracks"))
+            {
+                _logger.LogInformation("Patching Schema: Creating SetTracks table...");
+                command.CommandText = @"
+                    CREATE TABLE ""SetTracks"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_SetTracks"" PRIMARY KEY,
+                        ""SetListId"" TEXT NOT NULL,
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""Position"" INTEGER NOT NULL,
+                        ""TransitionType"" TEXT NOT NULL,
+                        ""ManualOffset"" REAL NOT NULL,
+                        ""TransitionReasoning"" TEXT NULL,
+                        ""DjNotes"" TEXT NULL,
+                        CONSTRAINT ""FK_SetTracks_SetLists_SetListId"" FOREIGN KEY (""SetListId"") REFERENCES ""SetLists"" (""Id"") ON DELETE CASCADE
+                    );
+                    CREATE INDEX ""IX_SetTracks_SetListId"" ON ""SetTracks"" (""SetListId"");
+                ";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 15. Soft Clear: IsClearedFromDownloadCenter
+            if (TableExists("PlaylistTracks"))
+            {
+                if (!ColumnExists("PlaylistTracks", "IsClearedFromDownloadCenter"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding IsClearedFromDownloadCenter to PlaylistTracks...");
+                    command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""IsClearedFromDownloadCenter"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            // 16. Phase 5: Deep DNA — 512-D Texture Embedding
+            if (TableExists("audio_features"))
+            {
+                try
+                {
+                    if (!ColumnExists("audio_features", "DeepTextureEmbedding"))
+                    {
+                        _logger.LogInformation("Patching Schema: Adding DeepTextureEmbedding to audio_features...");
+                        command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""DeepTextureEmbedding"" BLOB NULL;";
+                        await command.ExecuteNonQueryAsync();
+                        _logger.LogInformation("✅ DeepTextureEmbedding column added to audio_features");
+                    }
+                }
+                catch (Exception ex) { _logger.LogWarning(ex, "Failed to patch DeepTextureEmbedding"); }
+            }
+
+            // 17. Download Intelligence History
+            if (!TableExists("DownloadHistory"))
+            {
+                _logger.LogInformation("Patching Schema: Creating DownloadHistory table...");
+                command.CommandText = @"
+                    CREATE TABLE ""DownloadHistory"" (
+                        ""Id""                   TEXT NOT NULL CONSTRAINT ""PK_DownloadHistory"" PRIMARY KEY,
+                        ""TrackHash""            TEXT NOT NULL,
+                        ""Artist""               TEXT NOT NULL DEFAULT '',
+                        ""Title""                TEXT NOT NULL DEFAULT '',
+                        ""ProjectId""            TEXT NULL,
+                        ""SearchAttemptCount""   INTEGER NOT NULL DEFAULT 0,
+                        ""SearchStartedAt""      TEXT NULL,
+                        ""SearchEndedAt""        TEXT NULL,
+                        ""SearchOutcome""        TEXT NOT NULL DEFAULT 'Unknown',
+                        ""UsedMp3Fallback""      INTEGER NOT NULL DEFAULT 0,
+                        ""MatchedCount""         INTEGER NOT NULL DEFAULT 0,
+                        ""QueuedCount""          INTEGER NOT NULL DEFAULT 0,
+                        ""FilteredCount""        INTEGER NOT NULL DEFAULT 0,
+                        ""PeerUsername""         TEXT NULL,
+                        ""DownloadedFilename""   TEXT NULL,
+                        ""DownloadedFormat""     TEXT NULL,
+                        ""DownloadedBitrateKbps"" INTEGER NULL,
+                        ""FinalState""           TEXT NOT NULL DEFAULT '',
+                        ""RecordedAt""           TEXT NOT NULL
+                    );
+                    CREATE INDEX ""IX_DownloadHistory_TrackHash"" ON ""DownloadHistory"" (""TrackHash"");
+                    CREATE INDEX ""IX_DownloadHistory_RecordedAt"" ON ""DownloadHistory"" (""RecordedAt"" DESC);
+                    CREATE INDEX ""IX_DownloadHistory_PeerUsername"" ON ""DownloadHistory"" (""PeerUsername"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ DownloadHistory table created.");
+            }
+
+            // Spectral Forensics: extended AudioIntegrityService metrics for Track Inspector
+            foreach (var (col, colType) in new[]
+            {
+                ("SpectralSampleRateHz",    "INTEGER NULL"),
+                ("SpectralBitDepth",        "INTEGER NULL"),
+                ("SpectralRolloffSteepness","REAL NULL"),
+                ("SpectralMidBandEnergy",   "REAL NULL"),
+                ("SpectralHighBandEnergy",  "REAL NULL"),
+                ("SpectralRmsDbfs",         "REAL NULL"),
+                ("SpectralCrestFactorDb",   "REAL NULL"),
+                ("SpectralNoiseFloorDbfs",  "REAL NULL"),
+            })
+            {
+                if (!ColumnExists("PlaylistTracks", col))
+                {
+                    _logger.LogInformation("Patching Schema: Adding {Col} to PlaylistTracks...", col);
+                    command.CommandText = $@"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""{col}"" {colType};";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            // 17. CuePoints loop support
+            if (TableExists("CuePoints"))
+            {
+                if (!ColumnExists("CuePoints", "IsLoop"))
+                {
+                    command.CommandText = @"ALTER TABLE ""CuePoints"" ADD COLUMN ""IsLoop"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("CuePoints", "LoopEndSeconds"))
+                {
+                    command.CommandText = @"ALTER TABLE ""CuePoints"" ADD COLUMN ""LoopEndSeconds"" REAL NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("CuePoints", "SlotIndex"))
+                {
+                    command.CommandText = @"ALTER TABLE ""CuePoints"" ADD COLUMN ""SlotIndex"" INTEGER NOT NULL DEFAULT -1;";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            // Playlist-level priority scheduling columns on Projects table (EF maps PlaylistJobEntity → "Projects")
+            if (TableExists("Projects"))
+            {
+                if (!ColumnExists("Projects", "JobPriority"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding JobPriority to Projects...");
+                    command.CommandText = @"ALTER TABLE ""Projects"" ADD COLUMN ""JobPriority"" INTEGER NOT NULL DEFAULT 2;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Projects", "IsFocused"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding IsFocused to Projects...");
+                    command.CommandText = @"ALTER TABLE ""Projects"" ADD COLUMN ""IsFocused"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Projects", "ManualSortOrder"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding ManualSortOrder to Projects...");
+                    command.CommandText = @"ALTER TABLE ""Projects"" ADD COLUMN ""ManualSortOrder"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            // Corruption detection columns on audio_analysis
+            if (!ColumnExists("audio_analysis", "CorruptionStatus"))
+            {
+                _logger.LogInformation("Patching Schema: Adding CorruptionStatus to audio_analysis...");
+                command.CommandText = @"ALTER TABLE ""audio_analysis"" ADD COLUMN ""CorruptionStatus"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_analysis", "CorruptionDetails"))
+            {
+                _logger.LogInformation("Patching Schema: Adding CorruptionDetails to audio_analysis...");
+                command.CommandText = @"ALTER TABLE ""audio_analysis"" ADD COLUMN ""CorruptionDetails"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_analysis", "LastIntegrityScanAt"))
+            {
+                _logger.LogInformation("Patching Schema: Adding LastIntegrityScanAt to audio_analysis...");
+                command.CommandText = @"ALTER TABLE ""audio_analysis"" ADD COLUMN ""LastIntegrityScanAt"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // First usable drop is distinct from DropTimeSeconds (the strongest/main drop). Keeping
+            // a separate nullable value preserves existing cue behavior and makes intro length comparable.
+            if (!ColumnExists("audio_features", "TimeTillDropSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TimeTillDropSeconds to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""TimeTillDropSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 18. Real multi-candidate drop signals (SubBassDropoutEngine / SpectralFluxNoveltyEngine)
+            // for Engine.Cueing.CueGenerationService's DSP drop-scoring path — previously only a
+            // single collapsed DropTimeSeconds/DropConfidence float pair survived to the database.
+            if (!ColumnExists("audio_features", "SubBassDropoutTimestampsJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding SubBassDropoutTimestampsJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""SubBassDropoutTimestampsJson"" TEXT NOT NULL DEFAULT '[]';";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "SubBassReturnTimestampsJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding SubBassReturnTimestampsJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""SubBassReturnTimestampsJson"" TEXT NOT NULL DEFAULT '[]';";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "NoveltyDropSignaturesJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding NoveltyDropSignaturesJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""NoveltyDropSignaturesJson"" TEXT NOT NULL DEFAULT '[]';";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 19. Playlist Folders: nested tree for organizing playlists
+            if (!TableExists("PlaylistFolders"))
+            {
+                _logger.LogInformation("Patching Schema: Creating PlaylistFolders table...");
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS ""PlaylistFolders"" (
+                        ""Id"" TEXT PRIMARY KEY,
+                        ""Name"" TEXT NOT NULL,
+                        ""ParentFolderId"" TEXT NULL,
+                        ""SortOrder"" INTEGER NOT NULL DEFAULT 0,
+                        ""CreatedAt"" TEXT NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_PlaylistFolders_ParentFolderId"" ON ""PlaylistFolders""(""ParentFolderId"");";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("Projects") && !ColumnExists("Projects", "FolderId"))
+            {
+                _logger.LogInformation("Patching Schema: Adding FolderId to Projects...");
+                command.CommandText = @"ALTER TABLE ""Projects"" ADD COLUMN ""FolderId"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"CREATE INDEX IF NOT EXISTS ""IX_Projects_FolderId"" ON ""Projects""(""FolderId"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 20. Social: Private Messages + Room Messages
+            if (!TableExists("PrivateMessages"))
+            {
+                _logger.LogInformation("Patching Schema: Creating PrivateMessages table...");
+                command.CommandText = @"
+                    CREATE TABLE ""PrivateMessages"" (
+                        ""Id""                TEXT NOT NULL CONSTRAINT ""PK_PrivateMessages"" PRIMARY KEY,
+                        ""SoulseekMessageId""  INTEGER NULL,
+                        ""PeerUsername""      TEXT NOT NULL,
+                        ""IsOutgoing""        INTEGER NOT NULL,
+                        ""Message""           TEXT NOT NULL,
+                        ""TimestampUtc""      TEXT NOT NULL,
+                        ""WasReplayed""       INTEGER NOT NULL DEFAULT 0
+                    );
+                    CREATE UNIQUE INDEX ""IX_PrivateMessages_SoulseekMessageId"" ON ""PrivateMessages"" (""SoulseekMessageId"") WHERE ""SoulseekMessageId"" IS NOT NULL;
+                    CREATE INDEX ""IX_PrivateMessages_PeerUsername"" ON ""PrivateMessages"" (""PeerUsername"", ""TimestampUtc"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ PrivateMessages table created.");
+            }
+
+            if (!TableExists("RoomMessages"))
+            {
+                _logger.LogInformation("Patching Schema: Creating RoomMessages table...");
+                command.CommandText = @"
+                    CREATE TABLE ""RoomMessages"" (
+                        ""Id""            TEXT NOT NULL CONSTRAINT ""PK_RoomMessages"" PRIMARY KEY,
+                        ""RoomName""      TEXT NOT NULL,
+                        ""Username""      TEXT NOT NULL,
+                        ""Message""       TEXT NOT NULL,
+                        ""TimestampUtc""  TEXT NOT NULL,
+                        ""IsOutgoing""    INTEGER NOT NULL DEFAULT 0
+                    );
+                    CREATE INDEX ""IX_RoomMessages_RoomName"" ON ""RoomMessages"" (""RoomName"", ""TimestampUtc"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ RoomMessages table created.");
+            }
+
+            // 21. GetRecentConversationsAsync sorts the whole table by TimestampUtc (not filtered by
+            // peer), which the (PeerUsername, TimestampUtc) composite index above can't serve as a
+            // covering index for — add one keyed on TimestampUtc alone.
+            if (TableExists("PrivateMessages"))
+            {
+                command.CommandText = @"CREATE INDEX IF NOT EXISTS ""IX_PrivateMessages_TimestampUtc"" ON ""PrivateMessages"" (""TimestampUtc"" DESC);";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 22. Distinguishes genuine EDMFormer ML phrase segments from the rule-based
+            // StructuralAnalysisEngine heuristic bridge — both previously shared PhraseSegmentsJson
+            // indistinguishably, letting the heuristic silently outrank the DSP drop-scoring path.
+            if (!ColumnExists("audio_features", "PhraseSegmentsSource"))
+            {
+                _logger.LogInformation("Patching Schema: Adding PhraseSegmentsSource to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""PhraseSegmentsSource"" TEXT NOT NULL DEFAULT '';";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 23. Raw per-dimension scores from the 5 independent DiscogsEffnet mood classifier
+            // heads (Sad already covered by the pre-existing Sadness column) — lets the Track
+            // Inspector show the full mood breakdown instead of only the winner-takes-all MoodTag.
+            if (!ColumnExists("audio_features", "MoodHappy"))
+            {
+                _logger.LogInformation("Patching Schema: Adding mood breakdown columns to audio_features...");
+                command.CommandText = @"
+                    ALTER TABLE ""audio_features"" ADD COLUMN ""MoodHappy"" REAL NOT NULL DEFAULT 0;
+                    ALTER TABLE ""audio_features"" ADD COLUMN ""MoodRelaxed"" REAL NOT NULL DEFAULT 0;
+                    ALTER TABLE ""audio_features"" ADD COLUMN ""MoodParty"" REAL NOT NULL DEFAULT 0;
+                    ALTER TABLE ""audio_features"" ADD COLUMN ""MoodAggressive"" REAL NOT NULL DEFAULT 0;
+                ";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 24. Structural-stripping breakdown signal (StructuralStrippingEngine) — the
+            // House/Techno-family analogue of SubBassDropoutTimestampsJson/SubBassReturnTimestampsJson
+            // above, but detecting a genuinely different signal shape: full kick+bass transient
+            // *absence* (periodicity check), not just a sub-bass energy-level dropout, since
+            // four-on-the-floor breakdowns often keep a faint bass presence that a pure energy-level
+            // check would misread as "no breakdown here."
+            if (!ColumnExists("audio_features", "StructuralStrippingStartTimestampsJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding structural-stripping columns to audio_features...");
+                command.CommandText = @"
+                    ALTER TABLE ""audio_features"" ADD COLUMN ""StructuralStrippingStartTimestampsJson"" TEXT NOT NULL DEFAULT '[]';
+                    ALTER TABLE ""audio_features"" ADD COLUMN ""StructuralStrippingReturnTimestampsJson"" TEXT NOT NULL DEFAULT '[]';
+                ";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 25. EngineDiagnosticEvents — structured, queryable audit trail for the import/search
+            // pipeline (Engine Diagnostics feature): what a pasted line became, what was searched,
+            // what candidates were evaluated, and why a search did/didn't resolve to a match.
+            if (!TableExists("EngineDiagnosticEvents"))
+            {
+                _logger.LogInformation("Patching Schema: Creating EngineDiagnosticEvents table...");
+                command.CommandText = @"
+                    CREATE TABLE ""EngineDiagnosticEvents"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_EngineDiagnosticEvents"" PRIMARY KEY,
+                        ""TimestampUtc"" TEXT NOT NULL,
+                        ""EventType"" TEXT NOT NULL,
+                        ""TrackHash"" TEXT NULL,
+                        ""PlaylistId"" TEXT NULL,
+                        ""Query"" TEXT NULL,
+                        ""Summary"" TEXT NOT NULL,
+                        ""DetailsJson"" TEXT NULL
+                    );
+                    CREATE INDEX ""IX_EngineDiagnosticEvents_TimestampUtc"" ON ""EngineDiagnosticEvents"" (""TimestampUtc"");
+                    CREATE INDEX ""IX_EngineDiagnosticEvents_EventType"" ON ""EngineDiagnosticEvents"" (""EventType"");
+                    CREATE INDEX ""IX_EngineDiagnosticEvents_PlaylistId"" ON ""EngineDiagnosticEvents"" (""PlaylistId"");
+                ";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 26. Persisted read/unread state for chat — previously in-memory only, so every
+            // restart showed all history as read regardless of what arrived while closed.
+            // DEFAULT 1 backfills existing rows as already-seen, matching that prior behavior.
+            if (!ColumnExists("PrivateMessages", "IsRead"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsRead to PrivateMessages...");
+                command.CommandText = @"ALTER TABLE ""PrivateMessages"" ADD COLUMN ""IsRead"" INTEGER NOT NULL DEFAULT 1;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("RoomMessages", "IsRead"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsRead to RoomMessages...");
+                command.CommandText = @"ALTER TABLE ""RoomMessages"" ADD COLUMN ""IsRead"" INTEGER NOT NULL DEFAULT 1;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 27. Retire TechnicalDetails' dead waveform blob columns — confirmed zero write sites
+            // ever populate real bytes through them (every insert is a bare clone-init with no
+            // waveform fields set). The live waveform path is AudioFeaturesEntity.WaveformBlob,
+            // unpacked on read by LibraryService — these columns were always-empty dead schema.
+            foreach (var deadColumn in new[] { "WaveformData", "RmsData", "LowData", "MidData", "HighData" })
+            {
+                if (ColumnExists("TechnicalDetails", deadColumn))
+                {
+                    _logger.LogInformation("Patching Schema: Dropping dead column TechnicalDetails.{Column}...", deadColumn);
+                    command.CommandText = $"ALTER TABLE \"TechnicalDetails\" DROP COLUMN \"{deadColumn}\";";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            // 28. IX_DownloadHistory_PeerUsername existed only inside the CREATE TABLE branch, so
+            // it was only ever created for a brand-new database — every existing installation's
+            // DownloadHistory table (often tens/hundreds of thousands of rows: one row per download
+            // attempt, not just successes) predates this index and never actually got it. The Users
+            // page's GetDownloadedUsersSummaryAsync GROUP BY on PeerUsername was doing a full table
+            // scan on every load for exactly that reason.
+            if (TableExists("DownloadHistory"))
+            {
+                command.CommandText = @"CREATE INDEX IF NOT EXISTS ""IX_DownloadHistory_PeerUsername"" ON ""DownloadHistory"" (""PeerUsername"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 29. Rekordbox export cue-sync snapshots: enables a three-way merge so a cue edit made
+            // in Cue Forge after a track's first Rekordbox export still propagates on re-export,
+            // while a hand-edit made directly inside Rekordbox since ORBIT's last known-good sync is
+            // still preserved (previously all-or-nothing: any existing cues blocked every future
+            // ORBIT cue update for that track, forever).
+            if (!TableExists("RekordboxExportCueSync"))
+            {
+                _logger.LogInformation("Patching Schema: Creating RekordboxExportCueSync table...");
+                command.CommandText = @"
+                    CREATE TABLE ""RekordboxExportCueSync"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_RekordboxExportCueSync"" PRIMARY KEY,
+                        ""TargetPath"" TEXT NOT NULL,
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""CueSnapshot"" TEXT NOT NULL DEFAULT '',
+                        ""UpdatedAtUtc"" TEXT NOT NULL
+                    );
+                    CREATE UNIQUE INDEX ""IX_RekordboxExportCueSync_TargetPath_Hash"" ON ""RekordboxExportCueSync"" (""TargetPath"", ""TrackUniqueHash"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ RekordboxExportCueSync table created.");
+            }
+
+            // 30. Watch-folder auto-import: lets LibraryFolderWatchService know which registered
+            // library folders should get a live FileSystemWatcher instead of relying entirely on
+            // manual "Scan All" clicks.
+            if (TableExists("LibraryFolders") && !ColumnExists("LibraryFolders", "IsWatched"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsWatched to LibraryFolders...");
+                command.CommandText = @"ALTER TABLE ""LibraryFolders"" ADD COLUMN ""IsWatched"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 31. Mix (Spotify-Mix-parity): saved per-track-pair transition config, keyed by the
+            // outgoing/incoming PlaylistTracks.Id pair so the same two tracks can carry different
+            // transitions in different playlists.
+            if (!TableExists("PlaylistTrackTransitions"))
+            {
+                _logger.LogInformation("Patching Schema: Creating PlaylistTrackTransitions table...");
+                command.CommandText = @"
+                    CREATE TABLE ""PlaylistTrackTransitions"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_PlaylistTrackTransitions"" PRIMARY KEY,
+                        ""PlaylistId"" TEXT NOT NULL,
+                        ""OutgoingPlaylistTrackId"" TEXT NOT NULL,
+                        ""IncomingPlaylistTrackId"" TEXT NOT NULL,
+                        ""PresetName"" TEXT NOT NULL DEFAULT 'Auto',
+                        ""TransitionType"" TEXT NOT NULL DEFAULT 'Crossfade',
+                        ""DurationBars"" INTEGER NOT NULL DEFAULT 16,
+                        ""EchoDecayFactor"" REAL NULL,
+                        ""FilterStartFrequency"" REAL NULL,
+                        ""FilterEndFrequency"" REAL NULL,
+                        ""EqLowGain"" REAL NULL,
+                        ""EqMidGain"" REAL NULL,
+                        ""EqHighGain"" REAL NULL,
+                        ""SourceTriggerSeconds"" REAL NULL,
+                        ""TargetTriggerSeconds"" REAL NULL,
+                        ""WaveDuckDepth"" REAL NULL,
+                        ""FilterSweepRising"" INTEGER NULL,
+                        ""EqSwapLow"" INTEGER NULL,
+                        ""EqSwapMid"" INTEGER NULL,
+                        ""EqSwapHigh"" INTEGER NULL,
+                        ""EqLowCrossoverHz"" REAL NULL,
+                        ""EqHighCrossoverHz"" REAL NULL,
+                        ""UpdatedAtUtc"" TEXT NOT NULL
+                    );
+                    CREATE UNIQUE INDEX ""IX_PlaylistTrackTransitions_Pair"" ON ""PlaylistTrackTransitions"" (""OutgoingPlaylistTrackId"", ""IncomingPlaylistTrackId"");
+                    CREATE INDEX ""IX_PlaylistTrackTransitions_PlaylistId"" ON ""PlaylistTrackTransitions"" (""PlaylistId"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ PlaylistTrackTransitions table created.");
+            }
+
+            // 32. Mix: cue/tempo/key/vocal-aware mix-out/mix-in trigger points (TransitionEngine.
+            // OptimizeTransition), added after the table above shipped without them.
+            if (TableExists("PlaylistTrackTransitions") && !ColumnExists("PlaylistTrackTransitions", "SourceTriggerSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding SourceTriggerSeconds/TargetTriggerSeconds to PlaylistTrackTransitions...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""SourceTriggerSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""TargetTriggerSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 33. Mix Custom mode: Wave preset's duck depth and Rise preset's sweep direction —
+            // TransitionModel already had both fields, but nothing persisted a custom override for
+            // either, so a saved Wave/Melt transition silently fell back to TransitionModel's
+            // hardcoded default instead of whatever TransitionPresetLibrary.Build would have
+            // produced for that preset.
+            if (TableExists("PlaylistTrackTransitions") && !ColumnExists("PlaylistTrackTransitions", "WaveDuckDepth"))
+            {
+                _logger.LogInformation("Patching Schema: Adding WaveDuckDepth/FilterSweepRising to PlaylistTrackTransitions...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""WaveDuckDepth"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""FilterSweepRising"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 34. Mix Custom mode: real EQ band-swap controls. The original EqLowGain/MidGain/
+            // HighGain columns (above) were dead weight — never set, never read — because they're
+            // shaped as gain overrides, not the swap-toggle + crossover-Hz shape the live engine's
+            // EqBandSwapConfig actually needs. These are the correctly-shaped replacement; the old
+            // columns are left in place (still unused) rather than dropped, to avoid a destructive
+            // migration for a handful of always-null columns.
+            if (TableExists("PlaylistTrackTransitions") && !ColumnExists("PlaylistTrackTransitions", "EqSwapLow"))
+            {
+                _logger.LogInformation("Patching Schema: Adding EqSwapLow/Mid/High + crossover columns to PlaylistTrackTransitions...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqSwapLow"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqSwapMid"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqSwapHigh"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqLowCrossoverHz"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqHighCrossoverHz"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 35. BPM read from the file's own embedded tag (TagLib BeatsPerMinute) at import —
+            // trusted over Essentia analysis for breakbeat/DNB tracks, where the DSP beat tracker
+            // has a confirmed quantization bias (two different DNB tracks' raw Essentia BPM
+            // converged to 172.265xx to five decimal places — a fixed internal lag/bin period, not
+            // a real per-track measurement). Sits alongside the existing SpotifyBPM/ManualBPM
+            // dual-truth columns; SyncDenormalizedFeaturesAsync's analysis-write path now skips
+            // overwriting BPM when either ManualBPM or this is set.
+            if (TableExists("LibraryEntries") && !ColumnExists("LibraryEntries", "TagBPM"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TagBPM to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""TagBPM"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("PlaylistTracks") && !ColumnExists("PlaylistTracks", "TagBPM"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TagBPM to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""TagBPM"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("Tracks") && !ColumnExists("Tracks", "TagBPM"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TagBPM to Tracks...");
+                command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""TagBPM"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 36. Mix "Double Drop" transition: loops a bar-aligned tail of the outgoing track
+            // once or twice before crossfading into the incoming track's drop. LoopEnabled isn't
+            // a separate column — TransitionType itself carries "DoubleDrop" as one of its
+            // values, same as every other preset here.
+            if (TableExists("PlaylistTrackTransitions") && !ColumnExists("PlaylistTrackTransitions", "LoopBars"))
+            {
+                _logger.LogInformation("Patching Schema: Adding LoopBars/LoopRepeats to PlaylistTrackTransitions...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""LoopBars"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""LoopRepeats"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 37. Index audio_features.TrackUniqueHash. The EF model declares it (AppDbContext:
+            // HasIndex(af => af.TrackUniqueHash)), but this schema is built by raw-SQL patches, not
+            // EF migrations, so it never physically existed — every PlaylistTracks -> AudioFeatures
+            // join fell back to a full scan of audio_features (blob-heavy rows) per outer row.
+            // Measured on a real 4,380-track library: the dashboard's incomplete-analysis query went
+            // from 40.5s to 0.1s. Non-unique on purpose so it can never fail to create on a library
+            // that happens to hold duplicate hashes; lookup speed is identical either way.
+            if (TableExists("audio_features"))
+            {
+                command.CommandText = @"CREATE INDEX IF NOT EXISTS ""IX_audio_features_TrackUniqueHash"" ON ""audio_features"" (""TrackUniqueHash"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 38. Library metadata enrichment (Services/Enrichment): a resumable queue on the
+            // existing EnrichmentTasks table (priority + deferral), a lookup cache so re-runs don't
+            // hit Deezer/MusicBrainz/Discogs again, and per-field provenance so enrichment never
+            // overwrites a user edit and the inspector can say where a value came from.
+            if (TableExists("EnrichmentTasks") && !ColumnExists("EnrichmentTasks", "Priority"))
+            {
+                _logger.LogInformation("Patching Schema: Adding Priority/NextAttemptAt to EnrichmentTasks...");
+                command.CommandText = @"ALTER TABLE ""EnrichmentTasks"" ADD COLUMN ""Priority"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("EnrichmentTasks") && !ColumnExists("EnrichmentTasks", "NextAttemptAt"))
+            {
+                command.CommandText = @"ALTER TABLE ""EnrichmentTasks"" ADD COLUMN ""NextAttemptAt"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!TableExists("MetadataLookupCache"))
+            {
+                _logger.LogInformation("Patching Schema: Creating MetadataLookupCache table...");
+                command.CommandText = @"
+                    CREATE TABLE ""MetadataLookupCache"" (
+                        ""Provider"" TEXT NOT NULL,
+                        ""CacheKey"" TEXT NOT NULL,
+                        ""StatusCode"" INTEGER NOT NULL DEFAULT 0,
+                        ""Payload"" TEXT NULL,
+                        ""CreatedAtUtc"" TEXT NOT NULL,
+                        CONSTRAINT ""PK_MetadataLookupCache"" PRIMARY KEY (""Provider"", ""CacheKey"")
+                    );";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!TableExists("MetadataProvenance"))
+            {
+                _logger.LogInformation("Patching Schema: Creating MetadataProvenance table...");
+                command.CommandText = @"
+                    CREATE TABLE ""MetadataProvenance"" (
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""Field"" TEXT NOT NULL,
+                        ""Source"" TEXT NOT NULL,
+                        ""Confidence"" REAL NOT NULL DEFAULT 0,
+                        ""UpdatedAtUtc"" TEXT NOT NULL,
+                        CONSTRAINT ""PK_MetadataProvenance"" PRIMARY KEY (""TrackUniqueHash"", ""Field"")
+                    );";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Sets page: "Plan B" alternates per slot (SetSlotAlternateEntity). Own table so
+            // alternates never enter the spine that SetTracks.Position defines.
+            if (!TableExists("SetSlotAlternates"))
+            {
+                _logger.LogInformation("Patching Schema: Creating SetSlotAlternates table...");
+                command.CommandText = @"
+                    CREATE TABLE ""SetSlotAlternates"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_SetSlotAlternates"" PRIMARY KEY,
+                        ""SlotId"" TEXT NOT NULL,
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""Position"" INTEGER NOT NULL,
+                        ""ConditionText"" TEXT NULL,
+                        ""CreatedAtUtc"" TEXT NOT NULL,
+                        CONSTRAINT ""FK_SetSlotAlternates_SetTracks_SlotId"" FOREIGN KEY (""SlotId"") REFERENCES ""SetTracks"" (""Id"") ON DELETE CASCADE
+                    );
+                    CREATE INDEX ""IX_SetSlotAlternates_SlotId"" ON ""SetSlotAlternates"" (""SlotId"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Sets page: saved transitions between adjacent set slots (rebuild plan P3.2), the
+            // mirror of PlaylistTrackTransitions keyed by slot instead of playlist track.
+            if (!TableExists("SetTrackTransitions"))
+            {
+                _logger.LogInformation("Patching Schema: Creating SetTrackTransitions table...");
+                command.CommandText = @"
+                    CREATE TABLE ""SetTrackTransitions"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_SetTrackTransitions"" PRIMARY KEY,
+                        ""SetId"" TEXT NOT NULL,
+                        ""OutgoingSlotId"" TEXT NOT NULL,
+                        ""IncomingSlotId"" TEXT NOT NULL,
+                        ""PresetName"" TEXT NOT NULL DEFAULT 'Auto',
+                        ""TransitionType"" TEXT NOT NULL DEFAULT 'Crossfade',
+                        ""DurationBars"" INTEGER NOT NULL DEFAULT 16,
+                        ""EchoDecayFactor"" REAL NULL,
+                        ""FilterStartFrequency"" REAL NULL,
+                        ""FilterEndFrequency"" REAL NULL,
+                        ""WaveDuckDepth"" REAL NULL,
+                        ""FilterSweepRising"" INTEGER NULL,
+                        ""EqSwapLow"" INTEGER NULL,
+                        ""EqSwapMid"" INTEGER NULL,
+                        ""EqSwapHigh"" INTEGER NULL,
+                        ""EqLowCrossoverHz"" REAL NULL,
+                        ""EqHighCrossoverHz"" REAL NULL,
+                        ""LoopBars"" INTEGER NULL,
+                        ""LoopRepeats"" INTEGER NULL,
+                        ""SourceTriggerSeconds"" REAL NULL,
+                        ""TargetTriggerSeconds"" REAL NULL,
+                        ""UpdatedAtUtc"" TEXT NOT NULL,
+                        CONSTRAINT ""FK_SetTrackTransitions_SetLists_SetId"" FOREIGN KEY (""SetId"") REFERENCES ""SetLists"" (""Id"") ON DELETE CASCADE,
+                        CONSTRAINT ""FK_SetTrackTransitions_SetTracks_OutgoingSlotId"" FOREIGN KEY (""OutgoingSlotId"") REFERENCES ""SetTracks"" (""Id"") ON DELETE CASCADE,
+                        CONSTRAINT ""FK_SetTrackTransitions_SetTracks_IncomingSlotId"" FOREIGN KEY (""IncomingSlotId"") REFERENCES ""SetTracks"" (""Id"") ON DELETE CASCADE
+                    );
+                    CREATE UNIQUE INDEX ""IX_SetTrackTransitions_Pair"" ON ""SetTrackTransitions"" (""OutgoingSlotId"", ""IncomingSlotId"");
+                    CREATE INDEX ""IX_SetTrackTransitions_SetId"" ON ""SetTrackTransitions"" (""SetId"");
+                    CREATE INDEX ""IX_SetTrackTransitions_IncomingSlotId"" ON ""SetTrackTransitions"" (""IncomingSlotId"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 39. Library Maintenance wizard (#211): reversible tag-write foundation. The three
+            // tables are the run header, the per-field change journal, and the per-run playlist
+            // changes. No FOREIGN KEY clauses — connections run with PRAGMA foreign_keys=OFF, so
+            // the RunId relationships are enforced in code.
+            if (!TableExists("MaintenanceRuns"))
+            {
+                _logger.LogInformation("Patching Schema: Creating MaintenanceRuns table...");
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS ""MaintenanceRuns"" (
+                        ""Id""          TEXT NOT NULL PRIMARY KEY,
+                        ""StartedAt""   TEXT NOT NULL,
+                        ""CompletedAt"" TEXT NULL,
+                        ""OptionsJson"" TEXT NULL,
+                        ""SummaryJson"" TEXT NULL,
+                        ""Status""      TEXT NOT NULL,
+                        ""RevertedAt""  TEXT NULL
+                    );";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!TableExists("TagChangeLog"))
+            {
+                _logger.LogInformation("Patching Schema: Creating TagChangeLog table...");
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS ""TagChangeLog"" (
+                        ""Id""              TEXT NOT NULL PRIMARY KEY,
+                        ""RunId""           TEXT NOT NULL,
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""FilePath""        TEXT NULL,
+                        ""Field""           TEXT NOT NULL,
+                        ""OldValue""        TEXT NULL,
+                        ""NewValue""        TEXT NULL,
+                        ""Rule""            TEXT NOT NULL,
+                        ""Applied""         INTEGER NOT NULL DEFAULT 0,
+                        ""FileWritten""     INTEGER NOT NULL DEFAULT 0,
+                        ""Error""           TEXT NULL,
+                        ""RevertedAt""      TEXT NULL,
+                        ""RevertSkipReason"" TEXT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_TagChangeLog_RunId"" ON ""TagChangeLog"" (""RunId"");
+                    CREATE INDEX IF NOT EXISTS ""IX_TagChangeLog_TrackUniqueHash"" ON ""TagChangeLog"" (""TrackUniqueHash"");";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!TableExists("MaintenancePlaylistLog"))
+            {
+                _logger.LogInformation("Patching Schema: Creating MaintenancePlaylistLog table...");
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS ""MaintenancePlaylistLog"" (
+                        ""Id""                TEXT NOT NULL PRIMARY KEY,
+                        ""RunId""             TEXT NOT NULL,
+                        ""PlaylistId""        TEXT NOT NULL,
+                        ""Created""           INTEGER NOT NULL DEFAULT 0,
+                        ""AddedTrackIdsJson"" TEXT NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_MaintenancePlaylistLog_RunId"" ON ""MaintenancePlaylistLog"" (""RunId"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 40. Discogs-400 style scores (P3). Persists the full multi-label style vector so the
+            // style playlists and genre fill can use the explainable top-style label instead of the
+            // collapsed 7-label electronic genre. Guarded per-column because SchemaReconciler may
+            // already have added these on installs that ran the EF model before this patch shipped.
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "StyleScoresBlob"))
+            {
+                _logger.LogInformation("Patching Schema: Adding StyleScoresBlob to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""StyleScoresBlob"" BLOB NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "StyleModelTag"))
+            {
+                _logger.LogInformation("Patching Schema: Adding StyleModelTag to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""StyleModelTag"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "TopStyle"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TopStyle to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""TopStyle"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "TopStyleConfidence"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TopStyleConfidence to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""TopStyleConfidence"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "RhythmSignatureJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding RhythmSignatureJson to audio_features (GA6 #251)...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""RhythmSignatureJson"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("audio_features") && !ColumnExists("audio_features", "GenreEvidenceJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding GenreEvidenceJson to audio_features (GA8 #253)...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""GenreEvidenceJson"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            _logger.LogInformation("Schema patching completed.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to apply schema patches; rolling back.");
+            throw; // RunAtomicallyAsync rolls the whole batch back (#317)
+        }
+    }
+}
