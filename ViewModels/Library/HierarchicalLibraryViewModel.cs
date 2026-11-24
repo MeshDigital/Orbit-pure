@@ -58,13 +58,21 @@ public class HierarchicalLibraryViewModel : IDisposable
         _saveDebounceCts = new CancellationTokenSource();
         var token = _saveDebounceCts.Token;
 
-        Task.Delay(500, token).ContinueWith(t =>
+        _ = DebounceSaveAsync(token);
+    }
+
+    private async Task DebounceSaveAsync(CancellationToken token)
+    {
+        try
         {
-            if (!t.IsCanceled)
-            {
-                SaveColumnLayout();
-            }
-        }, TaskScheduler.Default);
+            await Task.Delay(500, token);
+            SaveColumnLayout();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Failed to save column layout");
+        }
     }
 
     private void InitializeColumns()
