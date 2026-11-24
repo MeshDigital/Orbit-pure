@@ -68,6 +68,8 @@ public sealed class CliProcessRunner : ICliProcessRunner
         }
 
         process.WaitForExit(); // flush the redirected streams
+        // Run() is sync-by-design (ICliProcessRunner, used by the sync OsKeyring methods); the
+        // process has exited so both reads are already complete and these return immediately.
         return new CliResult(true, process.ExitCode, stdout.GetAwaiter().GetResult(), stderr.GetAwaiter().GetResult());
     }
 }

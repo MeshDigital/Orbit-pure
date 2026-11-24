@@ -504,6 +504,8 @@ namespace SLSKDONET.Services.IO
 
             try
             {
+                // Dispose is sync-by-design (IDisposable) and must flush pending writes before
+                // returning; this is a shutdown-only path, never a UI-thread call.
                 _writerTask.GetAwaiter().GetResult();
             }
             catch

@@ -407,7 +407,7 @@ public class UsersViewModel : ReactiveObject, IDisposable
 
             await Task.WhenAll(summaryTask, conversationsTask, friendFlagsTask).ConfigureAwait(true);
 
-            var summaries = summaryTask.Result;
+            var summaries = await summaryTask.ConfigureAwait(true);
             var summaryByUser = summaries.ToDictionary(s => s.Username, StringComparer.OrdinalIgnoreCase);
 
             var knownUsernames = new HashSet<string>(_peerReliability.GetKnownUsernames(), StringComparer.OrdinalIgnoreCase);
@@ -437,7 +437,7 @@ public class UsersViewModel : ReactiveObject, IDisposable
 
             // conversationsTask already completed (awaited via Task.WhenAll above) — this just
             // applies the result, no additional wait.
-            ApplyConversations(conversationsTask.Result);
+            ApplyConversations(await conversationsTask.ConfigureAwait(true));
         }
         catch (Exception ex)
         {
