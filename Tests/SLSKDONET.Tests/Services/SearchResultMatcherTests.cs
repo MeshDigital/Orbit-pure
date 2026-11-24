@@ -319,6 +319,16 @@ public class SearchResultMatcherTests
         Assert.DoesNotContain("Version:", result.ScoreBreakdown);
     }
 
+    // #386: a request for one derivative (acoustic) must be penalised when a DIFFERENT one (remix) is offered.
+    [Fact]
+    public void AcousticRequest_RemixCandidate_IsPenalisedForVersionMismatch()
+    {
+        var model = new PlaylistTrack { Artist = "Frannabik", Title = "Down (Acoustic Version)", CanonicalDuration = 240000 };
+        var result = _matcher.CalculateMatchResult(model, new Track { Length = 240, Filename = "09_frannabik_-_down_(bad_legs_remix).flac" });
+
+        Assert.Contains("Version: candidate is remix but requested acoustic", result.ScoreBreakdown);
+    }
+
     [Theory]
     [InlineData("Down (Bad Legs Remix)", "remix")]
     [InlineData("09_frannabik_-_down_(bad_legs_remix)", "remix")]
