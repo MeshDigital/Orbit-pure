@@ -288,6 +288,13 @@ public class AppConfig
     public bool EnableAutoDownloadStrictMode { get; set; } = false; // Disabled by default
     public int AutoDownloadInitialWaitMs { get; set; } = 4000; // Fast window: wait for fast peers (default 3-5s)
     public int AutoDownloadExtendedWaitMs { get; set; } = 20000; // Extended window: fallback search (default 20-30s)
+
+    // LF3 (#345): where a verified download lands — "Direct" (straight to the template path) or
+    // "Inbox" (Inbox/ for review). Re-file re-resolves the template path once analysis-derived
+    // tokens ({key}/{bpm}/{bpm_bracket}) are known.
+    public string DownloadCommitMode { get; set; } = "Direct";
+    public bool RefileAfterAnalysis { get; set; } = true;
+
     public List<string>? AutoDownloadAllowedExtensions { get; set; } = new() { "flac", "wav", "aiff", "aif", "ape", "alac" }; // Conservative defaults
     public long AutoDownloadMinFileSizeBytes { get; set; } = 1024 * 500; // 500 KB minimum (anti-stub)
     // Implied-bitrate plausibility (issue #234): catches previews/truncated files that pass a flat floor.
