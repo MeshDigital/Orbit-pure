@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
+using SLSKDONET.Services;
 using SLSKDONET.Services.Library.Files;
 using Xunit;
 
@@ -61,5 +62,25 @@ public class PathProtectionServiceTests : IDisposable
         var svc = MakeService();
         await svc.SetPathLockedAsync("missing", locked: true); // must not throw
         Assert.False(await svc.IsPathLockedAsync("missing"));
+    }
+
+    [Fact]
+    public async Task RefreshFileOrigin_DerivesLinkedFolderFromTheRoot()
+    {
+        const string hash = "h-origin";
+        var linkedRoot = Path.Combine(Path.GetTempPath(), "orbit-origin-linked");
+        var downloadDir = Path.Combine(Path.GetTempPath(), "orbit-origin-downloads");
+        var file = Path.Combine(linkedRoot, "Artist", "track.flac");
+
+        using (var db = new AppDbContext())
+        {
+            db.LibraryEntries.Add(new LibraryEntryEntity { UniqueHash = hash, FilePath = file });
+            db.LibraryFolders.Add(new LibraryFolderEntity { FolderPath = linkedRoot, IsEnabled = true });
+            db.SaveChanges();
+        }
+
+        var origin = await MakeService().RefreshFileOriginAsync(hash, file, downloadDir);
+
+        Assert.Equal(FileOriginDeriver.LinkedFolder, origin);
     }
 }
