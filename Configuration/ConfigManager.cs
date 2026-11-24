@@ -264,6 +264,10 @@ public class ConfigManager
                 EnableFrequentSources = bool.TryParse(config["FrequentSources:EnableFrequentSources"], out var efs) && efs,
                 FrequentSourcesStagingPath = config["FrequentSources:StagingPath"] ?? string.Empty,
 
+                // [Staging] (LF3 #345)
+                DownloadCommitMode = config["Staging:CommitMode"] is "Inbox" ? "Inbox" : "Direct",
+                RefileAfterAnalysis = !bool.TryParse(config["Staging:RefileAfterAnalysis"], out var rfa) || rfa,
+
                 // [Import]
                 ImportWebShortcuts = ParseImportWebShortcuts(config["Import:WebShortcutsJson"]),
 
@@ -522,6 +526,11 @@ public class ConfigManager
         iniContent.AppendLine("[FrequentSources]");
         iniContent.AppendLine($"EnableFrequentSources = {config.EnableFrequentSources}");
         iniContent.AppendLine($"StagingPath = {config.FrequentSourcesStagingPath}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[Staging]");
+        iniContent.AppendLine($"CommitMode = {config.DownloadCommitMode}");
+        iniContent.AppendLine($"RefileAfterAnalysis = {config.RefileAfterAnalysis}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[Import]");
