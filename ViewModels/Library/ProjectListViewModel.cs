@@ -1145,6 +1145,18 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
 
     private async void OnPlaylistAdded(object? sender, PlaylistJob job)
     {
+        try
+        {
+            await OnPlaylistAddedCoreAsync(job);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unhandled error in OnPlaylistAdded for job {JobId}", job.Id);
+        }
+    }
+
+    private async Task OnPlaylistAddedCoreAsync(PlaylistJob job)
+    {
         _logger.LogInformation("[UI TRACE] OnPlaylistAdded event received for job {JobId}. Source: {SourceType}", job.Id, job.SourceType);
 
         try
@@ -1201,6 +1213,18 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
 
     private async void OnProjectUpdated(object? sender, Guid jobId)
     {
+        try
+        {
+            await OnProjectUpdatedCoreAsync(jobId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unhandled error in OnProjectUpdated for job {JobId}", jobId);
+        }
+    }
+
+    private async Task OnProjectUpdatedCoreAsync(Guid jobId)
+    {
         var updatedJob = await _libraryService.FindPlaylistJobAsync(jobId);
         if (updatedJob == null) return;
 
@@ -1232,6 +1256,18 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     }
 
     private async void OnProjectDeleted(object? sender, Guid projectId)
+    {
+        try
+        {
+            await OnProjectDeletedCoreAsync(projectId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unhandled error in OnProjectDeleted for job {JobId}", projectId);
+        }
+    }
+
+    private async Task OnProjectDeletedCoreAsync(Guid projectId)
     {
         _logger.LogInformation("OnProjectDeleted event received for job {JobId}", projectId);
 

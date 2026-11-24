@@ -1478,6 +1478,18 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     /// </summary>
     private async void HandleOpenConversationRequested(OpenConversationRequestedEvent evt)
     {
+        try
+        {
+            await HandleOpenConversationRequestedCoreAsync(evt);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unhandled error opening conversation (Username={Username}, RoomName={RoomName})", evt.Username, evt.RoomName);
+        }
+    }
+
+    private async Task HandleOpenConversationRequestedCoreAsync(OpenConversationRequestedEvent evt)
+    {
         NavigateToUsers();
 
         if (_navigationService.CurrentPage is Control { DataContext: UsersViewModel usersVm })
@@ -1498,6 +1510,18 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     /// persists its own selection independently of professional DJ prep in Workstation.
     /// </summary>
     private async void HandleOpenFlowBuilderForPlaylist(OpenFlowBuilderForPlaylistEvent evt)
+    {
+        try
+        {
+            await HandleOpenFlowBuilderForPlaylistCoreAsync(evt);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unhandled error opening playlist {PlaylistId} in Flow Builder", evt.PlaylistId);
+        }
+    }
+
+    private async Task HandleOpenFlowBuilderForPlaylistCoreAsync(OpenFlowBuilderForPlaylistEvent evt)
     {
         NavigateToFlowBuilder();
         if (evt.PlaylistId == Guid.Empty)
@@ -1557,6 +1581,18 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>Import page "Recent imports" → open that playlist in the Library.</summary>
     private async void HandleOpenPlaylistInLibrary(OpenPlaylistInLibraryEvent evt)
     {
+        try
+        {
+            await HandleOpenPlaylistInLibraryCoreAsync(evt);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unhandled error opening playlist {PlaylistId} in the Library", evt.PlaylistId);
+        }
+    }
+
+    private async Task HandleOpenPlaylistInLibraryCoreAsync(OpenPlaylistInLibraryEvent evt)
+    {
         NavigateToLibrary();
         try
         {
@@ -1584,6 +1620,18 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     }
 
     private async void HandleOpenLibraryForPlaylist(OpenLibraryForPlaylistEvent evt)
+    {
+        try
+        {
+            await HandleOpenLibraryForPlaylistCoreAsync(evt);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unhandled error preloading playlist {PlaylistId} into Library", evt.PlaylistId);
+        }
+    }
+
+    private async Task HandleOpenLibraryForPlaylistCoreAsync(OpenLibraryForPlaylistEvent evt)
     {
         NavigateToLibrary();
 
