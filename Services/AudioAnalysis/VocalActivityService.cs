@@ -47,6 +47,14 @@ public sealed class VocalActivityService : IVocalActivityService
     private readonly CachedStemSeparator _separator;
     private readonly ILogger<VocalActivityService> _logger;
 
+    /// <summary>Upper bound on concurrent stem separations (#304); separation is GPU/CPU-heavy.</summary>
+    private const int MaxConcurrentSeparations = 2;
+
+    /// <summary>Per-track separation timeout; a stuck separation must not block the whole set (#304).</summary>
+    private static readonly TimeSpan SeparationTimeout = TimeSpan.FromMinutes(5);
+
+    private readonly SemaphoreSlim _separationGate = new(MaxConcurrentSeparations, MaxConcurrentSeparations);
+
     public VocalActivityService(
         IDbContextFactory<AppDbContext> dbFactory,
         CachedStemSeparator separator,
@@ -73,7 +81,16 @@ public sealed class VocalActivityService : IVocalActivityService
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        foreach (var hash in unique)
+        // #304: run detections with bounded concurrency instead of one-at-a-time, so a set with
+        // several un-measured tracks doesn't serialize for minutes.
+        var tasks = unique.Select(hash => ProcessOneAsync(hash, ct)).ToList();
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+    }
+
+    private async Task ProcessOneAsync(string hash, CancellationToken ct)
+    {
+        await _separationGate.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
             ct.ThrowIfCancellationRequested();
             try
@@ -88,6 +105,10 @@ public sealed class VocalActivityService : IVocalActivityService
             {
                 _logger.LogWarning(ex, "[VocalActivity] Couldn't detect vocals for {Hash}; vocal fields left unset.", hash);
             }
+        }
+        finally
+        {
+            _separationGate.Release();
         }
     }
 
@@ -120,7 +141,10 @@ public sealed class VocalActivityService : IVocalActivityService
             Dictionary<StemType, string> stems;
             try
             {
-                stems = await _separator.SeparateAsync(path, outputDir, ct).ConfigureAwait(false);
+                // #304: cap a single separation so a stuck model run can't block the whole set.
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(SeparationTimeout);
+                stems = await _separator.SeparateAsync(path, outputDir, timeoutCts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
