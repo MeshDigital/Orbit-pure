@@ -45,6 +45,14 @@ public class PathProviderService
         // segment and drops empty ones. Split on the folder separators and combine (#341).
         var segments = formatted.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
 
+        // #391: if the template evaluated to no usable segments (all tokens empty / stripped),
+        // Path.Combine would return "" and we'd save a hidden ".ext" file in the download root.
+        // Fall back to the default Artist/Album/Title structure instead.
+        if (segments.Length == 0)
+        {
+            return GetTrackPath(track.Artist ?? "Unknown", track.Album ?? "Unknown", track.Title ?? "Unknown", extension);
+        }
+
         var relativePath = Path.Combine(segments) + "." + extension;
         var fullPath = ResolveWithinDownloadDirectory(relativePath);
 

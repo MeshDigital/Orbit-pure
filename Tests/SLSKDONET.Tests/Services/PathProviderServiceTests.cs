@@ -34,6 +34,16 @@ public class PathProviderServiceTests
         Assert.Equal(Path.Combine(@"C:\music", "Artist", "Title.flac"), path);
     }
 
+    // #391: when every token evaluates empty AND there is no filename to fall back to, the template
+    // must not collapse to a hidden ".ext" file in the download root.
+    [Fact]
+    public void GetTrackPath_AllTokensEmpty_FallsBackToDefaultStructure()
+    {
+        var path = MakeService("{artist}/{album}/{title}").GetTrackPath(MakeTrack("", "", "", filename: ""));
+
+        Assert.StartsWith(Path.Combine(@"C:\music", "Unknown", "Unknown", "Unknown"), path, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void GetTrackPath_TraversalSegment_CannotEscapeDownloadDir()
     {
