@@ -2752,6 +2752,24 @@ public partial class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // LF4: path protection (#346) — path lock + file origin on LibraryEntries.
+            if (TableExists("LibraryEntries") && !ColumnExists("LibraryEntries", "PathLockedAt"))
+            {
+                _logger.LogInformation("Patching Schema: Adding PathLockedAt to LibraryEntries (LF4 #346)...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""PathLockedAt"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("LibraryEntries") && !ColumnExists("LibraryEntries", "FileOrigin"))
+            {
+                _logger.LogInformation("Patching Schema: Adding FileOrigin to LibraryEntries (LF4 #346)...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""FileOrigin"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+                // Backfill existing rows as Imported; Downloaded/LinkedFolder is re-derived lazily
+                // from DownloadDirectory/LibraryFolders (a follow-up, needs the app config).
+                command.CommandText = @"UPDATE ""LibraryEntries"" SET ""FileOrigin""='Imported' WHERE ""FileOrigin"" IS NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)
