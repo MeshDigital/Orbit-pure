@@ -53,15 +53,13 @@ public sealed class LibraryCorruptionScanService : ILibraryCorruptionScanService
         List<(string Hash, string FilePath, string Artist, string Title)> targets;
         await using (var db = await _dbFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false))
         {
-            targets = await db.LibraryEntries
+            var rows = await db.LibraryEntries
                 .AsNoTracking()
                 .Where(e => e.FilePath != null && e.FilePath != string.Empty)
                 .Select(e => new { e.UniqueHash, e.FilePath, e.Artist, e.Title })
                 .ToListAsync(cancellationToken)
-                .ContinueWith(
-                    t => t.Result.Select(e => (e.UniqueHash, e.FilePath, e.Artist, e.Title)).ToList(),
-                    cancellationToken, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default)
                 .ConfigureAwait(false);
+            targets = rows.Select(e => (e.UniqueHash, e.FilePath, e.Artist, e.Title)).ToList();
         }
 
         _logger.LogInformation("[LibraryScan] Starting corruption scan — {Count} tracks", targets.Count);
