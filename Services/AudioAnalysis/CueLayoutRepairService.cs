@@ -165,29 +165,10 @@ public sealed class CueLayoutRepairService
     {
         Directory.CreateDirectory(DataDirectory);
         string target = Path.Combine(DataDirectory, $"library.db.bak-{PassName}-{DateTime.Now:yyyyMMdd-HHmmss}");
-        using var src = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = OrbitPaths.LibraryDbPath, Mode = SqliteOpenMode.ReadOnly }.ToString());
-        using var dst = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = target }.ToString());
-        src.Open();
-        dst.Open();
 
-        // The library DB can be transiently locked by a concurrent writer (a background analysis
-        // write, or a parallel test). Retry briefly, mirroring LibraryDatabaseMaintenance's backup
-        // path, instead of failing the whole repair (#306).
-        const int attempts = 6;
-        for (var attempt = 1; ; attempt++)
-        {
-            try
-            {
-                src.BackupDatabase(dst);
-                break;
-            }
-            catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6 && attempt < attempts) // BUSY, LOCKED
-            {
-                await Task.Delay(150 * attempt).ConfigureAwait(false);
-            }
-        }
-
-        SqliteConnection.ClearPool(dst); // release the backup file handle
+        // Retry briefly against transient BUSY/LOCKED from a concurrent writer, instead of failing
+        // the whole repair (#306, #387).
+        await SqliteBackupHelper.BackupWithRetryAsync(OrbitPaths.LibraryDbPath, target).ConfigureAwait(false);
         return target;
     }
 
