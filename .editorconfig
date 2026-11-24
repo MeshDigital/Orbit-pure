@@ -1,0 +1,22 @@
+# ORBIT (SLSKDONET) editor conventions.
+# Kept intentionally minimal: this only pins what an editor needs to stay consistent with the
+# repo. Analyzer enforcement and `dotnet format` gating are tracked separately (see the CI issues).
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+
+[*.{cs,csproj,axaml,xaml,json}]
+indent_style = space
+indent_size = 4
+
+[*.cs]
+# Private fields use _camelCase (e.g. `_logger`, `_config`); locals/parameters are camelCase and
+# types/members are PascalCase, matching the CLAUDE.md rules.
+dotnet_style_qualification_for_field = false:suggestion
+dotnet_style_qualification_for_property = false:suggestion
+csharp_style_var_for_built_in_types = false:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
