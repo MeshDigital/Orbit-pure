@@ -28,7 +28,7 @@ namespace SLSKDONET.Services.Audio
         public StemCacheService(ILogger<StemCacheService> logger)
         {
             _logger = logger;
-            _cacheBaseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ORBIT", "StemCache");
+            _cacheBaseDir = Path.Combine(SLSKDONET.Data.OrbitPaths.AppDataDirectory, "StemCache");
             Directory.CreateDirectory(_cacheBaseDir);
         }
 
