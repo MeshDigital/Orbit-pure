@@ -73,8 +73,7 @@ public sealed class EditPreviewStream : ISampleProvider, IDisposable
 
             var cts = new CancellationTokenSource();
             _producerCts = cts;
-            _producer = Task.Factory.StartNew(() => Produce(plan, frame, loop, generation, cts.Token),
-                cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            _producer = Task.Run(() => ProduceAsync(plan, frame, loop, generation, cts.Token), cts.Token);
         }
     }
 
@@ -112,7 +111,7 @@ public sealed class EditPreviewStream : ISampleProvider, IDisposable
         _producer = null;
     }
 
-    private void Produce(EditRenderPlan plan, long frame, (long Start, long End)? loop, int generation, CancellationToken ct)
+    private async Task ProduceAsync(EditRenderPlan plan, long frame, (long Start, long End)? loop, int generation, CancellationToken ct)
     {
         EditTimelineRenderer? renderer = null;
         int reportedErrors = 0;
@@ -123,9 +122,8 @@ public sealed class EditPreviewStream : ISampleProvider, IDisposable
             {
                 if (Interlocked.Read(ref _queuedFrames) >= _aheadFrames)
                 {
-                    // Deliberate producer-thread yield (not a retry backoff): avoid busy-spinning
-                    // while the consumer catches up. This thread has no sync context to return to.
-                    Thread.Sleep(4);
+                    // #310: yield asynchronously without blocking a thread-pool thread; wakes immediately on cancel.
+                    await Task.Delay(4, ct).ConfigureAwait(false);
                     continue;
                 }
 
@@ -155,6 +153,10 @@ public sealed class EditPreviewStream : ISampleProvider, IDisposable
                     while (reportedErrors < renderer.Errors.Count) Error?.Invoke(renderer.Errors[reportedErrors++]);
                 }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal halt / seek cancellation
         }
         catch (Exception ex)
         {

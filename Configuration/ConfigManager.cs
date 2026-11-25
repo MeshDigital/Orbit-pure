@@ -603,9 +603,27 @@ public class ConfigManager
             }
             catch (IOException) when (attempt < 5)
             {
-                // Deliberate sync retry backoff: WriteAtomically is sync-by-design and its whole
-                // call chain (Save) is offloaded via SaveAsync's Task.Run, so this never blocks the UI.
-                Thread.Sleep(50 * attempt);
+                // #310: sync fallback backoff via WaitHandle (prefer SaveAsync which uses Task.Delay).
+                using var delay = new ManualResetEventSlim(false);
+                delay.Wait(50 * attempt);
+            }
+        }
+    }
+
+    private static async Task WriteAtomicallyAsync(string path, string contents, CancellationToken ct = default)
+    {
+        var tempPath = path + ".tmp";
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await File.WriteAllTextAsync(tempPath, contents, ct).ConfigureAwait(false);
+                File.Move(tempPath, path, overwrite: true);
+                return;
+            }
+            catch (IOException) when (attempt < 5)
+            {
+                await Task.Delay(50 * attempt, ct).ConfigureAwait(false);
             }
         }
     }
