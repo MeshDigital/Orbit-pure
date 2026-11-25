@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>ORBIT Pure — Soulseek Client &amp; DJ Prep Suite</title>
+  <meta name="description" content="The Soulseek client for people who care about what they're actually downloading — and for DJs who want it prepped before it hits Rekordbox."/>
+  <link rel="icon" type="image/png" href="assets/app_icon.png"/>
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="index.html">
+        <img src="assets/app_icon.png" alt="ORBIT Pure icon"/>
+        <span>ORBIT PURE</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#screenshots">Screenshots</a>
+        <a href="#compare">Compare</a>
+        <a href="#faq">FAQ</a>
+        <a class="btn btn-primary" href="https://github.com/MeshDigital/Orbit-pure/releases/latest">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="container hero">
+      <div class="pill">Open Source · GPL-3.0 · Local-First · Zero Telemetry</div>
+      <h1>The Soulseek client for people who care about what they're actually downloading.</h1>
+      <p class="lead">
+        Prove every FLAC is genuine with FFT spectral forensics, import playlists from Spotify, YouTube, SoundCloud, or M3U/CSV, and prep BPM, Camelot key, cues, and stems before it hits Rekordbox.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/MeshDigital/Orbit-pure/releases/latest">Download for Windows (x64)</a>
+        <a class="btn btn-secondary" href="https://github.com/MeshDigital/Orbit-pure/releases/latest">macOS (Apple Silicon &amp; Intel)</a>
+        <a class="btn btn-secondary" href="https://github.com/MeshDigital/Orbit-pure/releases/latest">Linux (AppImage)</a>
+      </div>
+      <div class="platform-note">
+        Windows 10/11 (supported) · macOS arm64 &amp; x64 (native builds) · Linux x64 AppImage · Free &amp; Open Source
+      </div>
+      <div class="hero-shot">
+        <img src="assets/library-inspector.png" alt="ORBIT Pure library and track inspector"/>
+      </div>
+    </div>
+
+    <section id="features">
+      <div class="container">
+        <div class="section-label">Why ORBIT Pure</div>
+        <h2>Built for audio integrity and DJ workflow</h2>
+        <p class="sub">No ads, no cloud accounts required, and no silent overwrites of your Rekordbox library.</p>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Prove it's the real file</h3>
+            <p>Automatic FFT spectral forensics detect fake-lossless upscales and brickwalled transcodes before they pollute your library, with clear quality tiers and quarantine.</p>
+          </div>
+          <div class="card">
+            <h3>DJ prep before Rekordbox</h3>
+            <p>Local Essentia BPM, Camelot key, energy, loudness (LUFS), cue points, phrase structure, stem separation, and merge-mode Rekordbox XML + FAT32-safe USB folder layouts.</p>
+          </div>
+          <div class="card">
+            <h3>Search that explains itself</h3>
+            <p>Multi-lane quality ranking, Album-mode grouping with one-click Queue album, and explicit per-result rejection reasons so you always know why a file was preferred or hidden.</p>
+          </div>
+          <div class="card">
+            <h3>A real, path-safe library</h3>
+            <p>Unified path templates with live preview, Inbox staging, automatic path locking after Rekordbox export, undoable library reorganisation, and in-place quality upgrades with cue offset correction.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="screenshots">
+      <div class="container">
+        <div class="section-label">Inside the App</div>
+        <h2>Real screenshots from ORBIT Pure</h2>
+        <p class="sub">Native cross-platform Avalonia UI designed for high-density libraries and fast keyboard-driven curation.</p>
+        <div class="gallery">
+          <figure class="shot">
+            <img src="assets/library-inspector.png" alt="Track inspector with audio forensics and cues"/>
+            <figcaption>Library &amp; Track Inspector — technical forensics, Camelot key, cues, and path protection.</figcaption>
+          </figure>
+          <figure class="shot">
+            <img src="assets/library-filled-during-import-with-activity-chip.png" alt="Streaming playlist import with live activity chip"/>
+            <figcaption>Streaming Import — Spotify, YouTube, SoundCloud, M3U/CSV/JSON, and pasted tracklists.</figcaption>
+          </figure>
+          <figure class="shot">
+            <img src="assets/analysis-coverage.png" alt="Analysis coverage dashboard"/>
+            <figcaption>Audio Analysis Coverage — local BPM, key, loudness, and AI genre/style scoring.</figcaption>
+          </figure>
+          <figure class="shot">
+            <img src="assets/setup-01-welcome.png" alt="First-run setup welcome"/>
+            <figcaption>Guided Setup — clean onboarding with zero telemetry and local-first storage.</figcaption>
+          </figure>
+          <figure class="shot">
+            <img src="assets/setup-02-soulseek.png" alt="Soulseek account setup"/>
+            <figcaption>Soulseek Connection — OS keychain / DPAPI secret storage with peer reliability tracking.</figcaption>
+          </figure>
+          <figure class="shot">
+            <img src="assets/setup-metadata-step-live-progress.png" alt="Live metadata enrichment progress"/>
+            <figcaption>Background Enrichment — non-blocking metadata, artwork, and spectral scans.</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section id="compare">
+      <div class="container">
+        <div class="section-label">Comparison</div>
+        <h2>ORBIT Pure vs other Soulseek clients</h2>
+        <p class="sub">An honest look at where ORBIT Pure focuses compared to general-purpose Soulseek clients.</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Capability</th>
+                <th>ORBIT Pure</th>
+                <th>Nicotine+</th>
+                <th>SoulseekQt</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Fake-lossless FFT spectral forensics</td>
+                <td class="yes">Built-in</td>
+                <td>No</td>
+                <td>No</td>
+              </tr>
+              <tr>
+                <td>Album-mode search &amp; per-result rejection reasons</td>
+                <td class="yes">Built-in</td>
+                <td>Flat list</td>
+                <td>Flat list</td>
+              </tr>
+              <tr>
+                <td>Playlist import (Spotify, YouTube, SoundCloud, M3U/CSV/JSON)</td>
+                <td class="yes">Built-in + preview</td>
+                <td>Plugins / manual</td>
+                <td>No</td>
+              </tr>
+              <tr>
+                <td>Local BPM, Camelot key, cues, LUFS &amp; stems</td>
+                <td class="yes">Built-in</td>
+                <td>No</td>
+                <td>No</td>
+              </tr>
+              <tr>
+                <td>Rekordbox XML merge-mode &amp; path-lock protection</td>
+                <td class="yes">Built-in</td>
+                <td>No</td>
+                <td>No</td>
+              </tr>
+              <tr>
+                <td>In-place MP3→FLAC upgrade with cue offset correction</td>
+                <td class="yes">Built-in + Trash</td>
+                <td>No</td>
+                <td>No</td>
+              </tr>
+              <tr>
+                <td>Open source &amp; zero telemetry</td>
+                <td class="yes">GPL-3.0</td>
+                <td class="yes">GPL-3.0</td>
+                <td>Proprietary</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="faq">
+      <div class="container">
+        <div class="section-label">FAQ</div>
+        <h2>Common questions</h2>
+        <div class="faq">
+          <details open>
+            <summary>What is ORBIT Pure?</summary>
+            <p>ORBIT Pure is a free, open-source (GPL-3.0) desktop Soulseek client and DJ library preparation suite built with .NET 9 and Avalonia UI. It connects directly to the Soulseek peer-to-peer network and runs all audio analysis locally on your machine.</p>
+          </details>
+          <details>
+            <summary>Is it free? Are there accounts, subscriptions, or telemetry?</summary>
+            <p>100% free and open source under GPL-3.0. ORBIT has no backend servers, no analytics, and no telemetry. Your database, credentials (stored via OS keychain / DPAPI), and audio files never leave your machine.</p>
+          </details>
+          <details>
+            <summary>Which platforms are supported?</summary>
+            <p>Windows 10/11 (x64) is fully supported. Native macOS (Apple Silicon arm64 and Intel x64 DMGs) and Linux (x64 AppImage) builds are produced automatically on every release.</p>
+          </details>
+          <details>
+            <summary>How does fake-lossless detection work?</summary>
+            <p>After a download finishes, ORBIT inspects the file's frequency spectrum via FFT analysis to detect low-pass cutoffs typical of 128/192 kbps MP3s re-encoded as FLAC or WAV, flagging suspect files before they enter your DJ crates.</p>
+          </details>
+          <details>
+            <summary>Will ORBIT break my Rekordbox cues or file paths?</summary>
+            <p>No. Exported tracks are automatically path-locked so automatic re-filing and library reorganise runs skip them. Linked library folders are never moved automatically, and in-place quality upgrades measure encoder delay to shift cues and beatgrids within 1 ms.</p>
+          </details>
+          <details>
+            <summary>Can I import playlists from Spotify, YouTube, Apple Music, or TIDAL?</summary>
+            <p>Yes. ORBIT natively imports Spotify (OAuth + URL), YouTube &amp; YouTube Music playlists, public SoundCloud playlists, pasted tracklists, and local <code>.csv</code>, <code>.m3u</code>, <code>.m3u8</code>, <code>.txt</code>, and <code>.json</code> files (including exports from TuneMyMusic, Soundiiz, and Rekordbox).</p>
+          </details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container footer-inner">
+      <div>ORBIT Pure · Released under <a href="https://github.com/MeshDigital/Orbit-pure/blob/master/LICENSE">GPL-3.0</a></div>
+      <div class="footer-links">
+        <a href="https://github.com/MeshDigital/Orbit-pure">GitHub</a>
+        <a href="https://github.com/MeshDigital/Orbit-pure/releases/latest">Releases</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
