@@ -99,8 +99,8 @@ public sealed class BeatportCatalogClient
     /// </summary>
     private async Task<(int Status, string Html)> FetchHtmlAsync(string url, CancellationToken ct)
     {
-        var curl = Path.Combine(Environment.SystemDirectory, "curl.exe");
-        if (!File.Exists(curl))
+        var curl = Platform.ToolLocator.Current.Locate(Platform.ExternalTool.Curl);
+        if (string.IsNullOrEmpty(curl))
         {
             using var response = await _http.GetAsync(url, ct).ConfigureAwait(false);
             return ((int)response.StatusCode, await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));

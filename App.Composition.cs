@@ -332,6 +332,13 @@ public partial class App
         services.AddSingleton<Services.Shell.ShellStateMonitor>();
         services.AddSingleton<Services.Shell.WindowsTaskbarIntegration>();
         services.AddSingleton<Services.Shell.TrayIconController>();
+        // Cross-platform external tool locator (FFmpeg, Essentia, fpcalc, curl per OS/RID, #453).
+        services.AddSingleton<SLSKDONET.Services.Platform.IToolLocator>(_ =>
+        {
+            var locator = new SLSKDONET.Services.Platform.DefaultToolLocator();
+            SLSKDONET.Services.Platform.ToolLocator.SetCurrent(locator);
+            return locator;
+        });
         services.AddTransient<UsersViewModel>();
         services.AddTransient<UserProfileViewModel>();
         services.AddTransient<RoomsViewModel>();
