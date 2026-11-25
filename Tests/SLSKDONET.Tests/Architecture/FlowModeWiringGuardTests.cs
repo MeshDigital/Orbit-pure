@@ -15,10 +15,18 @@ public class FlowModeWiringGuardTests
     private static string Read(string relativePath) =>
         File.ReadAllText(Path.Combine(RepoGuard.Root, relativePath.Replace('/', Path.DirectorySeparatorChar)));
 
+    private static string ReadPlayerViewModelPartials()
+    {
+        var vmDir = Path.Combine(RepoGuard.Root, "ViewModels");
+        var files = Directory.GetFiles(vmDir, "PlayerViewModel*.cs");
+        Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+        return string.Join("\n", Array.ConvertAll(files, File.ReadAllText));
+    }
+
     [Fact]
     public void Player_PlansFlowOnEveryTrackChange()
     {
-        var vm = Read("ViewModels/PlayerViewModel.cs");
+        var vm = ReadPlayerViewModelPartials();
 
         var start = vm.IndexOf("private void SetNowPlayingState(", StringComparison.Ordinal);
         var end = vm.IndexOf("/// <summary>Queue index the engine currently has preloaded", StringComparison.Ordinal);
@@ -32,7 +40,7 @@ public class FlowModeWiringGuardTests
     [Fact]
     public void Player_ActuallyUsesTheFlowPlanToChooseTheNextTrack()
     {
-        var vm = Read("ViewModels/PlayerViewModel.cs");
+        var vm = ReadPlayerViewModelPartials();
 
         Assert.Contains("_flowModeService.RebuildFlowPath(", vm);
         // Preload (PeekNextIndex) and the manual Skip button (PlayNextTrack) must both follow the plan.

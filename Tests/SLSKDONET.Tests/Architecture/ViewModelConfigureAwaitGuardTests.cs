@@ -23,13 +23,12 @@ public class ViewModelConfigureAwaitGuardTests
     private static readonly Dictionary<string, int> Baseline = new(StringComparer.OrdinalIgnoreCase)
     {
         ["ViewModels/FlowBuilderViewModel.cs"] = 10,
-        ["ViewModels/PlayerViewModel.cs"] = 9,
+        ["ViewModels/PlayerViewModel.cs"] = 2,
         ["ViewModels/Library/ProjectListViewModel.cs"] = 7,
         ["ViewModels/LibraryDoubleInspectorViewModel.cs"] = 2,
         ["ViewModels/SimilarTracksViewModel.cs"] = 2,
         ["ViewModels/Library/VirtualizedTrackCollection.cs"] = 2,
         ["ViewModels/UserProfileViewModel.cs"] = 2,
-        ["ViewModels/Workstation/WorkstationViewModel.cs"] = 2,
         ["ViewModels/PlaylistIntelligenceViewModel.cs"] = 2,
         ["ViewModels/LibraryViewModel.cs"] = 2,
         ["ViewModels/PlaylistTrackViewModel.cs"] = 1,
