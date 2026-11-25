@@ -275,8 +275,10 @@ public partial class App
         services.AddSingleton<IDialogService, DialogService>();
         services.AddSingleton<Services.Diagnostics.FeedbackReportService>(); // top-bar "Send feedback" zip
         services.AddSingleton<Services.Platform.FfmpegInstallerService>();
-        services.AddSingleton<SLSKDONET.Services.Update.GitHubUpdateService>(_ =>
-            new SLSKDONET.Services.Update.GitHubUpdateService(new System.Net.Http.HttpClient(), new Version(0, 3, 0)));
+        services.AddSingleton<SLSKDONET.Services.Update.GitHubUpdateService>(sp =>
+            new SLSKDONET.Services.Update.GitHubUpdateService(
+                sp.GetRequiredService<System.Net.Http.IHttpClientFactory>().CreateClient(),
+                SLSKDONET.Services.Update.GitHubUpdateService.GetCurrentAppVersion()));
         services.AddSingleton<SLSKDONET.ViewModels.UpdateViewModel>();
         services.AddSingleton<Services.Rekordbox.RekordboxLibraryService>(); // reads Rekordbox's master.db via RekordboxBridge // automatic FFmpeg install (startup + setup wizard)
         services.AddSingleton<Services.Telemetry.FlowBuilderSuggestionTelemetryService>();
