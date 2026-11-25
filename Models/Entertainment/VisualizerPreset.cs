@@ -57,4 +57,7 @@ public enum VisualizerEngineMode
 
     /// <summary>Ambient mode — slow, meditative, minimal motion.</summary>
     Ambient,
+
+    /// <summary>MilkDrop-compatible mode — renders built-in and user-supplied .milk presets (#426).</summary>
+    MilkDrop,
 }
