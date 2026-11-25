@@ -118,4 +118,28 @@ public class QualityUpgradeServiceTests : IDisposable
         Assert.True(File.Exists(oldFile));
         Assert.True(File.Exists(newFile));
     }
+
+    [Fact]
+    public async Task ReplaceAsync_ShiftsCueTimestampsByTheOffset()
+    {
+        const string hash = "h-offset";
+        var oldFile = Path.Combine(_dir, "Artist - Title.mp3");
+        var newFile = Path.Combine(_dir, "staged", "Artist - Title.flac");
+        File.WriteAllText(oldFile, "mp3");
+        Directory.CreateDirectory(Path.GetDirectoryName(newFile)!);
+        File.WriteAllText(newFile, "flac");
+
+        using (var db = new AppDbContext())
+        {
+            db.LibraryEntries.Add(new LibraryEntryEntity { UniqueHash = hash, FilePath = oldFile });
+            db.CuePoints.Add(new CuePointEntity { TrackUniqueHash = hash, TimestampInSeconds = 10.0 });
+            db.SaveChanges();
+        }
+
+        var svc = new QualityUpgradeService(new TestDbFactory(), NullLogger<QualityUpgradeService>.Instance);
+        await svc.ReplaceAsync(hash, newFile, oldFile, _dir, offsetSeconds: 0.026);
+
+        using var verify = new AppDbContext();
+        Assert.Equal(10.026, verify.CuePoints.Single(c => c.TrackUniqueHash == hash).TimestampInSeconds, 6);
+    }
 }

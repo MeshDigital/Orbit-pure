@@ -30,6 +30,7 @@ public sealed class QualityUpgradeService
         string oldFile,
         string downloadDir,
         bool allowProtectedOverride = false,
+        double offsetSeconds = 0,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(newFile) || !File.Exists(newFile))
@@ -77,6 +78,15 @@ public sealed class QualityUpgradeService
             var tracks = await db.Tracks.Where(t => t.GlobalId == hash).ToListAsync(ct).ConfigureAwait(false);
             foreach (var t in tracks)
                 t.LocalFilePath = target;
+
+            // LF6: shift cue timestamps by the measured decoder offset (encoder delay/padding), so
+            // cues stay on the beat after swapping one rendition for the other.
+            if (offsetSeconds != 0)
+            {
+                var cues = await db.CuePoints.Where(c => c.TrackUniqueHash == hash).ToListAsync(ct).ConfigureAwait(false);
+                foreach (var cue in cues)
+                    cue.TimestampInSeconds += offsetSeconds;
+            }
 
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
         }
