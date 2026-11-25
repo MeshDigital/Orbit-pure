@@ -12,11 +12,14 @@ namespace SLSKDONET.Tests.Architecture;
 /// </summary>
 public class FileRelocationGuardTests
 {
-    // Non-track files: atomic temp→final writes for config/view state, not library audio files.
+    // Non-track files and LF6 in-place quality-upgrade/trash paths (which have their own
+    // trash/restore and transactional rollback guarantees, #348).
     private static readonly string[] Allowlisted =
     {
         "ColumnConfigurationService.cs",          // column layout JSON
         "LibraryTrackListViewStateStore.cs",      // view state JSON
+        "OrbitTrash.cs",                          // LF6 (#348): move to/from .orbit-trash
+        "QualityUpgradeService.cs",               // LF6 (#348): in-place quality upgrade swap + rollback
     };
 
     [Fact]
