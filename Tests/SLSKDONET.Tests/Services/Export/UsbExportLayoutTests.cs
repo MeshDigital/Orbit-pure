@@ -42,6 +42,9 @@ public class UsbExportLayoutTests
     [InlineData("trailing.", "trailing")]
     [InlineData("", "Unknown")]
     [InlineData("   ", "Unknown")]
+    [InlineData("CON", "_CON")]
+    [InlineData("nul", "_nul")]
+    [InlineData("COM1", "_COM1")]
     public void SafeFolder_StripsFat32InvalidAndFallsBack(string input, string expected)
     {
         Assert.Equal(expected, UsbExportLayout.SafeFolder(input));

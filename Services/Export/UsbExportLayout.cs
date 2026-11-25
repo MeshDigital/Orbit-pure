@@ -21,6 +21,13 @@ public static class UsbExportLayout
 {
     private static readonly char[] Fat32Invalid = { '\\', '/', ':', '*', '?', '"', '<', '>', '|' };
 
+    private static readonly System.Collections.Generic.HashSet<string> ReservedDeviceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    };
+
     public static string GetFolder(Track track, UsbLayoutMode mode, string? playlistName = null)
     {
         return mode switch
@@ -47,6 +54,7 @@ public static class UsbExportLayout
         if (string.IsNullOrWhiteSpace(cleaned)) return "Unknown";
         if (cleaned.Length > maxLength)
             cleaned = cleaned[..maxLength].TrimEnd('.', ' ');
-        return string.IsNullOrWhiteSpace(cleaned) ? "Unknown" : cleaned;
+        if (string.IsNullOrWhiteSpace(cleaned)) return "Unknown";
+        return ReservedDeviceNames.Contains(cleaned) ? $"_{cleaned}" : cleaned;
     }
 }
