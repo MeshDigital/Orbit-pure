@@ -175,44 +175,10 @@ public sealed class EssentiaRunner
     }
 
     /// <summary>
-    /// Searches for the Essentia streaming extractor binary in known locations.
+    /// Searches for the Essentia streaming extractor binary via <see cref="Platform.ToolLocator"/> (#453).
     /// </summary>
     private static string? ResolveEssentiaBinary()
-    {
-        // Candidate binary names (Windows has .exe; Linux/macOS do not)
-        string[] names = OperatingSystem.IsWindows()
-            ? ["essentia_streaming_extractor_music.exe", "streaming_extractor_music.exe"]
-            : ["essentia_streaming_extractor_music", "streaming_extractor_music"];
-
-        // 1. Bundled alongside the executable
-        foreach (string name in names)
-        {
-            string bundled = Path.Combine(AppContext.BaseDirectory, name);
-            if (File.Exists(bundled)) return bundled;
-        }
-
-        // 2. Bundled in Tools/ sub-directory (flat — binary copied by .csproj glob)
-        foreach (string name in names)
-        {
-            string tools = Path.Combine(AppContext.BaseDirectory, "Tools", name);
-            if (File.Exists(tools)) return tools;
-        }
-
-        // 3. Bundled in Tools/essentia/ sub-directory (legacy layout)
-        foreach (string name in names)
-        {
-            string tools = Path.Combine(AppContext.BaseDirectory, "Tools", "essentia", name);
-            if (File.Exists(tools)) return tools;
-        }
-
-        // 3. System PATH
-        foreach (string name in names)
-        {
-            if (IsOnPath(name)) return name;
-        }
-
-        return null;
-    }
+        => Platform.ToolLocator.Current.Locate(Platform.ExternalTool.Essentia);
 
     private static bool IsOnPath(string binaryName)
     {

@@ -27,15 +27,15 @@ public class PathProviderService
     }
 
     /// <summary>
-    /// Gets the full path for a track using either the custom template or default Artist/Album structure.
+    /// <summary>
+    /// Computes the target path for a track without creating any directories on disk (pure — safe for previews, #347).
     /// </summary>
-    public string GetTrackPath(Track track)
+    public string ResolveTrackPath(Track track)
     {
         var template = _config.NameFormat;
         if (string.IsNullOrWhiteSpace(template))
         {
-            // Fallback to legacy hardcoded structure: Artist/Album/Title.ext
-            return GetTrackPath(track.Artist ?? "Unknown", track.Album ?? "Unknown", track.Title ?? "Unknown", track.GetExtension());
+            return ResolveTrackPath(track.Artist ?? "Unknown", track.Album ?? "Unknown", track.Title ?? "Unknown", track.GetExtension());
         }
 
         var formatted = _fileNameFormatter.FormatTemplate(template, track);
@@ -49,11 +49,30 @@ public class PathProviderService
         {
             // #391: every template token evaluated empty — fall back to the default structure
             // instead of writing a hidden ".flac" into the download root.
-            return GetTrackPath(track.Artist ?? "Unknown", track.Album ?? "Unknown", track.Title ?? "Unknown", extension);
+            return ResolveTrackPath(track.Artist ?? "Unknown", track.Album ?? "Unknown", track.Title ?? "Unknown", extension);
         }
 
         var relativePath = Path.Combine(segments) + "." + extension;
-        var fullPath = ResolveWithinDownloadDirectory(relativePath);
+        return ResolveWithinDownloadDirectory(relativePath);
+    }
+
+    /// <summary>Computes the legacy Artist/Album/Title.ext path without creating directories on disk.</summary>
+    public string ResolveTrackPath(string artist, string album, string title, string extension)
+    {
+        var safeArtist = Slugify(artist);
+        var safeAlbum = Slugify(album);
+        var safeTitle = Slugify(title);
+
+        return ResolveWithinDownloadDirectory(Path.Combine(safeArtist, safeAlbum, $"{safeTitle}.{extension}"));
+    }
+
+    /// <summary>
+    /// Gets the full path for a track using either the custom template or default Artist/Album structure,
+    /// ensuring the target directory exists.
+    /// </summary>
+    public string GetTrackPath(Track track)
+    {
+        var fullPath = ResolveTrackPath(track);
 
         // Ensure directory exists
         var directory = Path.GetDirectoryName(fullPath);
@@ -67,11 +86,7 @@ public class PathProviderService
     /// </summary>
     public string GetTrackPath(string artist, string album, string title, string extension)
     {
-        var safeArtist = Slugify(artist);
-        var safeAlbum = Slugify(album);
-        var safeTitle = Slugify(title);
-
-        var fullPath = ResolveWithinDownloadDirectory(Path.Combine(safeArtist, safeAlbum, $"{safeTitle}.{extension}"));
+        var fullPath = ResolveTrackPath(artist, album, title, extension);
 
         // Ensure directory exists
         var directory = Path.GetDirectoryName(fullPath);
