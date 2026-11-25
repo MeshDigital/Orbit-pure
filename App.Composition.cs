@@ -358,6 +358,13 @@ public partial class App
             SLSKDONET.Services.Platform.ToolLocator.SetCurrent(locator);
             return locator;
         });
+        // Cross-platform audio decoder seam (#456): Media Foundation + FFmpeg on Windows, FFmpeg on macOS/Linux.
+        services.AddSingleton<SLSKDONET.Services.Audio.IAudioDecoder>(_ =>
+        {
+            var decoder = new SLSKDONET.Services.Audio.CrossPlatformAudioDecoder();
+            SLSKDONET.Services.Audio.AudioDecoder.SetCurrent(decoder);
+            return decoder;
+        });
         services.AddTransient<UsersViewModel>();
         services.AddTransient<UserProfileViewModel>();
         services.AddTransient<RoomsViewModel>();

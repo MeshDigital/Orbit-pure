@@ -115,7 +115,7 @@ namespace SLSKDONET.Services.Audio
             {
                 DisposePlaybackResources(deleteRenderedFile: true, stopOutput: true);
 
-                _reader = new AudioFileReader(previewPath);
+                _reader = PlayableAudio.Open(previewPath, out _);
                 // The Settings output device (shared mode), not always the Windows default.
                 try
                 {

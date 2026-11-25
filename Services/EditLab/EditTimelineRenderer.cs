@@ -129,7 +129,7 @@ internal sealed class ClipVoice : IDisposable
         _outRate = outRate;
         _clipFrame = Math.Max(0, offsetInClip);
 
-        _reader = new AudioFileReader(plan.AudioPath);
+        _reader = SLSKDONET.Services.Audio.PlayableAudio.Open(plan.AudioPath, out _);
         try
         {
             int srcRate = _reader.WaveFormat.SampleRate;

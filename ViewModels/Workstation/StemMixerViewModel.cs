@@ -201,7 +201,7 @@ public sealed class StemMixerViewModel : ReactiveObject, IDisposable
         {
             try
             {
-                var reader   = new AudioFileReader(path);
+                var reader   = SLSKDONET.Services.Audio.PlayableAudio.Open(path, out _);
                 var provider = new SampleChannel(reader, forceStereo: true);
                 _audioProviders.Add(reader);
                 Mixer.AddStem(type, provider);

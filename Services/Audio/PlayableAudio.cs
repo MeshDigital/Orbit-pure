@@ -28,7 +28,8 @@ public static class PlayableAudio
     public static string CacheDirectory { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ORBIT", "PlaybackCache");
 
-    /// <summary>Opens <paramref name="path"/>, converting through ffmpeg if Media Foundation can't decode it.
+    /// <summary>Opens <paramref name="path"/>, converting through ffmpeg when required by the platform or
+    /// when Media Foundation can't decode it (#456).
     /// <paramref name="playablePath"/> is the file actually being read (the original or its cached WAV).</summary>
     public static AudioFileReader Open(string path, out string playablePath)
     {
@@ -38,19 +39,7 @@ public static class PlayableAudio
             return new AudioFileReader(known);
         }
 
-        try
-        {
-            var reader = new AudioFileReader(path);
-            playablePath = path;
-            return reader;
-        }
-        catch (Exception ex) when (File.Exists(path))
-        {
-            Serilog.Log.Information("[PlayableAudio] Windows can't decode {File} ({Error}) — using an ffmpeg-decoded copy",
-                Path.GetFileName(path), ex.Message.Split('\n')[0].Trim());
-            playablePath = EnsureDecodedCopy(path);
-            return new AudioFileReader(playablePath);
-        }
+        return AudioDecoder.Current.OpenForPlayback(path, out playablePath);
     }
 
     /// <summary>Returns the cached WAV for <paramref name="path"/>, creating it with ffmpeg if needed.</summary>
