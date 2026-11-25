@@ -148,4 +148,33 @@ public class QualityUpgradeServiceTests : IDisposable
         Assert.Equal(10.026, beats![0], 6);
         Assert.Equal(11.026, beats[1], 6);
     }
+
+    [Fact]
+    public async Task ReplaceAsync_NegativeOffset_ClampsEarlyCuesAndBeatsAtZero()
+    {
+        const string hash = "h-offset-clamp";
+        var oldFile = Path.Combine(_dir, "Artist - Early.mp3");
+        var newFile = Path.Combine(_dir, "staged", "Artist - Early.flac");
+        File.WriteAllText(oldFile, "mp3");
+        Directory.CreateDirectory(Path.GetDirectoryName(newFile)!);
+        File.WriteAllText(newFile, "flac");
+
+        using (var db = new AppDbContext())
+        {
+            db.LibraryEntries.Add(new LibraryEntryEntity { UniqueHash = hash, FilePath = oldFile });
+            db.CuePoints.Add(new CuePointEntity { TrackUniqueHash = hash, TimestampInSeconds = 0.010 });
+            db.AudioFeatures.Add(new AudioFeaturesEntity { TrackUniqueHash = hash, BeatGridJson = "[0.005, 1.0]" });
+            db.SaveChanges();
+        }
+
+        var svc = new QualityUpgradeService(new TestDbFactory(), NullLogger<QualityUpgradeService>.Instance);
+        await svc.ReplaceAsync(hash, newFile, oldFile, _dir, offsetSeconds: -0.026);
+
+        using var verify = new AppDbContext();
+        Assert.Equal(0.0, verify.CuePoints.Single(c => c.TrackUniqueHash == hash).TimestampInSeconds, 6);
+        var beats = System.Text.Json.JsonSerializer.Deserialize<List<double>>(
+            verify.AudioFeatures.Single(f => f.TrackUniqueHash == hash).BeatGridJson);
+        Assert.Equal(0.0, beats![0], 6);
+        Assert.Equal(0.974, beats[1], 6);
+    }
 }

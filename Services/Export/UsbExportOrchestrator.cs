@@ -62,7 +62,8 @@ public sealed class UsbExportOrchestrator
         IProgress<ExportProgress>? progress = null,
         CancellationToken ct = default,
         Guid? folderId = null,
-        Func<RekordboxExportConflictReport, Task<bool>>? confirmOverwrite = null)
+        Func<RekordboxExportConflictReport, Task<bool>>? confirmOverwrite = null,
+        UsbLayoutMode? layoutMode = null)
     {
         _logger.LogInformation(
             "Starting {Mode} export of '{Playlist}' ({Count} tracks) → {Dest}",
@@ -73,7 +74,7 @@ public sealed class UsbExportOrchestrator
         await TrackExportPreflight.ValidateAsync(tracks, ct);
 
         if (mode == ExportMode.FilesAndXml)
-            await ExportFilesAndXmlAsync(playlistName, tracks, destinationRoot, progress, ct, folderId, confirmOverwrite);
+            await ExportFilesAndXmlAsync(playlistName, tracks, destinationRoot, progress, ct, folderId, confirmOverwrite, layoutMode);
         else
             await ExportXmlOnlyAsync(playlistName, tracks, destinationRoot, progress, ct, folderId, confirmOverwrite);
     }
@@ -87,9 +88,12 @@ public sealed class UsbExportOrchestrator
         IProgress<ExportProgress>? progress,
         CancellationToken ct,
         Guid? folderId = null,
-        Func<RekordboxExportConflictReport, Task<bool>>? confirmOverwrite = null)
+        Func<RekordboxExportConflictReport, Task<bool>>? confirmOverwrite = null,
+        UsbLayoutMode? layoutMode = null)
     {
-        string audioDir = Path.Combine(usbRoot, "OrbitAudio", Sanitize(playlistName));
+        string audioDir = layoutMode is null
+            ? Path.Combine(usbRoot, "OrbitAudio", Sanitize(playlistName))
+            : usbRoot; // layout folders hang directly off the USB root
         Directory.CreateDirectory(audioDir);
 
         // Pre-flight: estimate total size vs. free space so a large export warns up front instead
@@ -156,7 +160,9 @@ public sealed class UsbExportOrchestrator
                 continue;
             }
 
-            var destPath = BuildDeterministicDestPath(audioDir, track);
+            var destPath = layoutMode is UsbLayoutMode mode
+                ? LayoutDestPath(usbRoot, track, mode, playlistName)
+                : BuildDeterministicDestPath(audioDir, track);
 
             // Re-export fast path: a same-size file already at the deterministic destination is
             // treated as already correctly copied — skips re-writing the entire playlist's worth
@@ -186,6 +192,10 @@ public sealed class UsbExportOrchestrator
             {
                 ct.ThrowIfCancellationRequested();
                 progress?.Report(new(tracks.Count, copied, skipped, Path.GetFileName(item.DestPath), false));
+
+                var destDir = Path.GetDirectoryName(item.DestPath);
+                if (!string.IsNullOrEmpty(destDir))
+                    Directory.CreateDirectory(destDir);
 
                 bool ok = await _fileWriteService.CopyFileAtomicAsync(item.Track.ResolvedFilePath!, item.DestPath, preserveTimestamps: true, ct);
                 if (!ok)
@@ -274,6 +284,30 @@ public sealed class UsbExportOrchestrator
             : " [" + track.TrackUniqueHash.Substring(0, Math.Min(8, track.TrackUniqueHash.Length)) + "]";
         var safeName = Sanitize($"{track.Artist} - {track.Title}{stableSuffix}") + ext;
         return Path.Combine(audioDir, safeName);
+    }
+
+    /// <summary>LF7 (#349): destination path under a folder layout (By Key / BPM / Genre / Playlist).</summary>
+    internal static string LayoutDestPath(string usbRoot, PlaylistTrack track, UsbLayoutMode mode, string playlistName)
+    {
+        var folder = UsbExportLayout.GetFolder(
+            new SLSKDONET.Models.Track
+            {
+                MusicalKey = track.MusicalKey,
+                BPM = track.BPM,
+                Genres = track.Genres,
+                Filename = track.ResolvedFilePath,
+                Title = track.Title,
+                Artist = track.Artist,
+            },
+            mode,
+            playlistName);
+
+        var ext = Path.GetExtension(track.ResolvedFilePath ?? "");
+        var stableSuffix = string.IsNullOrEmpty(track.TrackUniqueHash)
+            ? ""
+            : " [" + track.TrackUniqueHash.Substring(0, Math.Min(8, track.TrackUniqueHash.Length)) + "]";
+        var safeName = UsbExportLayout.SafeFolder($"{track.Artist} - {track.Title}{stableSuffix}") + ext;
+        return Path.Combine(usbRoot, folder, safeName);
     }
 
 }
