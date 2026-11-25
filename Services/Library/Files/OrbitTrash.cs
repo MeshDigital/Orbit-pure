@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace SLSKDONET.Services.Library.Files;
@@ -41,5 +42,25 @@ public static class OrbitTrash
         File.Move(trashedPath, origin);
         File.Delete(trashedPath + OriginSuffix);
         return origin;
+    }
+
+    /// <summary>Deletes trashed files (and their .origin sidecars) older than <paramref name="retention"/>; returns what was removed.</summary>
+    public static IReadOnlyList<string> SweepExpired(string downloadDir, TimeSpan retention)
+    {
+        var trashDir = GetTrashDirectory(downloadDir);
+        if (!Directory.Exists(trashDir)) return Array.Empty<string>();
+
+        var cutoff = DateTime.UtcNow - retention;
+        var removed = new List<string>();
+        foreach (var file in Directory.GetFiles(trashDir))
+        {
+            if (file.EndsWith(OriginSuffix, StringComparison.OrdinalIgnoreCase)) continue; // handled with its file
+            if (File.GetLastWriteTimeUtc(file) >= cutoff) continue;
+            File.Delete(file);
+            var sidecar = file + OriginSuffix;
+            if (File.Exists(sidecar)) File.Delete(sidecar);
+            removed.Add(file);
+        }
+        return removed;
     }
 }

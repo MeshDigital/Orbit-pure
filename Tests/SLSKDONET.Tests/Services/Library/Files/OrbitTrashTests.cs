@@ -56,4 +56,26 @@ public class OrbitTrashTests : IDisposable
     {
         Assert.Throws<ArgumentException>(() => OrbitTrash.GetTrashDirectory(dir!));
     }
+
+    [Fact]
+    public void SweepExpired_DeletesOldFilesButKeepsRecentOnes()
+    {
+        var oldFile = Path.Combine(_root, "old.mp3");
+        var recentFile = Path.Combine(_root, "recent.mp3");
+        File.WriteAllText(oldFile, "old");
+        File.WriteAllText(recentFile, "recent");
+
+        var trashedOld = OrbitTrash.TrashFile(oldFile, _root);
+        var trashedRecent = OrbitTrash.TrashFile(recentFile, _root);
+
+        // Age the old one past the retention window.
+        File.SetLastWriteTimeUtc(trashedOld, DateTime.UtcNow.AddDays(-31));
+
+        var removed = OrbitTrash.SweepExpired(_root, TimeSpan.FromDays(30));
+
+        Assert.Contains(trashedOld, removed);
+        Assert.False(File.Exists(trashedOld));
+        Assert.False(File.Exists(trashedOld + OrbitTrash.OriginSuffix));
+        Assert.True(File.Exists(trashedRecent)); // within retention
+    }
 }
