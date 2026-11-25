@@ -193,6 +193,10 @@ public sealed class UsbExportOrchestrator
                 ct.ThrowIfCancellationRequested();
                 progress?.Report(new(tracks.Count, copied, skipped, Path.GetFileName(item.DestPath), false));
 
+                var destDir = Path.GetDirectoryName(item.DestPath);
+                if (!string.IsNullOrEmpty(destDir))
+                    Directory.CreateDirectory(destDir);
+
                 bool ok = await _fileWriteService.CopyFileAtomicAsync(item.Track.ResolvedFilePath!, item.DestPath, preserveTimestamps: true, ct);
                 if (!ok)
                 {
@@ -283,7 +287,7 @@ public sealed class UsbExportOrchestrator
     }
 
     /// <summary>LF7 (#349): destination path under a folder layout (By Key / BPM / Genre / Playlist).</summary>
-    private static string LayoutDestPath(string usbRoot, PlaylistTrack track, UsbLayoutMode mode, string playlistName)
+    internal static string LayoutDestPath(string usbRoot, PlaylistTrack track, UsbLayoutMode mode, string playlistName)
     {
         var folder = UsbExportLayout.GetFolder(
             new SLSKDONET.Models.Track
@@ -299,7 +303,10 @@ public sealed class UsbExportOrchestrator
             playlistName);
 
         var ext = Path.GetExtension(track.ResolvedFilePath ?? "");
-        var safeName = Sanitize($"{track.Artist} - {track.Title}") + ext;
+        var stableSuffix = string.IsNullOrEmpty(track.TrackUniqueHash)
+            ? ""
+            : " [" + track.TrackUniqueHash.Substring(0, Math.Min(8, track.TrackUniqueHash.Length)) + "]";
+        var safeName = UsbExportLayout.SafeFolder($"{track.Artist} - {track.Title}{stableSuffix}") + ext;
         return Path.Combine(usbRoot, folder, safeName);
     }
 

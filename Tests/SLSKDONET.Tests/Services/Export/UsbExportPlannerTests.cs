@@ -70,4 +70,53 @@ public class UsbExportPlannerTests : IDisposable
 
         Assert.Equal(Path.Combine("Unknown", "a.flac"), Assert.Single(plan.Items).RelativeTargetPath);
     }
+
+    [Fact]
+    public void Plan_SameFilenameDifferentHashesInSameFolder_DisambiguatesTargets()
+    {
+        var a = MakeFile("dir1/same.flac", "abcd");
+        var b = MakeFile("dir2/same.flac", "efgh");
+
+        var plan = UsbExportPlanner.Plan(new[]
+        {
+            new UsbExportTrack("hash1111aaaa", a, MakeTrack("8A", 128, null, "same.flac")),
+            new UsbExportTrack("hash2222bbbb", b, MakeTrack("8A", 128, null, "same.flac")),
+        }, UsbLayoutMode.ByKey);
+
+        Assert.Equal(2, plan.Items.Count);
+        Assert.NotEqual(plan.Items[0].RelativeTargetPath, plan.Items[1].RelativeTargetPath);
+        Assert.Equal(Path.Combine("8A", "same.flac"), plan.Items[0].RelativeTargetPath);
+        Assert.Equal(Path.Combine("8A", "same [hash2222].flac"), plan.Items[1].RelativeTargetPath);
+    }
+
+    [Fact]
+    public void LayoutDestPath_SanitizesFat32AndIncludesHashDisambiguator()
+    {
+        var t1 = new PlaylistTrack
+        {
+            Artist = "AC/DC: Live?",
+            Title = "Track*1",
+            MusicalKey = "8A",
+            ResolvedFilePath = "song.flac",
+            TrackUniqueHash = "deadbeef1234",
+        };
+        var t2 = new PlaylistTrack
+        {
+            Artist = "AC/DC: Live?",
+            Title = "Track*1",
+            MusicalKey = "8A",
+            ResolvedFilePath = "song.flac",
+            TrackUniqueHash = "cafebabe5678",
+        };
+
+        var p1 = UsbExportOrchestrator.LayoutDestPath("usb", t1, UsbLayoutMode.ByKey, "Set");
+        var p2 = UsbExportOrchestrator.LayoutDestPath("usb", t2, UsbLayoutMode.ByKey, "Set");
+
+        Assert.NotEqual(p1, p2);
+        Assert.DoesNotContain(":", Path.GetFileName(p1));
+        Assert.DoesNotContain("?", Path.GetFileName(p1));
+        Assert.DoesNotContain("*", Path.GetFileName(p1));
+        Assert.Contains("[deadbeef]", Path.GetFileName(p1));
+        Assert.Contains("[cafebabe]", Path.GetFileName(p2));
+    }
 }

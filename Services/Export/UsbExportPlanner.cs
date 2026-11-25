@@ -27,6 +27,7 @@ public static class UsbExportPlanner
         Func<string, string?>? playlistName = null)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        var usedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var items = new List<UsbExportPlanItem>();
         long total = 0;
 
@@ -38,6 +39,25 @@ public static class UsbExportPlanner
             var baseName = UsbExportLayout.SafeFolder(Path.GetFileNameWithoutExtension(t.Metadata.Filename ?? t.Metadata.Title ?? "Unknown"));
             var extension = Path.GetExtension(t.SourcePath);
             var relative = Path.Combine(folder, baseName + extension);
+
+            if (!usedPaths.Add(relative))
+            {
+                var hashSuffix = string.IsNullOrEmpty(t.Hash)
+                    ? ""
+                    : " [" + t.Hash[..Math.Min(8, t.Hash.Length)] + "]";
+                var disambiguated = string.IsNullOrEmpty(hashSuffix)
+                    ? relative
+                    : Path.Combine(folder, UsbExportLayout.SafeFolder(baseName + hashSuffix) + extension);
+
+                var counter = 2;
+                while (!usedPaths.Add(disambiguated))
+                {
+                    disambiguated = Path.Combine(folder, UsbExportLayout.SafeFolder($"{baseName} ({counter})") + extension);
+                    counter++;
+                }
+
+                relative = disambiguated;
+            }
 
             long size = 0;
             if (File.Exists(t.SourcePath))
