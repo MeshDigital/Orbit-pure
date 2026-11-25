@@ -58,7 +58,7 @@ public class LibrarySidepanelResponsiveLayoutTests
     [Fact]
     public void FlowBuilderHandoff_PreservesPlaylistWithoutRoutingThroughWorkstation()
     {
-        var source = ReadSource("ViewModels", "LibraryViewModel.Commands.cs");
+        var source = ReadSource("ViewModels", "LibraryViewModel.Commands.Intelligence.cs");
         var start = source.IndexOf("private void ExecuteOpenFlowBuilder()", StringComparison.Ordinal);
         var end = source.IndexOf("private async Task ExecuteCombineSelectedPlaylistsAsync", start, StringComparison.Ordinal);
         Assert.True(start >= 0 && end > start, "Could not isolate the Flow Builder handoff.");
