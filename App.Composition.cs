@@ -190,6 +190,7 @@ public partial class App
         services.AddSingleton<Services.LibraryActions.ILibraryAction, Services.LibraryActions.RemoveFromPlaylistAction>();
         services.AddSingleton<Services.LibraryActions.ILibraryAction, Services.LibraryActions.DeletePlaylistAction>();
         services.AddSingleton<Services.LibraryActions.ILibraryAction, Services.LibraryActions.TogglePathLockAction>(); // LF4 (#346)
+        services.AddSingleton<Services.LibraryActions.ILibraryAction, Services.LibraryActions.FileToLibraryAction>(); // LF3 (#345)
 
         // Download logging and library management
         services.AddSingleton<DownloadLogService>();
