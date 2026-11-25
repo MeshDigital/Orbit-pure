@@ -40,6 +40,9 @@ public sealed record RenderedPath(IReadOnlyList<string> Segments)
     public string RelativePath => string.Join('/', Segments);
 }
 
+/// <summary>A named, 1-click editable path template preset (#343, LF1).</summary>
+public sealed record PathTemplatePreset(string Name, string Template, string Description);
+
 /// <summary>
 /// One path-template engine for downloads, Bulk Rename, Smart Sorter and Reorganise (#343, LF1).
 /// Pure (no I/O) and unit-testable. A template is a mix of literal text, <c>{token}</c> expressions,
@@ -47,6 +50,67 @@ public sealed record RenderedPath(IReadOnlyList<string> Segments)
 /// </summary>
 public static class PathTemplateEngine
 {
+    /// <summary>1-click editable presets offered in Settings and Bulk Rename (#343, LF1).</summary>
+    public static IReadOnlyList<PathTemplatePreset> Presets { get; } = new[]
+    {
+        new PathTemplatePreset("DJ Singles", "{genre|\"Unsorted\"}/{artist} - {title}[ ({mix})]", "Grouped by genre folder"),
+        new PathTemplatePreset("Collector", "{albumartist|artist}/{year} - {album|\"Singles\"}/{track:00} - {title}", "Artist / Year - Album / Track"),
+        new PathTemplatePreset("Harmonic / USB", "{key|\"No Key\"}/{bpm_bracket}/{artist} - {title}", "Key / BPM bracket folders"),
+        new PathTemplatePreset("Source mirror", "{user}/{filename}", "Keep peer folder and original filename"),
+        new PathTemplatePreset("Flat pool", "{artist} - {title}[ ({mix})]", "Single flat folder"),
+    };
+
+    /// <summary>Representative sample tracks used by Settings' live template preview.</summary>
+    public static IReadOnlyList<(TrackFacts Facts, string Extension)> PreviewSamples { get; } = new[]
+    {
+        (new TrackFacts(
+            Artist: "Bicep", AlbumArtist: "Bicep", Title: "Glue", Mix: "Original Mix",
+            Album: "Bicep", TrackNumber: 3, Year: 2017, Genre: "Breakbeat",
+            Bpm: 130, BpmBracket: "130-139", Key: "8A", User: "vinyl_ripper", Filename: "03_Bicep_Glue"),
+            ".flac"),
+        (new TrackFacts(
+            Artist: "Fred again..", AlbumArtist: "Fred again..", Title: "Delilah (pull me out of this)",
+            Album: "Actual Life 3", TrackNumber: 7, Year: 2022, Genre: "UK Garage",
+            Bpm: 134, BpmBracket: "130-139", Key: "11A", User: "club_crates", Filename: "Delilah"),
+            ".mp3"),
+        (new TrackFacts(
+            Artist: "Unknown Promo", Title: "Untitled Dub",
+            User: "promo_share", Filename: "untitled_dub_v2"),
+            ".wav"),
+    };
+
+    /// <summary>Returns an inline validation error message, or null when the template is valid.</summary>
+    public static string? Validate(string? template)
+    {
+        if (string.IsNullOrWhiteSpace(template))
+            return "Template cannot be empty.";
+
+        var curly = 0;
+        var square = 0;
+        var paren = 0;
+        foreach (var ch in template)
+        {
+            switch (ch)
+            {
+                case '{': curly++; break;
+                case '}': if (--curly < 0) return "Unmatched '}' in template."; break;
+                case '[': square++; break;
+                case ']': if (--square < 0) return "Unmatched ']' in template."; break;
+                case '(': paren++; break;
+                case ')': if (--paren < 0) return "Unmatched ')' in template."; break;
+            }
+        }
+
+        if (curly != 0) return "Unclosed '{' in template.";
+        if (square != 0) return "Unclosed '[' in template.";
+        if (paren != 0) return "Unclosed '(' in template.";
+
+        var probe = Render(template, PreviewSamples[0].Facts);
+        if (probe.Segments.Count == 0 || string.IsNullOrWhiteSpace(probe.Leaf))
+            return "Template produces an empty filename.";
+
+        return null;
+    }
     private static readonly char[] InvalidChars = { '?', ':', '*', '<', '>', '|', '"', '/', '\\' };
 
     private static readonly HashSet<string> ReservedDeviceNames = new(StringComparer.OrdinalIgnoreCase)
