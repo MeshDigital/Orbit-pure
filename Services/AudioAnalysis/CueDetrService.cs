@@ -158,10 +158,19 @@ public sealed class CueDetrService : IDisposable
                 {
                     var forced = Environment.GetEnvironmentVariable("ORBIT_CUEDETR_PROVIDER");
                     if (forced is "cpu") throw new NotSupportedException("CPU forced");
-                    var dml = new SessionOptions();
-                    dml.AppendExecutionProvider_DML(forced is "dml1" ? 1 : 0);
-                    _session = new InferenceSession(_modelPath, dml);
-                    Provider = "DirectML";
+                    var opts = new SessionOptions();
+                    if (!SLSKDONET.Services.Platform.OnnxExecutionProviderHelper.TryEnableHardwareProvider(opts, forced is "dml1" ? 1 : 0, out var epName, out var epError))
+                    {
+                        if (epError is not null)
+                            _logger.LogInformation("[CueDetr] DirectML unavailable ({Error}); using CPU.", epError.Message);
+                        _session = new InferenceSession(_modelPath, new SessionOptions());
+                        Provider = "CPU";
+                    }
+                    else
+                    {
+                        _session = new InferenceSession(_modelPath, opts);
+                        Provider = epName;
+                    }
                 }
                 catch (Exception ex)
                 {
