@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Privacy Policy — ORBIT Pure</title>
+  <link rel="icon" type="image/png" href="assets/app_icon.png"/>
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="index.html">
+        <img src="assets/app_icon.png" alt="ORBIT Pure icon"/>
+        <span>ORBIT PURE</span>
+      </a>
+      <nav class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="terms.html">Terms</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container prose">
+    <h1>Privacy Policy</h1>
+    <p><strong>Short version:</strong> ORBIT Pure runs entirely on your device. We do not operate servers, collect telemetry, track usage, or sell data.</p>
+
+    <h2>1. Local-Only Operation</h2>
+    <p>Your library database (SQLite), audio analysis results, cue points, waveforms, and configuration live strictly on your local computer. ORBIT Pure does not phone home with analytics or crash telemetry.</p>
+
+    <h2>2. Credentials &amp; Tokens</h2>
+    <p>Soulseek credentials and optional Spotify/YouTube OAuth refresh tokens are stored locally using your operating system's secure credential storage (Windows DPAPI, macOS Keychain, or Linux Secret Service / local encrypted storage) and are transmitted only to the respective service you explicitly connect to.</p>
+
+    <h2>3. Direct Third-Party Connections</h2>
+    <p>When you use ORBIT Pure, your device connects directly to:</p>
+    <ul>
+      <li>The Soulseek peer-to-peer network (when you sign in and search/download).</li>
+      <li>Optional metadata or playlist services you explicitly enable (Spotify, YouTube, SoundCloud, MusicBrainz, Deezer, Discogs, AcoustID).</li>
+      <li>GitHub Releases when checking for application updates.</li>
+    </ul>
+
+    <h2>4. Open Source Verification</h2>
+    <p>ORBIT Pure is open source under the <a href="https://github.com/MeshDigital/Orbit-pure/blob/master/LICENSE">GNU General Public License v3.0</a>. You can audit the complete source code at <a href="https://github.com/MeshDigital/Orbit-pure">github.com/MeshDigital/Orbit-pure</a>.</p>
+  </main>
+
+  <footer>
+    <div class="container footer-inner">
+      <div>ORBIT Pure · GPL-3.0</div>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="terms.html">Terms</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
