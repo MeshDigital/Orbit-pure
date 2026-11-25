@@ -98,12 +98,7 @@ public partial class ErrorStreamWindow : Window, INotifyPropertyChanged
             if (!string.IsNullOrWhiteSpace(logDirectory))
             {
                 Directory.CreateDirectory(logDirectory);
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = "explorer.exe",
-                    Arguments = $"\"{logDirectory}\"",
-                    UseShellExecute = true
-                });
+                SLSKDONET.Services.Platform.PlatformShell.Current.OpenFolder(logDirectory);
                 return;
             }
 
@@ -147,13 +142,8 @@ public partial class ErrorStreamWindow : Window, INotifyPropertyChanged
                 Directory.CreateDirectory(fallbackLogDirectory);
             }
 
-            // Use explorer.exe to open the directory
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = "explorer.exe",
-                Arguments = $"\"{fallbackLogDirectory}\"",
-                UseShellExecute = true
-            });
+            // Open the logs directory through the platform shell seam (#452)
+            SLSKDONET.Services.Platform.PlatformShell.Current.OpenFolder(fallbackLogDirectory);
         }
         catch (Exception ex)
         {

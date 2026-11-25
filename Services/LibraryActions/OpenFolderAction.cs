@@ -48,9 +48,9 @@ public class OpenFolderAction : ILibraryAction
 
             var filePath = trackWithFile.Model.ResolvedFilePath;
             
-            // Use /select to highlight the file in Explorer
+            // Reveal the file in the OS file manager (#452)
             _logger.LogInformation("Opening folder and selecting file: {File}", filePath);
-            Process.Start("explorer.exe", $"/select,\"{filePath}\"");
+            SLSKDONET.Services.Platform.PlatformShell.Current.RevealInFolder(filePath);
         }
         catch (Exception ex)
         {

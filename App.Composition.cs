@@ -189,6 +189,7 @@ public partial class App
         services.AddSingleton<Services.LibraryActions.ILibraryAction, Services.LibraryActions.OpenFolderAction>();
         services.AddSingleton<Services.LibraryActions.ILibraryAction, Services.LibraryActions.RemoveFromPlaylistAction>();
         services.AddSingleton<Services.LibraryActions.ILibraryAction, Services.LibraryActions.DeletePlaylistAction>();
+        services.AddSingleton<Services.LibraryActions.ILibraryAction, Services.LibraryActions.TogglePathLockAction>(); // LF4 (#346)
 
         // Download logging and library management
         services.AddSingleton<DownloadLogService>();
@@ -201,6 +202,7 @@ public partial class App
         services.AddSingleton<Services.Export.UsbExportOrchestrator>();
         services.AddSingleton<Services.Library.Files.FileRelocationService>(); // LF2: single move/rename path
         services.AddSingleton<Services.Library.Files.PathProtectionService>(); // LF4: path lock/unlock
+        services.AddSingleton<Services.Library.Files.ReorganizePreviewService>(); // LF5: reorganise preview
 
         // Audio Player
         services.AddSingleton<IAudioPlayerService, AudioPlayerService>();
@@ -273,8 +275,10 @@ public partial class App
         services.AddSingleton<IDialogService, DialogService>();
         services.AddSingleton<Services.Diagnostics.FeedbackReportService>(); // top-bar "Send feedback" zip
         services.AddSingleton<Services.Platform.FfmpegInstallerService>();
-        services.AddSingleton<SLSKDONET.Services.Update.GitHubUpdateService>(_ =>
-            new SLSKDONET.Services.Update.GitHubUpdateService(new System.Net.Http.HttpClient(), new Version(0, 3, 0)));
+        services.AddSingleton<SLSKDONET.Services.Update.GitHubUpdateService>(sp =>
+            new SLSKDONET.Services.Update.GitHubUpdateService(
+                sp.GetRequiredService<System.Net.Http.IHttpClientFactory>().CreateClient(),
+                SLSKDONET.Services.Update.GitHubUpdateService.GetCurrentAppVersion()));
         services.AddSingleton<SLSKDONET.ViewModels.UpdateViewModel>();
         services.AddSingleton<Services.Rekordbox.RekordboxLibraryService>(); // reads Rekordbox's master.db via RekordboxBridge // automatic FFmpeg install (startup + setup wizard)
         services.AddSingleton<Services.Telemetry.FlowBuilderSuggestionTelemetryService>();
@@ -332,6 +336,20 @@ public partial class App
         services.AddSingleton<Services.Shell.ShellStateMonitor>();
         services.AddSingleton<Services.Shell.WindowsTaskbarIntegration>();
         services.AddSingleton<Services.Shell.TrayIconController>();
+        // Single cross-platform shell seam (#452): file reveal/open, OS notifications, taskbar,
+        // child-process lifetime, and per-user secrets.
+        services.AddSingleton<SLSKDONET.Services.Platform.IPlatformShell>(sp =>
+        {
+            SLSKDONET.Services.Platform.IPlatformShell shell = OperatingSystem.IsWindows()
+                ? new SLSKDONET.Services.Platform.WindowsPlatformShell(
+                    sp.GetRequiredService<WindowsToastService>(),
+                    sp.GetRequiredService<Services.Shell.WindowsTaskbarIntegration>())
+                : OperatingSystem.IsMacOS()
+                    ? new SLSKDONET.Services.Platform.MacOSPlatformShell()
+                    : new SLSKDONET.Services.Platform.LinuxPlatformShell();
+            SLSKDONET.Services.Platform.PlatformShell.SetCurrent(shell);
+            return shell;
+        });
         // Cross-platform external tool locator (FFmpeg, Essentia, fpcalc, curl per OS/RID, #453).
         services.AddSingleton<SLSKDONET.Services.Platform.IToolLocator>(_ =>
         {

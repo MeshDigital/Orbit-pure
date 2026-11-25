@@ -285,13 +285,16 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
                     IntraOpNumThreads = 1,
                     InterOpNumThreads = 1,
                 };
-                opts.AppendExecutionProvider_DML();
+                if (!SLSKDONET.Services.Platform.OnnxExecutionProviderHelper.TryEnableHardwareProvider(opts, dmlDeviceId: 0, out var provider, out var dmlError) && dmlError is not null)
+                {
+                    _logger.LogInformation("[EmbeddingExtractor] DirectML unavailable ({Error}); using CPU.", dmlError.Message);
+                }
 
                 _session  = new InferenceSession(_modelPath, opts);
                 _modelTag = BuildModelTag(_modelPath);
 
                 _logger.LogInformation(
-                    "[EmbeddingExtractor] Loaded DiscogsEffnet model. Tag={Tag}", _modelTag);
+                    "[EmbeddingExtractor] Loaded DiscogsEffnet model on {Provider}. Tag={Tag}", provider, _modelTag);
             }
             catch (Exception ex)
             {

@@ -84,14 +84,17 @@ public sealed class DemucsOnnxSeparator : IStemSeparator, IDisposable
             if (_session != null) return _session;
 
             using var sessionOptions = new SessionOptions();
-            try
+            if (SLSKDONET.Services.Platform.OnnxExecutionProviderHelper.TryEnableHardwareProvider(sessionOptions, dmlDeviceId: 0, out var provider, out var dmlError))
             {
-                sessionOptions.AppendExecutionProvider_DML(deviceId: 0);
-                _logger?.LogInformation("Demucs ONNX: DirectML (GPU) execution provider enabled.");
+                _logger?.LogInformation("Demucs ONNX: {Provider} (GPU) execution provider enabled.", provider);
             }
-            catch (Exception ex)
+            else if (dmlError is not null)
             {
-                _logger?.LogWarning(ex, "Demucs ONNX: DirectML unavailable, falling back to CPU. Stem separation will be slower.");
+                _logger?.LogWarning(dmlError, "Demucs ONNX: DirectML unavailable, falling back to CPU. Stem separation will be slower.");
+            }
+            else
+            {
+                _logger?.LogInformation("Demucs ONNX: using CPU execution provider.");
             }
 
             var integrity = _modelManager.CheckIntegrity();
