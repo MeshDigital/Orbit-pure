@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using SLSKDONET.Models.Entertainment;
 using SLSKDONET.Services.Audio;
+using SLSKDONET.Services.Entertainment;
 
 namespace SLSKDONET.Views.Avalonia.Controls;
 
@@ -66,6 +67,10 @@ public sealed class OrbitVisualizerCanvas : Control
     public static readonly StyledProperty<float> AlbumHueProperty =
         AvaloniaProperty.Register<OrbitVisualizerCanvas, float>(nameof(AlbumHue), -1f);
 
+    /// <summary>Active MilkDrop (.milk) preset when <see cref="EngineMode"/> is <see cref="VisualizerEngineMode.MilkDrop"/> (#426).</summary>
+    public static readonly StyledProperty<MilkDropPreset?> MilkDropPresetProperty =
+        AvaloniaProperty.Register<OrbitVisualizerCanvas, MilkDropPreset?>(nameof(MilkDropPreset));
+
     public float[]? SpectrumData { get => GetValue(SpectrumDataProperty); set => SetValue(SpectrumDataProperty, value); }
     public float[]? WaveformData { get => GetValue(WaveformDataProperty); set => SetValue(WaveformDataProperty, value); }
     public float VuLeft { get => GetValue(VuLeftProperty); set => SetValue(VuLeftProperty, value); }
@@ -78,6 +83,7 @@ public sealed class OrbitVisualizerCanvas : Control
     public VisualizerPreset Preset { get => GetValue(PresetProperty); set => SetValue(PresetProperty, value); }
     public VisualizerEngineMode EngineMode { get => GetValue(EngineModeProperty); set => SetValue(EngineModeProperty, value); }
     public float AlbumHue { get => GetValue(AlbumHueProperty); set => SetValue(AlbumHueProperty, value); }
+    public MilkDropPreset? MilkDropPreset { get => GetValue(MilkDropPresetProperty); set => SetValue(MilkDropPresetProperty, value); }
 
     // ── UI-thread animation state ────────────────────────────────────────────
 
@@ -229,16 +235,21 @@ public sealed class OrbitVisualizerCanvas : Control
             case VisualizerPreset.PhaseScope: StepScope(); break;
         }
 
+        var isMilkDrop = EngineMode == VisualizerEngineMode.MilkDrop;
+        var milkPreset = isMilkDrop ? (MilkDropPreset ?? MilkDropPresetLibrary.BuiltIn[0]) : null;
+        if (isMilkDrop) StepScope();
+
         _frame = new Frame(
             preset, _time, energy, _beat, AlbumHueOrDrift(energy), morph,
             (float[])_bands.Levels.Clone(), (float[])_bands.Peaks.Clone(),
             _bands.Bass, _bands.Mid, _bands.Treble, _bands.Overall,
             playing,
-            preset is VisualizerPreset.Oscilloscope or VisualizerPreset.PhaseScope ? _scopeHistory.ToArray() : null,
+            isMilkDrop || preset is VisualizerPreset.Oscilloscope or VisualizerPreset.PhaseScope ? _scopeHistory.ToArray() : null,
             preset == VisualizerPreset.NeonParticles ? _particles.ConvertAll(p => p.Snapshot()) : null,
             preset == VisualizerPreset.RipplePool ? _ripples.ConvertAll(r => (r.Radius, r.Alpha)) : null,
             preset == VisualizerPreset.DigitalRain ? Array.ConvertAll(_rain, c => c.Snapshot()) : null,
-            preset == VisualizerPreset.Waterfall ? SnapshotWaterfall() : null);
+            preset == VisualizerPreset.Waterfall ? SnapshotWaterfall() : null,
+            milkPreset);
     }
 
     private float AlbumHueOrDrift(float energy)
@@ -379,7 +390,8 @@ public sealed class OrbitVisualizerCanvas : Control
         List<ParticleState>? Particles,
         List<(float Radius, float Alpha)>? Ripples,
         RainState[]? Rain,
-        float[][]? Waterfall);
+        float[][]? Waterfall,
+        MilkDropPreset? MilkDrop = null);
 
     private readonly record struct ParticleState(float X, float Y, float Size, float Life, float HueShift);
     private readonly record struct RainState(float Y, float Level, float Brightness);
@@ -443,20 +455,27 @@ public sealed class OrbitVisualizerCanvas : Control
             try
             {
                 canvas.ClipRect(new SKRect(0, 0, w, h));
-                switch (_f.Preset)
+                if (_f.MilkDrop is { } milk)
                 {
-                    case VisualizerPreset.SpectrumBars: DrawSpectrumBars(canvas, w, h); break;
-                    case VisualizerPreset.CircularWave: DrawCircularWave(canvas, w, h); break;
-                    case VisualizerPreset.NeonParticles: DrawParticles(canvas, w, h); break;
-                    case VisualizerPreset.Oscilloscope: DrawOscilloscope(canvas, w, h); break;
-                    case VisualizerPreset.StarBurst: DrawStarBurst(canvas, w, h); break;
-                    case VisualizerPreset.PlasmaMesh: DrawPlasma(canvas, w, h); break;
-                    case VisualizerPreset.AuroraBands: DrawAurora(canvas, w, h); break;
-                    case VisualizerPreset.Waterfall: DrawWaterfall(canvas, w, h); break;
-                    case VisualizerPreset.PhaseScope: DrawPhaseScope(canvas, w, h); break;
-                    case VisualizerPreset.DigitalRain: DrawRain(canvas, w, h); break;
-                    case VisualizerPreset.RipplePool: DrawRipples(canvas, w, h); break;
-                    default: DrawAmbient(canvas, w, h); break;
+                    DrawMilkDrop(canvas, w, h, milk);
+                }
+                else
+                {
+                    switch (_f.Preset)
+                    {
+                        case VisualizerPreset.SpectrumBars: DrawSpectrumBars(canvas, w, h); break;
+                        case VisualizerPreset.CircularWave: DrawCircularWave(canvas, w, h); break;
+                        case VisualizerPreset.NeonParticles: DrawParticles(canvas, w, h); break;
+                        case VisualizerPreset.Oscilloscope: DrawOscilloscope(canvas, w, h); break;
+                        case VisualizerPreset.StarBurst: DrawStarBurst(canvas, w, h); break;
+                        case VisualizerPreset.PlasmaMesh: DrawPlasma(canvas, w, h); break;
+                        case VisualizerPreset.AuroraBands: DrawAurora(canvas, w, h); break;
+                        case VisualizerPreset.Waterfall: DrawWaterfall(canvas, w, h); break;
+                        case VisualizerPreset.PhaseScope: DrawPhaseScope(canvas, w, h); break;
+                        case VisualizerPreset.DigitalRain: DrawRain(canvas, w, h); break;
+                        case VisualizerPreset.RipplePool: DrawRipples(canvas, w, h); break;
+                        default: DrawAmbient(canvas, w, h); break;
+                    }
                 }
             }
             catch (Exception ex)
@@ -481,6 +500,105 @@ public sealed class OrbitVisualizerCanvas : Control
             int i = (int)x;
             float frac = x - i;
             return i >= levels.Length - 1 ? levels[^1] : levels[i] * (1 - frac) + levels[i + 1] * frac;
+        }
+
+        // MilkDrop-compatible preset renderer (#426): renders layered warp/zoom/rot feedback geometry,
+        // borders, and wave_mode 0–7 audio-reactive waveforms from an immutable MilkDropPreset snapshot.
+        private void DrawMilkDrop(SKCanvas canvas, float w, float h, MilkDropPreset p)
+        {
+            float cx = w * p.Cx;
+            float cy = h * p.Cy;
+            float minDim = Math.Min(w, h);
+            float baseRadius = minDim * (0.24f + _f.Bass * 0.10f + _f.Beat * 0.05f);
+            float t = (float)_f.Time;
+
+            // Layered feedback rings simulating MilkDrop's zoom/rot/decay/video-echo warp buffer.
+            int echoLayers = Math.Clamp((int)(4 + (p.Decay - 0.80f) * 35f), 4, 10);
+            using var echoPaint = new SKPaint
+            {
+                Style = SKPaintStyle.Stroke,
+                IsAntialias = true,
+                BlendMode = p.AdditiveWaves ? SKBlendMode.Plus : SKBlendMode.SrcOver,
+            };
+
+            byte baseR = (byte)Math.Clamp(p.WaveR * 255f, 0, 255);
+            byte baseG = (byte)Math.Clamp(p.WaveG * 255f, 0, 255);
+            byte baseB = (byte)Math.Clamp(p.WaveB * 255f, 0, 255);
+
+            for (int layer = echoLayers - 1; layer >= 0; layer--)
+            {
+                float frac = (float)layer / echoLayers;
+                float scale = (float)Math.Pow(p.Zoom * (1f + _f.Bass * 0.015f), layer * 2.2f);
+                float angle = (t * (0.35f + p.Rot * 12f)) + layer * (p.Rot * 14f + 0.18f);
+                float alpha = p.WaveAlpha * (1f - frac * (1.05f - p.Decay)) * (0.35f + p.VideoEchoAlpha * 0.65f);
+
+                echoPaint.Color = new SKColor(baseR, baseG, baseB, (byte)Math.Clamp(alpha * 255f, 0, 255));
+                echoPaint.StrokeWidth = Math.Max(1.0f, (2.6f - frac * 1.4f) * p.WaveScale);
+
+                using var path = new SKPath();
+                int points = 72;
+                for (int i = 0; i <= points; i++)
+                {
+                    float u = (float)i / points;
+                    float theta = u * MathF.PI * 2f + angle;
+                    float band = Level(u);
+                    float warpOffset = MathF.Sin(theta * (3f + (p.WaveMode % 5)) + t * (1.2f + p.Warp)) * p.Warp * 14f;
+                    float r = (baseRadius + band * minDim * 0.16f * p.WaveScale + warpOffset) * scale;
+
+                    float px, py;
+                    if (p.WaveMode is 2 or 6) // horizontal / oscilloscope wave
+                    {
+                        px = u * w;
+                        py = h * p.WaveY + MathF.Sin(u * MathF.PI * 6f + angle) * (band * h * 0.22f * p.WaveScale + warpOffset);
+                    }
+                    else
+                    {
+                        px = cx + p.Dx * w * layer * 0.1f + MathF.Cos(theta) * r;
+                        py = cy + p.Dy * h * layer * 0.1f + MathF.Sin(theta) * r;
+                    }
+
+                    if (p.WaveDots)
+                    {
+                        canvas.DrawCircle(px, py, echoPaint.StrokeWidth, echoPaint);
+                    }
+                    else if (i == 0) path.MoveTo(px, py);
+                    else path.LineTo(px, py);
+                }
+
+                if (!p.WaveDots)
+                    canvas.DrawPath(path, echoPaint);
+            }
+
+            // Outer & inner MilkDrop borders (ob_* / ib_*)
+            if (p.OuterBorderA > 0.01f && p.OuterBorderSize > 0.001f)
+            {
+                using var borderPaint = new SKPaint
+                {
+                    Style = SKPaintStyle.Stroke,
+                    StrokeWidth = minDim * p.OuterBorderSize,
+                    Color = new SKColor(
+                        (byte)(p.OuterBorderR * 255),
+                        (byte)(p.OuterBorderG * 255),
+                        (byte)(p.OuterBorderB * 255),
+                        (byte)(p.OuterBorderA * 255)),
+                };
+                canvas.DrawRect(0, 0, w, h, borderPaint);
+            }
+            if (p.InnerBorderA > 0.01f && p.InnerBorderSize > 0.001f)
+            {
+                float inset = minDim * (p.OuterBorderSize + p.InnerBorderSize * 0.5f);
+                using var innerPaint = new SKPaint
+                {
+                    Style = SKPaintStyle.Stroke,
+                    StrokeWidth = minDim * p.InnerBorderSize,
+                    Color = new SKColor(
+                        (byte)(p.InnerBorderR * 255),
+                        (byte)(p.InnerBorderG * 255),
+                        (byte)(p.InnerBorderB * 255),
+                        (byte)(p.InnerBorderA * 255)),
+                };
+                canvas.DrawRect(inset, inset, Math.Max(1, w - inset * 2), Math.Max(1, h - inset * 2), innerPaint);
+            }
         }
 
         // 1. Spectrum bars: log bands, mirrored reflection, peak caps, glow.
