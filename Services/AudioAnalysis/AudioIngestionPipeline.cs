@@ -352,43 +352,9 @@ public sealed class AudioIngestionPipeline
 
     public static string ResolveFfmpegPath()
     {
-        // 1. Bundled alongside the executable
-        string bundled = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe");
-        if (File.Exists(bundled)) return bundled;
-
-        // 2. Relative tools folder
-        string toolsPath = Path.Combine(AppContext.BaseDirectory, "Tools", "ffmpeg", "ffmpeg.exe");
-        if (File.Exists(toolsPath)) return toolsPath;
-
-        // 3. The copy ORBIT installed itself (Program Files isn't writable, so it lives in LocalAppData)
-        string managed = Platform.FfmpegInstallerService.ManagedFfmpegPath;
-        if (File.Exists(managed)) return managed;
-
-        // 4. Search system PATH
-        string query = OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg";
-        var pathEnv = Environment.GetEnvironmentVariable("PATH");
-        if (pathEnv != null)
-        {
-            var paths = pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
-            foreach (var path in paths)
-            {
-                try
-                {
-                    string fullPath = Path.Combine(path.Trim(), query);
-                    if (File.Exists(fullPath))
-                    {
-                        return fullPath;
-                    }
-                }
-                catch
-                {
-                    // Ignore invalid paths in PATH
-                }
-            }
-        }
-
-        // 4. Fall back to system PATH (let the OS find it)
-        return query;
+        // Resolve via the cross-platform IToolLocator seam (#453), falling back to the bare executable name.
+        return Platform.ToolLocator.Current.Locate(Platform.ExternalTool.Ffmpeg)
+            ?? (OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg");
     }
 
     private static bool ExistsOnPath(string fileName)

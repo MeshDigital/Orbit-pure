@@ -244,16 +244,7 @@ public sealed class FeedbackDialogViewModel : INotifyPropertyChanged, IDisposabl
     }
 
     private static void DefaultRevealInFolder(string path)
-    {
-        try
-        {
-            using var _ = Process.Start("explorer.exe", $"/select,\"{path}\"");
-        }
-        catch (Exception ex)
-        {
-            Serilog.Log.Warning(ex, "Feedback: couldn't open the report folder for {Path}", path);
-        }
-    }
+        => SLSKDONET.Services.Platform.PlatformShell.Current.RevealInFolder(path);
 
     public void Dispose() => ScreenshotPreview?.Dispose();
 

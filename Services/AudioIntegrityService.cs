@@ -210,22 +210,13 @@ public sealed class AudioIntegrityService : IAudioIntegrityService
 
     private static (float[] Samples, int SampleRate) DecodeMono(string filePath, CancellationToken ct)
     {
-        // Primary path: let NAudio/MediaFoundation handle it (works for MP3, WAV, AIFF,
-        // and FLAC when the Windows FLAC codec is registered).
-        try
-        {
-            return ReadViaAudioFileReader(filePath, ct);
-        }
-        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException
-                                        or InvalidOperationException
-                                        or System.ComponentModel.Win32Exception)
-        {
-            // Primary decoder failed (typically missing Windows FLAC/OGG codec).
-            // Fall through to FFmpeg pipe.
-        }
-
-        // Fallback: FFmpeg → raw s16le PCM piped to stdout.
-        return ReadViaFfmpegPipe(filePath, ct);
+        // Route through the cross-platform IAudioDecoder seam (#456):
+        // Windows tries Media Foundation then FFmpeg; macOS/Linux uses managed WAV or FFmpeg pipe.
+        return Audio.AudioDecoder.Current.DecodeMonoSamples(
+            filePath,
+            maxSeconds: AnalysisDurationSeconds * 3,
+            targetSampleRate: FallbackSampleRate,
+            ct: ct);
     }
 
     private static (float[] Samples, int SampleRate) ReadViaAudioFileReader(string filePath, CancellationToken ct)
