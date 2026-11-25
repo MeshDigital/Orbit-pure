@@ -31,7 +31,7 @@
                               SelectionChanged="LayoutComboBox_SelectionChanged"/>
                 </Grid>
 
-                <Border Background="{StaticResource BrushBg1}" BorderBrush="{StaticResource BrushBorderSubtle}"
+                <Border Background="{StaticResource BrushBg1}" BorderBrush="{StaticResource BrushBg4}"
                         BorderThickness="1" CornerRadius="6" Padding="10,8">
                     <StackPanel Spacing="6">
                         <Grid ColumnDefinitions="*,Auto">
