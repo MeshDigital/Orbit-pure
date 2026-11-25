@@ -532,6 +532,26 @@
                             </Grid>
                         </StackPanel>
 
+                        <StackPanel Spacing="6">
+                            <TextBlock Classes="section" Text="FILE PROTECTION"/>
+                            <Grid ColumnDefinitions="Auto,*">
+                                <TextBlock Classes="caption" Text="Origin" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding FileOriginDisplay}"
+                                           ToolTip.Tip="{Binding FileOriginTooltip}" Margin="8,0,0,0"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="Auto,*">
+                                <TextBlock Classes="caption" Text="Path lock" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding PathLockStatusText}"
+                                           Margin="8,0,0,0" TextWrapping="Wrap"/>
+                            </Grid>
+                            <Button Classes="secondary small" HorizontalAlignment="Left" Margin="0,2,0,0"
+                                    Content="{Binding PathLockButtonText}"
+                                    Command="{Binding TogglePathLockCommand}"
+                                    IsVisible="{Binding HasPathProtectionAction}"
+                                    ToolTip.Tip="Locked tracks are skipped by automatic re-filing and library reorganise runs (Rekordbox path safety)."/>
+                        </StackPanel>
+
                         <StackPanel Spacing="8">
                             <TextBlock Classes="section" Text="TECHNICAL"/>
                             <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto">

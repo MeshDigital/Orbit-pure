@@ -616,7 +616,10 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         Operations = operations;
         SmartPlaylists = smartPlaylists;
         DoubleInspector = new LibraryDoubleInspectorViewModel(this, _logger, _trackSimilarityService, _transitionStyleClassifier);
-        TrackInspector = new LibraryTrackInspectorViewModel(_logger, _serviceProvider?.GetService(typeof(ICuePointService)) as ICuePointService);
+        TrackInspector = new LibraryTrackInspectorViewModel(
+            _logger,
+            _serviceProvider?.GetService(typeof(ICuePointService)) as ICuePointService,
+            _serviceProvider?.GetService(typeof(Services.Library.Files.PathProtectionService)) as Services.Library.Files.PathProtectionService);
         MultiSelection = new LibraryMultiSelectionInspectorViewModel(this);
         var optimizer = _serviceProvider?.GetService(typeof(Services.Playlist.PlaylistOptimizer)) as Services.Playlist.PlaylistOptimizer;
         Intelligence = new PlaylistIntelligenceViewModel(this, _trackSimilarityService, optimizer);
