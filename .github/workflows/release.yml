@@ -148,11 +148,14 @@ jobs:
           if ! kill -0 "$pid" 2>/dev/null; then echo "::error::ORBIT exited on start-up"; exit 1; fi
           kill "$pid" || true
       - name: Import Apple Developer signing certificate (when configured)
-        if: ${{ secrets.APPLE_CERT_BASE64 != '' }}
         env:
           APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
           APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
         run: |
+          if [ -z "${APPLE_CERT_BASE64:-}" ]; then
+            echo "APPLE_CERT_BASE64 not configured — skipping signing keychain import (ad-hoc sign will be used)."
+            exit 0
+          fi
           KEYCHAIN_PATH="$RUNNER_TEMP/orbit-signing.keychain-db"
           security create-keychain -p "temp" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
