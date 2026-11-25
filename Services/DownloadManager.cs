@@ -60,6 +60,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
     private readonly INetworkHealthService _networkHealth;
     private readonly SLSKDONET.Services.Diagnostics.ITrackAuditLogger _auditLogger;
     private readonly SLSKDONET.Services.Library.AudioContentHasher? _contentHasher;
+    private readonly SLSKDONET.Services.Library.Files.QualityUpgradeService? _qualityUpgradeService;
 
 
     private readonly List<IDisposable> _eventBusSubs = new();
@@ -221,7 +222,8 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
         PeerReliabilityService peerReliability,
         INetworkHealthService networkHealth,
         SLSKDONET.Services.Diagnostics.ITrackAuditLogger auditLogger, // Phase 1: Engine Overhaul
-        SLSKDONET.Services.Library.AudioContentHasher? contentHasher = null)
+        SLSKDONET.Services.Library.AudioContentHasher? contentHasher = null,
+        SLSKDONET.Services.Library.Files.QualityUpgradeService? qualityUpgradeService = null)
 
     {
         _logger = logger;
@@ -242,6 +244,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
         _networkHealth = networkHealth;
         _auditLogger = auditLogger;
         _contentHasher = contentHasher;
+        _qualityUpgradeService = qualityUpgradeService;
 
         System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
 
@@ -3478,24 +3481,60 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
                         $"Downloaded file truncated. Expected {bestMatch.Size}, got {finalPartSize}");
                 }
 
-                // Clean up old final file if it exists (race condition edge case)
-                if (File.Exists(finalPath))
+                // LF6 (#348): when this download is an in-place quality upgrade, swap the staged file
+                // into the old file's folder, trash the old file to .orbit-trash/, and shift cues/beatgrid
+                // by the measured decoder offset.
+                if (!string.IsNullOrEmpty(ctx.UpgradeSourcePath)
+                    && File.Exists(ctx.UpgradeSourcePath)
+                    && _qualityUpgradeService is not null)
                 {
-                    _logger.LogWarning("Final file already exists, overwriting: {Path}", finalPath);
-                    // File.Delete is handled by MoveAtomicAsync logic (via WriteAtomicAsync)
+                    var realExt = Path.GetExtension(finalPath);
+                    var stagedWithExt = string.IsNullOrEmpty(realExt)
+                        ? partPath
+                        : Path.ChangeExtension(partPath, realExt);
+                    if (!string.Equals(stagedWithExt, partPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var stageMoveOk = await _fileWriteService.MoveAtomicAsync(partPath, stagedWithExt);
+                        if (!stageMoveOk)
+                            throw new IOException($"Failed to stage upgraded file with extension {realExt}: {partPath}");
+                    }
+
+                    var upgradeResult = await _qualityUpgradeService.ReplaceWithOffsetEstimationAsync(
+                        ctx.Model.TrackUniqueHash ?? ctx.GlobalId,
+                        stagedWithExt,
+                        ctx.UpgradeSourcePath,
+                        downloadDir,
+                        allowProtectedOverride: false,
+                        ct);
+
+                    finalPath = upgradeResult.NewPath;
+                    ctx.Model.ResolvedFilePath = upgradeResult.NewPath;
+                    ctx.UpgradeSourcePath = null;
+                    _logger.LogInformation(
+                        "LF6 quality upgrade complete: {NewPath} (trashed {TrashedOld}, offset {OffsetMs:0.0} ms)",
+                        upgradeResult.NewPath, upgradeResult.TrashedOldPath, upgradeResult.MeasuredOffsetSeconds * 1000.0);
                 }
-
-                // ATOMIC OPERATION: Use SafeWrite to move .part to .mp3
-                var moveSuccess = await _fileWriteService.MoveAtomicAsync(partPath, finalPath);
-
-                if (!moveSuccess)
+                else
                 {
-                     // If move failed (e.g. disk full during copy phase), throw execution to trigger retry/fail logic
-                     throw new IOException($"Failed to atomically move file from {partPath} to {finalPath}");
-                }
+                    // Clean up old final file if it exists (race condition edge case)
+                    if (File.Exists(finalPath))
+                    {
+                        _logger.LogWarning("Final file already exists, overwriting: {Path}", finalPath);
+                        // File.Delete is handled by MoveAtomicAsync logic (via WriteAtomicAsync)
+                    }
 
-                _logger.LogInformation("Atomic move complete: {Part} â†’ {Final}",
-                    Path.GetFileName(partPath), Path.GetFileName(finalPath));
+                    // ATOMIC OPERATION: Use SafeWrite to move .part to .mp3
+                    var moveSuccess = await _fileWriteService.MoveAtomicAsync(partPath, finalPath);
+
+                    if (!moveSuccess)
+                    {
+                         // If move failed (e.g. disk full during copy phase), throw execution to trigger retry/fail logic
+                         throw new IOException($"Failed to atomically move file from {partPath} to {finalPath}");
+                    }
+
+                    _logger.LogInformation("Atomic move complete: {Part} â†’ {Final}",
+                        Path.GetFileName(partPath), Path.GetFileName(finalPath));
+                }
 
                 _eventBus.Publish(new Events.TrackDetailedStatusEvent(
                     ctx.GlobalId,

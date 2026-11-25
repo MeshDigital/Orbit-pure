@@ -177,4 +177,62 @@ public class QualityUpgradeServiceTests : IDisposable
         Assert.Equal(0.0, beats![0], 6);
         Assert.Equal(0.974, beats[1], 6);
     }
+
+    [Fact]
+    public async Task ReplaceWithOffsetEstimationAsync_ShiftsCuesWithin1MsAndRestoresFromTrash()
+    {
+        const string hash = "h-wav-offset";
+        const int sampleRate = 16000;
+        const int totalSamples = sampleRate * 2;
+        const int delaySamples = 416; // 26.0 ms at 16 kHz
+
+        var rng = new Random(4242);
+        var refSamples = new float[totalSamples];
+        var candSamples = new float[totalSamples];
+        for (var i = 0; i < totalSamples; i++)
+            refSamples[i] = (float)((rng.NextDouble() - 0.5) * 0.8);
+        for (var i = delaySamples; i < totalSamples; i++)
+            candSamples[i] = refSamples[i - delaySamples];
+
+        var oldFile = Path.Combine(_dir, "Artist - Track.wav");
+        var stagedDir = Path.Combine(_dir, "staged");
+        Directory.CreateDirectory(stagedDir);
+        var newFile = Path.Combine(stagedDir, "upgrade.wav");
+        WriteMonoWav(oldFile, refSamples, sampleRate);
+        WriteMonoWav(newFile, candSamples, sampleRate);
+
+        using (var db = new AppDbContext())
+        {
+            db.LibraryEntries.Add(new LibraryEntryEntity { UniqueHash = hash, FilePath = oldFile });
+            db.CuePoints.Add(new CuePointEntity { TrackUniqueHash = hash, TimestampInSeconds = 10.0 });
+            db.AudioFeatures.Add(new AudioFeaturesEntity { TrackUniqueHash = hash, BeatGridJson = "[10.0, 10.5]" });
+            db.SaveChanges();
+        }
+
+        var decoder = new SLSKDONET.Services.Audio.CrossPlatformAudioDecoder();
+        var svc = new QualityUpgradeService(new TestDbFactory(), NullLogger<QualityUpgradeService>.Instance, decoder);
+        var result = await svc.ReplaceWithOffsetEstimationAsync(hash, newFile, oldFile, _dir);
+
+        // Acceptance (#348): cues stay within 1 ms after offset correction and old file can be restored from trash.
+        Assert.InRange(result.MeasuredOffsetSeconds, 0.025, 0.027);
+        using (var verify = new AppDbContext())
+        {
+            var shiftedCue = verify.CuePoints.Single(c => c.TrackUniqueHash == hash).TimestampInSeconds;
+            Assert.InRange(shiftedCue, 10.025, 10.027);
+            var beats = System.Text.Json.JsonSerializer.Deserialize<List<double>>(
+                verify.AudioFeatures.Single(f => f.TrackUniqueHash == hash).BeatGridJson);
+            Assert.InRange(beats![0], 10.025, 10.027);
+        }
+
+        Assert.True(File.Exists(result.TrashedOldPath));
+        File.Delete(result.NewPath);
+        OrbitTrash.Restore(result.TrashedOldPath);
+        Assert.True(File.Exists(oldFile));
+    }
+
+    private static void WriteMonoWav(string path, float[] samples, int sampleRate)
+    {
+        using var writer = new NAudio.Wave.WaveFileWriter(path, NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1));
+        writer.WriteSamples(samples, 0, samples.Length);
+    }
 }
