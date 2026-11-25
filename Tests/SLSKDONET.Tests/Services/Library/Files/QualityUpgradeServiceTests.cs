@@ -133,6 +133,7 @@ public class QualityUpgradeServiceTests : IDisposable
         {
             db.LibraryEntries.Add(new LibraryEntryEntity { UniqueHash = hash, FilePath = oldFile });
             db.CuePoints.Add(new CuePointEntity { TrackUniqueHash = hash, TimestampInSeconds = 10.0 });
+            db.AudioFeatures.Add(new AudioFeaturesEntity { TrackUniqueHash = hash, BeatGridJson = "[10.0, 11.0]" });
             db.SaveChanges();
         }
 
@@ -141,5 +142,10 @@ public class QualityUpgradeServiceTests : IDisposable
 
         using var verify = new AppDbContext();
         Assert.Equal(10.026, verify.CuePoints.Single(c => c.TrackUniqueHash == hash).TimestampInSeconds, 6);
+
+        var beats = System.Text.Json.JsonSerializer.Deserialize<List<double>>(
+            verify.AudioFeatures.Single(f => f.TrackUniqueHash == hash).BeatGridJson);
+        Assert.Equal(10.026, beats![0], 6);
+        Assert.Equal(11.026, beats[1], 6);
     }
 }

@@ -1,10 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
+using SLSKDONET.Data.Entities;
 
 namespace SLSKDONET.Services.Library.Files;
 
@@ -79,13 +82,21 @@ public sealed class QualityUpgradeService
             foreach (var t in tracks)
                 t.LocalFilePath = target;
 
-            // LF6: shift cue timestamps by the measured decoder offset (encoder delay/padding), so
-            // cues stay on the beat after swapping one rendition for the other.
+            // LF6: shift cue/beatgrid timestamps by the measured decoder offset (encoder delay/padding),
+            // so they stay on the beat after swapping one rendition for the other.
             if (offsetSeconds != 0)
             {
                 var cues = await db.CuePoints.Where(c => c.TrackUniqueHash == hash).ToListAsync(ct).ConfigureAwait(false);
                 foreach (var cue in cues)
                     cue.TimestampInSeconds += offsetSeconds;
+
+                var features = await db.AudioFeatures.FirstOrDefaultAsync(f => f.TrackUniqueHash == hash, ct).ConfigureAwait(false);
+                if (features != null && !string.IsNullOrWhiteSpace(features.BeatGridJson) && features.BeatGridJson != "[]")
+                {
+                    var beats = System.Text.Json.JsonSerializer.Deserialize<List<double>>(features.BeatGridJson);
+                    if (beats != null)
+                        features.BeatGridJson = System.Text.Json.JsonSerializer.Serialize(beats.Select(b => b + offsetSeconds).ToList());
+                }
             }
 
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
