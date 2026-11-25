@@ -394,7 +394,7 @@
                     <StackPanel Classes="tab-body">
 
                         <StackPanel Classes="settings-section"
-                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Download Settings folder location path file name format placeholders'}">
+                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Download Settings folder location path file name format placeholders staging inbox direct re-file analysis'}">
                             <TextBlock Classes="section" Text="LOCATION"/>
                             <Border Classes="card">
                                 <StackPanel>
@@ -434,10 +434,28 @@
                                     <Grid Classes="row" ColumnDefinitions="*,Auto">
                                         <StackPanel Classes="label">
                                             <TextBlock Classes="body" Text="File name format"/>
-                                            <TextBlock Classes="caption" Text="{}{artist} {title} {album} {filename} {bitrate} {bpm} {key} {energy} {format} {length} {user}"/>
+                                            <TextBlock Classes="caption" Text="{}{artist} {title} {album} {filename} {bitrate} {bpm} {bpm_bracket} {key} {energy} {format} {length} {user}"/>
                                         </StackPanel>
                                         <TextBox Grid.Column="1" Classes="field mono"
                                                  Text="{Binding FileNameFormat, Mode=TwoWay}"/>
+                                    </Grid>
+                                    <Border Classes="divider"/>
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                        <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="After download finishes"/>
+                                            <TextBlock Classes="caption" Text="Direct files straight to your template path after verification; Inbox holds tracks in Inbox/ until you File to library."/>
+                                        </StackPanel>
+                                        <ComboBox Grid.Column="1" Width="160"
+                                                  ItemsSource="{Binding AvailableDownloadCommitModes}"
+                                                  SelectedItem="{Binding DownloadCommitMode, Mode=TwoWay}"/>
+                                    </Grid>
+                                    <Border Classes="divider"/>
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                        <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="Re-file after analysis"/>
+                                            <TextBlock Classes="caption" Text="Move unlocked tracks once BPM/key analysis finishes when your template uses {key}, {bpm}, or {bpm_bracket}. Never moves locked or linked-folder files."/>
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding RefileAfterAnalysis, Mode=TwoWay}"/>
                                     </Grid>
                                 </StackPanel>
                             </Border>
