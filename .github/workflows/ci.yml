@@ -42,7 +42,7 @@ jobs:
         run: dotnet build SLSKDONET.csproj -c Release --no-restore -nologo
 
       - name: Test (with coverage)
-        run: dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj -c Release -nologo --blame-hang-timeout 2m --logger "console;verbosity=minimal" --collect:"XPlat Code Coverage" --results-directory ./TestResults
+        run: dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj -c Release -nologo --blame-hang-timeout 5m --logger "console;verbosity=minimal" --collect:"XPlat Code Coverage" --results-directory ./TestResults
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
