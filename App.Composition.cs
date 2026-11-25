@@ -332,6 +332,20 @@ public partial class App
         services.AddSingleton<Services.Shell.ShellStateMonitor>();
         services.AddSingleton<Services.Shell.WindowsTaskbarIntegration>();
         services.AddSingleton<Services.Shell.TrayIconController>();
+        // Single cross-platform shell seam (#452): file reveal/open, OS notifications, taskbar,
+        // child-process lifetime, and per-user secrets.
+        services.AddSingleton<SLSKDONET.Services.Platform.IPlatformShell>(sp =>
+        {
+            SLSKDONET.Services.Platform.IPlatformShell shell = OperatingSystem.IsWindows()
+                ? new SLSKDONET.Services.Platform.WindowsPlatformShell(
+                    sp.GetRequiredService<WindowsToastService>(),
+                    sp.GetRequiredService<Services.Shell.WindowsTaskbarIntegration>())
+                : OperatingSystem.IsMacOS()
+                    ? new SLSKDONET.Services.Platform.MacOSPlatformShell()
+                    : new SLSKDONET.Services.Platform.LinuxPlatformShell();
+            SLSKDONET.Services.Platform.PlatformShell.SetCurrent(shell);
+            return shell;
+        });
         services.AddTransient<UsersViewModel>();
         services.AddTransient<UserProfileViewModel>();
         services.AddTransient<RoomsViewModel>();

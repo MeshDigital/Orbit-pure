@@ -53,9 +53,19 @@ namespace SLSKDONET.Services
 
         /// <summary>
         /// Registers a process to be terminated when ORBIT exits.
+        /// Uses Windows Job Objects on Windows and delegates to <see cref="Platform.PlatformShell.Current"/>
+        /// on macOS/Linux (#452).
         /// </summary>
         public static void RegisterProcess(Process process)
         {
+            if (process is null) return;
+
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                Platform.PlatformShell.Current.TrackChildProcess(process);
+                return;
+            }
+
             if (_jobHandle != IntPtr.Zero && !process.HasExited)
             {
                 try

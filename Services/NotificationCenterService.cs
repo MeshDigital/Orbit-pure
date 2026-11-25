@@ -27,7 +27,7 @@ public sealed class NotificationCenterService : ReactiveObject, IDisposable
     private readonly IEventBus _eventBus;
     private readonly DownloadManager _downloadManager;
     private readonly INotificationService _notificationService;
-    private readonly WindowsToastService _windowsToast;
+    private readonly Platform.IPlatformShell _platformShell;
     private readonly ILogger<NotificationCenterService> _logger;
     private readonly CompositeDisposable _disposables = new();
     private string? _activeConversationUsername;
@@ -50,13 +50,13 @@ public sealed class NotificationCenterService : ReactiveObject, IDisposable
         IEventBus eventBus,
         DownloadManager downloadManager,
         INotificationService notificationService,
-        WindowsToastService windowsToast,
+        Platform.IPlatformShell platformShell,
         ILogger<NotificationCenterService> logger)
     {
         _eventBus = eventBus;
         _downloadManager = downloadManager;
         _notificationService = notificationService;
-        _windowsToast = windowsToast;
+        _platformShell = platformShell;
         _logger = logger;
 
         eventBus.GetEvent<TrackStateChangedEvent>()
@@ -187,7 +187,7 @@ public sealed class NotificationCenterService : ReactiveObject, IDisposable
         });
 
         _notificationService.Show($"Message from {e.PeerUsername}", e.Message, NotificationType.Information);
-        _windowsToast.ShowIfUnfocused($"Message from {e.PeerUsername}", e.Message, navigateUsername: e.PeerUsername);
+        _platformShell.ShowNotificationIfUnfocused($"Message from {e.PeerUsername}", e.Message, navigateUsername: e.PeerUsername);
     }
 
     private void OnRoomMessageReceived(RoomMessageReceivedEvent e)
@@ -204,7 +204,7 @@ public sealed class NotificationCenterService : ReactiveObject, IDisposable
         });
 
         _notificationService.Show($"{e.Username} in #{e.RoomName}", e.Message, NotificationType.Information);
-        _windowsToast.ShowIfUnfocused($"{e.Username} in #{e.RoomName}", e.Message, navigateRoomName: e.RoomName);
+        _platformShell.ShowNotificationIfUnfocused($"{e.Username} in #{e.RoomName}", e.Message, navigateRoomName: e.RoomName);
     }
 
     private void Add(NotificationItem item)
