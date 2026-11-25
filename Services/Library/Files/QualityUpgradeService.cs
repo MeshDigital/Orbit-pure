@@ -8,8 +8,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
+using SLSKDONET.Services.Audio;
 
 namespace SLSKDONET.Services.Library.Files;
+
+/// <summary>Result of an LF6 quality upgrade with offset estimation and trash path for restore.</summary>
+public sealed record QualityUpgradeResult(string NewPath, string TrashedOldPath, double MeasuredOffsetSeconds);
 
 /// <summary>
 /// LF6 (#348): replaces a lower-quality library file with a better one in place. The new file moves
@@ -20,11 +24,59 @@ public sealed class QualityUpgradeService
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly ILogger<QualityUpgradeService> _logger;
+    private readonly IAudioDecoder? _audioDecoder;
 
-    public QualityUpgradeService(IDbContextFactory<AppDbContext> dbFactory, ILogger<QualityUpgradeService> logger)
+    public QualityUpgradeService(
+        IDbContextFactory<AppDbContext> dbFactory,
+        ILogger<QualityUpgradeService> logger,
+        IAudioDecoder? audioDecoder = null)
     {
         _dbFactory = dbFactory;
         _logger = logger;
+        _audioDecoder = audioDecoder;
+    }
+
+    /// <summary>
+    /// Measures the decoder offset between <paramref name="oldFile"/> and <paramref name="newFile"/>
+    /// via <see cref="IAudioDecoder"/> + <see cref="DecoderOffsetEstimator"/>, then replaces in place,
+    /// trashes the old file to <see cref="OrbitTrash"/>, and shifts cues/beatgrid by the measured offset.
+    /// </summary>
+    public async Task<QualityUpgradeResult> ReplaceWithOffsetEstimationAsync(
+        string hash,
+        string newFile,
+        string oldFile,
+        string downloadDir,
+        bool allowProtectedOverride = false,
+        CancellationToken ct = default)
+    {
+        double offsetSeconds = 0.0;
+        if (_audioDecoder is not null && File.Exists(oldFile) && File.Exists(newFile))
+        {
+            try
+            {
+                const int targetRate = 16000;
+                var (oldPcm, oldRate) = _audioDecoder.DecodeMonoSamples(oldFile, maxSeconds: 2, targetSampleRate: targetRate, ct);
+                var (newPcm, newRate) = _audioDecoder.DecodeMonoSamples(newFile, maxSeconds: 2, targetSampleRate: targetRate, ct);
+                if (oldPcm.Length > 0 && newPcm.Length > 0 && oldRate == newRate && oldRate > 0)
+                {
+                    var offsetMs = DecoderOffsetEstimator.EstimateOffsetMs(
+                        oldPcm,
+                        newPcm,
+                        oldRate,
+                        maxSearchMs: 100,
+                        windowSamples: Math.Min(oldRate * 2, Math.Min(oldPcm.Length, newPcm.Length)));
+                    offsetSeconds = offsetMs / 1000.0;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Decoder offset estimation failed for {Hash}; continuing with 0 ms offset.", hash);
+            }
+        }
+
+        var (newPath, trashedOld) = await ReplaceCoreAsync(
+            hash, newFile, oldFile, downloadDir, allowProtectedOverride, offsetSeconds, ct).ConfigureAwait(false);
+        return new QualityUpgradeResult(newPath, trashedOld, offsetSeconds);
     }
 
     public async Task<string> ReplaceAsync(
@@ -35,6 +87,20 @@ public sealed class QualityUpgradeService
         bool allowProtectedOverride = false,
         double offsetSeconds = 0,
         CancellationToken ct = default)
+    {
+        var (newPath, _) = await ReplaceCoreAsync(
+            hash, newFile, oldFile, downloadDir, allowProtectedOverride, offsetSeconds, ct).ConfigureAwait(false);
+        return newPath;
+    }
+
+    private async Task<(string NewPath, string TrashedOldPath)> ReplaceCoreAsync(
+        string hash,
+        string newFile,
+        string oldFile,
+        string downloadDir,
+        bool allowProtectedOverride,
+        double offsetSeconds,
+        CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(newFile) || !File.Exists(newFile))
             throw new FileNotFoundException("Replacement audio file not found.", newFile);
@@ -127,6 +193,6 @@ public sealed class QualityUpgradeService
         }
 
         _logger.LogInformation("Upgraded {Hash}: {Old} -> {New}", hash, oldFile, target);
-        return target;
+        return (target, trashedOld);
     }
 }

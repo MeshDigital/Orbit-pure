@@ -49,6 +49,9 @@ public class DownloadContext
     /// <summary>The exact .part path of the current attempt (#328), so cleanup deletes the real file.</summary>
     public string? PartFilePath { get; set; }
 
+    /// <summary>LF6 (#348): when re-downloading to upgrade an existing track, the old file path to replace in place once verified.</summary>
+    public string? UpgradeSourcePath { get; set; }
+
     // Phase 0.3: Health Metrics
     public long CurrentSpeed { get; set; }      // Bytes per second
     public int StallCount { get; set; }         // Consecutive stalled ticks

@@ -75,9 +75,12 @@ public partial class DownloadManager
         {
             try
             {
-                if (!string.IsNullOrEmpty(ctx.Model.ResolvedFilePath))
+                // LF6 (#348): keep the original file intact on disk until the upgraded copy finishes
+                // and is verified in staging, then QualityUpgradeService swaps it in place, trashes
+                // the old file to .orbit-trash/, and shifts cues/beatgrid by the measured decoder offset.
+                if (!string.IsNullOrEmpty(ctx.Model.ResolvedFilePath) && File.Exists(ctx.Model.ResolvedFilePath))
                 {
-                    DeleteLocalFiles(ctx.Model.ResolvedFilePath);
+                    ctx.UpgradeSourcePath = ctx.Model.ResolvedFilePath;
                 }
 
                 ctx.Model.Bitrate = null;

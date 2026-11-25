@@ -205,6 +205,7 @@ public partial class App
         services.AddSingleton<Services.Library.Files.PathProtectionService>(); // LF4: path lock/unlock
         services.AddSingleton<Services.Library.Files.ReorganizePreviewService>(); // LF5: reorganise preview
         services.AddSingleton<Services.Library.Files.PostAnalysisRefileService>(); // LF3: post-analysis re-file
+        services.AddSingleton<Services.Library.Files.QualityUpgradeService>(); // LF6: in-place quality upgrade + trash + cue shift
 
         // Audio Player
         services.AddSingleton<IAudioPlayerService, AudioPlayerService>();
