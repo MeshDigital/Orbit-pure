@@ -41,6 +41,10 @@ jobs:
       - name: Build (main)
         run: dotnet build SLSKDONET.csproj -c Release --no-restore -nologo
 
+      - name: Verify analyzer rules (dotnet format)
+        if: matrix.os == 'ubuntu-latest'
+        run: dotnet format analyzers SLSKDONET.csproj --verify-no-changes --severity error --no-restore
+
       - name: Test (with coverage)
         run: dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj -c Release -nologo --blame-hang-timeout 5m --logger "console;verbosity=minimal" --collect:"XPlat Code Coverage" --results-directory ./TestResults
 

@@ -67,6 +67,7 @@ logs/
 !appsettings.json
 !appsettings.Development.json
 !dotnet-tools.json
+!global.json
 !Tools/Essentia/models/genre_discogs400-discogs-effnet-1.json
 
 # Dev/Debug data

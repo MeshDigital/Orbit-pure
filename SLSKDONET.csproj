@@ -6,6 +6,8 @@
 
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AnalysisLevel>9.0-default</AnalysisLevel>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AssemblyName>ORBIT</AssemblyName>
     <RootNamespace>SLSKDONET</RootNamespace>
     <!-- The SDK generates the assembly info, so <Version> below reaches AssemblyVersion /
