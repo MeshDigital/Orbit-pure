@@ -295,6 +295,9 @@ public class AppConfig
     public string DownloadCommitMode { get; set; } = "Direct";
     public bool RefileAfterAnalysis { get; set; } = true;
 
+    /// <summary>#424: Optional YouTube Data API v3 key for paginated playlist imports (>100 videos). Public playlists work without one.</summary>
+    public string? YouTubeApiKey { get; set; }
+
     public List<string>? AutoDownloadAllowedExtensions { get; set; } = new() { "flac", "wav", "aiff", "aif", "ape", "alac" }; // Conservative defaults
     public long AutoDownloadMinFileSizeBytes { get; set; } = 1024 * 500; // 500 KB minimum (anti-stub)
     // Implied-bitrate plausibility (issue #234): catches previews/truncated files that pass a flat floor.
