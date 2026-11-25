@@ -155,8 +155,6 @@
     <PackageReference Include="Avalonia.Controls.TreeDataGrid" Version="11.1.1" />
     <PackageReference Include="Avalonia.Xaml.Behaviors" Version="11.2.0.7" />
     <PackageReference Include="Simple-Avalonia-DragnDrop-Service" Version="2.4.3" />
-    <PackageReference Include="Microsoft.ML" Version="3.0.1" />
-    <PackageReference Include="Microsoft.ML.LightGbm" Version="3.0.1" />
     <PackageReference Include="Xabe.FFmpeg" Version="5.2.6" />
   </ItemGroup>
 
