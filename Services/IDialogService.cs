@@ -101,6 +101,13 @@ public interface IDialogService
     Task<Views.Avalonia.Dialogs.ExportPlaylistChoice?> ShowExportPlaylistChoiceAsync(string playlistTitle);
 
     /// <summary>
+    /// LF7 (#349): shows the Export Playlist dialog with USB folder-layout selector and live tree/size preview.
+    /// </summary>
+    Task<Views.Avalonia.Dialogs.ExportPlaylistOptionsResult?> ShowExportPlaylistOptionsAsync(
+        string playlistTitle,
+        System.Collections.Generic.IReadOnlyList<SLSKDONET.Models.PlaylistTrack> tracks);
+
+    /// <summary>
     /// Shows a folder selection dialog.
     /// </summary>
     /// <returns>Selected folder path or null if cancelled.</returns>

@@ -119,4 +119,30 @@ public class UsbExportPlannerTests : IDisposable
         Assert.Contains("[deadbeef]", Path.GetFileName(p1));
         Assert.Contains("[cafebabe]", Path.GetFileName(p2));
     }
+
+    [Fact]
+    public void BuildPreviewSummary_GroupsFoldersAndSumsSizes()
+    {
+        var a = MakeFile("a.flac", new string('x', 2048));
+        var b = MakeFile("b.flac", new string('y', 1024));
+        var tracks = new[]
+        {
+            new PlaylistTrack { TrackUniqueHash = "h1", Artist = "A", Title = "One", MusicalKey = "8A", ResolvedFilePath = a },
+            new PlaylistTrack { TrackUniqueHash = "h2", Artist = "B", Title = "Two", MusicalKey = "10B", ResolvedFilePath = b },
+        };
+
+        var byKey = UsbExportPlanner.BuildPreviewSummary("Warmup", tracks, UsbLayoutMode.ByKey);
+        Assert.Equal(2, byKey.TrackCount);
+        Assert.Equal(2, byKey.FolderCount);
+        Assert.Equal(3072, byKey.TotalBytes);
+        Assert.Equal("3 KB", byKey.TotalSizeDisplay);
+        Assert.Contains(byKey.FolderLines, l => l.StartsWith("8A/"));
+        Assert.Contains(byKey.FolderLines, l => l.StartsWith("10B/"));
+
+        var flat = UsbExportPlanner.BuildPreviewSummary("Warmup: Live?", tracks, null);
+        Assert.Equal(2, flat.TrackCount);
+        Assert.Equal(1, flat.FolderCount);
+        Assert.Equal(3072, flat.TotalBytes);
+        Assert.Contains("OrbitAudio/Warmup_ Live_/", Assert.Single(flat.FolderLines));
+    }
 }

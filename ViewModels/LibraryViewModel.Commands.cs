@@ -1873,18 +1873,18 @@ public partial class LibraryViewModel
 
         try
         {
-            // Ask user: copy files to USB/folder, XML only, or cancel entirely. Dismissing this
-            // dialog (X / Alt+F4 / Escape) returns null here, which is handled the same as an
-            // explicit Cancel below — unlike the old ConfirmAsync-based version, dismissing no
-            // longer silently falls through to an XML-only export the user never asked for.
-            var choice = await _dialogService.ShowExportPlaylistChoiceAsync(project.SourceTitle);
-            if (choice is null or Views.Avalonia.Dialogs.ExportPlaylistChoice.Cancelled)
+            var tracks = (await _libraryService.LoadPlaylistTracksAsync(project.Id)).ToList();
+
+            // Ask user: copy files to USB/folder (with optional LF7 folder layout & tree/size preview),
+            // XML only, or cancel entirely. Dismissing this dialog (X / Alt+F4 / Escape) returns null
+            // here, which is handled the same as an explicit Cancel below.
+            var options = await _dialogService.ShowExportPlaylistOptionsAsync(project.SourceTitle, tracks);
+            if (options is null || options.Choice == Views.Avalonia.Dialogs.ExportPlaylistChoice.Cancelled)
                 return;
 
             IsLoading = true;
-            var tracks = (await _libraryService.LoadPlaylistTracksAsync(project.Id)).ToList();
 
-            if (choice == Views.Avalonia.Dialogs.ExportPlaylistChoice.CopyFilesAndXml)
+            if (options.Choice == Views.Avalonia.Dialogs.ExportPlaylistChoice.CopyFilesAndXml)
             {
                 var folder = await _dialogService.OpenFolderDialogAsync("Choose export folder or USB drive root");
                 if (string.IsNullOrEmpty(folder)) return;
@@ -1904,7 +1904,8 @@ public partial class LibraryViewModel
                 await _exportOrchestrator.ExportAsync(
                     project.SourceTitle, tracks, folder,
                     Services.Export.ExportMode.FilesAndXml,
-                    progressHandler, folderId: project.FolderId, confirmOverwrite: ConfirmRekordboxOverwriteAsync);
+                    progressHandler, folderId: project.FolderId, confirmOverwrite: ConfirmRekordboxOverwriteAsync,
+                    layoutMode: options.LayoutMode);
 
                 // Use the orchestrator's own final tally rather than re-deriving "skipped" by
                 // re-checking File.Exists here — that only ever caught missing-file skips, silently

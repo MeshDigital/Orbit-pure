@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="SLSKDONET.Views.Avalonia.Dialogs.ExportPlaylistChoiceDialog"
-        Title="Export playlist" Width="460" SizeToContent="Height"
+        Title="Export playlist" Width="500" SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
         CanResize="False"
         Background="{StaticResource BrushBg2}" TransparencyLevelHint="AcrylicBlur"
@@ -20,6 +20,31 @@
                 <TextBlock Classes="caption" TextWrapping="Wrap"
                            Text="Copies the audio files to a USB drive or folder and writes a Rekordbox XML next to them."/>
             </StackPanel>
+
+            <StackPanel x:Name="LayoutPreviewPanel" Spacing="8" IsVisible="False">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel VerticalAlignment="Center" Spacing="2">
+                        <TextBlock Classes="body-sm" Text="USB folder layout"/>
+                        <TextBlock Classes="caption" Text="FAT32-safe folders built as real copies on the drive."/>
+                    </StackPanel>
+                    <ComboBox x:Name="LayoutComboBox" Grid.Column="1" Width="190"
+                              SelectionChanged="LayoutComboBox_SelectionChanged"/>
+                </Grid>
+
+                <Border Background="{StaticResource BrushBg1}" BorderBrush="{StaticResource BrushBg4}"
+                        BorderThickness="1" CornerRadius="6" Padding="10,8">
+                    <StackPanel Spacing="6">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Classes="section" Text="TREE PREVIEW"/>
+                            <TextBlock x:Name="PreviewSummaryText" Grid.Column="1" Classes="mono caption"/>
+                        </Grid>
+                        <ScrollViewer MaxHeight="130" VerticalScrollBarVisibility="Auto">
+                            <TextBlock x:Name="PreviewTreeText" Classes="mono caption" TextWrapping="NoWrap"/>
+                        </ScrollViewer>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
             <StackPanel Spacing="2">
                 <TextBlock Classes="h3" Text="XML only"/>
                 <TextBlock Classes="caption" TextWrapping="Wrap"

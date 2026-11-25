@@ -302,6 +302,22 @@ public class DialogService : IDialogService
         });
     }
 
+    public async Task<Views.Avalonia.Dialogs.ExportPlaylistOptionsResult?> ShowExportPlaylistOptionsAsync(
+        string playlistTitle,
+        System.Collections.Generic.IReadOnlyList<SLSKDONET.Models.PlaylistTrack> tracks)
+    {
+        return await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var dialog = new Views.Avalonia.Dialogs.ExportPlaylistChoiceDialog(playlistTitle, tracks);
+            var owner = GetOwnerWindow();
+            if (owner != null)
+            {
+                return await dialog.ShowDialog<Views.Avalonia.Dialogs.ExportPlaylistOptionsResult?>(owner);
+            }
+            return null;
+        });
+    }
+
     public async Task<string?> OpenFolderDialogAsync(string title)
     {
         return await Dispatcher.UIThread.InvokeAsync(async () =>
