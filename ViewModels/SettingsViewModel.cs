@@ -449,6 +449,39 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>LF3 (#345): how verified downloads leave staging — straight to the template path ("Direct") or into Inbox/ for review ("Inbox").</summary>
+    public static string[] AvailableDownloadCommitModes { get; } = { "Direct", "Inbox" };
+
+    public string DownloadCommitMode
+    {
+        get => _config.DownloadCommitMode is "Inbox" ? "Inbox" : "Direct";
+        set
+        {
+            var normalized = value is "Inbox" ? "Inbox" : "Direct";
+            if (_config.DownloadCommitMode != normalized)
+            {
+                _config.DownloadCommitMode = normalized;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    /// <summary>LF3 (#345): re-file unlocked tracks after analysis when the template uses {key}, {bpm}, or {bpm_bracket}.</summary>
+    public bool RefileAfterAnalysis
+    {
+        get => _config.RefileAfterAnalysis;
+        set
+        {
+            if (_config.RefileAfterAnalysis != value)
+            {
+                _config.RefileAfterAnalysis = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
     public bool CheckForDuplicates
     {
         get => _config.CheckForDuplicates;
