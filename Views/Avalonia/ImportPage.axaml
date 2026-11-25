@@ -41,7 +41,7 @@
         <!-- Header -->
         <StackPanel Grid.Row="0" Spacing="2" Margin="24,16,24,16">
             <TextBlock Classes="h1" Text="Import"/>
-            <TextBlock Classes="subtitle" Text="Bring in playlists from Spotify, a pasted tracklist or a CSV file. You'll see a preview before anything is added."/>
+            <TextBlock Classes="subtitle" Text="Bring in playlists from Spotify, YouTube, a pasted tracklist or a CSV file. You'll see a preview before anything is added."/>
             <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0"
                         IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                 <PathIcon Data="{StaticResource icon_alert}" Foreground="{StaticResource BrushWarning}"
@@ -193,6 +193,23 @@
                                     </ItemsControl>
                                 </ScrollViewer>
                             </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- ── YouTube playlist (#424) ─────────────────────── -->
+                <StackPanel Classes="import-section" IsVisible="{Binding CanImportYouTube}">
+                    <TextBlock Classes="section" Text="YOUTUBE"/>
+                    <Border Classes="card">
+                        <StackPanel Spacing="12">
+                            <TextBlock Classes="caption" TextWrapping="Wrap"
+                                       Text="Paste a public or unlisted YouTube or YouTube Music playlist URL. Video titles are normalized into Artist - Title and previewed before anything is added."/>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBox Text="{Binding YouTubePlaylistUrl, Mode=TwoWay}"
+                                         Watermark="https://www.youtube.com/playlist?list=... or https://music.youtube.com/playlist?list=..."/>
+                                <Button Grid.Column="1" Classes="primary" Content="Preview playlist" Margin="8,0,0,0"
+                                        Command="{Binding ImportYouTubeUrlCommand}"/>
+                            </Grid>
                         </StackPanel>
                     </Border>
                 </StackPanel>

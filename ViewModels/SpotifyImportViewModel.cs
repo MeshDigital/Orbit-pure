@@ -28,6 +28,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
     private readonly Services.ImportProviders.SpotifyLikedSongsImportProvider _likedSongsProvider;
     private readonly Services.ImportProviders.CsvImportProvider _csvProvider;
     private readonly Services.ImportProviders.TracklistImportProvider _tracklistProvider;
+    private readonly Services.ImportProviders.YouTubeImportProvider? _youtubeProvider;
     private readonly INavigationService _navigationService;
     private readonly IFileInteractionService _fileInteractionService;
     private readonly IClipboardService _clipboardService;
@@ -43,6 +44,15 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
         get => _playlistUrl;
         set { _playlistUrl = value; OnPropertyChanged(); }
     }
+
+    private string _youTubePlaylistUrl = "";
+    public string YouTubePlaylistUrl
+    {
+        get => _youTubePlaylistUrl;
+        set { _youTubePlaylistUrl = value; OnPropertyChanged(); }
+    }
+
+    public bool CanImportYouTube => _youtubeProvider is not null;
 
     private string _playlistTitle = "Spotify Playlist";
     public string PlaylistTitle
@@ -246,6 +256,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
     private static bool IsImportSource(string? sourceType) =>
         !string.IsNullOrWhiteSpace(sourceType) &&
         (sourceType.Contains("Spotify", StringComparison.OrdinalIgnoreCase) ||
+         sourceType.Contains("YouTube", StringComparison.OrdinalIgnoreCase) ||
          sourceType.Contains("CSV", StringComparison.OrdinalIgnoreCase) ||
          sourceType.Contains("Tracklist", StringComparison.OrdinalIgnoreCase) ||
          sourceType.Contains("1001", StringComparison.OrdinalIgnoreCase));
@@ -257,6 +268,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
         if (string.IsNullOrWhiteSpace(url)) return null;
         if (_likedSongsProvider.CanHandle(url)) return _likedSongsProvider;
         if (_spotifyProvider.CanHandle(url)) return _spotifyProvider;
+        if (_youtubeProvider is not null && _youtubeProvider.CanHandle(url)) return _youtubeProvider;
         if (url.EndsWith(".csv", StringComparison.OrdinalIgnoreCase) && System.IO.File.Exists(url)) return _csvProvider;
         return null;
     }
@@ -322,7 +334,8 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
         ConfigManager configManager,
         AppConfig appConfig,
         ILibraryService? libraryService = null,
-        IEventBus? eventBus = null)
+        IEventBus? eventBus = null,
+        Services.ImportProviders.YouTubeImportProvider? youtubeProvider = null)
     {
         _logger = logger;
         _downloadManager = downloadManager;
@@ -334,6 +347,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
         _likedSongsProvider = likedSongsProvider;
         _csvProvider = csvProvider;
         _tracklistProvider = tracklistProvider;
+        _youtubeProvider = youtubeProvider;
         _navigationService = navigationService;
         _fileInteractionService = fileInteractionService;
         _clipboardService = clipboardService;
@@ -892,6 +906,33 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
         SetStatus(string.Empty);
         _logger.LogInformation("Starting unified Spotify import: {Url}", PlaylistUrl);
         await _importOrchestrator.StartImportWithPreviewAsync(_spotifyProvider, PlaylistUrl.Trim());
+    }
+
+    private ICommand? _importYouTubeUrlCommand;
+    public ICommand ImportYouTubeUrlCommand =>
+        _importYouTubeUrlCommand ??= new AsyncRelayCommand(ExecuteImportYouTubeUrlAsync);
+
+    private async Task ExecuteImportYouTubeUrlAsync()
+    {
+        if (_youtubeProvider is null)
+        {
+            SetStatus("YouTube import provider is not available.", isError: true);
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(YouTubePlaylistUrl))
+        {
+            SetStatus("Paste a YouTube or YouTube Music playlist link first.", isError: true);
+            return;
+        }
+        if (!_youtubeProvider.CanHandle(YouTubePlaylistUrl))
+        {
+            SetStatus("That doesn't look like a YouTube playlist link (expected youtube.com/playlist?list=… or music.youtube.com/playlist?list=…).", isError: true);
+            return;
+        }
+
+        SetStatus(string.Empty);
+        _logger.LogInformation("Starting unified YouTube import: {Url}", YouTubePlaylistUrl);
+        await _importOrchestrator.StartImportWithPreviewAsync(_youtubeProvider, YouTubePlaylistUrl.Trim());
     }
 
     private void SelectAll()
