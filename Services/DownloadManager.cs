@@ -3618,7 +3618,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
                 // CRITICAL: Create LibraryEntry for global index (enables All Tracks view + cross-project deduplication)
                 var libraryEntry = new LibraryEntry
                 {
-                    UniqueHash = ctx.Model.TrackUniqueHash,
+                    UniqueHash = ctx.Model.TrackUniqueHash ?? string.Empty,
                     Artist = ctx.Model.Artist,
                     Title = ctx.Model.Title,
                     Album = ctx.Model.Album ?? "Unknown",
