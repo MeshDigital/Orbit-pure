@@ -196,10 +196,12 @@ public class PlaylistExportIntegrityTests : IDisposable
         Assert.Equal("Артист", element.Attribute("Artist")?.Value);
         var location = element.Attribute("Location")!.Value;
         Assert.Contains("%23", location);
-        var parsed = new Uri(location).LocalPath;
-        const string localhostPrefix = @"\\localhost\";
-        if (parsed.StartsWith(localhostPrefix, StringComparison.OrdinalIgnoreCase))
-            parsed = parsed[localhostPrefix.Length..];
+        var parsed = new Uri(location).LocalPath.Replace('\\', '/');
+        if (parsed.StartsWith("//localhost/", StringComparison.OrdinalIgnoreCase))
+        {
+            var rest = parsed["//localhost/".Length..];
+            parsed = rest.Length >= 2 && rest[1] == ':' ? rest : "/" + rest;
+        }
         Assert.Equal(file.Replace('\\', '/'), parsed.Replace('\\', '/'), ignoreCase: true);
     }
 

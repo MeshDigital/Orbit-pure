@@ -114,14 +114,16 @@ public class PlaylistExportLocationUriTests : IDisposable
         // file://localhost/... deliberately keeps the "localhost" authority (Rekordbox's own
         // convention), so Uri.LocalPath treats it as a UNC host prefix ("\\localhost\C:\...") —
         // strip that prefix before comparing, rather than expecting a bare local path.
-        var parsed = new Uri(location).LocalPath;
-        const string localhostPrefix = @"\\localhost\";
-        if (parsed.StartsWith(localhostPrefix, StringComparison.OrdinalIgnoreCase))
-            parsed = parsed[localhostPrefix.Length..];
+        var parsed = new Uri(location).LocalPath.Replace('\\', '/');
+        if (parsed.StartsWith("//localhost/", StringComparison.OrdinalIgnoreCase))
+        {
+            var rest = parsed["//localhost/".Length..];
+            parsed = rest.Length >= 2 && rest[1] == ':' ? rest : "/" + rest;
+        }
 
         Assert.Equal(
             file.Replace('\\', '/'),
-            parsed.Replace('\\', '/'),
+            parsed,
             ignoreCase: true);
     }
 

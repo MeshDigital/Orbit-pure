@@ -63,7 +63,8 @@ public class PathProviderService
         var safeAlbum = Slugify(album);
         var safeTitle = Slugify(title);
 
-        return ResolveWithinDownloadDirectory(Path.Combine(safeArtist, safeAlbum, $"{safeTitle}.{extension}"));
+        var fileName = string.IsNullOrWhiteSpace(extension) ? safeTitle : $"{safeTitle}.{extension}";
+        return ResolveWithinDownloadDirectory(Path.Combine(safeArtist, safeAlbum, fileName));
     }
 
     /// <summary>
