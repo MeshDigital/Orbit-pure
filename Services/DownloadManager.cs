@@ -136,6 +136,14 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
     // - Progress: Bytes transferred (for UI progress bar)
     // Global State managed via Events
     private readonly List<DownloadContext> _downloads = new();
+    // Lock-ordering & deadlock audit (#316):
+    // _collectionLock is the SOLE monitor guarding `_downloads` mutations and reads.
+    // Rules enforced across all DownloadManager partial files:
+    //   1. Never acquire another monitor while holding _collectionLock (per-track peer blacklists
+    //      use DownloadContext's lock-free ConcurrentDictionary, not a secondary HashSet lock).
+    //   2. Never publish to _eventBus, start background tasks, or invoke async/DB methods while
+    //      holding _collectionLock — collect work items under the lock and dispatch after release.
+    //   3. Keep critical sections minimal (in-memory list lookups/mutations only).
     private readonly object _collectionLock = new object();
 
     private const int LAZY_QUEUE_BUFFER_SIZE = 5000;
@@ -190,13 +198,10 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
     public bool IsBackingOff => CurrentBackoffSeconds > 0;
     public int CurrentBackoffSeconds { get; private set; }
 
-    /// <summary>Returns a frozen copy of a context's blacklist so the discovery service can read it
-    /// while other threads mutate the live set (#316).</summary>
-    private static HashSet<string> SnapshotBlacklistedUsers(DownloadContext ctx)
-    {
-        lock (ctx.BlacklistedUsers)
-            return new HashSet<string>(ctx.BlacklistedUsers, StringComparer.OrdinalIgnoreCase);
-    }
+    /// <summary>Returns a frozen copy of a context's lock-free blacklist so the discovery service
+    /// can read it while other threads mutate the live set (#316).</summary>
+    private static HashSet<string> SnapshotBlacklistedUsers(DownloadContext ctx) =>
+        ctx.SnapshotBlacklistedUsers();
 
     // Lets the circuit breaker's backoff wait wake up the instant Windows reports the network
     // came back (e.g. Wi-Fi reconnected), instead of always sitting out the current exponential
@@ -757,6 +762,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
         // _collectionLock ran arbitrary subscriber code (event-bus fan-out) with the lock held,
         // for every track in the batch.
         var newlyQueued = new List<(DownloadContext Ctx, PlaylistTrack Track)>();
+        var retriedContexts = new List<DownloadContext>();
 
         lock (_collectionLock)
         {
@@ -831,7 +837,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
 
                         existingCtx.Model.Priority = 10;
                         existingCtx.Model.IsClearedFromDownloadCenter = false;
-                        _ = UpdateStateAsync(existingCtx, PlaylistTrackState.Pending);
+                        retriedContexts.Add(existingCtx);
 
                         existingCtx.RetryCount = 0;
                         existingCtx.NextRetryTime = null;
@@ -866,6 +872,11 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
 
                 newlyQueued.Add((ctx, track));
             }
+        }
+
+        foreach (var retryCtx in retriedContexts)
+        {
+            _ = UpdateStateAsync(retryCtx, PlaylistTrackState.Pending);
         }
 
         foreach (var (ctx, track) in newlyQueued)
@@ -927,82 +938,86 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
 
     private void HydrateAndAddEntities(List<PlaylistTrackEntity> entities)
     {
+        // Build models and contexts outside _collectionLock to keep the critical section minimal (#316).
+        var hydratedContexts = new List<DownloadContext>(entities.Count);
+        var batchBuffer = new List<(PlaylistTrack, PlaylistTrackState?)>(entities.Count);
+
+        foreach (var t in entities)
+        {
+            // Map PlaylistTrackEntity -> PlaylistTrack Model
+            var model = new PlaylistTrack
+            {
+                Id = t.Id,
+                PlaylistId = t.PlaylistId,
+                Artist = t.Artist,
+                Title = t.Title,
+                Album = t.Album,
+                TrackUniqueHash = t.TrackUniqueHash,
+                Status = t.Status,
+                ResolvedFilePath = t.ResolvedFilePath ?? "",
+                SpotifyTrackId = t.SpotifyTrackId,
+                AlbumArtUrl = t.AlbumArtUrl,
+                Format = t.Format,
+                Bitrate = t.Bitrate,
+                Priority = t.Priority,
+                AddedAt = t.AddedAt,
+                CompletedAt = t.CompletedAt,
+                IsClearedFromDownloadCenter = t.IsClearedFromDownloadCenter,
+                IsUserPaused = t.IsUserPaused,
+                SourcePlaylistId = t.SourcePlaylistId,
+                SourcePlaylistName = t.SourcePlaylistName,
+                SearchRetryCount = 0, // Reset in-session counter on start
+                NotFoundRestartCount = t.NotFoundRestartCount,
+                // Stamp playlist-level priority from cache (transient, not from DB column)
+                JobPriority = GetEffectiveJobPriority(t.PlaylistId),
+                JobManualSortOrder = _jobManualSortOrder.GetValueOrDefault(t.PlaylistId, 0),
+            };
+
+            // Map status to download state
+            var ctx = new DownloadContext(model);
+
+            // Phase 3 Hardening: Accurate State Restoration
+            // 1. If user explicitly paused it, honor that state
+            if (model.IsUserPaused)
+            {
+                ctx.State = PlaylistTrackState.Paused;
+            }
+            else
+            {
+                // 2. Otherwise map based on last known Status
+                ctx.State = t.Status switch
+                {
+                    TrackStatus.Downloaded => PlaylistTrackState.Completed,
+                    TrackStatus.Failed => PlaylistTrackState.Failed,
+                    TrackStatus.Skipped => PlaylistTrackState.Cancelled,
+                    TrackStatus.OnHold => IsMp3FallbackAllowed(model) ? PlaylistTrackState.Paused : PlaylistTrackState.Pending,
+                    // If it was pending/downloading/searching, we make it Pending to restart
+                    _ => PlaylistTrackState.Pending
+                };
+            }
+
+            // Phase 21: Auto-escalate to OnHold if restart limit reached
+            if (model.NotFoundRestartCount >= 3 && model.Status != TrackStatus.Downloaded && IsMp3FallbackAllowed(model))
+            {
+                model.Status = TrackStatus.OnHold;
+                ctx.State = PlaylistTrackState.Paused;
+            }
+
+            hydratedContexts.Add(ctx);
+
+            // Issue #4: Batch track events instead of firing per-track to prevent UI freeze
+            batchBuffer.Add((model, ctx.State));
+        }
+
         lock (_collectionLock)
         {
-            var batchBuffer = new List<(PlaylistTrack, PlaylistTrackState?)>();
+            _downloads.AddRange(hydratedContexts);
+        }
 
-            foreach (var t in entities)
-            {
-                // Map PlaylistTrackEntity -> PlaylistTrack Model
-                var model = new PlaylistTrack
-                {
-                    Id = t.Id,
-                    PlaylistId = t.PlaylistId,
-                    Artist = t.Artist,
-                    Title = t.Title,
-                    Album = t.Album,
-                    TrackUniqueHash = t.TrackUniqueHash,
-                    Status = t.Status,
-                    ResolvedFilePath = t.ResolvedFilePath ?? "",
-                    SpotifyTrackId = t.SpotifyTrackId,
-                    AlbumArtUrl = t.AlbumArtUrl,
-                    Format = t.Format,
-                    Bitrate = t.Bitrate,
-                    Priority = t.Priority,
-                    AddedAt = t.AddedAt,
-                    CompletedAt = t.CompletedAt,
-                    IsClearedFromDownloadCenter = t.IsClearedFromDownloadCenter,
-                    IsUserPaused = t.IsUserPaused,
-                    SourcePlaylistId = t.SourcePlaylistId,
-                    SourcePlaylistName = t.SourcePlaylistName,
-                    SearchRetryCount = 0, // Reset in-session counter on start
-                    NotFoundRestartCount = t.NotFoundRestartCount,
-                    // Stamp playlist-level priority from cache (transient, not from DB column)
-                    JobPriority = GetEffectiveJobPriority(t.PlaylistId),
-                    JobManualSortOrder = _jobManualSortOrder.GetValueOrDefault(t.PlaylistId, 0),
-                };
-
-                // Map status to download state
-                var ctx = new DownloadContext(model);
-
-                // Phase 3 Hardening: Accurate State Restoration
-                // 1. If user explicitly paused it, honor that state
-                if (model.IsUserPaused)
-                {
-                    ctx.State = PlaylistTrackState.Paused;
-                }
-                else
-                {
-                    // 2. Otherwise map based on last known Status
-                    ctx.State = t.Status switch
-                    {
-                        TrackStatus.Downloaded => PlaylistTrackState.Completed,
-                        TrackStatus.Failed => PlaylistTrackState.Failed,
-                        TrackStatus.Skipped => PlaylistTrackState.Cancelled,
-                        TrackStatus.OnHold => IsMp3FallbackAllowed(model) ? PlaylistTrackState.Paused : PlaylistTrackState.Pending,
-                        // If it was pending/downloading/searching, we make it Pending to restart
-                        _ => PlaylistTrackState.Pending
-                    };
-                }
-
-                // Phase 21: Auto-escalate to OnHold if restart limit reached
-                if (model.NotFoundRestartCount >= 3 && model.Status != TrackStatus.Downloaded && IsMp3FallbackAllowed(model))
-                {
-                    model.Status = TrackStatus.OnHold;
-                    ctx.State = PlaylistTrackState.Paused;
-                }
-
-                _downloads.Add(ctx);
-
-                // Issue #4: Batch track events instead of firing per-track to prevent UI freeze
-                batchBuffer.Add((model, ctx.State));
-            }
-
-            // Issue #4: Publish all tracks in single batch event for efficient UI update
-            if (batchBuffer.Count > 0)
-            {
-                _eventBus.Publish(new BatchTracksAddedEvent(batchBuffer.AsReadOnly()));
-            }
+        // Issue #4 / #316: Publish outside _collectionLock so event subscribers never run under the lock.
+        if (batchBuffer.Count > 0)
+        {
+            _eventBus.Publish(new BatchTracksAddedEvent(batchBuffer.AsReadOnly()));
         }
     }
 
@@ -1637,7 +1652,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
         var stalledUser = ctx.CurrentUsername;
         if (!string.IsNullOrEmpty(stalledUser))
         {
-            lock (ctx.BlacklistedUsers) ctx.BlacklistedUsers.Add(stalledUser); // HashSet isn't thread-safe
+            ctx.BlacklistUser(stalledUser);
             _logger.LogWarning("⚠️ Health Monitor: Blacklisting peer {User} for {Track}", stalledUser, ctx.Model.Title);
 
             // Record failure/stall status to deprioritize bad peers in future searches
@@ -1881,7 +1896,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
             ctx.Model.Priority = 0;
             ctx.IsFinalizing = false;
             ctx.SearchAttempts.Clear();
-            lock (ctx.BlacklistedUsers) ctx.BlacklistedUsers.Clear();
+            ctx.ClearBlacklistedUsers();
 
             try
             {
@@ -2300,6 +2315,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
                 }
 
                 DownloadContext? nextContext = null;
+                var needsRefill = false;
                 lock (_collectionLock)
                 {
                     // Phase 3D: High-Efficiency Core - Single Pass Selection
@@ -2330,27 +2346,25 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
 
                     // Periodic trim: remove terminal downloads older than 30 min to prevent unbounded growth
                     var cutoff = DateTime.UtcNow.AddMinutes(-30);
-                    lock (_collectionLock)
-                    {
-                        _downloads.RemoveAll(d =>
-                            d.State is PlaylistTrackState.Completed or PlaylistTrackState.Failed or PlaylistTrackState.Cancelled
-                            && d.Model.CompletedAt.HasValue
-                            && d.Model.CompletedAt.Value < cutoff);
-                    }
+                    _downloads.RemoveAll(d =>
+                        d.State is PlaylistTrackState.Completed or PlaylistTrackState.Failed or PlaylistTrackState.Cancelled
+                        && d.Model.CompletedAt.HasValue
+                        && d.Model.CompletedAt.Value < cutoff);
 
                     // Phase 3C.5: Check if we need to release the hounds (Refill)
-                    var pendingCount = _downloads.Count(d => d.State == PlaylistTrackState.Pending);
-                    if (pendingCount < REFILL_THRESHOLD)
-                    {
-                         // Trigger background refill
-                         _ = Task.Run(async () =>
-                         {
-                             try { await RefillQueueAsync(); }
-                             catch (Exception ex) { _logger.LogError(ex, "Background queue refill failed"); }
-                         });
-                    }
+                    needsRefill = _downloads.Count(d => d.State == PlaylistTrackState.Pending) < REFILL_THRESHOLD;
 
                     // Pre-search is intentionally disabled in strict-concurrency mode.
+                }
+
+                if (needsRefill)
+                {
+                    // Trigger background refill outside _collectionLock (#316)
+                    _ = Task.Run(async () =>
+                    {
+                        try { await RefillQueueAsync(); }
+                        catch (Exception ex) { _logger.LogError(ex, "Background queue refill failed"); }
+                    });
                 }
 
                 if (nextContext == null)
@@ -2831,10 +2845,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
 
                 if (!string.IsNullOrEmpty(ctx.CurrentUsername))
                 {
-                    lock (ctx.BlacklistedUsers)
-                    {
-                        ctx.BlacklistedUsers.Add(ctx.CurrentUsername);
-                    }
+                    ctx.BlacklistUser(ctx.CurrentUsername);
                 }
 
                 // Stall: blacklist the peer, go back-of-queue (not immediately re-compete).
@@ -2947,18 +2958,15 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
                 // Skipped for a file-read error on resume — that is our stale offset, not the peer.
                 if (!resetPartForRetry && !string.IsNullOrEmpty(ctx.CurrentUsername))
                 {
-                    lock (ctx.BlacklistedUsers) // HashSet isn't thread-safe
+                    if (ctx.BlacklistUser(ctx.CurrentUsername))
                     {
-                        if (ctx.BlacklistedUsers.Add(ctx.CurrentUsername))
-                        {
-                            _logger.LogWarning(
-                                "Blacklisted peer {User} for {Track}. reason={Reason} detail={Detail} correlationId={CorrelationId}",
-                                ctx.CurrentUsername,
-                                ctx.Model.Title,
-                                transferDisposition.OperatorMessage,
-                                ex.Message,
-                                ctx.CorrelationId ?? "-");
-                        }
+                        _logger.LogWarning(
+                            "Blacklisted peer {User} for {Track}. reason={Reason} detail={Detail} correlationId={CorrelationId}",
+                            ctx.CurrentUsername,
+                            ctx.Model.Title,
+                            transferDisposition.OperatorMessage,
+                            ex.Message,
+                            ctx.CorrelationId ?? "-");
                     }
                 }
 
@@ -3699,10 +3707,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
             // Failed only once that budget is exhausted.
             if (!string.IsNullOrEmpty(bestMatch.Username))
             {
-                lock (ctx.BlacklistedUsers)
-                {
-                    ctx.BlacklistedUsers.Add(bestMatch.Username);
-                }
+                ctx.BlacklistUser(bestMatch.Username);
             }
 
             ctx.Model.SearchRetryCount++;
@@ -3771,10 +3776,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
 
         if (!string.IsNullOrEmpty(ctx.CurrentUsername))
         {
-            lock (ctx.BlacklistedUsers)
-            {
-                ctx.BlacklistedUsers.Add(ctx.CurrentUsername);
-            }
+            ctx.BlacklistUser(ctx.CurrentUsername);
         }
 
         _logger.LogWarning("Hedge failover for {Title}: switching to runner-up peer {User}. reason={Reason} correlationId={CorrelationId}",
@@ -4108,10 +4110,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
         ctx.IsFinalizing = false; // Reset critical flags
         ctx.SearchAttempts.Clear(); // Clear bad search history
 
-        lock (ctx.BlacklistedUsers)
-        {
-             ctx.BlacklistedUsers.Clear(); // Give peers a second chance
-        }
+        ctx.ClearBlacklistedUsers(); // Give peers a second chance
 
         // 2. Clean Disk (Nuanced: Only delete .part if it's failed/stalled, keep .mp3 if it was somehow completed?)
         // Actually "Hard Retry" implies "Delete everything and start over".
