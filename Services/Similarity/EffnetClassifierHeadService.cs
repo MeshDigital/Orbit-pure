@@ -147,7 +147,7 @@ public sealed class EffnetClassifierHeadService : IDisposable, IJamendoGenreHead
         // concurrently. Concurrent Run() calls on one session under the DirectML (GPU) execution
         // provider crashed the whole process natively — see DiscogsEffnetEmbeddingExtractor's
         // _inferenceLock for the confirmed root cause and why a managed try/catch can't help here.
-        private readonly SemaphoreSlim _inferenceLock = new(1, 1);
+        private readonly object _inferenceLock = new();
 
         public Head(string modelPath, int classCount, ILogger logger)
         {
@@ -172,15 +172,10 @@ public sealed class EffnetClassifierHeadService : IDisposable, IJamendoGenreHead
 
             try
             {
-                _inferenceLock.Wait();
                 IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results;
-                try
+                lock (_inferenceLock)
                 {
                     results = _session.Run(inputs);
-                }
-                finally
-                {
-                    _inferenceLock.Release();
                 }
 
                 using var _ = results;
@@ -240,7 +235,6 @@ public sealed class EffnetClassifierHeadService : IDisposable, IJamendoGenreHead
         public void Dispose()
         {
             _session?.Dispose();
-            _inferenceLock.Dispose();
         }
     }
 }

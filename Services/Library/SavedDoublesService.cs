@@ -109,13 +109,43 @@ public sealed class SavedDoublesService : ISavedDoublesService
         }
     }
 
+    public async Task<bool> ExistsAsync(string trackAId, string trackBId, CancellationToken ct = default)
+    {
+        var (left, right) = Normalize(trackAId, trackBId);
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            return false;
+
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            _cache ??= ReadFromDisk();
+            return _cache.Any(item =>
+                string.Equals(item.TrackAId, left, StringComparison.Ordinal) &&
+                string.Equals(item.TrackBId, right, StringComparison.Ordinal));
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public bool Exists(string trackAId, string trackBId)
     {
         var (left, right) = Normalize(trackAId, trackBId);
         if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
             return false;
 
-        _gate.Wait();
+        // #309: fast snapshot read when cache is already populated avoids blocking _gate.Wait() on UI thread.
+        var snapshot = _cache;
+        if (snapshot is not null)
+        {
+            return snapshot.Any(item =>
+                string.Equals(item.TrackAId, left, StringComparison.Ordinal) &&
+                string.Equals(item.TrackBId, right, StringComparison.Ordinal));
+        }
+
+        if (!_gate.Wait(TimeSpan.FromSeconds(2)))
+            return false;
         try
         {
             _cache ??= ReadFromDisk();

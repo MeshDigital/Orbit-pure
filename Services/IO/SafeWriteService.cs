@@ -497,6 +497,25 @@ namespace SLSKDONET.Services.IO
             return success;
         }
 
+        public async ValueTask DisposeAsync()
+        {
+            _writerCts.Cancel();
+            _writeQueue.Writer.TryComplete();
+
+            try
+            {
+                await _writerTask.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Suppress shutdown exceptions
+            }
+
+            _writerCts.Dispose();
+            foreach (var fileLock in _fileLocks.Values)
+                fileLock.Dispose();
+        }
+
         public void Dispose()
         {
             _writerCts.Cancel();
@@ -504,9 +523,8 @@ namespace SLSKDONET.Services.IO
 
             try
             {
-                // Dispose is sync-by-design (IDisposable) and must flush pending writes before
-                // returning; this is a shutdown-only path, never a UI-thread call.
-                _writerTask.GetAwaiter().GetResult();
+                // #309: bounded wait off any SynchronizationContext so synchronous IDisposable shutdown never deadlocks.
+                Task.Run(() => _writerTask).Wait(TimeSpan.FromSeconds(5));
             }
             catch
             {
