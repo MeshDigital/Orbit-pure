@@ -125,8 +125,8 @@ namespace SLSKDONET.Services.Audio
                 catch (Exception ex)
                 {
                     _output?.Dispose();
-                    _logger.LogWarning(ex, "Transition preview: could not open output device {Device}; using the Windows default", _config?.AudioOutputDeviceName ?? "(default)");
-                    _output = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
+                    _logger.LogWarning(ex, "Transition preview: could not open output device {Device}; using the OS default", _config?.AudioOutputDeviceName ?? "(default)");
+                    _output = AudioOutputProvider.CreateDefaultFallbackDevice(100);
                     _output.Init(_reader);
                 }
                 _output.PlaybackStopped += OnPlaybackStopped;

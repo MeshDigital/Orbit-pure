@@ -174,8 +174,8 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
         catch (Exception ex)
         {
             output?.Dispose();
-            _logger.LogWarning(ex, "[LibraryPreview] Could not open output device {Device}; using the Windows default", _config?.AudioOutputDeviceName ?? "(default)");
-            var fallback = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
+            _logger.LogWarning(ex, "[LibraryPreview] Could not open output device {Device}; using the OS default", _config?.AudioOutputDeviceName ?? "(default)");
+            var fallback = AudioOutputProvider.CreateDefaultFallbackDevice(100);
             fallback.Init(source);
             return fallback;
         }
