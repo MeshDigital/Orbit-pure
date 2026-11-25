@@ -187,4 +187,33 @@ public class LibraryTrackInspectorTests
         Assert.Equal("2 keys", vm.KeysDisplay);
         Assert.Equal("2 / 3", vm.AnalysedDisplay);
     }
+
+    [Fact]
+    public void PathProtection_DisplaysOriginAndLockState_AndToggles()
+    {
+        var track = Track("lf4-1");
+        var locked = false;
+        track.ApplyPathProtection(
+            new SLSKDONET.Services.Library.Files.PathProtectionState(false, null, FileOriginDeriver.LinkedFolder),
+            desired =>
+            {
+                locked = desired;
+                return Task.FromResult(new SLSKDONET.Services.Library.Files.PathProtectionState(
+                    locked,
+                    locked ? new DateTime(2026, 11, 25, 0, 0, 0, DateTimeKind.Utc) : null,
+                    FileOriginDeriver.LinkedFolder));
+            });
+
+        Assert.False(track.IsPathLocked);
+        Assert.Equal("Linked folder", track.FileOriginDisplay);
+        Assert.Equal("Unlocked", track.PathLockStatusText);
+        Assert.Equal("Lock path", track.PathLockButtonText);
+        Assert.True(track.HasPathProtectionAction);
+
+        track.TogglePathLockCommand.Execute(null);
+
+        Assert.True(track.IsPathLocked);
+        Assert.Equal("Unlock path", track.PathLockButtonText);
+        Assert.Contains("Locked", track.PathLockStatusText);
+    }
 }

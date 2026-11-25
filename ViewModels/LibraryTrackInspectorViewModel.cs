@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
+using SLSKDONET.Services.Library.Files;
 
 namespace SLSKDONET.ViewModels;
 
@@ -25,13 +26,18 @@ public sealed class LibraryTrackInspectorViewModel
 {
     private readonly ILogger _logger;
     private readonly ICuePointService? _cueService;
+    private readonly PathProtectionService? _pathProtection;
     private PlaylistTrackViewModel? _attached;
     private int _generation;
 
-    public LibraryTrackInspectorViewModel(ILogger logger, ICuePointService? cueService = null)
+    public LibraryTrackInspectorViewModel(
+        ILogger logger,
+        ICuePointService? cueService = null,
+        PathProtectionService? pathProtection = null)
     {
         _logger = logger;
         _cueService = cueService;
+        _pathProtection = pathProtection;
     }
 
     /// <summary>The track whose inspector data is currently being kept fresh.</summary>
@@ -57,6 +63,8 @@ public sealed class LibraryTrackInspectorViewModel
             await selected.LoadAnalysisDataAsync();
             if (generation != _generation) return;
             await LoadCuesAsync(selected, generation);
+            if (generation != _generation) return;
+            await LoadPathProtectionAsync(selected, generation);
         }
         catch (Exception ex)
         {
@@ -103,6 +111,30 @@ public sealed class LibraryTrackInspectorViewModel
         finally
         {
             track.IsLoadingCues = false;
+        }
+    }
+
+    internal async Task LoadPathProtectionAsync(PlaylistTrackViewModel track, int generation)
+    {
+        if (_pathProtection is null || string.IsNullOrWhiteSpace(track.GlobalId))
+            return;
+
+        try
+        {
+            var state = await _pathProtection.GetProtectionStateAsync(track.GlobalId);
+            if (generation != _generation) return;
+
+            var protection = _pathProtection;
+            var hash = track.GlobalId;
+            track.ApplyPathProtection(state, async desiredLocked =>
+            {
+                await protection.SetPathLockedAsync(hash, desiredLocked);
+                return await protection.GetProtectionStateAsync(hash);
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load path protection state for {TrackHash}", track.GlobalId);
         }
     }
 

@@ -474,6 +474,91 @@ public partial class PlaylistTrackViewModel
         OnPropertyChanged(nameof(CanMeasureLoudness));
     }
 
+    // ── LF4: Path protection (lock state & FileOrigin) ───────────────────────────────────────
+
+    private bool _isPathLocked;
+    private DateTime? _pathLockedAt;
+    private string? _fileOrigin;
+    private Func<bool, Task<Services.Library.Files.PathProtectionState>>? _togglePathLockCallback;
+    private ICommand? _togglePathLockCommand;
+
+    public bool IsPathLocked => _isPathLocked;
+    public DateTime? PathLockedAt => _pathLockedAt;
+    public string? FileOrigin => _fileOrigin;
+    public bool HasPathProtectionAction => _togglePathLockCallback is not null;
+
+    public string FileOriginDisplay => _fileOrigin switch
+    {
+        FileOriginDeriver.Downloaded => "Downloaded",
+        FileOriginDeriver.LinkedFolder => "Linked folder",
+        FileOriginDeriver.Imported => "Imported",
+        _ => "Unknown",
+    };
+
+    public string FileOriginTooltip => _fileOrigin switch
+    {
+        FileOriginDeriver.LinkedFolder =>
+            "Lives in a linked folder — ORBIT never moves or renames linked-folder files automatically.",
+        FileOriginDeriver.Downloaded =>
+            "Downloaded by ORBIT into your download directory.",
+        FileOriginDeriver.Imported =>
+            "Imported into your library from an external location.",
+        _ => "File origin has not been classified yet.",
+    };
+
+    public string PathLockStatusText => _isPathLocked
+        ? (_pathLockedAt is DateTime lockedAt
+            ? $"Locked ({lockedAt.ToLocalTime():yyyy-MM-dd}) — protected from automatic moves"
+            : "Locked — protected from automatic moves")
+        : "Unlocked";
+
+    public string PathLockButtonText => _isPathLocked ? "Unlock path" : "Lock path";
+
+    public ICommand TogglePathLockCommand =>
+        _togglePathLockCommand ??= new AsyncRelayCommand(TogglePathLockAsync, () => _togglePathLockCallback is not null);
+
+    internal void ApplyPathProtection(
+        Services.Library.Files.PathProtectionState state,
+        Func<bool, Task<Services.Library.Files.PathProtectionState>>? toggleCallback = null)
+    {
+        _isPathLocked = state.IsLocked;
+        _pathLockedAt = state.PathLockedAt;
+        _fileOrigin = state.FileOrigin;
+        if (toggleCallback is not null)
+            _togglePathLockCallback = toggleCallback;
+
+        OnPropertyChanged(nameof(IsPathLocked));
+        OnPropertyChanged(nameof(PathLockedAt));
+        OnPropertyChanged(nameof(FileOrigin));
+        OnPropertyChanged(nameof(HasPathProtectionAction));
+        OnPropertyChanged(nameof(FileOriginDisplay));
+        OnPropertyChanged(nameof(FileOriginTooltip));
+        OnPropertyChanged(nameof(PathLockStatusText));
+        OnPropertyChanged(nameof(PathLockButtonText));
+    }
+
+    private async Task TogglePathLockAsync()
+    {
+        var callback = _togglePathLockCallback;
+        if (callback is null) return;
+
+        var target = !_isPathLocked;
+        try
+        {
+            var updated = await callback(target);
+            ApplyPathProtection(updated);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "Failed to toggle path lock for track {GlobalId}", GlobalId);
+            _eventBus?.Publish(new ToastRequestedEvent(
+                "Couldn't update path lock",
+                $"'{TrackTitle}' was not updated. {ex.Message}",
+                NotificationType.Error,
+                null));
+        }
+    }
+
     // ── Persistence feedback ──────────────────────────────────────────────────────────────────
 
     /// <summary>Writes a rating/like change and, on failure, reverts the in-memory value and
