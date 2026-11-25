@@ -81,7 +81,7 @@ public sealed class PostAnalysisRefileService : IDisposable
         Artist = entry.Artist,
         Title = entry.Title,
         Album = entry.Album,
-        BPM = features is not null ? features.Bpm : null,
+        BPM = features is { Bpm: > 0 } ? features.Bpm : null,
         MusicalKey = features is { Key.Length: > 0 } ? features.Key : null,
         Energy = features is not null ? features.Energy : null,
         Filename = Path.GetFileName(entry.FilePath),
