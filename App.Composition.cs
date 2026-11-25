@@ -351,6 +351,13 @@ public partial class App
             SLSKDONET.Services.Platform.PlatformShell.SetCurrent(shell);
             return shell;
         });
+        // Cross-platform external tool locator (FFmpeg, Essentia, fpcalc, curl per OS/RID, #453).
+        services.AddSingleton<SLSKDONET.Services.Platform.IToolLocator>(_ =>
+        {
+            var locator = new SLSKDONET.Services.Platform.DefaultToolLocator();
+            SLSKDONET.Services.Platform.ToolLocator.SetCurrent(locator);
+            return locator;
+        });
         services.AddTransient<UsersViewModel>();
         services.AddTransient<UserProfileViewModel>();
         services.AddTransient<RoomsViewModel>();
