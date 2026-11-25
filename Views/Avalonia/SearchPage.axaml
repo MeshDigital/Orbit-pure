@@ -238,6 +238,8 @@
                                       ToolTip.Tip="Hide peers with more than 50 files queued"/>
                         <ToggleButton Classes="chip" Content="Hide suspects" IsChecked="{Binding FilterViewModel.HideSuspects}"
                                       ToolTip.Tip="Hide flagged files and files whose size doesn't fit their bitrate (likely upscales or fakes)"/>
+                        <ToggleButton Classes="chip" Content="Album mode" IsChecked="{Binding IsAlbumMode}"
+                                      ToolTip.Tip="Group matching files by album, collapsing duplicate peers to the best match per track with one-click Queue album"/>
 
                         <Button Classes="ghost small" Content="Clear"
                                 Command="{Binding ClearFiltersCommand}"
@@ -405,7 +407,8 @@
 
                 <controls:VirtualGrid Grid.Row="1" Name="ResultsGrid"
                                       ItemsSource="{Binding SearchResultsView}"
-                                      SelectionMode="Multiple">
+                                      SelectionMode="Multiple"
+                                      IsVisible="{Binding ShowFlatResults}">
                     <controls:VirtualGrid.ContextMenu>
                         <ContextMenu>
                             <MenuItem Header="Download" Command="{Binding DownloadSelectedCommand}">
@@ -525,6 +528,83 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </StackPanel>
+
+                <!-- Album-mode grouped results (#427) -->
+                <ScrollViewer Grid.Row="1" IsVisible="{Binding ShowAlbumResults}" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding AlbumGroups}" Margin="24,12">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <VirtualizingStackPanel/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SearchAlbumGroupViewModel">
+                                <Border Background="{StaticResource BrushBg2}" BorderBrush="{StaticResource BrushBorder0}"
+                                        BorderThickness="1" CornerRadius="8" Padding="14,10" Margin="0,0,0,10">
+                                    <Expander IsExpanded="{Binding IsExpanded}" HorizontalAlignment="Stretch">
+                                        <Expander.Header>
+                                            <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                                    <TextBlock Classes="h3" Text="{Binding AlbumTitle}" TextTrimming="CharacterEllipsis"/>
+                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                        <TextBlock Classes="body-sm muted" Text="{Binding ArtistDisplay}" TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Classes="caption muted" Text="·"/>
+                                                        <TextBlock Classes="caption" Text="{Binding SummaryText}"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                                <Button Grid.Column="1" Classes="primary small" Content="Queue album" Margin="12,0,0,0"
+                                                        VerticalAlignment="Center"
+                                                        Command="{ReflectionBinding $parent[UserControl].DataContext.QueueAlbumCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Queue the best-ranked match for every track in this album"/>
+                                            </Grid>
+                                        </Expander.Header>
+                                        <ItemsControl ItemsSource="{Binding Tracks}" Margin="0,8,0,0">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:SearchAlbumTrackGroupViewModel">
+                                                    <StackPanel Spacing="4" Margin="0,4">
+                                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                                            <Button Grid.Column="0" Classes="icon small" Margin="0,0,8,0"
+                                                                    Command="{ReflectionBinding $parent[UserControl].DataContext.DownloadSelectedCommand}"
+                                                                    CommandParameter="{Binding Best}"
+                                                                    ToolTip.Tip="Download best match">
+                                                                <PathIcon Data="{StaticResource icon_download}" Width="14" Height="14"/>
+                                                            </Button>
+                                                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                                                <TextBlock Classes="body-sm" Text="{Binding Best.RawResult.Title}" TextTrimming="CharacterEllipsis"/>
+                                                                <TextBlock Classes="caption" Text="{Binding Best.RawResult.TechnicalMetadata}" TextTrimming="CharacterEllipsis"/>
+                                                            </StackPanel>
+                                                            <ToggleButton Grid.Column="2" Classes="ghost small" Margin="8,0,0,0"
+                                                                          Content="{Binding AlternatesSummary}"
+                                                                          IsVisible="{Binding HasAlternates}"
+                                                                          IsChecked="{Binding IsAlternatesExpanded}"/>
+                                                        </Grid>
+                                                        <ItemsControl ItemsSource="{Binding Alternates}" IsVisible="{Binding IsAlternatesExpanded}" Margin="32,2,0,4">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate x:DataType="vm:AnalyzedSearchResultViewModel">
+                                                                    <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                                                        <StackPanel Spacing="1">
+                                                                            <TextBlock Classes="caption" Text="{Binding RawResult.TechnicalMetadata}" TextTrimming="CharacterEllipsis"/>
+                                                                            <TextBlock Classes="caption muted" Text="{Binding RawResult.PreferredReason}"
+                                                                                       IsVisible="{Binding RawResult.HasPreferredReason}" TextTrimming="CharacterEllipsis"/>
+                                                                        </StackPanel>
+                                                                        <Button Grid.Column="1" Classes="ghost small" Content="Use this file"
+                                                                                Command="{ReflectionBinding $parent[UserControl].DataContext.DownloadSelectedCommand}"
+                                                                                CommandParameter="{Binding}"/>
+                                                                    </Grid>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Expander>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
 
                 <!-- Searching, nothing visible yet -->
                 <StackPanel Grid.Row="1" Classes="empty-state" IsVisible="{Binding ShowActivelySearchingEmptyState}">

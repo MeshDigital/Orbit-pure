@@ -405,6 +405,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     public ICommand AddToDownloadsCommand { get; }
     public ICommand AddToPlaylistCommand { get; }
     public ReactiveCommand<object?, System.Reactive.Unit> DownloadSelectedCommand { get; }
+    /// <summary>#427: queues best-per-track for an album group without prompting per track.</summary>
+    public ReactiveCommand<SearchAlbumGroupViewModel?, System.Reactive.Unit> QueueAlbumCommand { get; }
     public ReactiveCommand<System.Reactive.Unit, System.Reactive.Unit> CopyMetadataCommand { get; }
     public ICommand ApplyPresetCommand { get; } // Phase 5: Search Presets
     public ICommand BrowseUserSharesCommand { get; } // Phase 5: Directory Browsing
@@ -615,6 +617,11 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
 
         DownloadSelectedCommand = ReactiveCommand.CreateFromTask<object?>(ExecuteDownloadSelectedAsync);
         DownloadSelectedCommand.ThrownExceptions.ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(ReportCommandFailure).DisposeWith(_disposables);
+
+        QueueAlbumCommand = ReactiveCommand.CreateFromTask<SearchAlbumGroupViewModel?>(
+            album => album is null ? Task.CompletedTask : ExecuteDownloadSelectedAsync(album.BestTracks));
+        QueueAlbumCommand.ThrownExceptions.ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(ReportCommandFailure).DisposeWith(_disposables);
 
         CopyMetadataCommand = ReactiveCommand.CreateFromTask(ExecuteCopyMetadataAsync);
@@ -1171,6 +1178,10 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         if (parameter is AnalyzedSearchResultViewModel single)
         {
             toDownload.Add(single);
+        }
+        else if (parameter is IEnumerable<AnalyzedSearchResultViewModel> many)
+        {
+            toDownload.AddRange(many);
         }
         else
         {

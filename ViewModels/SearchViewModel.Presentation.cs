@@ -129,16 +129,53 @@ public partial class SearchViewModel
     public bool ShowAllFilteredState => !IsSearching && !HasSearchError && TotalResultsReceived > 0 && !HasDisplayedResults;
     /// <summary>The search failed and there's nothing to show.</summary>
     public bool ShowErrorState => HasSearchError && !IsSearching && !HasDisplayedResults;
-    /// <summary>The column header only makes sense with rows under it.</summary>
-    public bool ShowResultsHeader => HasDisplayedResults;
+    // ───────────── Album mode (#427) ─────────────
+
+    private bool _isAlbumMode;
+    /// <summary>When true, groups results by normalized (Artist, Album) with best-per-track and Queue album (#427).</summary>
+    public bool IsAlbumMode
+    {
+        get => _isAlbumMode;
+        set
+        {
+            if (SetProperty(ref _isAlbumMode, value))
+            {
+                RefreshAlbumGroups();
+                RaiseResultStateChanged();
+            }
+        }
+    }
+
+    public ObservableCollection<SearchAlbumGroupViewModel> AlbumGroups { get; } = new();
+
+    public bool ShowFlatResults => HasDisplayedResults && !IsAlbumMode;
+    public bool ShowAlbumResults => HasDisplayedResults && IsAlbumMode;
+
+    /// <summary>The column header only makes sense with flat rows under it.</summary>
+    public bool ShowResultsHeader => ShowFlatResults;
+
+    internal void RefreshAlbumGroups()
+    {
+        AlbumGroups.Clear();
+        if (!IsAlbumMode || SearchResultsView.Count == 0)
+            return;
+
+        foreach (var group in Services.Search.AlbumSearchGrouper.Group(SearchResultsView))
+            AlbumGroups.Add(group);
+    }
 
     private void RaiseResultStateChanged()
     {
+        if (IsAlbumMode)
+            RefreshAlbumGroups();
+
         this.RaisePropertyChanged(nameof(ShowNeverSearchedEmptyState));
         this.RaisePropertyChanged(nameof(ShowActivelySearchingEmptyState));
         this.RaisePropertyChanged(nameof(ShowNoResultsState));
         this.RaisePropertyChanged(nameof(ShowAllFilteredState));
         this.RaisePropertyChanged(nameof(ShowErrorState));
+        this.RaisePropertyChanged(nameof(ShowFlatResults));
+        this.RaisePropertyChanged(nameof(ShowAlbumResults));
         this.RaisePropertyChanged(nameof(ShowResultsHeader));
     }
 
