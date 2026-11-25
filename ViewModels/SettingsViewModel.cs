@@ -2984,23 +2984,13 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
             if (System.IO.File.Exists(path))
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "explorer.exe",
-                    Arguments = $"/select,\"{path}\"",
-                    UseShellExecute = true
-                });
+                SLSKDONET.Services.Platform.PlatformShell.Current.RevealInFolder(path);
                 return;
             }
 
             if (System.IO.Directory.Exists(path))
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "explorer.exe",
-                    Arguments = $"\"{path}\"",
-                    UseShellExecute = true
-                });
+                SLSKDONET.Services.Platform.PlatformShell.Current.OpenFolder(path);
             }
         }
         catch (Exception ex)

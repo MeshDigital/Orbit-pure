@@ -1,54 +1,48 @@
 using System;
-using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
+using SLSKDONET.Services.Platform;
 
 namespace SLSKDONET.Services;
 
 /// <summary>
-/// Provides methods to encrypt and decrypt data using the Windows Data Protection API (DPAPI).
-/// The data is encrypted for the current user account, so only this user can decrypt it.
-/// Phase 13: Added cross-platform guards to prevent runtime exceptions on Linux/macOS.
+/// Encrypts and decrypts user-scoped secrets through the platform shell's
+/// <see cref="ISecretProtector"/> (#452): DPAPI CurrentUser on Windows (byte-for-byte
+/// identical to previous builds), Keychain + AES-256-GCM on macOS, and Secret Service /
+/// user-only key file + AES-256-GCM on Linux.
 /// </summary>
 public class ProtectedDataService
 {
+    private const string Purpose = "orbit-protected-data";
     private readonly ILogger<ProtectedDataService>? _logger;
-    
-    public ProtectedDataService(ILogger<ProtectedDataService>? logger = null)
+    private readonly ISecretProtector _protector;
+
+    public ProtectedDataService(ILogger<ProtectedDataService>? logger = null, ISecretProtector? protector = null)
     {
         _logger = logger;
+        _protector = protector ?? PlatformShell.Current.Secrets;
     }
-    
+
     /// <summary>
-    /// Returns true if secure storage is available on this platform (Windows only).
-    /// Use this to show UI warnings on unsupported platforms.
+    /// True whenever the platform has a working secret protector (Windows DPAPI, macOS Keychain,
+    /// Linux Secret Service or user-only key file).
     /// </summary>
-    public bool IsSecurityAvailable => OperatingSystem.IsWindows();
-    
-    // Secure implementation using Windows DPAPI
+    public bool IsSecurityAvailable => _protector is not null;
+
     public string? Protect(string? data)
     {
         if (string.IsNullOrEmpty(data))
             return null;
-        
-        // Phase 13: Cross-platform guard
-        if (!OperatingSystem.IsWindows())
-        {
-            _logger?.LogWarning("Secure storage (DPAPI) is only available on Windows. Data will not be encrypted.");
-            return null; // Do NOT store unencrypted data silently
-        }
-            
+
         try
         {
             var bytes = Encoding.UTF8.GetBytes(data);
-            // Protect bytes for Current User
-            var encrypted = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
+            var encrypted = _protector.Protect(bytes, Purpose);
             return Convert.ToBase64String(encrypted);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Failed to encrypt data using Windows DPAPI");
+            _logger?.LogError(ex, "Failed to encrypt data using {Backend}", _protector.Backend);
             return null;
         }
     }
@@ -57,24 +51,16 @@ public class ProtectedDataService
     {
         if (string.IsNullOrEmpty(encryptedData))
             return null;
-        
-        // Phase 13: Cross-platform guard
-        if (!OperatingSystem.IsWindows())
-        {
-            _logger?.LogWarning("Secure storage (DPAPI) is only available on Windows. Cannot decrypt data.");
-            return null;
-        }
-            
+
         try
         {
             var bytes = Convert.FromBase64String(encryptedData);
-            // Unprotect bytes
-            var decrypted = ProtectedData.Unprotect(bytes, null, DataProtectionScope.CurrentUser);
+            var decrypted = _protector.Unprotect(bytes, Purpose);
             return Encoding.UTF8.GetString(decrypted);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Failed to decrypt data (wrong user context or corrupted data)");
+            _logger?.LogError(ex, "Failed to decrypt data using {Backend} (wrong user context or corrupted data)", _protector.Backend);
             return null;
         }
     }
