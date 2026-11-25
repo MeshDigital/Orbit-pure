@@ -332,6 +332,16 @@ public partial class App
         services.AddSingleton<Services.Shell.ShellStateMonitor>();
         services.AddSingleton<Services.Shell.WindowsTaskbarIntegration>();
         services.AddSingleton<Services.Shell.TrayIconController>();
+        // Cross-platform audio output seam (#455): NAudio WASAPI/WaveOut/ASIO on Windows,
+        // CoreAudio/PipeWire/PulseAudio PCM backend on macOS/Linux.
+        services.AddSingleton<SLSKDONET.Services.Audio.IAudioOutputBackend>(_ =>
+        {
+            SLSKDONET.Services.Audio.IAudioOutputBackend backend = OperatingSystem.IsWindows()
+                ? new SLSKDONET.Services.Audio.WindowsAudioOutputBackend()
+                : new SLSKDONET.Services.Audio.PosixAudioOutputBackend();
+            SLSKDONET.Services.Audio.AudioOutputBackend.SetCurrent(backend);
+            return backend;
+        });
         services.AddTransient<UsersViewModel>();
         services.AddTransient<UserProfileViewModel>();
         services.AddTransient<RoomsViewModel>();
@@ -694,8 +704,8 @@ public partial class App
                 }
                 catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException)
                 {
-                    Serilog.Log.Warning(ex, "Edit Lab preview: couldn't open {Device}; using the Windows default", cfg?.AudioOutputDeviceName ?? "(default)");
-                    return new NAudio.Wave.WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
+                    Serilog.Log.Warning(ex, "Edit Lab preview: couldn't open {Device}; using the OS default", cfg?.AudioOutputDeviceName ?? "(default)");
+                    return SLSKDONET.Services.Audio.AudioOutputProvider.CreateDefaultFallbackDevice(100);
                 }
             });
         });
