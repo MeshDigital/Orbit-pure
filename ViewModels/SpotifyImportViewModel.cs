@@ -29,6 +29,8 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
     private readonly Services.ImportProviders.CsvImportProvider _csvProvider;
     private readonly Services.ImportProviders.TracklistImportProvider _tracklistProvider;
     private readonly Services.ImportProviders.YouTubeImportProvider? _youtubeProvider;
+    private readonly Services.ImportProviders.SoundCloudImportProvider? _soundCloudProvider;
+    private readonly Services.ImportProviders.PlaylistFileImportProvider? _playlistFileProvider;
     private readonly INavigationService _navigationService;
     private readonly IFileInteractionService _fileInteractionService;
     private readonly IClipboardService _clipboardService;
@@ -257,6 +259,9 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
         !string.IsNullOrWhiteSpace(sourceType) &&
         (sourceType.Contains("Spotify", StringComparison.OrdinalIgnoreCase) ||
          sourceType.Contains("YouTube", StringComparison.OrdinalIgnoreCase) ||
+         sourceType.Contains("SoundCloud", StringComparison.OrdinalIgnoreCase) ||
+         sourceType.Contains("M3U", StringComparison.OrdinalIgnoreCase) ||
+         sourceType.Contains("JSON", StringComparison.OrdinalIgnoreCase) ||
          sourceType.Contains("CSV", StringComparison.OrdinalIgnoreCase) ||
          sourceType.Contains("Tracklist", StringComparison.OrdinalIgnoreCase) ||
          sourceType.Contains("1001", StringComparison.OrdinalIgnoreCase));
@@ -269,6 +274,8 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
         if (_likedSongsProvider.CanHandle(url)) return _likedSongsProvider;
         if (_spotifyProvider.CanHandle(url)) return _spotifyProvider;
         if (_youtubeProvider is not null && _youtubeProvider.CanHandle(url)) return _youtubeProvider;
+        if (_soundCloudProvider is not null && _soundCloudProvider.CanHandle(url)) return _soundCloudProvider;
+        if (_playlistFileProvider is not null && _playlistFileProvider.CanHandle(url)) return _playlistFileProvider;
         if (url.EndsWith(".csv", StringComparison.OrdinalIgnoreCase) && System.IO.File.Exists(url)) return _csvProvider;
         return null;
     }
@@ -335,7 +342,9 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
         AppConfig appConfig,
         ILibraryService? libraryService = null,
         IEventBus? eventBus = null,
-        Services.ImportProviders.YouTubeImportProvider? youtubeProvider = null)
+        Services.ImportProviders.YouTubeImportProvider? youtubeProvider = null,
+        Services.ImportProviders.SoundCloudImportProvider? soundCloudProvider = null,
+        Services.ImportProviders.PlaylistFileImportProvider? playlistFileProvider = null)
     {
         _logger = logger;
         _downloadManager = downloadManager;
@@ -348,6 +357,8 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
         _csvProvider = csvProvider;
         _tracklistProvider = tracklistProvider;
         _youtubeProvider = youtubeProvider;
+        _soundCloudProvider = soundCloudProvider;
+        _playlistFileProvider = playlistFileProvider;
         _navigationService = navigationService;
         _fileInteractionService = fileInteractionService;
         _clipboardService = clipboardService;
@@ -421,13 +432,20 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
         
         try
         {
+             if (_playlistFileProvider is not null && _playlistFileProvider.CanHandle(filePath))
+             {
+                 _logger.LogInformation("Processing dropped playlist file: {Path}", filePath);
+                 await _importOrchestrator.StartImportWithPreviewAsync(_playlistFileProvider, filePath);
+                 return;
+             }
+
              _logger.LogInformation("Processing dropped CSV file: {Path}", filePath);
              await _importOrchestrator.StartImportWithPreviewAsync(_csvProvider, filePath);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to process dropped CSV");
-            SetStatus($"Couldn't import the CSV: {ex.Message}", isError: true);
+            _logger.LogError(ex, "Failed to process dropped file");
+            SetStatus($"Couldn't import the file: {ex.Message}", isError: true);
         }
     }
 
@@ -457,11 +475,11 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
         {
             var filters = new System.Collections.Generic.List<Services.FileDialogFilter>
             {
-                new Services.FileDialogFilter("CSV Files", new System.Collections.Generic.List<string> { "csv" }),
+                new Services.FileDialogFilter("Playlist & Track Files", new System.Collections.Generic.List<string> { "csv", "m3u", "m3u8", "txt", "json" }),
                 new Services.FileDialogFilter("All Files", new System.Collections.Generic.List<string> { "*" })
             };
 
-            var filePath = await _fileInteractionService.OpenFileDialogAsync("Select CSV File", filters);
+            var filePath = await _fileInteractionService.OpenFileDialogAsync("Select Playlist or CSV File", filters);
 
             if (!string.IsNullOrWhiteSpace(filePath))
             {
@@ -914,25 +932,30 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task ExecuteImportYouTubeUrlAsync()
     {
-        if (_youtubeProvider is null)
-        {
-            SetStatus("YouTube import provider is not available.", isError: true);
-            return;
-        }
         if (string.IsNullOrWhiteSpace(YouTubePlaylistUrl))
         {
-            SetStatus("Paste a YouTube or YouTube Music playlist link first.", isError: true);
-            return;
-        }
-        if (!_youtubeProvider.CanHandle(YouTubePlaylistUrl))
-        {
-            SetStatus("That doesn't look like a YouTube playlist link (expected youtube.com/playlist?list=… or music.youtube.com/playlist?list=…).", isError: true);
+            SetStatus("Paste a YouTube, YouTube Music, or public SoundCloud playlist link first.", isError: true);
             return;
         }
 
-        SetStatus(string.Empty);
-        _logger.LogInformation("Starting unified YouTube import: {Url}", YouTubePlaylistUrl);
-        await _importOrchestrator.StartImportWithPreviewAsync(_youtubeProvider, YouTubePlaylistUrl.Trim());
+        var trimmed = YouTubePlaylistUrl.Trim();
+        if (_youtubeProvider is not null && _youtubeProvider.CanHandle(trimmed))
+        {
+            SetStatus(string.Empty);
+            _logger.LogInformation("Starting unified YouTube import: {Url}", trimmed);
+            await _importOrchestrator.StartImportWithPreviewAsync(_youtubeProvider, trimmed);
+            return;
+        }
+
+        if (_soundCloudProvider is not null && _soundCloudProvider.CanHandle(trimmed))
+        {
+            SetStatus(string.Empty);
+            _logger.LogInformation("Starting unified SoundCloud import: {Url}", trimmed);
+            await _importOrchestrator.StartImportWithPreviewAsync(_soundCloudProvider, trimmed);
+            return;
+        }
+
+        SetStatus("That doesn't look like a YouTube or SoundCloud playlist link (expected youtube.com/playlist?list=… or soundcloud.com/<user>/sets/…).", isError: true);
     }
 
     private void SelectAll()

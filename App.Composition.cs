@@ -175,6 +175,8 @@ public partial class App
         services.AddSingleton<Services.ImportProviders.SpotifyLikedSongsImportProvider>();
         services.AddSingleton<Services.ImportProviders.TracklistImportProvider>();
         services.AddSingleton<Services.ImportProviders.YouTubeImportProvider>(); // #424: YouTube playlists & liked videos
+        services.AddSingleton<Services.ImportProviders.SoundCloudImportProvider>(); // #425: public SoundCloud playlists
+        services.AddSingleton<Services.ImportProviders.PlaylistFileImportProvider>(); // #425: .m3u/.m3u8/.txt/.json files
         
         // Phase 1: Persistent Enrichment Queue
         services.AddSingleton<Services.Repositories.IEnrichmentTaskRepository, Services.Repositories.EnrichmentTaskRepository>();
@@ -185,6 +187,8 @@ public partial class App
         services.AddSingleton<IImportProvider>(sp => sp.GetRequiredService<Services.ImportProviders.SpotifyLikedSongsImportProvider>());
         services.AddSingleton<IImportProvider>(sp => sp.GetRequiredService<Services.ImportProviders.TracklistImportProvider>());
         services.AddSingleton<IImportProvider>(sp => sp.GetRequiredService<Services.ImportProviders.YouTubeImportProvider>());
+        services.AddSingleton<IImportProvider>(sp => sp.GetRequiredService<Services.ImportProviders.SoundCloudImportProvider>());
+        services.AddSingleton<IImportProvider>(sp => sp.GetRequiredService<Services.ImportProviders.PlaylistFileImportProvider>());
 
         // Library Action System
         services.AddSingleton<Services.LibraryActions.LibraryActionProvider>();
