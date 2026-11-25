@@ -1,10 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
+using SLSKDONET.Data.Entities;
 
 namespace SLSKDONET.Services.Library.Files;
 
@@ -30,6 +33,7 @@ public sealed class QualityUpgradeService
         string oldFile,
         string downloadDir,
         bool allowProtectedOverride = false,
+        double offsetSeconds = 0,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(newFile) || !File.Exists(newFile))
@@ -77,6 +81,32 @@ public sealed class QualityUpgradeService
             var tracks = await db.Tracks.Where(t => t.GlobalId == hash).ToListAsync(ct).ConfigureAwait(false);
             foreach (var t in tracks)
                 t.LocalFilePath = target;
+
+            // LF6: shift cue/beatgrid timestamps by the measured decoder offset (encoder delay/padding),
+            // so they stay on the beat after swapping one rendition for the other. Clamp at 0 so early
+            // cues/beats never go negative when removing positive encoder delay.
+            if (offsetSeconds != 0 && double.IsFinite(offsetSeconds))
+            {
+                var cues = await db.CuePoints.Where(c => c.TrackUniqueHash == hash).ToListAsync(ct).ConfigureAwait(false);
+                foreach (var cue in cues)
+                    cue.TimestampInSeconds = Math.Max(0.0, cue.TimestampInSeconds + offsetSeconds);
+
+                var features = await db.AudioFeatures.FirstOrDefaultAsync(f => f.TrackUniqueHash == hash, ct).ConfigureAwait(false);
+                if (features != null && !string.IsNullOrWhiteSpace(features.BeatGridJson) && features.BeatGridJson != "[]")
+                {
+                    try
+                    {
+                        var beats = System.Text.Json.JsonSerializer.Deserialize<List<double>>(features.BeatGridJson);
+                        if (beats != null)
+                            features.BeatGridJson = System.Text.Json.JsonSerializer.Serialize(
+                                beats.Select(b => Math.Max(0.0, b + offsetSeconds)).ToList());
+                    }
+                    catch (System.Text.Json.JsonException ex)
+                    {
+                        _logger.LogWarning(ex, "Skipping BeatGridJson offset shift for {Hash}: malformed JSON.", hash);
+                    }
+                }
+            }
 
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
         }
