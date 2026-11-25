@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 using SLSKDONET.Models;
 using SLSKDONET.Services.Downloads;
@@ -25,8 +27,25 @@ public class DownloadContext
     public string ArtistName => Model.Artist;
     public string TrackTitle => Model.Title;
 
-    // Phase 3B: Peer Blacklisting for Health Monitor
-    public HashSet<string> BlacklistedUsers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    // Phase 3B / #316: Lock-free per-track peer blacklist (ConcurrentDictionary eliminates the
+    // secondary lock(ctx.BlacklistedUsers) that previously created dual-lock ordering risk with
+    // DownloadManager._collectionLock).
+    private readonly ConcurrentDictionary<string, byte> _blacklistedUsers = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Adds a peer to this track's blacklist. Returns true if newly blacklisted.</summary>
+    public bool BlacklistUser(string? username) =>
+        !string.IsNullOrEmpty(username) && _blacklistedUsers.TryAdd(username, 0);
+
+    /// <summary>Checks whether a peer is currently blacklisted for this track.</summary>
+    public bool IsUserBlacklisted(string? username) =>
+        !string.IsNullOrEmpty(username) && _blacklistedUsers.ContainsKey(username);
+
+    /// <summary>Clears all blacklisted peers for this track (e.g. on hard retry).</summary>
+    public void ClearBlacklistedUsers() => _blacklistedUsers.Clear();
+
+    /// <summary>Returns a frozen case-insensitive snapshot of blacklisted peers for discovery.</summary>
+    public HashSet<string> SnapshotBlacklistedUsers() =>
+        new(_blacklistedUsers.Keys, StringComparer.OrdinalIgnoreCase);
     public string? CurrentUsername { get; set; } // Track active peer for Health Monitor
     public ActiveTransferRegistry.TransferKey? ActiveTransferKey { get; set; }
     public Track? HedgeMatch { get; set; }
