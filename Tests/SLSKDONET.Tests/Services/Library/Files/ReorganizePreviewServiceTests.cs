@@ -94,4 +94,39 @@ public class ReorganizePreviewServiceTests : IDisposable
         Assert.Contains(preview.Items, i => i.Hash == unchangedHash && i.Status == "Unchanged");
         Assert.Contains(preview.Items, i => i.Hash == lockedHash && i.Status.Contains("locked", StringComparison.OrdinalIgnoreCase));
     }
+
+    [Fact]
+    public async Task ExecuteAndUndo_RestoresOriginalLayoutAndCleansEmptyFolders()
+    {
+        const string hash = "h-undo";
+        var subDir = Path.Combine(_dir, "OldSub");
+        Directory.CreateDirectory(subDir);
+        var source = Path.Combine(subDir, "messy.flac");
+        var target = Path.Combine(_dir, "Artist - Title.flac");
+        File.WriteAllText(source, "audio");
+
+        using (var db = new AppDbContext())
+        {
+            db.LibraryEntries.Add(new LibraryEntryEntity { UniqueHash = hash, FilePath = source, Artist = "Artist", Title = "Title" });
+            db.SaveChanges();
+        }
+
+        var relocation = new FileRelocationService(new TestDbFactory(), new FakeEventBus(), NullLogger<FileRelocationService>.Instance);
+        var plan = await relocation.PlanAsync(new[] { new RelocationRequest(hash, source, target) });
+        var outcome = await relocation.ExecuteAsync(plan);
+
+        Assert.Equal(1, outcome.Moved);
+        Assert.NotEqual(Guid.Empty, outcome.BatchId);
+        Assert.True(File.Exists(target));
+        Assert.False(File.Exists(source));
+
+        var cleaned = EmptyFolderCleanup.RemoveEmptyParents(source, _dir);
+        Assert.Single(cleaned);
+        Assert.False(Directory.Exists(subDir));
+
+        var reverted = await relocation.RevertBatchAsync(outcome.BatchId);
+        Assert.Equal(1, reverted);
+        Assert.True(File.Exists(source));
+        Assert.False(File.Exists(target));
+    }
 }

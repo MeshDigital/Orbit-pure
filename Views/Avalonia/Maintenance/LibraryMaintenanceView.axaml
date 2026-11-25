@@ -36,6 +36,9 @@
                     <CheckBox Content="Propose genre fixes where tag and audio strongly disagree" IsChecked="{Binding GenreConflicts}"
                               ToolTip.Tip="Lists tracks whose genre tag the AI strongly disagrees with (backed by the drums), or whose genre is a non-genre such as &quot;Electronic&quot;. Nothing is ticked: you choose. Genres you set yourself are never questioned."/>
                     <CheckBox Content="Group unclassified tracks into style playlists" IsChecked="{Binding StylePlaylists}"/>
+                    <CheckBox Content="Reorganise library files to naming template" IsChecked="{Binding ReorganizeFiles}"
+                              IsVisible="{Binding CanReorganizeFiles}"
+                              ToolTip.Tip="Previews before/after paths using your File name format. Locked and linked-folder tracks are skipped automatically. Undo restores the previous layout."/>
                     <Border Classes="divider"/>
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Spacing="4">
@@ -101,6 +104,31 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </ScrollViewer>
+
+                    <StackPanel Spacing="6" IsVisible="{Binding HasReorganizePreview}">
+                        <TextBlock Classes="section" Text="REORGANISE FILES"/>
+                        <TextBlock Classes="caption" Text="{Binding ReorganizeSummaryText}" TextWrapping="Wrap"/>
+                        <ScrollViewer MaxHeight="200" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding ReorganizeRows}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <VirtualizingStackPanel/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vmMaintenance:ReorganizeRowViewModel">
+                                        <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,4">
+                                            <CheckBox IsChecked="{Binding IsSelected}" IsEnabled="{Binding IsMove}" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding ChangeText}" Margin="8,0"
+                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                       ToolTip.Tip="{Binding TargetPath}"/>
+                                            <TextBlock Grid.Column="2" Classes="caption" Text="{Binding Status}" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </StackPanel>
                 </StackPanel>
 
                 <!-- 4. Apply -->
@@ -125,10 +153,10 @@
                         IsEnabled="{Binding !IsScanning}" IsVisible="{Binding IsChooseStep}"/>
                 <Button Grid.Column="2" Classes="primary" Content="Apply" Command="{Binding ApplyCommand}"
                         IsEnabled="{Binding !IsApplying}" IsVisible="{Binding IsReviewStep}"/>
-                <Button Grid.Column="2" Classes="danger" Content="Undo this run" Command="{Binding UndoCommand}"
-                        IsVisible="{Binding IsSummaryStep}"/>
-                <Button Grid.Column="2" Classes="primary" Content="Done" Command="{Binding FinishCommand}"
-                        IsVisible="{Binding IsSummaryStep}"/>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsSummaryStep}">
+                    <Button Classes="danger" Content="Undo this run" Command="{Binding UndoCommand}"/>
+                    <Button Classes="primary" Content="Done" Command="{Binding FinishCommand}"/>
+                </StackPanel>
             </Grid>
         </Grid>
     </Border>

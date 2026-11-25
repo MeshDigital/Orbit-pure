@@ -21,8 +21,8 @@ public sealed record RelocationProblem(string Hash, string Reason);
 /// <summary>The validated, safe subset of a relocation batch, plus the problems found up front.</summary>
 public sealed record RelocationPlan(IReadOnlyList<RelocationRequest> Moves, IReadOnlyList<RelocationProblem> Problems);
 
-/// <summary>The result of executing a plan: how many moved and the per-file failures.</summary>
-public sealed record RelocationOutcome(int Moved, IReadOnlyList<RelocationProblem> Failures);
+/// <summary>The result of executing a plan: how many moved, the per-file failures, and the journal batch id for undo.</summary>
+public sealed record RelocationOutcome(int Moved, IReadOnlyList<RelocationProblem> Failures, Guid BatchId = default);
 
 /// <summary>
 /// The single move/rename path for library tracks (#344, LF2): moves the audio file and updates
@@ -179,7 +179,7 @@ public class FileRelocationService
             _eventBus.Publish(new LibraryUpdatedEvent("library files relocated"));
         }
 
-        return new RelocationOutcome(moved, failures);
+        return new RelocationOutcome(moved, failures, batchId);
     }
 
     private static bool IsRename(RelocationRequest move) =>
