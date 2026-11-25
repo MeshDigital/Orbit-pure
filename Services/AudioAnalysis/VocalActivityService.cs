@@ -10,6 +10,7 @@ using NAudio.Wave;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Engine.Analysis;
+using SLSKDONET.Events;
 using SLSKDONET.Models;
 using SLSKDONET.Models.Stem;
 using SLSKDONET.Services.Audio.Separation;
@@ -54,15 +55,18 @@ public sealed class VocalActivityService : IVocalActivityService
     private static readonly TimeSpan SeparationTimeout = TimeSpan.FromMinutes(5);
 
     private readonly SemaphoreSlim _separationGate = new(MaxConcurrentSeparations, MaxConcurrentSeparations);
+    private readonly IEventBus _eventBus;
 
     public VocalActivityService(
         IDbContextFactory<AppDbContext> dbFactory,
         CachedStemSeparator separator,
-        ILogger<VocalActivityService> logger)
+        ILogger<VocalActivityService> logger,
+        IEventBus eventBus)
     {
         _dbFactory = dbFactory;
         _separator = separator;
         _logger = logger;
+        _eventBus = eventBus;
     }
 
     public bool IsAvailable => _separator.IsAvailable;
@@ -93,9 +97,11 @@ public sealed class VocalActivityService : IVocalActivityService
         try
         {
             ct.ThrowIfCancellationRequested();
+            _eventBus.Publish(new TrackDetailedStatusEvent(hash, "Measuring vocals (stem separation)…"));
             try
             {
                 await DetectAsync(hash, ct).ConfigureAwait(false);
+                _eventBus.Publish(new TrackDetailedStatusEvent(hash, "Vocal analysis complete"));
             }
             catch (OperationCanceledException)
             {
@@ -103,6 +109,7 @@ public sealed class VocalActivityService : IVocalActivityService
             }
             catch (Exception ex)
             {
+                _eventBus.Publish(new TrackDetailedStatusEvent(hash, "Vocal analysis failed", IsError: true));
                 _logger.LogWarning(ex, "[VocalActivity] Couldn't detect vocals for {Hash}; vocal fields left unset.", hash);
             }
         }
