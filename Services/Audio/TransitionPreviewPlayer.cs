@@ -187,9 +187,9 @@ namespace SLSKDONET.Services.Audio
             // synchronous _gate.Wait() froze the whole app waiting for a gate release that could
             // itself be waiting on a NAudio thread transition. Task.Run keeps any blocking here
             // off the UI thread entirely, whichever side wins the race.
-            Task.Run(() =>
+            _ = Task.Run(async () =>
             {
-                _gate.Wait();
+                await _gate.WaitAsync().ConfigureAwait(false);
                 try
                 {
                     DisposePlaybackResources(deleteRenderedFile: true, stopOutput: true);
@@ -207,20 +207,21 @@ namespace SLSKDONET.Services.Audio
             if (e.Exception != null)
                 _logger.LogWarning(e.Exception, "Transition preview playback stopped with error");
 
-            _gate.Wait();
-            try
+            // #309: offload cleanup so we never block NAudio's audio-render thread with a synchronous _gate.Wait().
+            _ = Task.Run(async () =>
             {
-                // stopOutput: false — playback has already stopped (that's why this event fired),
-                // and this callback can itself run on WasapiOut's own audio-render thread. Calling
-                // Stop() again here would make that thread join itself and hang forever; Dispose()
-                // alone is enough to release the device.
-                DisposePlaybackResources(deleteRenderedFile: true, stopOutput: false);
-            }
-            finally
-            {
-                _gate.Release();
-            }
-            PreviewStopped?.Invoke(this, EventArgs.Empty);
+                await _gate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    // stopOutput: false — playback has already stopped (that's why this event fired).
+                    DisposePlaybackResources(deleteRenderedFile: true, stopOutput: false);
+                }
+                finally
+                {
+                    _gate.Release();
+                }
+                PreviewStopped?.Invoke(this, EventArgs.Empty);
+            });
         }
 
         private void DisposePlaybackResources(bool deleteRenderedFile, bool stopOutput)
@@ -265,14 +266,15 @@ namespace SLSKDONET.Services.Audio
 
         public void Dispose()
         {
-            _gate.Wait();
+            // Bounded wait so synchronous IDisposable teardown can never deadlock indefinitely (#309).
+            var acquired = _gate.Wait(TimeSpan.FromSeconds(2));
             try
             {
                 DisposePlaybackResources(deleteRenderedFile: true, stopOutput: true);
             }
             finally
             {
-                _gate.Release();
+                if (acquired) _gate.Release();
             }
             _gate.Dispose();
         }
