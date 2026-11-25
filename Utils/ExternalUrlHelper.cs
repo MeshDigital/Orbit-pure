@@ -51,36 +51,8 @@ public static class ExternalUrlHelper
 
     /// <summary>
     /// Shows <paramref name="path"/> selected in the OS file manager (Explorer / Finder / the folder on Linux). It never
-    /// runs the file. False (logged) when it couldn't.
+    /// runs the file. False (logged) when it couldn't. Routes through <see cref="SLSKDONET.Services.Platform.PlatformShell.Current"/> (#452).
     /// </summary>
     public static bool TryRevealLocalFile(string path)
-    {
-        try
-        {
-            ProcessStartInfo psi;
-            if (OperatingSystem.IsWindows())
-            {
-                psi = new ProcessStartInfo("explorer.exe") { UseShellExecute = false };
-                psi.ArgumentList.Add($"/select,{path}");
-            }
-            else if (OperatingSystem.IsMacOS())
-            {
-                psi = new ProcessStartInfo("open") { UseShellExecute = false };
-                psi.ArgumentList.Add("-R");
-                psi.ArgumentList.Add(path);
-            }
-            else
-            {
-                psi = new ProcessStartInfo("xdg-open") { UseShellExecute = false };
-                psi.ArgumentList.Add(System.IO.Path.GetDirectoryName(path) ?? path);
-            }
-            Process.Start(psi);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Serilog.Log.Warning(ex, "[ExternalUrlHelper] Couldn't show {Path} in the file manager", path);
-            return false;
-        }
-    }
+        => SLSKDONET.Services.Platform.PlatformShell.Current.RevealInFolder(path);
 }

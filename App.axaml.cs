@@ -298,10 +298,9 @@ public partial class App : Application
                             // silently never fire for the rest of the session.
                             Services.GetRequiredService<GlobalHotkeyService>().AttachToCurrentMainWindow();
 
-                            // Real OS-level notifications (Windows Action Center toasts) need the
-                            // main window's native handle, which only exists after Show().
+                            // Real OS-level notifications via the cross-platform shell seam (#452).
                             var toastHandle = mainWindow.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
-                            Services.GetRequiredService<WindowsToastService>().Initialize(toastHandle);
+                            Services.GetRequiredService<Services.Platform.IPlatformShell>().InitializeNotifications(toastHandle);
 
                             Services.GetRequiredService<UiStallWatchdog>().Start();
 

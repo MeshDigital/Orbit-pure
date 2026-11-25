@@ -892,16 +892,10 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             {
                 var path = item.Model.ResolvedFilePath;
                 if (string.IsNullOrEmpty(path)) continue;
-                try
-                {
-                    System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\"");
+                if (SLSKDONET.Services.Platform.PlatformShell.Current.RevealInFolder(path))
                     revealed++;
-                }
-                catch (Exception ex)
-                {
-                    Serilog.Log.Warning(ex, "Bulk reveal: could not open Explorer for {Path}", path);
+                else
                     Notify($"Could not reveal {System.IO.Path.GetFileName(path)}", NotificationType.Error);
-                }
             }
             if (revealed == 0)
                 Notify("None of the selected downloads have a file yet", NotificationType.Information);
