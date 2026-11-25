@@ -38,7 +38,7 @@ public sealed class AudioDecoderTests : IDisposable
     [Theory]
     [InlineData("track.flac", true)]
     [InlineData("track.m4a", true)]
-    [InlineData("track.aiff", true)]
+    [InlineData("track.aiff", false)]
     [InlineData("track.mp3", true)]
     [InlineData("track.ogg", true)]
     [InlineData("track.opus", true)]

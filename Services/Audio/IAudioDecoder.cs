@@ -65,10 +65,13 @@ public sealed class CrossPlatformAudioDecoder : IAudioDecoder
         if (_isWindows)
             return false; // Windows tries native AudioFileReader first and falls back to FFmpeg on failure.
 
-        // On macOS/Linux, NAudio's WaveFileReader (plain .wav) is 100% managed C#.
-        // MP3 (ACM), FLAC, M4A/AAC, AIFF-C, OGG, and Opus all require FFmpeg decode.
+        // On macOS/Linux, NAudio's WaveFileReader (.wav) and AiffFileReader (plain .aiff/.aif) are
+        // 100% managed C#. MP3 (ACM), FLAC, M4A/AAC, OGG, and Opus require FFmpeg decode (and
+        // compressed AIFF-C still falls back to FFmpeg automatically via the catch block below).
         var ext = Path.GetExtension(filePath);
-        return !string.Equals(ext, ".wav", StringComparison.OrdinalIgnoreCase);
+        return !string.Equals(ext, ".wav", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(ext, ".aiff", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(ext, ".aif", StringComparison.OrdinalIgnoreCase);
     }
 
     public AudioFileReader OpenForPlayback(string filePath, out string playablePath)
