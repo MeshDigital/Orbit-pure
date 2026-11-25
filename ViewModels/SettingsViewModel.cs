@@ -444,8 +444,45 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             {
                 _config.NameFormat = value;
                 OnPropertyChanged();
-                SaveSettings();
+                OnPropertyChanged(nameof(FileNameFormatError));
+                OnPropertyChanged(nameof(HasFileNameFormatError));
+                OnPropertyChanged(nameof(FileNameFormatPreviewText));
+                OnPropertyChanged(nameof(SelectedFileNamePreset));
+                if (!HasFileNameFormatError)
+                    SaveSettings();
             }
+        }
+    }
+
+    /// <summary>LF1 (#343): 1-click editable path template presets.</summary>
+    public static IReadOnlyList<Services.Library.Files.PathTemplatePreset> AvailableFileNamePresets =>
+        Services.Library.Files.PathTemplateEngine.Presets;
+
+    public Services.Library.Files.PathTemplatePreset? SelectedFileNamePreset
+    {
+        get => AvailableFileNamePresets.FirstOrDefault(p => string.Equals(p.Template, FileNameFormat, StringComparison.Ordinal));
+        set
+        {
+            if (value is not null && FileNameFormat != value.Template)
+                FileNameFormat = value.Template;
+        }
+    }
+
+    public string? FileNameFormatError => Services.Library.Files.PathTemplateEngine.Validate(FileNameFormat);
+    public bool HasFileNameFormatError => !string.IsNullOrEmpty(FileNameFormatError);
+
+    /// <summary>LF1 (#343): live preview rendered against 3 representative tracks using PathTemplateEngine.</summary>
+    public string FileNameFormatPreviewText
+    {
+        get
+        {
+            var lines = new List<string>(Services.Library.Files.PathTemplateEngine.PreviewSamples.Count);
+            foreach (var (facts, ext) in Services.Library.Files.PathTemplateEngine.PreviewSamples)
+            {
+                var rendered = Services.Library.Files.PathTemplateEngine.Render(FileNameFormat, facts);
+                lines.Add(string.IsNullOrEmpty(rendered.RelativePath) ? "(empty)" : rendered.RelativePath + ext);
+            }
+            return string.Join("\n", lines);
         }
     }
 

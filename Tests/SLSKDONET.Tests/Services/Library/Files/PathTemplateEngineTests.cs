@@ -184,4 +184,31 @@ public class PathTemplateEngineTests
     {
         Assert.Equal(expected, PathTemplateEngine.Render(template, Facts).RelativePath);
     }
+
+    [Fact]
+    public void BuiltInPresets_AreAllValidAndRenderNonEmptyForAllSamples()
+    {
+        Assert.Equal(5, PathTemplateEngine.Presets.Count);
+        foreach (var preset in PathTemplateEngine.Presets)
+        {
+            Assert.Null(PathTemplateEngine.Validate(preset.Template));
+            foreach (var (sample, _) in PathTemplateEngine.PreviewSamples)
+            {
+                var rendered = PathTemplateEngine.Render(preset.Template, sample);
+                Assert.False(string.IsNullOrWhiteSpace(rendered.Leaf), $"Preset '{preset.Name}' rendered empty leaf.");
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("", "empty")]
+    [InlineData("{artist - {title}", "Unclosed '{'")]
+    [InlineData("{artist}} - {title}", "Unmatched '}'")]
+    [InlineData("{artist} - {title} [{mix}", "Unclosed '['")]
+    public void Validate_FlagsMalformedTemplates(string template, string expectedFragment)
+    {
+        var error = PathTemplateEngine.Validate(template);
+        Assert.NotNull(error);
+        Assert.Contains(expectedFragment, error, StringComparison.OrdinalIgnoreCase);
+    }
 }
