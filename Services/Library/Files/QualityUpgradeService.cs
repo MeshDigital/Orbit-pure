@@ -24,34 +24,77 @@ public sealed class QualityUpgradeService
         _logger = logger;
     }
 
-    public async Task<string> ReplaceAsync(string hash, string newFile, string oldFile, string downloadDir, CancellationToken ct = default)
+    public async Task<string> ReplaceAsync(
+        string hash,
+        string newFile,
+        string oldFile,
+        string downloadDir,
+        bool allowProtectedOverride = false,
+        CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(newFile) || !File.Exists(newFile))
+            throw new FileNotFoundException("Replacement audio file not found.", newFile);
+        if (string.IsNullOrWhiteSpace(oldFile) || !File.Exists(oldFile))
+            throw new FileNotFoundException("Original audio file not found.", oldFile);
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var entry = await db.LibraryEntries.FirstOrDefaultAsync(e => e.UniqueHash == hash, ct).ConfigureAwait(false);
+
+        // LF4 path protection guard: never auto-replace locked or linked-folder files unless explicitly overridden.
+        if (!allowProtectedOverride && entry is not null)
+        {
+            if (entry.PathLockedAt is not null)
+                throw new InvalidOperationException($"Track {hash} path is locked (exported/protected); unlock before upgrading.");
+            if (string.Equals(entry.FileOrigin, FileOriginDeriver.LinkedFolder, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"Track {hash} lives in a linked folder; ORBIT does not replace linked files automatically.");
+        }
+
         var target = Path.Combine(
             Path.GetDirectoryName(oldFile)!,
             Path.GetFileNameWithoutExtension(oldFile) + Path.GetExtension(newFile));
 
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        File.Move(newFile, target);
-        OrbitTrash.TrashFile(oldFile, downloadDir);
 
-        await using var db = await _dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-
-        var entry = await db.LibraryEntries.FirstOrDefaultAsync(e => e.UniqueHash == hash, ct).ConfigureAwait(false);
-        if (entry != null)
+        // Trash the old file FIRST so same-extension upgrades (e.g. 128kbps .mp3 -> 320kbps .mp3)
+        // don't collide at `target`. Roll back both filesystem operations if anything fails.
+        var trashedOld = OrbitTrash.TrashFile(oldFile, downloadDir);
+        var movedNew = false;
+        try
         {
-            entry.FilePath = target;
-            entry.FilePathUpdatedAt = DateTime.UtcNow;
+            File.Move(newFile, target);
+            movedNew = true;
+
+            if (entry != null)
+            {
+                entry.FilePath = target;
+                entry.FilePathUpdatedAt = DateTime.UtcNow;
+            }
+
+            var playlistTracks = await db.PlaylistTracks.Where(t => t.TrackUniqueHash == hash).ToListAsync(ct).ConfigureAwait(false);
+            foreach (var t in playlistTracks)
+                t.ResolvedFilePath = target;
+
+            var tracks = await db.Tracks.Where(t => t.GlobalId == hash).ToListAsync(ct).ConfigureAwait(false);
+            foreach (var t in tracks)
+                t.LocalFilePath = target;
+
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
         }
-
-        var playlistTracks = await db.PlaylistTracks.Where(t => t.TrackUniqueHash == hash).ToListAsync(ct).ConfigureAwait(false);
-        foreach (var t in playlistTracks)
-            t.ResolvedFilePath = target;
-
-        var tracks = await db.Tracks.Where(t => t.GlobalId == hash).ToListAsync(ct).ConfigureAwait(false);
-        foreach (var t in tracks)
-            t.LocalFilePath = target;
-
-        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Quality upgrade failed for {Hash}; rolling back filesystem changes.", hash);
+            if (movedNew && File.Exists(target) && !File.Exists(newFile))
+            {
+                try { File.Move(target, newFile); }
+                catch (Exception rbEx) { _logger.LogWarning(rbEx, "Rollback: could not move {Target} back to {NewFile}", target, newFile); }
+            }
+            if (File.Exists(trashedOld) && !File.Exists(oldFile))
+            {
+                try { OrbitTrash.Restore(trashedOld); }
+                catch (Exception rbEx) { _logger.LogWarning(rbEx, "Rollback: could not restore {Trashed} back to {OldFile}", trashedOld, oldFile); }
+            }
+            throw;
+        }
 
         _logger.LogInformation("Upgraded {Hash}: {Old} -> {New}", hash, oldFile, target);
         return target;

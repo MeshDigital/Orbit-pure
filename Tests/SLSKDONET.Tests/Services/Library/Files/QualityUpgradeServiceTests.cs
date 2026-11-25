@@ -70,4 +70,52 @@ public class QualityUpgradeServiceTests : IDisposable
         Assert.Equal(target, verify.PlaylistTracks.Single(t => t.TrackUniqueHash == hash).ResolvedFilePath);
         Assert.Equal(target, verify.Tracks.Single(t => t.GlobalId == hash).LocalFilePath);
     }
+
+    [Fact]
+    public async Task ReplaceAsync_SameExtensionUpgrade_SucceedsAndTrashesOld()
+    {
+        const string hash = "h-same-ext";
+        var oldFile = Path.Combine(_dir, "Artist - Title.mp3");
+        var newFile = Path.Combine(_dir, "staged", "Artist - Title.mp3");
+        File.WriteAllText(oldFile, "128kbps");
+        Directory.CreateDirectory(Path.GetDirectoryName(newFile)!);
+        File.WriteAllText(newFile, "320kbps");
+
+        using (var db = new AppDbContext())
+        {
+            db.LibraryEntries.Add(new LibraryEntryEntity { UniqueHash = hash, FilePath = oldFile });
+            db.SaveChanges();
+        }
+
+        var svc = new QualityUpgradeService(new TestDbFactory(), NullLogger<QualityUpgradeService>.Instance);
+        var target = await svc.ReplaceAsync(hash, newFile, oldFile, _dir);
+
+        Assert.Equal(oldFile, target);
+        Assert.Equal("320kbps", File.ReadAllText(target));
+        Assert.False(File.Exists(newFile));
+        Assert.Single(Directory.GetFiles(OrbitTrash.GetTrashDirectory(_dir), "*.mp3"));
+    }
+
+    [Fact]
+    public async Task ReplaceAsync_LockedTrack_ThrowsWithoutTouchingDisk()
+    {
+        const string hash = "h-locked";
+        var oldFile = Path.Combine(_dir, "Locked.mp3");
+        var newFile = Path.Combine(_dir, "staged", "Locked.flac");
+        File.WriteAllText(oldFile, "old");
+        Directory.CreateDirectory(Path.GetDirectoryName(newFile)!);
+        File.WriteAllText(newFile, "new");
+
+        using (var db = new AppDbContext())
+        {
+            db.LibraryEntries.Add(new LibraryEntryEntity { UniqueHash = hash, FilePath = oldFile, PathLockedAt = DateTime.UtcNow });
+            db.SaveChanges();
+        }
+
+        var svc = new QualityUpgradeService(new TestDbFactory(), NullLogger<QualityUpgradeService>.Instance);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => svc.ReplaceAsync(hash, newFile, oldFile, _dir));
+
+        Assert.True(File.Exists(oldFile));
+        Assert.True(File.Exists(newFile));
+    }
 }

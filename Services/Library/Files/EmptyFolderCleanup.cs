@@ -26,8 +26,16 @@ public static class EmptyFolderCleanup
             if (!Directory.Exists(full)) break;
             if (Directory.EnumerateFileSystemEntries(full).Any()) break; // not empty — stop
 
-            Directory.Delete(full);
-            removed.Add(full);
+            try
+            {
+                Directory.Delete(full);
+                removed.Add(full);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Locked or in-use directory — stop climbing this branch without aborting sibling cleanup.
+                break;
+            }
             dir = Path.GetDirectoryName(full);
         }
 
