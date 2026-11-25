@@ -353,10 +353,11 @@ public partial class App : Application
                         // Personal genre head (GA11 #256): retrains only when genre labels changed; startup check is delayed.
                         Services.GetRequiredService<Services.Genre.PersonalGenreHeadService>().Start();
 
-                        // Activate post-download spectral scan listener (eager resolve so it
-                        // subscribes to TrackStateChangedEvent immediately after the engine starts).
+                        // Activate post-download & post-analysis event-bus listeners (eager resolve so they
+                        // subscribe immediately after the engine starts).
                         _ = Services.GetRequiredService<PostDownloadSpectralScanService>();
                         _ = Services.GetRequiredService<PostDownloadDurationCaptureService>();
+                        _ = Services.GetRequiredService<Services.Library.Files.PostAnalysisRefileService>();
 
                         // NativeDependencyHealthService.IsHealthy defaults to false and only ever
                         // gets computed inside CheckHealthAsync() — which nothing in the app was
