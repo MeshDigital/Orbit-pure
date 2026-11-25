@@ -43,7 +43,7 @@ jobs:
             v="${{ inputs.version }}"
             pre="${{ inputs.prerelease }}"
           fi
-          csproj=$(grep -oP '(?<=<Version>)[^<]+' SLSKDONET.csproj)
+          csproj=$(grep -oP '(?<=<Version>)[^<]+(?=</Version>)' SLSKDONET.csproj | head -n 1)
           base="${v%%-*}"
           if [ "$csproj" != "$base" ]; then
             echo "::error::Version $v does not match <Version>$csproj</Version> in SLSKDONET.csproj (the in-app updater compares them)."
