@@ -9,9 +9,11 @@ using System.Windows.Input;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
+using SLSKDONET.Configuration;
 using SLSKDONET.Data;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
+using SLSKDONET.Services.Library.Files;
 using SLSKDONET.Services.Library.Maintenance;
 using SLSKDONET.Views;
 
@@ -33,7 +35,11 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
     private readonly StylePlaylistApplier _playlistApplier;
     private readonly StyleBackfillService _styleBackfill;
     private readonly GenreRefreshService? _genreRefresh;
+    private readonly ReorganizePreviewService? _reorganizePreview;
+    private readonly FileRelocationService? _relocation;
+    private readonly AppConfig? _config;
     private GenreRefreshScan _genreScan = GenreRefreshScan.Empty;
+    private Guid? _reorganizeBatchId;
     private readonly CompositeDisposable _disposables = new();
     private readonly CancellationTokenSource _cts = new();
 
@@ -91,9 +97,29 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
     private bool _stylePlaylists = true;
     public bool StylePlaylists { get => _stylePlaylists; set => this.RaiseAndSetIfChanged(ref _stylePlaylists, value); }
 
+    private bool _reorganizeFiles;
+    /// <summary>LF5 (#347): opt-in preview + undoable file reorganisation using the naming template.</summary>
+    public bool ReorganizeFiles { get => _reorganizeFiles; set => this.RaiseAndSetIfChanged(ref _reorganizeFiles, value); }
+
+    public bool CanReorganizeFiles => _reorganizePreview is not null && _relocation is not null;
+
     // ── Review data ──────────────────────────────────────────────────────────
     public ObservableCollection<ProposalRowViewModel> TagRows { get; } = new();
     public ObservableCollection<ProposalRowViewModel> GenreRows { get; } = new();
+    public ObservableCollection<ReorganizeRowViewModel> ReorganizeRows { get; } = new();
+
+    private string? _reorganizeSummaryText;
+    public string? ReorganizeSummaryText
+    {
+        get => _reorganizeSummaryText;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _reorganizeSummaryText, value);
+            this.RaisePropertyChanged(nameof(HasReorganizePreview));
+        }
+    }
+
+    public bool HasReorganizePreview => !string.IsNullOrEmpty(ReorganizeSummaryText);
 
     private IReadOnlyList<PlannedStylePlaylist> _stylePlan = Array.Empty<PlannedStylePlaylist>();
     public IReadOnlyList<PlannedStylePlaylist> StylePlan { get => _stylePlan; private set => this.RaiseAndSetIfChanged(ref _stylePlan, value); }
@@ -155,7 +181,10 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
         TagChangeService tagChanges,
         StylePlaylistApplier playlistApplier,
         StyleBackfillService styleBackfill,
-        GenreRefreshService? genreRefresh = null)
+        GenreRefreshService? genreRefresh = null,
+        ReorganizePreviewService? reorganizePreview = null,
+        FileRelocationService? relocation = null,
+        AppConfig? config = null)
     {
         _eventBus = eventBus;
         _logger = logger;
@@ -165,6 +194,9 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
         _playlistApplier = playlistApplier;
         _styleBackfill = styleBackfill;
         _genreRefresh = genreRefresh;
+        _reorganizePreview = reorganizePreview;
+        _relocation = relocation;
+        _config = config;
 
         StartScanCommand = new AsyncRelayCommand(StartScanAsync);
         CancelCommand = new RelayCommand(() => _cts.Cancel());
@@ -333,6 +365,52 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
             }
             RefreshableGenres = _genreScan.Refuse.Count;
             GenreSummaryText = BuildGenreSummary();
+
+            // LF5 (#347): Reorganise library files preview (reads only; nothing moved until Apply).
+            ReorganizeRows.Clear();
+            ReorganizeSummaryText = null;
+            if (ReorganizeFiles && _reorganizePreview is not null)
+            {
+                StatusText = "Previewing file reorganisation…";
+                var entries = await db.LibraryEntries.AsNoTracking()
+                    .Where(e => e.FilePath != null && e.FilePath != string.Empty)
+                    .Select(e => new { e.UniqueHash, e.FilePath, e.Artist, e.Title, e.Album, e.DurationSeconds, e.Bitrate })
+                    .ToListAsync(ct);
+
+                var featuresByHash = await db.AudioFeatures.AsNoTracking()
+                    .ToDictionaryAsync(f => f.TrackUniqueHash, ct);
+
+                var reorgInput = new List<ReorganizeTrack>(entries.Count);
+                foreach (var e in entries)
+                {
+                    featuresByHash.TryGetValue(e.UniqueHash, out var f);
+                    reorgInput.Add(new ReorganizeTrack(
+                        e.UniqueHash,
+                        e.FilePath!,
+                        new Track
+                        {
+                            Artist = e.Artist,
+                            Title = e.Title,
+                            Album = e.Album,
+                            BPM = f is { Bpm: > 0 } ? f.Bpm : null,
+                            MusicalKey = f is { Key.Length: > 0 } ? f.Key : null,
+                            Energy = f is not null ? f.Energy : null,
+                            Filename = System.IO.Path.GetFileName(e.FilePath),
+                            Length = e.DurationSeconds,
+                            Bitrate = e.Bitrate,
+                        }));
+                }
+
+                var preview = await _reorganizePreview.PreviewAsync(reorgInput, ct);
+                foreach (var item in preview.Items)
+                {
+                    if (item.Status == "Unchanged") continue;
+                    ReorganizeRows.Add(new ReorganizeRowViewModel(item));
+                }
+
+                ReorganizeSummaryText =
+                    $"{preview.Movable} to move · {preview.Unchanged} unchanged · {preview.Blocked} blocked (locked, linked folder, or collision).";
+            }
         }
         finally
         {
@@ -411,13 +489,53 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
                 genreRefresh = await _genreRefresh.RefuseAsync(_genreScan.Refuse, progress, ct);
             }
 
+            // LF5 (#347): Reorganise selected files as one undoable relocation batch + clean up empty folders.
+            RelocationOutcome? reorgOutcome = null;
+            var removedEmptyFolders = 0;
+            _reorganizeBatchId = null;
+            if (ReorganizeFiles && _relocation is not null)
+            {
+                var selectedMoves = ReorganizeRows
+                    .Where(r => r.IsSelected && r.IsMove)
+                    .Select(r => new RelocationRequest(r.Hash, r.SourcePath, r.TargetPath))
+                    .ToList();
+
+                if (selectedMoves.Count > 0)
+                {
+                    StatusText = $"Reorganising {selectedMoves.Count} files…";
+                    var plan = await _relocation.PlanAsync(selectedMoves, ct);
+                    reorgOutcome = await _relocation.ExecuteAsync(plan, ct);
+                    if (reorgOutcome.Moved > 0 && reorgOutcome.BatchId != Guid.Empty)
+                        _reorganizeBatchId = reorgOutcome.BatchId;
+
+                    var stopRoot = _config?.DownloadDirectory;
+                    if (!string.IsNullOrWhiteSpace(stopRoot) && reorgOutcome.Moved > 0)
+                    {
+                        var failedHashes = reorgOutcome.Failures.Select(f => f.Hash).ToHashSet(StringComparer.Ordinal);
+                        foreach (var move in plan.Moves)
+                        {
+                            if (failedHashes.Contains(move.Hash)) continue;
+                            removedEmptyFolders += EmptyFolderCleanup.RemoveEmptyParents(move.SourcePath, stopRoot).Count;
+                        }
+                    }
+                }
+            }
+
             var summary = new MaintenanceRunSummary(
-                Applied: tagReport.Applied + genreReport.Applied,
-                FileWritten: tagReport.FileWritten + genreReport.FileWritten,
+                Applied: tagReport.Applied + genreReport.Applied + (reorgOutcome?.Moved ?? 0),
+                FileWritten: tagReport.FileWritten + genreReport.FileWritten + (reorgOutcome?.Moved ?? 0),
                 DbOnly: tagReport.DbOnly + genreReport.DbOnly,
-                Failed: tagReport.Failed + genreReport.Failed + playlistReport.Failed);
+                Failed: tagReport.Failed + genreReport.Failed + playlistReport.Failed + (reorgOutcome?.Failures.Count ?? 0));
 
             await _tagChanges.CompleteRunAsync(_runId.Value, summary, ct);
+
+            var reorgText = reorgOutcome is null
+                ? string.Empty
+                : $" Reorganised {reorgOutcome.Moved} files"
+                  + (reorgOutcome.Failures.Count > 0 ? $" ({reorgOutcome.Failures.Count} failed)" : string.Empty)
+                  + (removedEmptyFolders > 0 ? $", removed {removedEmptyFolders} empty folder(s)" : string.Empty)
+                  + "."
+                  + (reorgOutcome.Moved > 0 ? " If you use Rekordbox, re-export your playlists so track locations stay in sync." : string.Empty);
 
             SummaryText = (summary.Failed == 0
                 ? $"Applied {summary.Applied} changes ({summary.FileWritten} files, {summary.DbOnly} DB only). {playlistReport.Created} playlists created, {playlistReport.Appended} extended."
@@ -427,7 +545,8 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
                         ? $" {SLSKDONET.Utils.CountFormat.N(queuedForStyle)} tracks queued for AI style analysis."
                         : $" AI style analysis not queued: {backfillReason}"
                     : string.Empty)
-                + (genreRefresh is { } g ? " " + DescribeGenreRefresh(g) : string.Empty);
+                + (genreRefresh is { } g ? " " + DescribeGenreRefresh(g) : string.Empty)
+                + reorgText;
 
             if (!string.IsNullOrWhiteSpace(backfillReason))
                 _logger.LogWarning("[Maintenance] Style backfill unavailable: {Reason}", backfillReason);
@@ -448,14 +567,22 @@ public sealed class LibraryMaintenanceViewModel : ReactiveObject, IDisposable
         return text;
     }
 
-    /// <summary>Undoes the run: tag changes and playlists, reporting edited-since skips.</summary>
+    /// <summary>Undoes the run: tag changes, playlists, and any LF5 file moves, reporting edited-since skips.</summary>
     public async Task RevertAsync(CancellationToken ct = default)
     {
         if (_runId is null) return;
         var tagRevert = await _tagChanges.RevertRunAsync(_runId.Value, ct);
         var playlistRevert = await _playlistApplier.RevertAsync(_runId.Value, ct);
+        var filesReverted = 0;
+        if (_reorganizeBatchId is Guid batchId && _relocation is not null)
+        {
+            filesReverted = await _relocation.RevertBatchAsync(batchId, ct);
+            _reorganizeBatchId = null;
+        }
+
         SummaryText = $"Reverted {tagRevert.Reverted} tag changes (skipped {tagRevert.Skipped}), " +
-                      $"deleted {playlistRevert.Deleted} playlists, removed {playlistRevert.TracksRemoved} tracks.";
+                      $"deleted {playlistRevert.Deleted} playlists, removed {playlistRevert.TracksRemoved} tracks" +
+                      (filesReverted > 0 ? $", restored {filesReverted} moved file(s)." : ".");
     }
 
     public void Dispose()
