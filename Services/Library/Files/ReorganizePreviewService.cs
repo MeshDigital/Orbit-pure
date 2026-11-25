@@ -40,7 +40,8 @@ public sealed class ReorganizePreviewService
 
         foreach (var t in tracks)
         {
-            var target = _pathProvider.GetTrackPath(t.Metadata);
+            // Use the pure resolver so previewing never creates empty target folders on disk.
+            var target = _pathProvider.ResolveTrackPath(t.Metadata);
             if (string.Equals(target, t.SourcePath, StringComparison.OrdinalIgnoreCase))
             {
                 items.Add(new ReorganizePreviewItem(t.Hash, t.SourcePath, target, "Unchanged"));

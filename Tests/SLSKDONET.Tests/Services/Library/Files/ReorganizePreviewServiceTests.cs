@@ -94,4 +94,33 @@ public class ReorganizePreviewServiceTests : IDisposable
         Assert.Contains(preview.Items, i => i.Hash == unchangedHash && i.Status == "Unchanged");
         Assert.Contains(preview.Items, i => i.Hash == lockedHash && i.Status.Contains("locked", StringComparison.OrdinalIgnoreCase));
     }
+
+    [Fact]
+    public async Task Preview_DoesNotCreateTargetDirectoriesOnDisk()
+    {
+        const string hash = "h-nested";
+        var source = Path.Combine(_dir, "loose.flac");
+        File.WriteAllText(source, "a");
+
+        using (var db = new AppDbContext())
+        {
+            db.LibraryEntries.Add(new LibraryEntryEntity { UniqueHash = hash, FilePath = source });
+            db.SaveChanges();
+        }
+
+        var nestedSvc = new ReorganizePreviewService(
+            new PathProviderService(
+                new AppConfig { NameFormat = "{artist}/{album}/{title}", DownloadDirectory = _dir },
+                new FileNameFormatter(),
+                NullLogger<PathProviderService>.Instance),
+            new FileRelocationService(new TestDbFactory(), new FakeEventBus(), NullLogger<FileRelocationService>.Instance));
+
+        var preview = await nestedSvc.PreviewAsync(new[]
+        {
+            new ReorganizeTrack(hash, source, new Track { Artist = "NewArtist", Album = "NewAlbum", Title = "Track", Filename = "loose.flac" }),
+        });
+
+        Assert.Equal(1, preview.Movable);
+        Assert.False(Directory.Exists(Path.Combine(_dir, "NewArtist")), "Preview must not create target folders on disk.");
+    }
 }
