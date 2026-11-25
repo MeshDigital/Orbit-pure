@@ -167,6 +167,10 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
     // Expose download directory from config
     public string? DownloadDirectory => _config.DownloadDirectory;
 
+    /// <summary>The deterministic LF3 staging .part path for a context — survives a restart (#450).</summary>
+    private string StagingPartPathFor(DownloadContext ctx) =>
+        DownloadStagingPath.GetPartPath(DownloadDirectory ?? "Downloads", ctx.Model.TrackUniqueHash ?? ctx.GlobalId);
+
     /// <summary>Whether a transfer is currently in flight against this peer — used to gate features that should only react to peers we're actively downloading from (e.g. auto-solving their "reply to unlock" gate-bot challenges).</summary>
     public bool HasActiveTransferWithPeer(string username) => _activeTransfers.HasAnyForUser(username);
 
@@ -1605,7 +1609,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
         try
         {
             // The real .part path (#328): never rebuilt from tags, which pointed nowhere and created empty folders.
-            foreach (var deleted in Downloads.PartFileGuard.DeletePartFiles(ctx.PartFilePath, ctx.Model.ResolvedFilePath))
+            foreach (var deleted in Downloads.PartFileGuard.DeletePartFiles(ctx.PartFilePath, ctx.Model.ResolvedFilePath, StagingPartPathFor(ctx)))
                 _logger.LogInformation("Deleted staging .part file on cancel: {Path}", deleted);
         }
         catch (Exception ex)
@@ -1878,7 +1882,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
 
             try
             {
-                Downloads.PartFileGuard.DeletePartFiles(ctx.PartFilePath, ctx.Model.ResolvedFilePath); // the real .part (#328)
+                Downloads.PartFileGuard.DeletePartFiles(ctx.PartFilePath, ctx.Model.ResolvedFilePath, StagingPartPathFor(ctx)); // the real .part (#328)
                 ctx.PartFilePath = null;
                 if (!string.IsNullOrEmpty(ctx.Model.ResolvedFilePath) && File.Exists(ctx.Model.ResolvedFilePath))
                 {
@@ -2127,7 +2131,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
                     {
                         // Protect the REAL .part files of live downloads (#328): the tag-built path never existed,
                         // so an active partial file older than 24 h could be swept as an orphan.
-                        foreach (var partPath in Downloads.PartFileGuard.CandidatePartPaths(ctx.PartFilePath, ctx.Model.ResolvedFilePath))
+                        foreach (var partPath in Downloads.PartFileGuard.CandidatePartPaths(ctx.PartFilePath, ctx.Model.ResolvedFilePath, StagingPartPathFor(ctx)))
                             activePartPaths.Add(partPath);
                     }
                 }
@@ -2906,7 +2910,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
                         "File-read error on resumed transfer for {Title}; discarding the partial file and retrying from 0. detail={Detail}",
                         ctx.Model.Title,
                         ex.Message);
-                    foreach (var deleted in Downloads.PartFileGuard.DeletePartFiles(ctx.PartFilePath, ctx.Model.ResolvedFilePath))
+                    foreach (var deleted in Downloads.PartFileGuard.DeletePartFiles(ctx.PartFilePath, ctx.Model.ResolvedFilePath, StagingPartPathFor(ctx)))
                         _logger.LogInformation("Discarded partial file on file-read error: {Path}", deleted);
                     ctx.PartFilePath = null;
                     ctx.IsResuming = false;
@@ -4146,7 +4150,7 @@ public partial class DownloadManager : INotifyPropertyChanged, IDisposable
         {
             // The real .part path (#328). The tag-built path used before never existed, so Hard Retry deleted
             // nothing and the next attempt resumed the old partial file from a different peer.
-            foreach (var deleted in Downloads.PartFileGuard.DeletePartFiles(ctx.PartFilePath, ctx.Model.ResolvedFilePath))
+            foreach (var deleted in Downloads.PartFileGuard.DeletePartFiles(ctx.PartFilePath, ctx.Model.ResolvedFilePath, StagingPartPathFor(ctx)))
                 _logger.LogInformation("Deleted stale .part file for retry: {Path}", deleted);
             ctx.PartFilePath = null;
 

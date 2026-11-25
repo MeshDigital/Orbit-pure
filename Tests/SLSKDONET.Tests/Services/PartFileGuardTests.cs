@@ -70,6 +70,21 @@ public sealed class PartFileGuardTests : IDisposable
     }
 
     [Fact]
+    public void StagingPartPath_IsIncludedInCandidatesAndCleanup()
+    {
+        // #450: after a restart PartFilePath is null, but the deterministic staging path still
+        // protects/deletes the in-flight .part.
+        var final = Path.Combine(_dir, "Artist - Title.flac");
+        var staging = Path.Combine(_dir, ".orbit-staging", "hash.part");
+        Directory.CreateDirectory(Path.GetDirectoryName(staging)!);
+        File.WriteAllText(staging, "partial");
+
+        Assert.Contains(staging, PartFileGuard.CandidatePartPaths(null, final, staging));
+        Assert.Contains(staging, PartFileGuard.DeletePartFiles(null, final, staging));
+        Assert.False(File.Exists(staging));
+    }
+
+    [Fact]
     public async Task Journal_ReturnsTheSourceThatWroteThePart()
     {
         var journal = new CrashRecoveryJournal(NullLogger<CrashRecoveryJournal>.Instance);

@@ -894,7 +894,7 @@ namespace SLSKDONET.Services
             };
             if (mode != AudioOutputMode.WasapiShared && deviceName != null)
                 attempts.Add(($"WasapiShared/{deviceName}", () => AudioOutputProvider.CreateSharedDevice(deviceName, 50)));
-            attempts.Add(("WasapiShared/Windows default", () => new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100)));
+            attempts.Add(("Default output backend", () => AudioOutputProvider.CreateDefaultFallbackDevice(100)));
 
             Exception? last = null;
             foreach (var (label, create) in attempts)

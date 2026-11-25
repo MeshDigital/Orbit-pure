@@ -182,17 +182,7 @@ public sealed class AcoustIdProvider : IMetadataProvider
     private static string Hash(string s) =>
         Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(s)))[..32];
 
-    /// <summary>fpcalc next to ORBIT.exe, in Tools/, or on PATH.</summary>
+    /// <summary>fpcalc via <see cref="Platform.ToolLocator"/> (#453).</summary>
     public static string? FindFpcalc()
-    {
-        var exe = OperatingSystem.IsWindows() ? "fpcalc.exe" : "fpcalc";
-        var candidates = new List<string>
-        {
-            Path.Combine(AppContext.BaseDirectory, exe),
-            Path.Combine(AppContext.BaseDirectory, "Tools", exe),
-        };
-        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-        candidates.AddRange(path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries).Select(p => Path.Combine(p.Trim(), exe)));
-        return candidates.FirstOrDefault(File.Exists);
-    }
+        => Platform.ToolLocator.Current.Locate(Platform.ExternalTool.Fpcalc);
 }

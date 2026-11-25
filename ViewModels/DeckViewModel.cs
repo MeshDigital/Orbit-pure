@@ -314,7 +314,7 @@ public sealed class DeckViewModel : ReactiveObject, IDisposable
     private readonly CompositeDisposable    _disposables  = new();
     private readonly BpmSyncService         _syncService  = new();
     private readonly MixingSampleProvider   _mixer;
-    private WaveOutEvent?                   _waveOut;
+    private IWavePlayer?                    _waveOut;
     private readonly System.Timers.Timer    _positionPoll;
     private bool                            _isDisposed;
 
@@ -465,7 +465,7 @@ public sealed class DeckViewModel : ReactiveObject, IDisposable
     private void StartOutput()
     {
         if (_isOutputActive) return;
-        _waveOut = new WaveOutEvent { DesiredLatency = 100 };
+        _waveOut = SLSKDONET.Services.Audio.AudioOutputProvider.CreateDefaultFallbackDevice(100);
         _waveOut.Init(_mixer);
         _waveOut.Play();
         IsOutputActive = true;

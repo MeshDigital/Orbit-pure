@@ -38,12 +38,13 @@ public static class PartFileGuard
     }
 
     /// <summary>
-    /// Every place the track's .part can be: the path recorded when the download started, and the resolved final
-    /// path + ".part" (persisted with the track, so it survives a restart). Never builds a path from tags.
+    /// Every place the track's .part can be: the path recorded when the download started, the LF3
+    /// deterministic staging path (survives a restart), and the resolved final path + ".part"
+    /// (persisted with the track). Never builds a path from tags.
     /// </summary>
-    public static IReadOnlyList<string> CandidatePartPaths(string? recordedPartPath, string? resolvedFilePath)
+    public static IReadOnlyList<string> CandidatePartPaths(string? recordedPartPath, string? resolvedFilePath, string? stagingPartPath = null)
     {
-        var paths = new List<string>(2);
+        var paths = new List<string>(3);
         void Add(string? p)
         {
             if (string.IsNullOrWhiteSpace(p)) return;
@@ -52,16 +53,17 @@ public static class PartFileGuard
             paths.Add(p);
         }
         Add(recordedPartPath);
+        Add(stagingPartPath);
         if (!string.IsNullOrWhiteSpace(resolvedFilePath))
             Add(resolvedFilePath.EndsWith(PartSuffix, StringComparison.OrdinalIgnoreCase) ? resolvedFilePath : resolvedFilePath + PartSuffix);
         return paths;
     }
 
     /// <summary>Deletes whichever candidate .part files exist; returns the paths deleted.</summary>
-    public static IReadOnlyList<string> DeletePartFiles(string? recordedPartPath, string? resolvedFilePath)
+    public static IReadOnlyList<string> DeletePartFiles(string? recordedPartPath, string? resolvedFilePath, string? stagingPartPath = null)
     {
         var deleted = new List<string>();
-        foreach (var path in CandidatePartPaths(recordedPartPath, resolvedFilePath))
+        foreach (var path in CandidatePartPaths(recordedPartPath, resolvedFilePath, stagingPartPath))
         {
             if (!File.Exists(path)) continue;
             File.Delete(path);
