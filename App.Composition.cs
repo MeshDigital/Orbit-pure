@@ -202,6 +202,7 @@ public partial class App
         services.AddSingleton<Services.Export.UsbExportOrchestrator>();
         services.AddSingleton<Services.Library.Files.FileRelocationService>(); // LF2: single move/rename path
         services.AddSingleton<Services.Library.Files.PathProtectionService>(); // LF4: path lock/unlock
+        services.AddSingleton<Services.Library.Files.ReorganizePreviewService>(); // LF5: reorganise preview
 
         // Audio Player
         services.AddSingleton<IAudioPlayerService, AudioPlayerService>();
