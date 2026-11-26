@@ -294,6 +294,7 @@ namespace SLSKDONET.ViewModels
         
         private void PlayNextTrack()
         {
+            NotifyManualSkipAfterMix();
             if (!Queue.Any()) return;
             
             int nextIndex;
@@ -509,6 +510,53 @@ namespace SLSKDONET.ViewModels
 
         private readonly SLSKDONET.Services.Transitions.TransitionPlanService? _transitionPlanService;
         private readonly SLSKDONET.Services.Transitions.ITransitionResolver? _transitionResolver;
+        private readonly SLSKDONET.Services.Transitions.ITransitionPlayLogService? _transitionPlayLog;
+        private string? _activeMixOutgoingHash;
+        private string? _activeMixIncomingHash;
+        private string? _activeMixTechnique;
+        private Guid? _lastLoggedTransitionPlayId;
+        private DateTime _lastLoggedTransitionPlayedAtUtc;
+
+        private void BeginTrackingActiveMixPlay(string? presetName)
+        {
+            _activeMixOutgoingHash = CurrentTrack?.Model?.TrackUniqueHash;
+            var nextIndex = PeekNextIndex();
+            _activeMixIncomingHash = nextIndex is int idx && idx >= 0 && idx < Queue.Count
+                ? Queue[idx].Model?.TrackUniqueHash
+                : null;
+            _activeMixTechnique = string.IsNullOrWhiteSpace(presetName) ? "Auto" : presetName;
+        }
+
+        private async Task RecordCompletedMixPlayAsync()
+        {
+            var outHash = _activeMixOutgoingHash;
+            var inHash = _activeMixIncomingHash;
+            var technique = _activeMixTechnique;
+            _activeMixOutgoingHash = null;
+            _activeMixIncomingHash = null;
+            _activeMixTechnique = null;
+
+            if (_transitionPlayLog is null || string.IsNullOrWhiteSpace(outHash) || string.IsNullOrWhiteSpace(inHash))
+                return;
+
+            var playedAt = DateTime.UtcNow;
+            var playId = await _transitionPlayLog.RecordMixPlayAsync(outHash, inHash, technique, wasSkipped: false);
+            if (playId is Guid id)
+            {
+                _lastLoggedTransitionPlayId = id;
+                _lastLoggedTransitionPlayedAtUtc = playedAt;
+            }
+        }
+
+        private void NotifyManualSkipAfterMix()
+        {
+            if (_transitionPlayLog is null || _lastLoggedTransitionPlayId is not Guid playId)
+                return;
+
+            var playedAt = _lastLoggedTransitionPlayedAtUtc;
+            _lastLoggedTransitionPlayId = null;
+            _ = _transitionPlayLog.MarkSkippedIfWithinWindowAsync(playId, playedAt, DateTime.UtcNow);
+        }
 
         private async Task AttachSavedTransitionAsync(string preloadedPath, PlaylistTrackViewModel? outgoing, PlaylistTrackViewModel incoming)
         {

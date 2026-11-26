@@ -888,8 +888,9 @@ namespace SLSKDONET.ViewModels
         // Phase 5C: UI Throttling
         private DateTime _lastTimeUpdate = DateTime.MinValue;
 
-        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IRightPanelService rightPanelService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null, AppConfig? config = null, ConfigManager? configManager = null, SLSKDONET.Services.Repositories.ITransitionRepository? transitionRepository = null, MixTransitionViewModel? mixTransitionViewModel = null, SLSKDONET.Services.Repositories.ITrackRepository? trackRepository = null, ICuePointService? cuePointService = null, IDialogService? dialogService = null, SLSKDONET.Services.AnalysisQueueService? analysisQueueService = null, SLSKDONET.Services.Audio.ILibraryPreviewPlayer? libraryPreviewPlayer = null, SLSKDONET.Services.Audio.ITransitionPreviewPlayer? transitionPreviewPlayer = null, SLSKDONET.Services.Transitions.TransitionPlanService? transitionPlanService = null, SLSKDONET.Services.Transitions.ITransitionResolver? transitionResolver = null)
+        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IRightPanelService rightPanelService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null, AppConfig? config = null, ConfigManager? configManager = null, SLSKDONET.Services.Repositories.ITransitionRepository? transitionRepository = null, MixTransitionViewModel? mixTransitionViewModel = null, SLSKDONET.Services.Repositories.ITrackRepository? trackRepository = null, ICuePointService? cuePointService = null, IDialogService? dialogService = null, SLSKDONET.Services.AnalysisQueueService? analysisQueueService = null, SLSKDONET.Services.Audio.ILibraryPreviewPlayer? libraryPreviewPlayer = null, SLSKDONET.Services.Audio.ITransitionPreviewPlayer? transitionPreviewPlayer = null, SLSKDONET.Services.Transitions.TransitionPlanService? transitionPlanService = null, SLSKDONET.Services.Transitions.ITransitionResolver? transitionResolver = null, SLSKDONET.Services.Transitions.ITransitionPlayLogService? transitionPlayLog = null)
         {
+            _transitionPlayLog = transitionPlayLog;
             _playerService = playerService;
             _databaseService = databaseService;
             _artworkCacheService = artworkCacheService;
@@ -1143,6 +1144,7 @@ namespace SLSKDONET.ViewModels
                     IsCrossfading = true;
                     CrossfadeProgressPercent = 0;
                     ActiveCrossfadePresetName = e.EventArgs.PresetName;
+                    BeginTrackingActiveMixPlay(e.EventArgs.PresetName);
                 }))
                 .DisposeWith(_disposables);
 
@@ -1153,11 +1155,12 @@ namespace SLSKDONET.ViewModels
                 .DisposeWith(_disposables);
 
             Observable.FromEventPattern(h => _playerService.CrossfadeEnded += h, h => _playerService.CrossfadeEnded -= h)
-                .Subscribe(_ => Dispatcher.UIThread.Post(() =>
+                .Subscribe(evt => Dispatcher.UIThread.Post(() =>
                 {
                     IsCrossfading = false;
                     CrossfadeProgressPercent = 0;
                     ActiveCrossfadePresetName = null;
+                    _ = RecordCompletedMixPlayAsync();
                 }))
                 .DisposeWith(_disposables);
 
