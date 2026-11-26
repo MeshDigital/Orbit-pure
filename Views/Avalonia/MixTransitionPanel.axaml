@@ -100,46 +100,19 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Presets: single-select chips. -->
+                <!-- Technique dropdown (#531): Auto by default, plus real DJ techniques and any existing saved templates. -->
                 <StackPanel Spacing="6">
-                    <TextBlock Classes="section" Text="PRESETS"/>
-                    <ItemsControl ItemsSource="{x:Static vm:MixTransitionViewModel.PresetNames}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <WrapPanel Orientation="Horizontal"/>
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:CompileBindings="False">
-                                <RadioButton Classes="chip" GroupName="mixPreset" Margin="0,0,4,4"
-                                             Content="{Binding}"
-                                             Command="{Binding $parent[ItemsControl].DataContext.SelectPresetCommand}"
-                                             CommandParameter="{Binding}">
-                                    <RadioButton.IsChecked>
-                                        <MultiBinding Converter="{StaticResource EqualityConverter}" Mode="OneWay">
-                                            <Binding Path="$parent[ItemsControl].DataContext.SelectedPreset"/>
-                                            <Binding/>
-                                        </MultiBinding>
-                                    </RadioButton.IsChecked>
-                                </RadioButton>
+                    <TextBlock Classes="section" Text="TECHNIQUE"/>
+                    <ComboBox Classes="small" HorizontalAlignment="Stretch"
+                              ItemsSource="{Binding TechniqueOptions}"
+                              SelectedItem="{Binding SelectedTechniqueOption}"
+                              ToolTip.Tip="Auto picks the technique and length from cues and tempo. Choose a technique to override it for this pair.">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:TechniqueOption">
+                                <TextBlock Text="{Binding Label}" IsEnabled="{Binding IsEnabled}"/>
                             </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" IsVisible="{Binding CanUseUserPresets}">
-                        <ComboBox Classes="small" Width="180" ItemsSource="{Binding UserPresets}" SelectedItem="{Binding SelectedUserPreset}"
-                                  IsEnabled="{Binding HasUserPresets}" PlaceholderText="My presets"
-                                  ToolTip.Tip="Your saved Custom blends. Save one from Custom blend settings.">
-                            <ComboBox.ItemTemplate>
-                                <DataTemplate x:DataType="tr:UserTransitionPreset">
-                                    <TextBlock Text="{Binding Name}"/>
-                                </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                        </ComboBox>
-                        <Button Classes="icon small" Click="OnDeleteUserPresetClick" IsVisible="{Binding HasSelectedUserPreset}"
-                                ToolTip.Tip="Delete this preset (the current blend stays)" AutomationProperties.Name="Delete preset">
-                            <PathIcon Data="{StaticResource icon_delete}"/>
-                        </Button>
-                    </StackPanel>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                 </StackPanel>
 
                 <!-- Bar length: segmented control. -->
@@ -205,19 +178,6 @@
                     </StackPanel>
                 </Expander>
 
-                <!-- Custom preset parameters (only for the Custom preset). -->
-                <!-- Save the Custom blend as a user preset (#204 D5) -->
-                <Grid ColumnDefinitions="*,8,Auto" Margin="0,0,0,8">
-                    <Grid.IsVisible>
-                        <MultiBinding Converter="{x:Static BoolConverters.And}">
-                            <Binding Path="CanUseUserPresets"/>
-                            <Binding Path="IsCustomMode"/>
-                        </MultiBinding>
-                    </Grid.IsVisible>
-                    <TextBox Text="{Binding NewUserPresetName}" Watermark="Preset name" AutomationProperties.Name="Preset name"/>
-                    <Button Grid.Column="2" Classes="ghost small" Content="Save as preset" Click="OnSaveUserPresetClick"
-                            ToolTip.Tip="Save this Custom blend and its length under a name; an existing name is replaced"/>
-                </Grid>
                 <Expander Header="Custom blend settings" IsVisible="{Binding IsCustomMode}" IsExpanded="True" HorizontalAlignment="Stretch">
                     <StackPanel Spacing="4" Margin="0,8,0,0">
                         <Border Classes="param-row">

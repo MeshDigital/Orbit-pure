@@ -64,16 +64,6 @@
 
                     <WrapPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="0,6,0,0">
                         <TextBlock Classes="caption" Text="{Binding ActiveTransitionPositionText}" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,0,12,0"
-                                    ToolTip.Tip="{Binding ActiveBridge.Tooltip}">
-                            <ProgressBar Classes="meter" Width="64" VerticalAlignment="Center"
-                                         Classes.success="{Binding ActiveBridge.IsGoodScore}"
-                                         Classes.warning="{Binding ActiveBridge.IsFairScore}"
-                                         Classes.error="{Binding ActiveBridge.IsPoorScore}"
-                                         Minimum="0" Maximum="100" Value="{Binding ActiveBridge.ScorePercent}"/>
-                            <TextBlock Classes="mono" Text="{Binding ActiveBridge.ScoreDisplay}"/>
-                            <TextBlock Classes="caption" Text="{Binding ActiveBridge.QualityLabel}"/>
-                        </StackPanel>
                         <TextBlock Classes="mono muted" Text="{Binding ActiveBridge.KeyRelationDisplay}" VerticalAlignment="Center" Margin="0,0,12,0"/>
                         <TextBlock Classes="caption" Text="{Binding ActiveBridge.TransitionStyleLabel}" VerticalAlignment="Center"
                                    ToolTip.Tip="{Binding ActiveBridge.TransitionStyleReason}"/>
@@ -81,29 +71,20 @@
                 </Grid>
             </Border>
 
-            <!-- ── Toolbar: blend, length, cue editing ── -->
+            <!-- ── Toolbar: technique, length, cue editing ── -->
             <Border Grid.Row="1" Classes="toolbar" Padding="16,0" DataContext="{Binding MixTransitionVm}" x:DataType="vm:MixTransitionViewModel">
                 <WrapPanel>
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,4,16,4">
-                        <TextBlock Classes="caption" Text="Type" VerticalAlignment="Center"
-                                   ToolTip.Tip="Auto, Rolling, Relaxed, Drop Sync and 1-Bar Drop Swap place both mix points from the tracks' cues (Drop Sync lands B's drop on A's drop). The others only change the blend effect."/>
-                        <ComboBox Classes="small" Width="128" ItemsSource="{Binding PresetNames}" SelectedItem="{Binding SelectedPreset}"
-                                  ToolTip.Tip="{Binding SelectedPresetDescription}"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="0,4,16,4" IsVisible="{Binding CanUseUserPresets}">
-                        <ComboBox Classes="small" Width="140" ItemsSource="{Binding UserPresets}" SelectedItem="{Binding SelectedUserPreset}"
-                                  IsEnabled="{Binding HasUserPresets}" PlaceholderText="My presets"
-                                  ToolTip.Tip="Your saved Custom blends. Save one from Custom blend settings.">
+                        <TextBlock Classes="caption" Text="Technique" VerticalAlignment="Center"
+                                   ToolTip.Tip="Auto picks the technique and length from cues and tempo. Choose a technique to override it for this pair."/>
+                        <ComboBox Classes="small" Width="180" ItemsSource="{Binding TechniqueOptions}" SelectedItem="{Binding SelectedTechniqueOption}"
+                                  ToolTip.Tip="{Binding SelectedPresetDescription}">
                             <ComboBox.ItemTemplate>
-                                <DataTemplate x:DataType="tr:UserTransitionPreset">
-                                    <TextBlock Text="{Binding Name}"/>
+                                <DataTemplate x:DataType="vm:TechniqueOption">
+                                    <TextBlock Text="{Binding Label}" IsEnabled="{Binding IsEnabled}"/>
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
-                        <Button Classes="icon small" Click="OnDeleteUserPresetClick" IsVisible="{Binding HasSelectedUserPreset}"
-                                ToolTip.Tip="Delete this preset (the current blend stays)" AutomationProperties.Name="Delete preset">
-                            <PathIcon Data="{StaticResource icon_delete}"/>
-                        </Button>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,4,16,4">
                         <TextBlock Classes="caption" Text="Length" VerticalAlignment="Center"/>
@@ -535,18 +516,6 @@
                     <TextBlock Classes="caption" Text="{Binding TransitionPointReasoning}" TextWrapping="Wrap"
                                IsVisible="{Binding TransitionPointReasoning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
 
-                    <!-- Save the Custom blend as a user preset (#204 D5) -->
-                    <Grid ColumnDefinitions="*,8,Auto" Margin="0,0,0,8">
-                        <Grid.IsVisible>
-                            <MultiBinding Converter="{x:Static BoolConverters.And}">
-                                <Binding Path="CanUseUserPresets"/>
-                                <Binding Path="IsCustomMode"/>
-                            </MultiBinding>
-                        </Grid.IsVisible>
-                        <TextBox Text="{Binding NewUserPresetName}" Watermark="Preset name" AutomationProperties.Name="Preset name"/>
-                        <Button Grid.Column="2" Classes="ghost small" Content="Save as preset" Click="OnSaveUserPresetClick"
-                                ToolTip.Tip="Save this Custom blend and its length under a name; an existing name is replaced"/>
-                    </Grid>
                     <!-- Custom blend settings (only for the Custom preset) -->
                     <Expander Header="Custom blend settings" IsVisible="{Binding IsCustomMode}" IsExpanded="True" HorizontalAlignment="Stretch">
                         <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,8,0,0">
