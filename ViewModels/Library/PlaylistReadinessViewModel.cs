@@ -199,7 +199,7 @@ public sealed class PlaylistReadinessViewModel : INotifyPropertyChanged
 
         try
         {
-            var snapshot = await ComputeSnapshotAsync(_playlistId, ct).ConfigureAwait(false);
+            var snapshot = await ComputeSnapshotAsync(_playlistId, ct);
             if (ct.IsCancellationRequested) return;
 
             void Apply()
@@ -254,15 +254,14 @@ public sealed class PlaylistReadinessViewModel : INotifyPropertyChanged
         Guid playlistId,
         CancellationToken ct)
     {
-        await using var db = await _dbFactory!.CreateDbContextAsync(ct).ConfigureAwait(false);
+        await using var db = await _dbFactory!.CreateDbContextAsync(ct);
 
         var tracks = await db.PlaylistTracks
             .AsNoTracking()
             .Where(t => t.PlaylistId == playlistId && t.Status == TrackStatus.Downloaded && !string.IsNullOrEmpty(t.TrackUniqueHash))
             .OrderBy(t => t.SortOrder)
             .Select(t => new { t.Id, t.TrackUniqueHash, t.Artist, t.Title })
-            .ToListAsync(ct)
-            .ConfigureAwait(false);
+            .ToListAsync(ct);
 
         if (tracks.Count == 0)
         {
@@ -277,14 +276,12 @@ public sealed class PlaylistReadinessViewModel : INotifyPropertyChanged
         var featuresByHash = await db.AudioFeatures
             .AsNoTracking()
             .Where(f => hashes.Contains(f.TrackUniqueHash))
-            .ToDictionaryAsync(f => f.TrackUniqueHash, StringComparer.OrdinalIgnoreCase, ct)
-            .ConfigureAwait(false);
+            .ToDictionaryAsync(f => f.TrackUniqueHash, StringComparer.OrdinalIgnoreCase, ct);
 
         var allCues = await db.CuePoints
             .AsNoTracking()
             .Where(c => hashes.Contains(c.TrackUniqueHash))
-            .ToListAsync(ct)
-            .ConfigureAwait(false);
+            .ToListAsync(ct);
 
         var cuesByHash = allCues
             .GroupBy(c => c.TrackUniqueHash, StringComparer.OrdinalIgnoreCase)
