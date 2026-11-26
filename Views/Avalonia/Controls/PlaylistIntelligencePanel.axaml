@@ -248,7 +248,7 @@
                                         </Grid>
                                         <TextBlock Classes="caption" Text="{Binding ArtistName}" TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Classes="mono" FontSize="{StaticResource TextSizeCaption}">
-                                            <Run Text="{Binding BaseScoreDisplay}"/><Run Text="  ·  "/><Run Text="{Binding CamelotDisplay}"/><Run Text="  ·  "/><Run Text="{Binding BpmDisplay}"/><Run Text=" BPM  ·  E"/><Run Text="{Binding EnergyRating}"/>
+                                            <Run Text="{Binding CamelotDisplay}"/><Run Text="  ·  "/><Run Text="{Binding BpmDisplay}"/><Run Text=" BPM  ·  E"/><Run Text="{Binding EnergyRating}"/>
                                         </TextBlock>
                                         <TextBlock Classes="caption" Text="{Binding SuggestionReason}" TextWrapping="Wrap"
                                                    IsVisible="{Binding HasSuggestionReason}"/>

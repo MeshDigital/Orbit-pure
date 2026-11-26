@@ -47,6 +47,7 @@ public partial class MixTransitionViewModel
     private void InitUserPresets(IServiceProvider services)
     {
         _userPresets = services.GetService(typeof(IUserTransitionPresetService)) as IUserTransitionPresetService;
+        InitTechniqueDropdown();
         UserPresets.CollectionChanged += (_, _) => this.RaisePropertyChanged(nameof(HasUserPresets));
         // Picking a built-in preset (or tuning away from Custom) ends "this is my preset".
         PropertyChanged += (_, e) =>
