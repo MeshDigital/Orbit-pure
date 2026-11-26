@@ -278,6 +278,7 @@ public class ConfigManager
                 LabsEnabled = bool.TryParse(config["Advanced:LabsEnabled"], out var le) && le,
                 LabsMigrationNoteShown = bool.TryParse(config["Advanced:LabsMigrationNoteShown"], out var lmns) && lmns,
                 EnableKnowledgeAgents = !bool.TryParse(config["Advanced:EnableKnowledgeAgents"], out var eka) || eka, // Default true (#205 P4.6)
+                EnableRekordboxDbWrite = bool.TryParse(config["Advanced:EnableRekordboxDbWrite"], out var erdw) && erdw, // Default false (opt-in)
             };
 
             // Apply defaults if loaded values are empty (for backward compatibility with old configs)
@@ -546,6 +547,7 @@ public class ConfigManager
         iniContent.AppendLine($"LabsEnabled = {config.LabsEnabled}");
         iniContent.AppendLine($"LabsMigrationNoteShown = {config.LabsMigrationNoteShown}");
         iniContent.AppendLine($"EnableKnowledgeAgents = {config.EnableKnowledgeAgents}");
+        iniContent.AppendLine($"EnableRekordboxDbWrite = {config.EnableRekordboxDbWrite}");
 
         lock (_saveLock)
         {

@@ -375,6 +375,11 @@
                                                                           Command="{ReflectionBinding $parent[UserControl].DataContext.CopyPlaylistTracklistCommand}"
                                                                           CommandParameter="{Binding Card.Model}"
                                                                           ToolTip.Tip="Copy numbered plain-text tracklist with BPM and key to the clipboard"/>
+                                                                <MenuItem Header="Write cues to Rekordbox library…"
+                                                                          Command="{ReflectionBinding $parent[UserControl].DataContext.WriteCuesToRekordboxCommand}"
+                                                                          CommandParameter="{Binding Card.Model}"
+                                                                          IsVisible="{ReflectionBinding $parent[UserControl].DataContext.IsRekordboxDbWriteEnabled}"
+                                                                          ToolTip.Tip="Experimental: writes this playlist's cues straight into Rekordbox's database (backed up first; Rekordbox must be closed)"/>
                                                             </MenuItem>
                                                             <MenuItem Header="Compare with playlist…"
                                                                       Command="{ReflectionBinding $parent[UserControl].DataContext.ComparePlaylistsCommand}"
@@ -792,6 +797,9 @@
                                     <MenuItem Header="Move or copy files…" Command="{Binding BulkMoveOrCopyCommand}"/>
                                     <Separator/>
                                     <MenuItem Header="Export to Rekordbox XML…" Command="{Binding BatchExportRekordboxCommand}"/>
+                                    <MenuItem Header="Write cues to Rekordbox library…" Command="{Binding BatchWriteCuesToRekordboxCommand}"
+                                              IsVisible="{Binding IsRekordboxDbWriteEnabled}"
+                                              ToolTip.Tip="Experimental: writes the selected tracks' cues straight into Rekordbox's database (backed up first; Rekordbox must be closed)"/>
                                     <MenuItem Header="Export to M3U…" Command="{Binding BatchExportM3uCommand}"
                                               ToolTip.Tip="Rekordbox, VirtualDJ, Serato, any player"/>
                                 </MenuFlyout>

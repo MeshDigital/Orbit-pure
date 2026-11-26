@@ -289,6 +289,7 @@ public partial class App
                 sp.GetRequiredService<System.Net.Http.IHttpClientFactory>().CreateClient(),
                 SLSKDONET.Services.Update.GitHubUpdateService.GetCurrentAppVersion()));
         services.AddSingleton<SLSKDONET.ViewModels.UpdateViewModel>();
+        services.AddSingleton<Services.Rekordbox.RekordboxDbWriteService>(); // opt-in cue write into master.db (backed up first)
         services.AddSingleton<Services.Rekordbox.RekordboxLibraryService>(); // reads Rekordbox's master.db via RekordboxBridge // automatic FFmpeg install (startup + setup wizard)
         services.AddSingleton<Services.Telemetry.FlowBuilderSuggestionTelemetryService>();
         // FlowBuilderView resolves this from DI at construction — without this registration the

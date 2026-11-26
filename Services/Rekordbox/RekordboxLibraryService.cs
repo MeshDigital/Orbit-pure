@@ -41,7 +41,8 @@ public sealed record RekordboxReadResult(bool Success, string Message, IReadOnly
 /// Reads the hot and memory cues from Rekordbox 6/7's own library database (master.db) — every
 /// hand-placed cue, not just the ones that happen to be in a USB export. master.db is SQLCipher-
 /// encrypted, so the reading happens in the RekordboxBridge companion process (its own SQLCipher
-/// engine; ORBIT's SQLite engine is untouched). Read-only: nothing in Rekordbox changes.
+/// engine; ORBIT's SQLite engine is untouched). Read-only: nothing in Rekordbox changes. The opt-in
+/// cue write lives in <see cref="RekordboxDbWriteService"/> and goes through <see cref="RunBridgeExclusiveAsync"/>.
 ///
 /// Cue encoding, verified against a real Rekordbox 7.2.14 library (589 cues on 156 tracks):
 /// Kind 0 = memory cue; hot cues A–H = Kind 1, 2, 3, 5, 6, 7, 8, 9 (4 is never used — every track
@@ -64,6 +65,9 @@ public sealed class RekordboxLibraryService
 
     /// <summary>Tests point this at a fixture; otherwise Rekordbox's configured database.</summary>
     internal string? DatabasePathOverride { get; set; }
+
+    /// <summary>Tests only: the fixture is a plain (unencrypted) SQLite file.</summary>
+    internal bool PlainDatabaseForTests { get; set; }
 
     public static int SlotForKind(int kind) => kind switch
     {
@@ -90,7 +94,7 @@ public sealed class RekordboxLibraryService
             var stamp = LastWrite(db);
             if (_cache is { } c && c.Stamp == stamp) return c.Result;
 
-            var (exit, stdout, stderr) = await RunBridgeAsync("cues", db, ct).ConfigureAwait(false);
+            var (exit, stdout, stderr) = await RunBridgeAsync(new[] { "cues", "--db", db }, ct).ConfigureAwait(false);
             RekordboxReadResult result = exit switch
             {
                 0 => Parse(stdout),
@@ -119,7 +123,7 @@ public sealed class RekordboxLibraryService
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var (exit, stdout, stderr) = await RunBridgeAsync("history", db, ct).ConfigureAwait(false);
+            var (exit, stdout, stderr) = await RunBridgeAsync(new[] { "history", "--db", db }, ct).ConfigureAwait(false);
             var result = exit switch
             {
                 0 => ParseHistory(stdout),
@@ -190,7 +194,25 @@ public sealed class RekordboxLibraryService
         return new RekordboxReadResult(true, $"{tracks.Count} tracks with cues", tracks);
     }
 
-    private async Task<(int Exit, string Stdout, string Stderr)> RunBridgeAsync(string command, string db, CancellationToken ct)
+    /// <summary>
+    /// Runs the bridge with <paramref name="args"/> while holding the same lock as every read, so a
+    /// write never overlaps a read, and drops the cue cache afterwards (the database may have changed).
+    /// </summary>
+    internal async Task<(int Exit, string Stdout, string Stderr)> RunBridgeExclusiveAsync(IReadOnlyList<string> args, CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await RunBridgeAsync(args, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _cache = null;
+            _gate.Release();
+        }
+    }
+
+    private async Task<(int Exit, string Stdout, string Stderr)> RunBridgeAsync(IReadOnlyList<string> args, CancellationToken ct)
     {
         var psi = new ProcessStartInfo(BridgePath)
         {
@@ -199,9 +221,8 @@ public sealed class RekordboxLibraryService
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        psi.ArgumentList.Add(command);
-        psi.ArgumentList.Add("--db");
-        psi.ArgumentList.Add(db);
+        foreach (var arg in args) psi.ArgumentList.Add(arg);
+        if (PlainDatabaseForTests) psi.ArgumentList.Add("--plain");
 
         using var process = Process.Start(psi) ?? throw new InvalidOperationException("Couldn't start the Rekordbox reader.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
