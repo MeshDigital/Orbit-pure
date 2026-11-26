@@ -53,6 +53,7 @@ public partial class LibraryViewModel
     public ICommand RefreshLibraryCommand { get; set; } = null!;
     public ICommand DeleteProjectCommand { get; set; } = null!;
     public ICommand PlayAlbumCommand { get; set; } = null!;
+    public ICommand MixPlaylistCommand { get; set; } = null!;
     public ICommand DownloadAlbumCommand { get; set; } = null!;
     public ICommand DownloadMissingCommand { get; set; } = null!;
     public ICommand ForceRedownloadCommand { get; set; } = null!;
@@ -145,6 +146,7 @@ public partial class LibraryViewModel
         RefreshLibraryCommand = new AsyncRelayCommand(ExecuteRefreshLibraryAsync);
         DeleteProjectCommand = new AsyncRelayCommand<object>(ExecuteDeleteProjectAsync);
         PlayAlbumCommand = new AsyncRelayCommand<object>(ExecutePlayAlbumAsync);
+        MixPlaylistCommand = new AsyncRelayCommand<object>(ExecuteMixPlaylistAsync);
         DownloadAlbumCommand = new AsyncRelayCommand<object>(ExecuteDownloadAlbumAsync);
         DownloadMissingCommand = new AsyncRelayCommand<object>(ExecuteDownloadMissingAsync);
         ForceRedownloadCommand = new AsyncRelayCommand<object>(ExecuteForceRedownloadAsync);
@@ -468,7 +470,13 @@ public partial class LibraryViewModel
         }
     }
 
-    private async Task ExecutePlayAlbumAsync(object? param)
+    private Task ExecutePlayAlbumAsync(object? param) =>
+        ExecutePlayPlaylistCoreAsync(param, mixModeEnabled: false);
+
+    private Task ExecuteMixPlaylistAsync(object? param) =>
+        ExecutePlayPlaylistCoreAsync(param, mixModeEnabled: true);
+
+    private async Task ExecutePlayPlaylistCoreAsync(object? param, bool mixModeEnabled)
     {
         if (param is PlaylistJob project)
         {
@@ -485,20 +493,16 @@ public partial class LibraryViewModel
                 return;
             }
 
-            // This used to stop at showing a "Playing Album" toast without ever actually queuing
-            // or starting playback — the playlist row's own Play button was a no-op. Publishing
-            // the same event AlbumNode.PlayAlbum() uses is what PlayerViewModel actually listens
-            // for to clear the queue, load every track, and start the first one.
             // Start from the selected track when one is selected in this same playlist — the rest
-            // of the playlist is still queued (and mixed, with Mix on) from there onward.
+            // of the playlist is still queued (and mixed, when Mix is pressed) from there onward.
             var selected = Tracks.LeadSelectedTrack?.Model;
             var startTrack = selected != null && selected.PlaylistId == project.Id
                 ? playable.FirstOrDefault(t => t.Id == selected.Id)
                 : null;
 
-            _eventBus.Publish(new PlayAlbumRequestEvent(playable, Tracks.IsMixModeEnabled, startTrack?.Id));
+            _eventBus.Publish(new PlayAlbumRequestEvent(playable, mixModeEnabled, startTrack?.Id));
             _notificationService.Show(
-                "Playing Album",
+                mixModeEnabled ? "Mixing Playlist" : "Playing Playlist",
                 startTrack != null ? $"{project.SourceTitle} — from \"{startTrack.Title}\"" : project.SourceTitle,
                 NotificationType.Information);
         }

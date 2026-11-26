@@ -754,17 +754,15 @@ namespace SLSKDONET.ViewModels
         /// </summary>
         private async Task UpdateQueueTransitionBadgesAsync()
         {
-            if (_transitionRepository == null || Queue.Count == 0) return;
+            if ((_transitionRepository == null && _transitionResolver == null) || Queue.Count == 0)
+            {
+                CurrentTransitionLabel = string.Empty;
+                IsCurrentTransitionFromEarlierMix = false;
+                return;
+            }
 
-            // No ConfigureAwait(false)/Dispatcher.Post marshaling — matching
-            // TrackListViewModel.UpdateMixTransitionBadgesAsync's own established pattern for the
-            // exact same kind of "await a DB lookup, then set view-model properties" method: the
-            // continuation resumes via the ambient SynchronizationContext (the UI thread, since
-            // this is always invoked from a UI-thread-originated call), so no manual marshaling
-            // is needed — and unlike Dispatcher.UIThread.Post, that continuation is exactly what
-            // this class' own reflection-based unit tests can already await deterministically.
             var playlistId = Queue[0].Model?.PlaylistId ?? Guid.Empty;
-            var saved = playlistId != Guid.Empty
+            var saved = _transitionResolver == null && _transitionRepository != null && playlistId != Guid.Empty
                 ? (await _transitionRepository.GetTransitionsForPlaylistAsync(playlistId))
                     .ToDictionary(t => (t.OutgoingPlaylistTrackId, t.IncomingPlaylistTrackId))
                 : new Dictionary<(Guid, Guid), Models.Timeline.PlaylistTrackTransition>();
@@ -776,6 +774,8 @@ namespace SLSKDONET.ViewModels
                 {
                     current.ShowMixTransitionBadge = false;
                     current.NextPlaylistTrackId = null;
+                    current.IsTransitionFromEarlierMix = false;
+                    current.TransitionEarlierMixSourceName = null;
                     continue;
                 }
 
@@ -786,10 +786,107 @@ namespace SLSKDONET.ViewModels
                 var score = Services.Playlist.TrackPairCompatibilityScorer.Score(
                     current.CamelotDisplay, next.CamelotDisplay, current.Energy, next.Energy);
                 current.TransitionBadgeColor = Services.Playlist.TrackPairCompatibilityScorer.CompatibilityColor(score.CombinedScore);
-                current.TransitionPresetLabel = saved.TryGetValue((current.Id, next.Id), out var savedTransition)
-                    ? savedTransition.PresetName
-                    : "Auto";
+
+                if (_transitionResolver != null)
+                {
+                    var resolved = await _transitionResolver.ResolveAsync(
+                        Data.Entities.TransitionScopeKind.Playlist,
+                        current.Model?.PlaylistId ?? playlistId,
+                        current.Id,
+                        next.Id,
+                        current.Model?.TrackUniqueHash,
+                        next.Model?.TrackUniqueHash,
+                        score.CombinedScore,
+                        storeOverride: _transitionRepository);
+
+                    var label = Services.Transitions.TransitionLabelFormatter.Format(
+                        resolved,
+                        current.Model?.BPM,
+                        next.Model?.BPM);
+
+                    current.TransitionPresetLabel = label.Text;
+                    current.IsTransitionFromEarlierMix = label.IsFromEarlierMix;
+                    current.TransitionEarlierMixSourceName = label.EarlierMixSourceName;
+                }
+                else if (saved.TryGetValue((current.Id, next.Id), out var savedTransition))
+                {
+                    var resolved = new Services.Transitions.ResolvedTransition(
+                        Services.Transitions.ResolvedTransitionSource.Container,
+                        Data.Entities.TransitionEntity.MapLegacyTechnique(savedTransition.PresetName, savedTransition.Type.ToString()),
+                        savedTransition,
+                        null,
+                        false,
+                        null,
+                        null,
+                        null);
+                    var label = Services.Transitions.TransitionLabelFormatter.Format(resolved, current.Model?.BPM, next.Model?.BPM);
+                    current.TransitionPresetLabel = label.Text;
+                    current.IsTransitionFromEarlierMix = false;
+                    current.TransitionEarlierMixSourceName = null;
+                }
+                else
+                {
+                    var resolved = new Services.Transitions.ResolvedTransition(
+                        Services.Transitions.ResolvedTransitionSource.Auto,
+                        "Auto",
+                        null,
+                        null,
+                        false,
+                        null,
+                        null,
+                        null);
+                    var label = Services.Transitions.TransitionLabelFormatter.Format(resolved, current.Model?.BPM, next.Model?.BPM);
+                    current.TransitionPresetLabel = label.Text;
+                    current.IsTransitionFromEarlierMix = false;
+                    current.TransitionEarlierMixSourceName = null;
+                }
             }
+
+            SyncCurrentTransitionLabel();
+        }
+
+        private void SyncCurrentTransitionLabel()
+        {
+            if (CurrentTrack is { ShowMixTransitionBadge: true } active)
+            {
+                CurrentTransitionLabel = active.TransitionPresetLabel;
+                IsCurrentTransitionFromEarlierMix = active.IsTransitionFromEarlierMix;
+            }
+            else
+            {
+                CurrentTransitionLabel = string.Empty;
+                IsCurrentTransitionFromEarlierMix = false;
+            }
+        }
+
+        /// <summary>
+        /// One-click "Use Auto instead" on a "From your earlier mix" pair (Epic #517 / #530):
+        /// saves a container-scoped Auto override (<c>UseAsPairDefault = false</c>) so this
+        /// playlist uses Auto without deleting or altering the earlier mix's shared row.
+        /// </summary>
+        private async Task UseAutoForPairAsync(PlaylistTrackViewModel? outgoing)
+        {
+            if (_transitionRepository == null || outgoing == null) return;
+
+            int idx = Queue.IndexOf(outgoing);
+            if (idx < 0 || idx + 1 >= Queue.Count) return;
+
+            var incoming = Queue[idx + 1];
+            var playlistId = outgoing.Model?.PlaylistId ?? Guid.Empty;
+            if (playlistId == Guid.Empty) return;
+
+            var autoOverride = new Models.Timeline.PlaylistTrackTransition
+            {
+                PlaylistId = playlistId,
+                OutgoingPlaylistTrackId = outgoing.Id,
+                IncomingPlaylistTrackId = incoming.Id,
+                PresetName = "Auto",
+                Type = Models.Timeline.TransitionType.Crossfade,
+                UseAsPairDefault = false,
+            };
+
+            await _transitionRepository.UpsertTransitionAsync(autoOverride);
+            await UpdateQueueTransitionBadgesAsync();
         }
 
         /// <summary>

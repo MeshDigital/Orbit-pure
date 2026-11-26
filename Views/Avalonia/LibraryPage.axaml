@@ -538,8 +538,15 @@
                                       ToolTip.Tip="Shuffle">
                             <PathIcon Data="{StaticResource icon_shuffle}" Width="14" Height="14"/>
                         </ToggleButton>
+                        <Button Classes="secondary" Command="{Binding MixPlaylistCommand}" CommandParameter="{Binding SelectedProject}"
+                                ToolTip.Tip="Mix this playlist with automatic cue- and phrase-aware transitions">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource icon_mix}" Width="14" Height="14"/>
+                                <TextBlock Classes="action-label" Text="Mix"/>
+                            </StackPanel>
+                        </Button>
                         <Button Classes="primary" Command="{Binding PlayAlbumCommand}" CommandParameter="{Binding SelectedProject}"
-                                ToolTip.Tip="Play this playlist">
+                                ToolTip.Tip="Play this playlist gapless">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <PathIcon Data="{StaticResource icon_play}" Width="14" Height="14"/>
                                 <TextBlock Classes="action-label" Text="Play"/>

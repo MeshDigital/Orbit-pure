@@ -91,7 +91,7 @@ public class PlayerViewModelMixVisibilityTests
 
         Assert.True(t1.ShowMixTransitionBadge);
         Assert.Equal(t2.Id, t1.NextPlaylistTrackId);
-        Assert.Equal("Auto", t1.TransitionPresetLabel);
+        Assert.Equal("Auto · phrase-aligned", t1.TransitionPresetLabel);
 
         Assert.True(t2.ShowMixTransitionBadge);
         Assert.Equal(t3.Id, t2.NextPlaylistTrackId);
@@ -118,7 +118,7 @@ public class PlayerViewModelMixVisibilityTests
 
         await InvokeUpdateQueueTransitionBadgesAsync(sut);
 
-        Assert.Equal("Wave", t1.TransitionPresetLabel);
+        Assert.Equal("Yours · wave", t1.TransitionPresetLabel);
     }
 
     [Fact]
