@@ -2979,6 +2979,24 @@ public partial class SchemaMigratorService
                 }
             }
 
+            // Patch #42 (Epic #517 / FO3f #534): passive TransitionPlays log table.
+            if (!TableExists("TransitionPlays"))
+            {
+                _logger.LogInformation("Patching Schema: Creating TransitionPlays table...");
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS ""TransitionPlays"" (
+                        ""Id"" TEXT NOT NULL PRIMARY KEY,
+                        ""OutgoingTrackHash"" TEXT NOT NULL,
+                        ""IncomingTrackHash"" TEXT NOT NULL,
+                        ""Technique"" TEXT NOT NULL DEFAULT 'Auto',
+                        ""WasSkipped"" INTEGER NOT NULL DEFAULT 0,
+                        ""PlayedAtUtc"" TEXT NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_TransitionPlays_PairTime""
+                        ON ""TransitionPlays"" (""OutgoingTrackHash"", ""IncomingTrackHash"", ""PlayedAtUtc"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

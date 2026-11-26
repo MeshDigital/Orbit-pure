@@ -66,6 +66,7 @@ public class AppDbContext : DbContext
     public DbSet<Entities.SetSlotAlternateEntity> SetSlotAlternates { get; set; } // Sets page: "Plan B" tracks per slot
     public DbSet<Entities.SetTrackTransitionEntity> SetTrackTransitions { get; set; } // Sets page: saved slot→slot transitions
     public DbSet<Entities.TransitionEntity> Transitions { get; set; } // Epic #517 / FO1a: unified transition store
+    public DbSet<Entities.TransitionPlayEntity> TransitionPlays { get; set; } // Epic #517 / FO3f (#534): passive play log
     public DbSet<Entities.MixRecipeEntity> MixRecipes { get; set; } // Phase 1: reusable branching patterns
     public DbSet<Entities.EventProfileEntity> EventProfiles { get; set; } // Phase 1: event context for a set
     public DbSet<Entities.TrackCrowdProfileEntity> TrackCrowdProfiles { get; set; } // Phase 1: persisted CrowdProfileVector
@@ -425,6 +426,13 @@ public class AppDbContext : DbContext
                 .HasDatabaseName("IX_Transitions_TrackPair");
             e.HasIndex(t => t.ScopeId)
                 .HasDatabaseName("IX_Transitions_ScopeId");
+        });
+
+        // Epic #517 / FO3f (#534): passive log of mixed pairs (separate from Transitions).
+        modelBuilder.Entity<Entities.TransitionPlayEntity>(e =>
+        {
+            e.HasIndex(p => new { p.OutgoingTrackHash, p.IncomingTrackHash, p.PlayedAtUtc })
+                .HasDatabaseName("IX_TransitionPlays_PairTime");
         });
 
         modelBuilder.Entity<Entities.EventProfileEntity>()

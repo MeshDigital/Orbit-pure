@@ -817,6 +817,7 @@ public partial class App
         services.AddSingleton<Services.KnowledgeLifecycle.RekordboxHistoryImportService>(); // Rekordbox play history → live evidence (#207)
         services.AddSingleton<Services.Sets.ITransitionHistoryService, Services.Sets.TransitionHistoryService>();
         services.AddSingleton<Services.Transitions.ITransitionResolver, Services.Transitions.TransitionResolver>();
+        services.AddSingleton<Services.Transitions.ITransitionPlayLogService, Services.Transitions.TransitionPlayLogService>();
         services.AddSingleton<Services.KnowledgeLifecycle.ITransitionRatingService, Services.KnowledgeLifecycle.TransitionRatingService>();
     }
 }
