@@ -2770,6 +2770,215 @@ public partial class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // 41. Epic #517 / FO1a (#518): unified Transitions table, backfilled from
+            // PlaylistTrackTransitions and SetTrackTransitions inside the atomic patch transaction.
+            var createdTransitionsTable = !TableExists("Transitions");
+            if (createdTransitionsTable)
+            {
+                _logger.LogInformation("Patching Schema: Creating unified Transitions table (FO1a #518)...");
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS ""Transitions"" (
+                        ""Id""                   TEXT NOT NULL PRIMARY KEY,
+                        ""ScopeKind""            INTEGER NOT NULL DEFAULT 0,
+                        ""ScopeId""              TEXT NOT NULL,
+                        ""OutgoingItemId""       TEXT NOT NULL,
+                        ""IncomingItemId""       TEXT NOT NULL,
+                        ""OutgoingTrackHash""    TEXT NULL,
+                        ""IncomingTrackHash""    TEXT NULL,
+                        ""UseAsPairDefault""     INTEGER NOT NULL DEFAULT 1,
+                        ""Technique""            TEXT NOT NULL DEFAULT 'Auto',
+                        ""DurationBars""         INTEGER NOT NULL DEFAULT 16,
+                        ""SourceTriggerSeconds"" REAL NULL,
+                        ""TargetTriggerSeconds"" REAL NULL,
+                        ""EchoDecayFactor""      REAL NULL,
+                        ""FilterStartFrequency"" REAL NULL,
+                        ""FilterEndFrequency""   REAL NULL,
+                        ""EqLowGain""            REAL NULL,
+                        ""EqMidGain""            REAL NULL,
+                        ""EqHighGain""           REAL NULL,
+                        ""WaveDuckDepth""        REAL NULL,
+                        ""FilterSweepRising""    INTEGER NULL,
+                        ""EqSwapLow""            INTEGER NULL,
+                        ""EqSwapMid""            INTEGER NULL,
+                        ""EqSwapHigh""           INTEGER NULL,
+                        ""EqLowCrossoverHz""     REAL NULL,
+                        ""EqHighCrossoverHz""    REAL NULL,
+                        ""LoopBars""             INTEGER NULL,
+                        ""LoopRepeats""          INTEGER NULL,
+                        ""Origin""               INTEGER NOT NULL DEFAULT 0,
+                        ""UpdatedAtUtc""         TEXT NOT NULL
+                    );
+                    CREATE UNIQUE INDEX IF NOT EXISTS ""IX_Transitions_ScopePair""
+                        ON ""Transitions"" (""ScopeKind"", ""ScopeId"", ""OutgoingItemId"", ""IncomingItemId"");
+                    CREATE INDEX IF NOT EXISTS ""IX_Transitions_TrackPair""
+                        ON ""Transitions"" (""OutgoingTrackHash"", ""IncomingTrackHash"", ""UpdatedAtUtc"");
+                    CREATE INDEX IF NOT EXISTS ""IX_Transitions_ScopeId""
+                        ON ""Transitions"" (""ScopeId"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Backfill legacy tables whenever Transitions was just created OR is still empty (handles
+            // installs where SchemaReconciler created an empty table before the patch ran).
+            // Uses INSERT OR IGNORE so a second run is always an idempotent no-op.
+            if (TableExists("Transitions"))
+            {
+                const string techniqueCaseSql = @"
+                    CASE
+                        WHEN LOWER(TRIM(COALESCE(src.""PresetName"", ''))) = 'auto' THEN 'Auto'
+                        WHEN LOWER(TRIM(COALESCE(src.""PresetName"", ''))) = 'fade' THEN 'Crossfade'
+                        WHEN LOWER(TRIM(COALESCE(src.""PresetName"", ''))) = 'rise' THEN 'FilterSweep'
+                        WHEN LOWER(TRIM(COALESCE(src.""PresetName"", ''))) = 'blend' THEN 'EqSwap'
+                        WHEN LOWER(TRIM(COALESCE(src.""PresetName"", ''))) = 'wave' THEN 'WaveDuck'
+                        WHEN LOWER(TRIM(COALESCE(src.""PresetName"", ''))) = 'melt' THEN 'EchoOut'
+                        WHEN LOWER(TRIM(COALESCE(src.""PresetName"", ''))) = 'doubledrop'
+                             OR LOWER(TRIM(COALESCE(src.""TransitionType"", ''))) IN ('doubledrop', 'loop') THEN 'Loop'
+                        WHEN LOWER(TRIM(COALESCE(src.""TransitionType"", ''))) = 'cut' THEN 'Cut'
+                        WHEN LOWER(TRIM(COALESCE(src.""TransitionType"", ''))) = 'echoout' THEN 'EchoOut'
+                        WHEN LOWER(TRIM(COALESCE(src.""TransitionType"", ''))) = 'filtersweep' THEN 'FilterSweep'
+                        WHEN LOWER(TRIM(COALESCE(src.""TransitionType"", ''))) = 'eqswap' THEN 'EqSwap'
+                        WHEN LOWER(TRIM(COALESCE(src.""TransitionType"", ''))) = 'waveduck' THEN 'WaveDuck'
+                        WHEN LOWER(TRIM(COALESCE(src.""TransitionType"", ''))) = 'crossfade' THEN 'Crossfade'
+                        WHEN TRIM(COALESCE(src.""PresetName"", '')) <> '' THEN TRIM(src.""PresetName"")
+                        ELSE 'Auto'
+                    END";
+
+                if (TableExists("PlaylistTrackTransitions") && TableExists("PlaylistTracks"))
+                {
+                    command.CommandText = @"
+                        SELECT COUNT(*) FROM ""PlaylistTrackTransitions"" src
+                        LEFT JOIN ""PlaylistTracks"" outPt ON outPt.""Id"" = src.""OutgoingPlaylistTrackId""
+                        LEFT JOIN ""PlaylistTracks"" inPt  ON inPt.""Id""  = src.""IncomingPlaylistTrackId""
+                        WHERE outPt.""Id"" IS NULL OR inPt.""Id"" IS NULL;";
+                    var orphanedPlaylistCount = Convert.ToInt64(await command.ExecuteScalarAsync() ?? 0L);
+
+                    command.CommandText = $@"
+                        INSERT OR IGNORE INTO ""Transitions"" (
+                            ""Id"", ""ScopeKind"", ""ScopeId"", ""OutgoingItemId"", ""IncomingItemId"",
+                            ""OutgoingTrackHash"", ""IncomingTrackHash"", ""UseAsPairDefault"",
+                            ""Technique"", ""DurationBars"", ""SourceTriggerSeconds"", ""TargetTriggerSeconds"",
+                            ""EchoDecayFactor"", ""FilterStartFrequency"", ""FilterEndFrequency"",
+                            ""EqLowGain"", ""EqMidGain"", ""EqHighGain"",
+                            ""WaveDuckDepth"", ""FilterSweepRising"",
+                            ""EqSwapLow"", ""EqSwapMid"", ""EqSwapHigh"",
+                            ""EqLowCrossoverHz"", ""EqHighCrossoverHz"",
+                            ""LoopBars"", ""LoopRepeats"", ""Origin"", ""UpdatedAtUtc""
+                        )
+                        SELECT
+                            src.""Id"",
+                            0,
+                            src.""PlaylistId"",
+                            src.""OutgoingPlaylistTrackId"",
+                            src.""IncomingPlaylistTrackId"",
+                            NULLIF(TRIM(outPt.""TrackUniqueHash""), ''),
+                            NULLIF(TRIM(inPt.""TrackUniqueHash""), ''),
+                            CASE
+                                WHEN NULLIF(TRIM(outPt.""TrackUniqueHash""), '') IS NOT NULL
+                                 AND NULLIF(TRIM(inPt.""TrackUniqueHash""), '') IS NOT NULL THEN 1
+                                ELSE 0
+                            END,
+                            {techniqueCaseSql},
+                            src.""DurationBars"",
+                            src.""SourceTriggerSeconds"",
+                            src.""TargetTriggerSeconds"",
+                            src.""EchoDecayFactor"",
+                            src.""FilterStartFrequency"",
+                            src.""FilterEndFrequency"",
+                            src.""EqLowGain"",
+                            src.""EqMidGain"",
+                            src.""EqHighGain"",
+                            src.""WaveDuckDepth"",
+                            src.""FilterSweepRising"",
+                            src.""EqSwapLow"",
+                            src.""EqSwapMid"",
+                            src.""EqSwapHigh"",
+                            src.""EqLowCrossoverHz"",
+                            src.""EqHighCrossoverHz"",
+                            src.""LoopBars"",
+                            src.""LoopRepeats"",
+                            CASE WHEN LOWER(TRIM(COALESCE(src.""PresetName"", ''))) = 'auto' THEN 1 ELSE 0 END,
+                            src.""UpdatedAtUtc""
+                        FROM ""PlaylistTrackTransitions"" src
+                        LEFT JOIN ""PlaylistTracks"" outPt ON outPt.""Id"" = src.""OutgoingPlaylistTrackId""
+                        LEFT JOIN ""PlaylistTracks"" inPt  ON inPt.""Id""  = src.""IncomingPlaylistTrackId""
+                        WHERE outPt.""Id"" IS NOT NULL AND inPt.""Id"" IS NOT NULL;";
+                    var copiedPlaylist = await command.ExecuteNonQueryAsync();
+                    if (copiedPlaylist > 0 || orphanedPlaylistCount > 0)
+                    {
+                        _logger.LogInformation(
+                            "FO1a backfill (PlaylistTrackTransitions -> Transitions): copied {Copied} row(s), skipped {Orphans} orphaned row(s).",
+                            copiedPlaylist, orphanedPlaylistCount);
+                    }
+                }
+
+                if (TableExists("SetTrackTransitions") && TableExists("SetTracks"))
+                {
+                    command.CommandText = @"
+                        SELECT COUNT(*) FROM ""SetTrackTransitions"" src
+                        LEFT JOIN ""SetTracks"" outSt ON outSt.""Id"" = src.""OutgoingSlotId""
+                        LEFT JOIN ""SetTracks"" inSt  ON inSt.""Id""  = src.""IncomingSlotId""
+                        WHERE outSt.""Id"" IS NULL OR inSt.""Id"" IS NULL;";
+                    var orphanedSetCount = Convert.ToInt64(await command.ExecuteScalarAsync() ?? 0L);
+
+                    command.CommandText = $@"
+                        INSERT OR IGNORE INTO ""Transitions"" (
+                            ""Id"", ""ScopeKind"", ""ScopeId"", ""OutgoingItemId"", ""IncomingItemId"",
+                            ""OutgoingTrackHash"", ""IncomingTrackHash"", ""UseAsPairDefault"",
+                            ""Technique"", ""DurationBars"", ""SourceTriggerSeconds"", ""TargetTriggerSeconds"",
+                            ""EchoDecayFactor"", ""FilterStartFrequency"", ""FilterEndFrequency"",
+                            ""EqLowGain"", ""EqMidGain"", ""EqHighGain"",
+                            ""WaveDuckDepth"", ""FilterSweepRising"",
+                            ""EqSwapLow"", ""EqSwapMid"", ""EqSwapHigh"",
+                            ""EqLowCrossoverHz"", ""EqHighCrossoverHz"",
+                            ""LoopBars"", ""LoopRepeats"", ""Origin"", ""UpdatedAtUtc""
+                        )
+                        SELECT
+                            src.""Id"",
+                            1,
+                            src.""SetId"",
+                            src.""OutgoingSlotId"",
+                            src.""IncomingSlotId"",
+                            NULLIF(TRIM(outSt.""TrackUniqueHash""), ''),
+                            NULLIF(TRIM(inSt.""TrackUniqueHash""), ''),
+                            CASE
+                                WHEN NULLIF(TRIM(outSt.""TrackUniqueHash""), '') IS NOT NULL
+                                 AND NULLIF(TRIM(inSt.""TrackUniqueHash""), '') IS NOT NULL THEN 1
+                                ELSE 0
+                            END,
+                            {techniqueCaseSql},
+                            src.""DurationBars"",
+                            src.""SourceTriggerSeconds"",
+                            src.""TargetTriggerSeconds"",
+                            src.""EchoDecayFactor"",
+                            src.""FilterStartFrequency"",
+                            src.""FilterEndFrequency"",
+                            NULL,
+                            NULL,
+                            NULL,
+                            src.""WaveDuckDepth"",
+                            src.""FilterSweepRising"",
+                            src.""EqSwapLow"",
+                            src.""EqSwapMid"",
+                            src.""EqSwapHigh"",
+                            src.""EqLowCrossoverHz"",
+                            src.""EqHighCrossoverHz"",
+                            src.""LoopBars"",
+                            src.""LoopRepeats"",
+                            CASE WHEN LOWER(TRIM(COALESCE(src.""PresetName"", ''))) = 'auto' THEN 1 ELSE 0 END,
+                            src.""UpdatedAtUtc""
+                        FROM ""SetTrackTransitions"" src
+                        LEFT JOIN ""SetTracks"" outSt ON outSt.""Id"" = src.""OutgoingSlotId""
+                        LEFT JOIN ""SetTracks"" inSt  ON inSt.""Id""  = src.""IncomingSlotId""
+                        WHERE outSt.""Id"" IS NOT NULL AND inSt.""Id"" IS NOT NULL;";
+                    var copiedSet = await command.ExecuteNonQueryAsync();
+                    if (copiedSet > 0 || orphanedSetCount > 0)
+                    {
+                        _logger.LogInformation(
+                            "FO1a backfill (SetTrackTransitions -> Transitions): copied {Copied} row(s), skipped {Orphans} orphaned row(s).",
+                            copiedSet, orphanedSetCount);
+                    }
+                }
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)
