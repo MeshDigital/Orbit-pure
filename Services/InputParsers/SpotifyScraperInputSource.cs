@@ -374,7 +374,7 @@ public class SpotifyScraperInputSource
     /// <summary>
     /// Extracts tracks from __NEXT_DATA__ script content.
     /// </summary>
-    private List<SearchQuery> ExtractTracksFromHtml(string html, string sourceUrl)
+    internal List<SearchQuery> ExtractTracksFromHtml(string html, string sourceUrl)
     {
         try
         {
@@ -388,20 +388,170 @@ public class SpotifyScraperInputSource
             var playlistTitle = ExtractPlaylistTitle(root) ?? "Spotify Playlist";
             var tracks = new List<SearchQuery>();
 
-            // Prefer targeted extraction from entities/track lists; fall back to full recursion.
-            if (!TryExtractTracksFromEntities(root, playlistTitle, tracks))
+            // Strategy 2a (2026 embed shape): props.pageProps.state.data.entity.trackList[]
+            if (TryExtractTracksFromStateEntityTrackList(root, playlistTitle, tracks))
             {
-                ExtractTracksRecursive(root, tracks, playlistTitle);
+                _logger.LogDebug("Spotify scrape: matched __NEXT_DATA__ shape state.data.entity.trackList ({TrackCount} tracks)", tracks.Count);
+                if (tracks.Count >= 100)
+                {
+                    _logger.LogInformation("Spotify embed page returned {TrackCount} tracks (Spotify public embed pages cap at 100 tracks; additional tracks require Spotify API access)", tracks.Count);
+                }
+                return tracks;
             }
 
+            // Strategy 2b (legacy shape): props.pageProps.initialState.entities
+            if (TryExtractTracksFromEntities(root, playlistTitle, tracks))
+            {
+                _logger.LogDebug("Spotify scrape: matched __NEXT_DATA__ shape initialState.entities ({TrackCount} tracks)", tracks.Count);
+                return tracks;
+            }
+
+            // Strategy 2c: generic recursive fallback
+            ExtractTracksRecursive(root, tracks, playlistTitle);
             if (tracks.Count > 0)
-                _logger.LogDebug("Extracted {TrackCount} tracks from __NEXT_DATA__", tracks.Count);
+            {
+                _logger.LogDebug("Spotify scrape: matched __NEXT_DATA__ recursive fallback ({TrackCount} tracks)", tracks.Count);
+                return tracks;
+            }
+
+            LogUnmatchedNextDataShape(root);
             return tracks;
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "HTML extraction from __NEXT_DATA__ failed, returning empty list");
             return new List<SearchQuery>();
+        }
+    }
+
+    /// <summary>
+    /// Extracts tracks from Spotify's current embed __NEXT_DATA__ shape:
+    /// props.pageProps.state.data.entity.trackList[] with { uri, title, subtitle, duration }.
+    /// </summary>
+    private bool TryExtractTracksFromStateEntityTrackList(JsonElement root, string fallbackTitle, List<SearchQuery> tracks)
+    {
+        try
+        {
+            if (!root.TryGetProperty("props", out var props) ||
+                !props.TryGetProperty("pageProps", out var pageProps) ||
+                !pageProps.TryGetProperty("state", out var state) ||
+                !state.TryGetProperty("data", out var data) ||
+                !data.TryGetProperty("entity", out var entity) ||
+                entity.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            var playlistTitle = entity.TryGetProperty("name", out var nameElem) && nameElem.ValueKind == JsonValueKind.String
+                ? (nameElem.GetString() ?? fallbackTitle)
+                : fallbackTitle;
+
+            if (!entity.TryGetProperty("trackList", out var trackList) || trackList.ValueKind != JsonValueKind.Array)
+                return false;
+
+            foreach (var item in trackList.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                var title = item.TryGetProperty("title", out var titleElem) && titleElem.ValueKind == JsonValueKind.String
+                    ? titleElem.GetString()?.Trim()
+                    : null;
+                if (string.IsNullOrEmpty(title))
+                    continue;
+
+                var rawSubtitle = item.TryGetProperty("subtitle", out var subElem) && subElem.ValueKind == JsonValueKind.String
+                    ? subElem.GetString()
+                    : null;
+                var primaryArtist = ExtractPrimaryArtistFromSubtitle(rawSubtitle);
+
+                string? uri = item.TryGetProperty("uri", out var uriElem) && uriElem.ValueKind == JsonValueKind.String
+                    ? uriElem.GetString()
+                    : null;
+                string? trackId = ExtractTrackIdFromUri(uri);
+
+                int? durationMs = null;
+                if (item.TryGetProperty("duration", out var durElem) && durElem.ValueKind == JsonValueKind.Number && durElem.TryGetInt32(out var ms) && ms > 0)
+                {
+                    durationMs = ms;
+                }
+
+                tracks.Add(new SearchQuery
+                {
+                    Artist = primaryArtist,
+                    OriginalArtist = rawSubtitle,
+                    Title = title,
+                    Album = "Unknown",
+                    SourceTitle = playlistTitle,
+                    SpotifyUri = uri,
+                    SpotifyTrackId = trackId,
+                    CanonicalDuration = durationMs,
+                    Length = durationMs.HasValue ? durationMs.Value / 1000 : null,
+                    TrackHash = SLSKDONET.Utils.TrackHashUtil.Compute(primaryArtist, title)
+                });
+            }
+
+            return tracks.Count > 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "state.data.entity.trackList extraction failed");
+            return false;
+        }
+    }
+
+    private static string ExtractPrimaryArtistFromSubtitle(string? subtitle)
+    {
+        if (string.IsNullOrWhiteSpace(subtitle))
+            return "Unknown";
+
+        // Spotify embed subtitles join multiple artists with ",\u00A0" or ", " (and occasionally "\u00A0").
+        var normalized = subtitle.Replace('\u00A0', ' ');
+        var first = normalized
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault(s => !string.IsNullOrWhiteSpace(s));
+
+        return string.IsNullOrWhiteSpace(first) ? "Unknown" : first;
+    }
+
+    private static string? ExtractTrackIdFromUri(string? uri)
+    {
+        if (string.IsNullOrWhiteSpace(uri))
+            return null;
+
+        const string prefix = "spotify:track:";
+        if (uri.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var id = uri[prefix.Length..].Trim();
+            return string.IsNullOrEmpty(id) ? null : id;
+        }
+
+        return null;
+    }
+
+    private void LogUnmatchedNextDataShape(JsonElement root)
+    {
+        try
+        {
+            var rootKeys = root.ValueKind == JsonValueKind.Object
+                ? string.Join(", ", root.EnumerateObject().Select(p => p.Name).Take(12))
+                : root.ValueKind.ToString();
+
+            string pagePropsKeys = "(none)";
+            if (root.TryGetProperty("props", out var props) &&
+                props.TryGetProperty("pageProps", out var pageProps) &&
+                pageProps.ValueKind == JsonValueKind.Object)
+            {
+                pagePropsKeys = string.Join(", ", pageProps.EnumerateObject().Select(p => p.Name).Take(12));
+            }
+
+            _logger.LogWarning(
+                "Spotify scrape: __NEXT_DATA__ did not match any known track shape. rootKeys=[{RootKeys}] pagePropsKeys=[{PagePropsKeys}]",
+                rootKeys, pagePropsKeys);
+        }
+        catch
+        {
+            _logger.LogWarning("Spotify scrape: __NEXT_DATA__ did not match any known track shape.");
         }
     }
 
@@ -570,12 +720,23 @@ public class SpotifyScraperInputSource
         try
         {
             if (root.TryGetProperty("props", out var props) &&
-                props.TryGetProperty("pageProps", out var pageProps) &&
-                pageProps.TryGetProperty("initialState", out var state) &&
-                state.TryGetProperty("headerData", out var header) &&
-                header.TryGetProperty("title", out var titleElem))
+                props.TryGetProperty("pageProps", out var pageProps))
             {
-                return titleElem.GetString();
+                if (pageProps.TryGetProperty("state", out var stateObj) &&
+                    stateObj.TryGetProperty("data", out var dataObj) &&
+                    dataObj.TryGetProperty("entity", out var entityObj) &&
+                    entityObj.TryGetProperty("name", out var entityName) &&
+                    entityName.ValueKind == JsonValueKind.String)
+                {
+                    return entityName.GetString();
+                }
+
+                if (pageProps.TryGetProperty("initialState", out var state) &&
+                    state.TryGetProperty("headerData", out var header) &&
+                    header.TryGetProperty("title", out var titleElem))
+                {
+                    return titleElem.GetString();
+                }
             }
 
             if (root.TryGetProperty("initialState", out var initialState) &&
