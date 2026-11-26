@@ -12,10 +12,9 @@ using SLSKDONET.Services.Repositories;
 namespace SLSKDONET.Services.Sets;
 
 /// <summary>
-/// Saved transitions between adjacent set slots (rebuild plan P3.2), stored in
-/// <see cref="SetTrackTransitionEntity"/>. Implements the same <see cref="ITransitionRepository"/>
-/// as the playlist store so the one transition editor can save into either; here the "playlist"
-/// id is the set id and the track ids are slot ids.
+/// Set-scoped adapter over the unified <see cref="TransitionEntity"/> (<c>Transitions</c>) table
+/// (Epic #517 / FO1b #519). Implements <see cref="ITransitionRepository"/> with unchanged signatures;
+/// here the "playlist" id is the set id and the track ids are slot ids.
 /// </summary>
 public sealed class SetTransitionRepository : ITransitionRepository
 {
@@ -30,22 +29,24 @@ public sealed class SetTransitionRepository : ITransitionRepository
     public async Task<PlaylistTrackTransition?> GetTransitionAsync(Guid outgoingSlotId, Guid incomingSlotId)
     {
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
-        var entity = await db.SetTrackTransitions
+        var entity = await db.Transitions
             .AsNoTracking()
-            .FirstOrDefaultAsync(t => t.OutgoingSlotId == outgoingSlotId && t.IncomingSlotId == incomingSlotId)
+            .FirstOrDefaultAsync(t => t.ScopeKind == TransitionScopeKind.Set
+                                   && t.OutgoingItemId == outgoingSlotId
+                                   && t.IncomingItemId == incomingSlotId)
             .ConfigureAwait(false);
-        return entity is null ? null : ToDomain(entity);
+        return entity is null ? null : TransitionRepository.ToDomain(entity);
     }
 
     public async Task<List<PlaylistTrackTransition>> GetTransitionsForPlaylistAsync(Guid setId)
     {
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
-        var entities = await db.SetTrackTransitions
+        var entities = await db.Transitions
             .AsNoTracking()
-            .Where(t => t.SetId == setId)
+            .Where(t => t.ScopeKind == TransitionScopeKind.Set && t.ScopeId == setId)
             .ToListAsync()
             .ConfigureAwait(false);
-        return entities.Select(ToDomain).ToList();
+        return entities.Select(TransitionRepository.ToDomain).ToList();
     }
 
     public async Task UpsertTransitionAsync(PlaylistTrackTransition transition)
@@ -54,16 +55,37 @@ public sealed class SetTransitionRepository : ITransitionRepository
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
-            var existing = await db.SetTrackTransitions
-                .FirstOrDefaultAsync(t => t.OutgoingSlotId == transition.OutgoingPlaylistTrackId
-                                       && t.IncomingSlotId == transition.IncomingPlaylistTrackId)
+            var existing = await db.Transitions
+                .FirstOrDefaultAsync(t => t.ScopeKind == TransitionScopeKind.Set
+                                       && t.OutgoingItemId == transition.OutgoingPlaylistTrackId
+                                       && t.IncomingItemId == transition.IncomingPlaylistTrackId)
                 .ConfigureAwait(false);
+
+            var outHash = await ResolveSlotHashAsync(db, transition.OutgoingPlaylistTrackId).ConfigureAwait(false);
+            var inHash = await ResolveSlotHashAsync(db, transition.IncomingPlaylistTrackId).ConfigureAwait(false);
+            var hasPairHashes = !string.IsNullOrEmpty(outHash) && !string.IsNullOrEmpty(inHash);
 
             transition.UpdatedAtUtc = DateTime.UtcNow;
             if (existing is null)
-                db.SetTrackTransitions.Add(ToEntity(transition));
+            {
+                db.Transitions.Add(TransitionRepository.ToEntity(
+                    transition,
+                    TransitionScopeKind.Set,
+                    outHash,
+                    inHash,
+                    useAsPairDefault: hasPairHashes));
+            }
             else
-                db.Entry(existing).CurrentValues.SetValues(ToEntity(transition, existing.Id));
+            {
+                var updated = TransitionRepository.ToEntity(
+                    transition,
+                    TransitionScopeKind.Set,
+                    outHash ?? existing.OutgoingTrackHash,
+                    inHash ?? existing.IncomingTrackHash,
+                    useAsPairDefault: hasPairHashes && existing.UseAsPairDefault,
+                    existingId: existing.Id);
+                db.Entry(existing).CurrentValues.SetValues(updated);
+            }
 
             await db.SaveChangesAsync().ConfigureAwait(false);
         }
@@ -79,12 +101,14 @@ public sealed class SetTransitionRepository : ITransitionRepository
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
-            var existing = await db.SetTrackTransitions
-                .FirstOrDefaultAsync(t => t.OutgoingSlotId == outgoingSlotId && t.IncomingSlotId == incomingSlotId)
+            var existing = await db.Transitions
+                .FirstOrDefaultAsync(t => t.ScopeKind == TransitionScopeKind.Set
+                                       && t.OutgoingItemId == outgoingSlotId
+                                       && t.IncomingItemId == incomingSlotId)
                 .ConfigureAwait(false);
             if (existing is not null)
             {
-                db.SetTrackTransitions.Remove(existing);
+                db.Transitions.Remove(existing);
                 await db.SaveChangesAsync().ConfigureAwait(false);
             }
         }
@@ -94,55 +118,15 @@ public sealed class SetTransitionRepository : ITransitionRepository
         }
     }
 
-    internal static PlaylistTrackTransition ToDomain(SetTrackTransitionEntity e) => new()
+    private static async Task<string?> ResolveSlotHashAsync(AppDbContext db, Guid slotId)
     {
-        Id = e.Id,
-        PlaylistId = e.SetId,
-        OutgoingPlaylistTrackId = e.OutgoingSlotId,
-        IncomingPlaylistTrackId = e.IncomingSlotId,
-        PresetName = e.PresetName,
-        Type = Enum.TryParse<TransitionType>(e.TransitionType, out var type) ? type : TransitionType.Crossfade,
-        DurationBars = e.DurationBars,
-        EchoDecayFactor = e.EchoDecayFactor,
-        FilterStartFrequency = e.FilterStartFrequency,
-        FilterEndFrequency = e.FilterEndFrequency,
-        WaveDuckDepth = e.WaveDuckDepth,
-        FilterSweepRising = e.FilterSweepRising,
-        EqSwapLow = e.EqSwapLow,
-        EqSwapMid = e.EqSwapMid,
-        EqSwapHigh = e.EqSwapHigh,
-        EqLowCrossoverHz = e.EqLowCrossoverHz,
-        EqHighCrossoverHz = e.EqHighCrossoverHz,
-        LoopBars = e.LoopBars,
-        LoopRepeats = e.LoopRepeats,
-        SourceTriggerSeconds = e.SourceTriggerSeconds,
-        TargetTriggerSeconds = e.TargetTriggerSeconds,
-        UpdatedAtUtc = e.UpdatedAtUtc,
-    };
-
-    private static SetTrackTransitionEntity ToEntity(PlaylistTrackTransition m, Guid? existingId = null) => new()
-    {
-        Id = existingId ?? m.Id,
-        SetId = m.PlaylistId,
-        OutgoingSlotId = m.OutgoingPlaylistTrackId,
-        IncomingSlotId = m.IncomingPlaylistTrackId,
-        PresetName = m.PresetName,
-        TransitionType = m.Type.ToString(),
-        DurationBars = m.DurationBars,
-        EchoDecayFactor = m.EchoDecayFactor,
-        FilterStartFrequency = m.FilterStartFrequency,
-        FilterEndFrequency = m.FilterEndFrequency,
-        WaveDuckDepth = m.WaveDuckDepth,
-        FilterSweepRising = m.FilterSweepRising,
-        EqSwapLow = m.EqSwapLow,
-        EqSwapMid = m.EqSwapMid,
-        EqSwapHigh = m.EqSwapHigh,
-        EqLowCrossoverHz = m.EqLowCrossoverHz,
-        EqHighCrossoverHz = m.EqHighCrossoverHz,
-        LoopBars = m.LoopBars,
-        LoopRepeats = m.LoopRepeats,
-        SourceTriggerSeconds = m.SourceTriggerSeconds,
-        TargetTriggerSeconds = m.TargetTriggerSeconds,
-        UpdatedAtUtc = m.UpdatedAtUtc,
-    };
+        var raw = await db.SetTracks
+            .AsNoTracking()
+            .Where(t => t.Id == slotId)
+            .Select(t => t.TrackUniqueHash)
+            .FirstOrDefaultAsync()
+            .ConfigureAwait(false);
+        var trimmed = raw?.Trim();
+        return string.IsNullOrEmpty(trimmed) ? null : trimmed;
+    }
 }

@@ -71,10 +71,10 @@ public sealed record SetAlternateInfo(
 public sealed record SetSlotSnapshot(
     SetTrackEntity Slot,
     IReadOnlyList<SetSlotAlternateEntity> Alternates,
-    IReadOnlyList<SetTrackTransitionEntity>? Transitions = null)
+    IReadOnlyList<TransitionEntity>? Transitions = null)
 {
     /// <summary>Saved transitions into and out of the slot.</summary>
-    public IReadOnlyList<SetTrackTransitionEntity> Transitions { get; init; } = Transitions ?? Array.Empty<SetTrackTransitionEntity>();
+    public IReadOnlyList<TransitionEntity> Transitions { get; init; } = Transitions ?? Array.Empty<TransitionEntity>();
 }
 
 /// <summary>What the knowledge graph knows about one A→B transition (by track hash).</summary>
@@ -500,15 +500,15 @@ public sealed class SetProjectService : ISetProjectService
         foreach (var alternate in alternates)
             db.SetSlotAlternates.Add(CloneAlternate(alternate, Guid.NewGuid(), slotIdMap[alternate.SlotId]));
 
-        var transitions = await db.SetTrackTransitions
+        var transitions = await db.Transitions
             .AsNoTracking()
-            .Where(t => t.SetId == setId)
+            .Where(t => t.ScopeKind == TransitionScopeKind.Set && t.ScopeId == setId)
             .ToListAsync()
             .ConfigureAwait(false);
         foreach (var transition in transitions)
         {
-            if (slotIdMap.TryGetValue(transition.OutgoingSlotId, out var from) && slotIdMap.TryGetValue(transition.IncomingSlotId, out var to))
-                db.SetTrackTransitions.Add(CloneTransition(transition, Guid.NewGuid(), copy.Id, from, to));
+            if (slotIdMap.TryGetValue(transition.OutgoingItemId, out var from) && slotIdMap.TryGetValue(transition.IncomingItemId, out var to))
+                db.Transitions.Add(CloneTransition(transition, Guid.NewGuid(), copy.Id, from, to));
         }
 
         var edges = await db.SetStoryEdges
@@ -549,8 +549,8 @@ public sealed class SetProjectService : ISetProjectService
         var slotIds = slots.Select(t => t.Id).ToList();
         db.SetSlotAlternates.RemoveRange(
             await db.SetSlotAlternates.Where(a => slotIds.Contains(a.SlotId)).ToListAsync().ConfigureAwait(false));
-        db.SetTrackTransitions.RemoveRange(
-            await db.SetTrackTransitions.Where(t => t.SetId == setId).ToListAsync().ConfigureAwait(false));
+        db.Transitions.RemoveRange(
+            await db.Transitions.Where(t => t.ScopeKind == TransitionScopeKind.Set && t.ScopeId == setId).ToListAsync().ConfigureAwait(false));
         db.SetStoryEdges.RemoveRange(
             await db.SetStoryEdges.Where(e => e.SetProjectId == setId).ToListAsync().ConfigureAwait(false));
         db.SetTracks.RemoveRange(slots);
@@ -614,21 +614,22 @@ public sealed class SetProjectService : ISetProjectService
 
         var slot = set.Tracks.First(t => t.Id == slotId);
         var alternates = await db.SetSlotAlternates.Where(a => a.SlotId == slotId).ToListAsync().ConfigureAwait(false);
-        var transitions = await db.SetTrackTransitions
-            .Where(t => t.OutgoingSlotId == slotId || t.IncomingSlotId == slotId)
+        var transitions = await db.Transitions
+            .Where(t => t.ScopeKind == TransitionScopeKind.Set
+                     && (t.OutgoingItemId == slotId || t.IncomingItemId == slotId))
             .ToListAsync()
             .ConfigureAwait(false);
         var snapshot = new SetSlotSnapshot(
             CloneSlot(slot, slot.Id, slot.SetListId),
             alternates.Select(CloneAlternate).ToList(),
-            transitions.Select(t => CloneTransition(t, t.Id, t.SetId, t.OutgoingSlotId, t.IncomingSlotId)).ToList());
+            transitions.Select(t => CloneTransition(t, t.Id, t.ScopeId, t.OutgoingItemId, t.IncomingItemId)).ToList());
 
         db.SetStoryEdges.RemoveRange(await db.SetStoryEdges
             .Where(e => e.FromSlotId == slotId || e.ToSlotId == slotId)
             .ToListAsync()
             .ConfigureAwait(false));
         db.SetSlotAlternates.RemoveRange(alternates);
-        db.SetTrackTransitions.RemoveRange(transitions);
+        db.Transitions.RemoveRange(transitions);
         db.SetTracks.Remove(slot);
 
         Renumber(Ordered(set.Tracks.Where(t => t.Id != slotId)).ToList());
@@ -662,18 +663,18 @@ public sealed class SetProjectService : ISetProjectService
 
         // Put back saved transitions whose other slot still exists (it may have gone meanwhile).
         var liveSlotIds = set.Tracks.Select(t => t.Id).Append(restored.Id).ToHashSet();
-        var takenPairs = (await db.SetTrackTransitions
-                .Where(t => t.SetId == set.Id)
-                .Select(t => new { t.OutgoingSlotId, t.IncomingSlotId })
+        var takenPairs = (await db.Transitions
+                .Where(t => t.ScopeKind == TransitionScopeKind.Set && t.ScopeId == set.Id)
+                .Select(t => new { t.OutgoingItemId, t.IncomingItemId })
                 .ToListAsync()
                 .ConfigureAwait(false))
-            .Select(p => (p.OutgoingSlotId, p.IncomingSlotId))
+            .Select(p => (p.OutgoingItemId, p.IncomingItemId))
             .ToHashSet();
         foreach (var transition in snapshot.Transitions)
         {
-            if (liveSlotIds.Contains(transition.OutgoingSlotId) && liveSlotIds.Contains(transition.IncomingSlotId)
-                && takenPairs.Add((transition.OutgoingSlotId, transition.IncomingSlotId)))
-                db.SetTrackTransitions.Add(CloneTransition(transition, transition.Id, set.Id, transition.OutgoingSlotId, transition.IncomingSlotId));
+            if (liveSlotIds.Contains(transition.OutgoingItemId) && liveSlotIds.Contains(transition.IncomingItemId)
+                && takenPairs.Add((transition.OutgoingItemId, transition.IncomingItemId)))
+                db.Transitions.Add(CloneTransition(transition, transition.Id, set.Id, transition.OutgoingItemId, transition.IncomingItemId));
         }
 
         set.LastModifiedAt = DateTime.UtcNow;
@@ -971,18 +972,24 @@ public sealed class SetProjectService : ISetProjectService
             set.LastModifiedAt = DateTime.UtcNow;
     }
 
-    private static SetTrackTransitionEntity CloneTransition(SetTrackTransitionEntity t, Guid id, Guid setId, Guid from, Guid to) => new()
+    private static TransitionEntity CloneTransition(TransitionEntity t, Guid id, Guid setId, Guid from, Guid to) => new()
     {
         Id = id,
-        SetId = setId,
-        OutgoingSlotId = from,
-        IncomingSlotId = to,
-        PresetName = t.PresetName,
-        TransitionType = t.TransitionType,
+        ScopeKind = TransitionScopeKind.Set,
+        ScopeId = setId,
+        OutgoingItemId = from,
+        IncomingItemId = to,
+        OutgoingTrackHash = t.OutgoingTrackHash,
+        IncomingTrackHash = t.IncomingTrackHash,
+        UseAsPairDefault = t.UseAsPairDefault,
+        Technique = t.Technique,
         DurationBars = t.DurationBars,
         EchoDecayFactor = t.EchoDecayFactor,
         FilterStartFrequency = t.FilterStartFrequency,
         FilterEndFrequency = t.FilterEndFrequency,
+        EqLowGain = t.EqLowGain,
+        EqMidGain = t.EqMidGain,
+        EqHighGain = t.EqHighGain,
         WaveDuckDepth = t.WaveDuckDepth,
         FilterSweepRising = t.FilterSweepRising,
         EqSwapLow = t.EqSwapLow,
@@ -994,6 +1001,7 @@ public sealed class SetProjectService : ISetProjectService
         LoopRepeats = t.LoopRepeats,
         SourceTriggerSeconds = t.SourceTriggerSeconds,
         TargetTriggerSeconds = t.TargetTriggerSeconds,
+        Origin = t.Origin,
         UpdatedAtUtc = t.UpdatedAtUtc,
     };
 

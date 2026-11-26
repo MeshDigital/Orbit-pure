@@ -83,6 +83,6 @@ public sealed class SetTransitionRepositoryTests : IDisposable
 
         await Sets.DeleteSetAsync(set.Id);
         using var db = _db.Factory.CreateDbContext();
-        Assert.Equal(1, await db.SetTrackTransitions.CountAsync());
+        Assert.Equal(1, await db.Transitions.CountAsync());
     }
 }

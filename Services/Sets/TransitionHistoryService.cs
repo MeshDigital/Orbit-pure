@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using SLSKDONET.Data;
+using SLSKDONET.Data.Entities;
 using SLSKDONET.Models.Timeline;
 using SLSKDONET.Services.Repositories;
 
@@ -13,7 +14,7 @@ public sealed record TransitionFromHistory(PlaylistTrackTransition Transition, s
 
 /// <summary>
 /// Finds the most recently saved transition for a track pair across every playlist and set
-/// (rebuild plan P3.4), so a pair met again starts from what the DJ designed last time.
+/// (Epic #517 / FO1b #519), reading directly from the unified <c>Transitions</c> table.
 /// </summary>
 public interface ITransitionHistoryService
 {
@@ -37,33 +38,45 @@ public sealed class TransitionHistoryService : ITransitionHistoryService
 
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
 
-        var fromPlaylists = await (
-                from t in db.PlaylistTrackTransitions.AsNoTracking()
-                join a in db.PlaylistTracks.AsNoTracking() on t.OutgoingPlaylistTrackId equals a.Id
-                join b in db.PlaylistTracks.AsNoTracking() on t.IncomingPlaylistTrackId equals b.Id
-                join p in db.Projects.AsNoTracking() on t.PlaylistId equals p.Id into playlists
-                from p in playlists.DefaultIfEmpty()
-                where a.TrackUniqueHash == fromHash && b.TrackUniqueHash == toHash
-                select new { Entity = t, Name = p != null ? p.SourceTitle : "a playlist" })
+        var candidates = await db.Transitions
+            .AsNoTracking()
+            .Where(t => t.UseAsPairDefault
+                     && t.OutgoingTrackHash == fromHash
+                     && t.IncomingTrackHash == toHash)
             .ToListAsync()
             .ConfigureAwait(false);
 
-        var fromSets = await (
-                from t in db.SetTrackTransitions.AsNoTracking()
-                join a in db.SetTracks.AsNoTracking() on t.OutgoingSlotId equals a.Id
-                join b in db.SetTracks.AsNoTracking() on t.IncomingSlotId equals b.Id
-                join s in db.SetLists.AsNoTracking() on t.SetId equals s.Id
-                where a.TrackUniqueHash == fromHash && b.TrackUniqueHash == toHash
-                select new { Entity = t, s.Name })
-            .ToListAsync()
-            .ConfigureAwait(false);
-
-        // Newest first, compared as DateTimes (SQLite text ordering is unreliable across formats).
-        return fromPlaylists
-            .Select(x => new TransitionFromHistory(TransitionRepository.ToDomain(x.Entity), x.Name, IsSet: false))
-            .Concat(fromSets.Select(x => new TransitionFromHistory(SetTransitionRepository.ToDomain(x.Entity), x.Name, IsSet: true)))
-            .Where(h => !(h.Transition.OutgoingPlaylistTrackId == excludeOutgoingId && h.Transition.IncomingPlaylistTrackId == excludeIncomingId))
-            .OrderByDescending(h => h.Transition.UpdatedAtUtc)
+        var latest = candidates
+            .Where(t => !(t.OutgoingItemId == excludeOutgoingId && t.IncomingItemId == excludeIncomingId))
+            .OrderByDescending(t => t.UpdatedAtUtc)
             .FirstOrDefault();
+
+        if (latest is null)
+            return null;
+
+        string sourceName;
+        if (latest.ScopeKind == TransitionScopeKind.Set)
+        {
+            sourceName = await db.SetLists
+                .AsNoTracking()
+                .Where(s => s.Id == latest.ScopeId)
+                .Select(s => s.Name)
+                .FirstOrDefaultAsync()
+                .ConfigureAwait(false) ?? "a set";
+        }
+        else
+        {
+            sourceName = await db.Projects
+                .AsNoTracking()
+                .Where(p => p.Id == latest.ScopeId)
+                .Select(p => p.SourceTitle)
+                .FirstOrDefaultAsync()
+                .ConfigureAwait(false) ?? "a playlist";
+        }
+
+        return new TransitionFromHistory(
+            TransitionRepository.ToDomain(latest),
+            sourceName,
+            IsSet: latest.ScopeKind == TransitionScopeKind.Set);
     }
 }
