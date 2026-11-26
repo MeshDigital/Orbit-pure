@@ -22,6 +22,12 @@ public interface INavigationService
     void GoBack();
     object? CurrentPage { get; }
     event EventHandler<UserControl>? Navigated;
+
+    /// <summary>Predicate returning whether Labs pages (Sets, Workstation, EditLab) may be opened (#538).</summary>
+    Func<bool>? IsLabsEnabled { get; set; }
+
+    /// <summary>Raised when navigation targets a Labs page while Labs is off (#538).</summary>
+    event EventHandler<string>? LabsNavigationBlocked;
 }
 
 public class NavigationService : INavigationService
@@ -37,6 +43,13 @@ public class NavigationService : INavigationService
     private readonly Dictionary<Type, UserControl> _viewCache = new();
 
     public object? CurrentPage => _currentPage;
+    public Func<bool>? IsLabsEnabled { get; set; }
+    public event EventHandler<string>? LabsNavigationBlocked;
+
+    public static bool IsLabsPage(string? pageKey) =>
+        string.Equals(pageKey, "Sets", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(pageKey, "Workstation", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(pageKey, "EditLab", StringComparison.OrdinalIgnoreCase);
 
     public NavigationService(IServiceProvider serviceProvider, ILogger<NavigationService> logger, PerformanceTracker perfTracker)
     {
@@ -59,6 +72,13 @@ public class NavigationService : INavigationService
 
     public void NavigateTo(string pageKey)
     {
+        if (IsLabsPage(pageKey) && IsLabsEnabled is not null && !IsLabsEnabled())
+        {
+            _logger.LogInformation("Blocked navigation to Labs page '{PageKey}' while Labs is off.", pageKey);
+            LabsNavigationBlocked?.Invoke(this, pageKey);
+            return;
+        }
+
         if (_pages.TryGetValue(pageKey, out var pageType))
         {
             // Measures page resolve (first visit: DI construction; later visits: cache lookup, near-

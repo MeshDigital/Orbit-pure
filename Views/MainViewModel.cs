@@ -509,6 +509,19 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         // Subscribe to navigation events
         _navigationService.Navigated += OnNavigated;
+        _navigationService.IsLabsEnabled = () => _config.LabsEnabled;
+        _navigationService.LabsNavigationBlocked += OnLabsNavigationBlocked;
+        _isCreativeVisible = _config.LabsEnabled;
+        _disposables.Add(_eventBus.GetEvent<LabsEnabledChangedEvent>()
+            .Subscribe(evt => Dispatcher.UIThread.Post(() =>
+            {
+                if (_isCreativeVisible != evt.Enabled)
+                {
+                    _isCreativeVisible = evt.Enabled;
+                    OnPropertyChanged(nameof(IsCreativeVisible));
+                }
+            })));
+        _ = RunLabsMigrationOnceAsync();
 
         // Navigate to Home page by default
         NavigateToHome();
@@ -789,11 +802,83 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     }
     public string SystemChevron => _isSystemExpanded ? "▾" : "▸";
 
-    private bool _isCreativeVisible = true;
+    private bool _isPlayMixExpanded = true;
+    public bool IsPlayMixExpanded
+    {
+        get => _isPlayMixExpanded;
+        set
+        {
+            SetProperty(ref _isPlayMixExpanded, value);
+            OnPropertyChanged(nameof(PlayMixChevron));
+        }
+    }
+    public string PlayMixChevron => _isPlayMixExpanded ? "▾" : "▸";
+    public ICommand TogglePlayMixCommand => _togglePlayMixCommand ??= new RelayCommand(() => IsPlayMixExpanded = !IsPlayMixExpanded);
+    private ICommand? _togglePlayMixCommand;
+
+    private bool _isCreativeVisible;
     public bool IsCreativeVisible
     {
         get => _isCreativeVisible;
-        set => SetProperty(ref _isCreativeVisible, value);
+        set
+        {
+            if (SetProperty(ref _isCreativeVisible, value) && _config.LabsEnabled != value)
+            {
+                _config.LabsEnabled = value;
+                _configManager.Save(_config);
+            }
+        }
+    }
+
+    private async Task RunLabsMigrationOnceAsync()
+    {
+        var result = await SLSKDONET.Services.Setup.LabsMigrationService
+            .RunOnceAsync(_config, _configManager, _dbFactory, _logger);
+        if (!result.EnabledLabs) return;
+
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            _isCreativeVisible = _config.LabsEnabled;
+            OnPropertyChanged(nameof(IsCreativeVisible));
+            if (result.ShouldShowNote)
+            {
+                _eventBus.Publish(new ToastRequestedEvent(
+                    "Labs kept on for your saved sets",
+                    "Sets, Workstation, and Edit Lab now live under Labs (Settings → Labs). We turned Labs on automatically because you have existing saved sets.",
+                    NotificationType.Information,
+                    TimeSpan.FromSeconds(10)));
+            }
+        });
+    }
+
+    private async void OnLabsNavigationBlocked(object? sender, string pageKey)
+    {
+        try
+        {
+            string friendlyName = pageKey switch
+            {
+                "Sets" => "Sets",
+                "Workstation" => "Workstation",
+                "EditLab" => "Edit Lab",
+                _ => pageKey,
+            };
+
+            bool confirmed = await _dialogService.ConfirmAsync(
+                "Turn on Labs?",
+                $"{friendlyName} lives in Labs (Settings → Labs). Turn on Labs to open it?",
+                confirmLabel: "Turn on",
+                cancelLabel: "Cancel");
+
+            if (!confirmed) return;
+
+            IsCreativeVisible = true;
+            _eventBus.Publish(new LabsEnabledChangedEvent(true));
+            _navigationService.NavigateTo(pageKey);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to handle Labs navigation prompt for {PageKey}", pageKey);
+        }
     }
 
     private bool _isCreativeExpanded = true;

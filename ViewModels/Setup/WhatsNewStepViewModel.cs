@@ -18,6 +18,8 @@ public sealed class WhatsNewStepViewModel : SetupStepViewModel
 
     public IReadOnlyList<WhatsNewItem> Items { get; } = new[]
     {
+        new WhatsNewItem("Mix playlists with one click", "Every playlist header now has Mix beside Play, a Ready badge (e.g. Ready 42/45) with Prep for Mix, and clear transition labels in the queue and Now Playing."),
+        new WhatsNewItem("Focused sidebar & Labs toggle", "Pages are grouped into Acquire, Library & Prep, and Play & Mix (Flow Builder is now Transitions). Sets, Workstation, and Edit Lab live under Settings → Labs — kept on automatically if you already have saved sets."),
         new WhatsNewItem("Sets has its own page", "Plan a gig as slot cards with a role, energy target and notes, and a compatibility score between every pair. Keep Plan B tracks per slot, search a track pool under the set, and add tracks from the Library with right-click → Add to Set."),
         new WhatsNewItem("Design transitions inside a set", "Double-click the score between two slots to open the transition editor. It's the same editor as Flow Builder (Transition Lab is gone), with a rating and a \"played it live\" box, and it starts from what you saved for that pair before."),
         new WhatsNewItem("Find a bridge track", "Select a transition in a set and choose Find a bridge track: analysed tracks close in BPM to both ends, ranked by how their intro and outro fit. Insert puts one between the slots."),

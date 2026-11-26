@@ -1506,6 +1506,22 @@
                         </StackPanel>
 
                         <StackPanel Classes="settings-section"
+                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Labs experimental sets workstation edit lab knowledge agents'}">
+                            <TextBlock Classes="section" Text="LABS"/>
+                            <Border Classes="card">
+                                <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                    <StackPanel Classes="label">
+                                        <TextBlock Classes="body" Text="Enable Labs (Sets, Workstation, Edit Lab)"/>
+                                        <TextBlock Classes="caption" TextWrapping="Wrap"
+                                                   Text="Shows the Labs section in the sidebar immediately. Background knowledge agents also follow this setting and take effect after a restart."/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding LabsEnabled, Mode=TwoWay}"
+                                                  AutomationProperties.Name="Enable Labs"/>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel Classes="settings-section"
                                     IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Knowledge agents transition candidates background scan sets'}">
                             <TextBlock Classes="section" Text="KNOWLEDGE AGENTS"/>
                             <Border Classes="card">

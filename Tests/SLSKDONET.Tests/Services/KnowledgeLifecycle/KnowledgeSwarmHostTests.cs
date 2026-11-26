@@ -11,16 +11,29 @@ namespace SLSKDONET.Tests.Services.KnowledgeLifecycle;
 public class KnowledgeSwarmHostTests
 {
     [Fact]
-    public void EnableKnowledgeAgents_DefaultsOn()
+    public void LabsEnabled_DefaultsOff()
     {
-        Assert.True(new AppConfig().EnableKnowledgeAgents); // Suggest next reads the candidates (#205 P4.6)
+        Assert.False(new AppConfig().LabsEnabled);
+    }
+
+    [Fact]
+    public async Task LabsOff_DoesNotStartAgents_EvenWhenEnableKnowledgeAgentsIsTrue()
+    {
+        var agent = new FakeAgent();
+        var host = new KnowledgeSwarmHost(new[] { agent }, new AppConfig { LabsEnabled = false, EnableKnowledgeAgents = true },
+            NullLogger<KnowledgeSwarmHost>.Instance);
+
+        await host.StartAsync(CancellationToken.None);
+        await host.ExecuteTask!;
+
+        Assert.False(agent.Started);
     }
 
     [Fact]
     public async Task Disabled_DoesNotStartAgents()
     {
         var agent = new FakeAgent();
-        var host = new KnowledgeSwarmHost(new[] { agent }, new AppConfig { EnableKnowledgeAgents = false },
+        var host = new KnowledgeSwarmHost(new[] { agent }, new AppConfig { LabsEnabled = true, EnableKnowledgeAgents = false },
             NullLogger<KnowledgeSwarmHost>.Instance);
 
         await host.StartAsync(CancellationToken.None);
@@ -33,7 +46,7 @@ public class KnowledgeSwarmHostTests
     public async Task Enabled_StartsAndStopsAgents()
     {
         var agent = new FakeAgent();
-        var host = new KnowledgeSwarmHost(new[] { agent }, new AppConfig { EnableKnowledgeAgents = true },
+        var host = new KnowledgeSwarmHost(new[] { agent }, new AppConfig { LabsEnabled = true, EnableKnowledgeAgents = true },
             NullLogger<KnowledgeSwarmHost>.Instance);
 
         await host.StartAsync(CancellationToken.None);

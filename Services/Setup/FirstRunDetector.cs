@@ -53,7 +53,9 @@ public static class FirstRunDetector
     // exact-duplicate review (#238). 15 = release 0.4.0: genre-accuracy epic (#245)
     // and the EffNet input fix (#270), What's New rewritten to cover the whole 0.4.0 release. Coordinated so each
     // unmerged branch takes the next free number above 10.
-    public const int CurrentSetupVersion = 15;
+    // 16 = Focus & Optimisation (Epic #517): unified transition store, Prep for Mix on playlists,
+    // visible Auto-Mix + Technique dropdown, regrouped sidebar, and Labs toggle (Sets/Workstation/Edit Lab).
+    public const int CurrentSetupVersion = 16;
 
     /// <param name="fallbackDownloadDirectory">
     /// The folder ORBIT fills in when config.ini has none (<see cref="Configuration.AppConfig.FallbackDownloadDirectory"/>).

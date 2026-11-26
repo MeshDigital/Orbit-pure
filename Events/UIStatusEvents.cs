@@ -30,6 +30,7 @@ public record AddToProjectRequestEvent(IEnumerable<PlaylistTrack> Tracks); // Ph
 public record RevealFileRequestEvent(string FilePath);
 public record SeekRequestEvent(double PositionPercent); // 0.0 to 1.0
 public record SeekToSecondsRequestEvent(double Seconds);
+public record LabsEnabledChangedEvent(bool Enabled);
 
 /// <summary>Published after navigating to the Search page via Ctrl+F/"Focus Search" so
 /// SearchPage's code-behind can actually put keyboard focus in the search box — navigation alone

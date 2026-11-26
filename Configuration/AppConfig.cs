@@ -56,9 +56,12 @@ public class AppConfig
     // Settings → Advanced → Network Activity. Local-only, default on since it's the tool used to
     // diagnose ban-causing traffic patterns; overhead is connection/request-level only.
     public bool EnableNetworkActivityMonitor { get; set; } = true;
+    // Epic #517 (#536): Labs features (Sets, Workstation, Edit Lab, and background knowledge agents).
+    // Off by default on fresh installs; auto-enabled once for existing users with saved Sets data (#537).
+    public bool LabsEnabled { get; set; } = false;
+    public bool LabsMigrationNoteShown { get; set; } = false;
     // Background knowledge agents (KnowledgeSwarmHost: transition-candidate scan after each analysis).
-    // Default on since Sets → "Suggest next" shows the candidates (#205 P4.6); read at startup
-    // (Settings → Advanced).
+    // Only runs when LabsEnabled is also true (#536).
     public bool EnableKnowledgeAgents { get; set; } = true;
     public int SearchResponseLimit { get; set; } = 200; // was 100 — at Critical (65%) this gives ~130, enough for meaningful ranking
     public int SearchFileLimit { get; set; } = 200; // was 100
