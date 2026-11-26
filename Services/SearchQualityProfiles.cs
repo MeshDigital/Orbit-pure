@@ -43,7 +43,7 @@ public static class SearchQualityProfiles
 
     public static readonly SearchQualityProfileDefinition NonStrict = new(
         SearchQualityProfileKind.NonStrict,
-        new[] { "flac", "wav", "aiff", "aif", "mp3" },
+        "flac,wav,aiff,aif,mp3".Split(','),
         LossyMinBitrateKbps: 192,
         MaxBitrateKbps: 0,
         SearchResponseLimit: 300,
@@ -53,7 +53,7 @@ public static class SearchQualityProfiles
 
     public static readonly SearchQualityProfileDefinition Strict = new(
         SearchQualityProfileKind.Strict,
-        new[] { "flac", "wav", "aiff", "aif" },
+        "flac,wav,aiff,aif".Split(','),
         LossyMinBitrateKbps: 320,
         MaxBitrateKbps: 0,
         SearchResponseLimit: 200,
@@ -63,7 +63,7 @@ public static class SearchQualityProfiles
 
     public static readonly SearchQualityProfileDefinition Stricter = new(
         SearchQualityProfileKind.Stricter,
-        new[] { "flac" },
+        "flac".Split(','),
         LossyMinBitrateKbps: 320,
         MaxBitrateKbps: 0,
         SearchResponseLimit: 100,
