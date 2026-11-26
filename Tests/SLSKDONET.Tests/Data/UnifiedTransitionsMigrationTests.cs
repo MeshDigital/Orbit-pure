@@ -12,33 +12,13 @@ using Xunit;
 namespace SLSKDONET.Tests.Data;
 
 [Collection(NonParallelCollection.Name)]
-public sealed class UnifiedTransitionsMigrationTests : IDisposable
+public sealed class UnifiedTransitionsMigrationTests
 {
-    private readonly string _dbPath;
-    private readonly string? _prevDbPath;
-
-    public UnifiedTransitionsMigrationTests()
-    {
-        var isolatedRoot = Path.GetDirectoryName(OrbitPaths.LibraryDbPath)!;
-        Directory.CreateDirectory(isolatedRoot);
-        _dbPath = Path.Combine(isolatedRoot, $"fo1a-{Guid.NewGuid():N}.db");
-        _prevDbPath = Environment.GetEnvironmentVariable("ORBIT_DB_PATH");
-        Environment.SetEnvironmentVariable("ORBIT_DB_PATH", _dbPath);
-    }
-
-    public void Dispose()
-    {
-        Environment.SetEnvironmentVariable("ORBIT_DB_PATH", _prevDbPath);
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-        foreach (var suffix in new[] { "", "-wal", "-shm" })
-        {
-            try { if (File.Exists(_dbPath + suffix)) File.Delete(_dbPath + suffix); } catch { }
-        }
-    }
-
     [Fact]
     public async Task Backfill_CopiesPlaylistAndSetRows_SkipsOrphans_HandlesNullHashes_KeepsDuplicatePairs_AndIsIdempotent()
     {
+        using var scope = new FreshDatabaseScope();
+
         // 1. Initialize a real migrated DB, then drop Transitions to simulate an existing pre-FO1a install.
         var migrator = new SchemaMigratorService(NullLogger<SchemaMigratorService>.Instance);
         await migrator.InitializeDatabaseAsync();
