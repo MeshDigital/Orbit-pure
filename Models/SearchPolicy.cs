@@ -45,18 +45,7 @@ public class SearchPolicy
     public int DurationToleranceSeconds { get; set; } = 4; // Slightly lenient by default
 
     /// <summary>
-    /// Bitrate difference considered "significant" enough to override other factors.
-    /// e.g., 320kbps vs 192kbps diff is 128, which is > 64.
-    /// </summary>
-    public int SignificantBitrateGap { get; set; } = 64;
-
-    /// <summary>
-    /// Queue length difference considered "significant" enough to prefer the faster peer.
-    /// </summary>
-    public int SignificantQueueGap { get; set; } = 50;
-
-    /// <summary>
-    /// Returns a default policy for "Audiophile" users (Quality First).
+    /// Returns the standard QualityFirst search policy (Epic #543 / #546 SQ2).
     /// </summary>
     public static SearchPolicy QualityFirst() => new()
     {
@@ -66,50 +55,6 @@ public class SearchPolicy
         EnforceStrictTitleMatch = true,
         EnforceDurationMatch = true
     };
-
-    /// <summary>
-    /// Returns a default policy for "DJ Mode" users (Key/BPM Metadata First).
-    /// </summary>
-    public static SearchPolicy DjReady() => new()
-    {
-        Priority = SearchPriority.DjReady,
-        PreferSpeedOverQuality = false,
-        EnforceFileIntegrity = true,
-        EnforceStrictTitleMatch = true,
-        EnforceDurationMatch = true,
-        DurationToleranceSeconds = 15 // Allow for extended mixes vs radio edits
-    };
-    
-    /// <summary>
-    /// Returns a default policy for "Data Saver" users (Speed/Size First).
-    /// </summary>
-    public static SearchPolicy DataSaver() => new()
-    {
-        Priority = SearchPriority.QualityFirst, // Still want decent quality
-        PreferSpeedOverQuality = true,
-        EnforceFileIntegrity = false, // Less strict about perfect transcodes
-        EnforceStrictTitleMatch = true,
-        EnforceDurationMatch = true
-    };
-
-
-
-    /// <summary>
-    /// Preferred minimum bitrate for this policy.
-    /// </summary>
-    public int PreferredMinBitrate { get; set; } = 320;
-
-    /// <summary>
-    /// Configuration for the progressive relaxation strategy.
-    /// </summary>
-    public RelaxationSettings RelaxationParams { get; set; } = new();
-}
-
-public class RelaxationSettings
-{
-    public bool Enabled { get; set; } = true;
-    public int InitialTimeoutSeconds { get; set; } = 5;
-    public int FallbackBitrate { get; set; } = 192;
 }
 
 public enum SearchPriority
@@ -117,10 +62,5 @@ public enum SearchPriority
     /// <summary>
     /// Prioritize Bitrate, Format (FLAC > MP3), and Integrity.
     /// </summary>
-    QualityFirst,
-
-    /// <summary>
-    /// Prioritize tracks with valid BPM/Key metadata, then Quality.
-    /// </summary>
-    DjReady
+    QualityFirst
 }

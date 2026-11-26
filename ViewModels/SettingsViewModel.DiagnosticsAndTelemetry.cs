@@ -534,9 +534,6 @@ public partial class SettingsViewModel
         // Set initial display based on current auth state
         UpdateSpotifyUIState(_spotifyAuthService.IsAuthenticated);
 
-        SelectStrategyCommand = new RelayCommand<RankingStrategyViewModel?>(ExecuteSelectStrategy);
-        InitializeStrategies();
-
         _libraryFoldersSubscription = _eventBus.GetEvent<LibraryFoldersChangedEvent>().Subscribe(e => { _ = LoadLibraryFoldersAsync(); });
 
         // Phase 6: Security Audit Feed subscription

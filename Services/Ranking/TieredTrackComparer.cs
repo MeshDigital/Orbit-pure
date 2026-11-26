@@ -76,9 +76,7 @@ public sealed class TieredTrackComparer : IComparer<Track>
         double availability = GetAvailabilityScore(candidate);
         double sonic        = GetSonicScore(candidate);
 
-        return _policy.Priority == SearchPriority.DjReady
-            ? (sonic * 0.50) + (quality * 0.25) + (availability * 0.25)
-            : (quality * 0.50) + (availability * 0.35) + (sonic * 0.15);
+        return (quality * 0.50) + (availability * 0.35) + (sonic * 0.15);
     }
 
     // ── Tier logic ────────────────────────────────────────────────────────
@@ -99,31 +97,11 @@ public sealed class TieredTrackComparer : IComparer<Track>
         bool freeSlot    = candidate.HasFreeUploadSlot;
         bool shortQueue  = candidate.QueueLength < 20;
 
-        if (_policy.Priority == SearchPriority.DjReady)
-            return DjReadyTier(candidate, isLossless, highBitrate, freeSlot);
-
-        // QualityFirst tier
+        // QualityFirst tier (Epic #543 / #546: DjReady removed — Soulseek results carry no BPM/Key)
         if ((isLossless || highBitrate) && freeSlot)  return TrackTier.Diamond;
         if (isLossless || highBitrate)                return shortQueue ? TrackTier.Gold : TrackTier.Silver;
         if (candidate.Bitrate >= 192)                 return TrackTier.Silver;
         if (candidate.Bitrate >= 128)                 return TrackTier.Bronze;
-        return TrackTier.Trash;
-    }
-
-    private TrackTier DjReadyTier(Track candidate, bool isLossless, bool highBitrate, bool freeSlot)
-    {
-        bool sonicHit = IsBpmMatch(candidate) || IsKeyMatch(candidate) || IsEnergyMatch(candidate);
-
-        // Diamond: full package
-        if (sonicHit && (isLossless || highBitrate) && freeSlot) return TrackTier.Diamond;
-        // Gold: sonic match + available, OR sonic match + high quality (but queued)
-        if (sonicHit && freeSlot)                                return TrackTier.Gold;
-        if (sonicHit && (isLossless || highBitrate))             return TrackTier.Gold;
-        // Silver: sonic match without great quality/availability, OR high quality without sonic
-        if (sonicHit)                                            return TrackTier.Silver;
-        if ((isLossless || highBitrate) && freeSlot)             return TrackTier.Silver;
-        // Bronze: decent quality
-        if (isLossless || highBitrate || candidate.Bitrate >= 192) return TrackTier.Bronze;
         return TrackTier.Trash;
     }
 

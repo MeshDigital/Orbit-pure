@@ -570,15 +570,9 @@ public class SearchResultMatcher
         if (string.IsNullOrEmpty(expected) || string.IsNullOrEmpty(actual))
             return 0.0;
 
-        // Normalize for case-insensitive comparison
-        var exp = expected.ToLowerInvariant().Trim();
-        var act = actual.ToLowerInvariant().Trim();
-
-        if (_config.EnableFuzzyNormalization)
-        {
-            exp = NormalizeFuzzy(exp);
-            act = NormalizeFuzzy(act);
-        }
+        // Normalize for case-insensitive comparison (always on — Epic #543 / #546)
+        var exp = NormalizeFuzzy(expected.ToLowerInvariant().Trim());
+        var act = NormalizeFuzzy(actual.ToLowerInvariant().Trim());
 
         // Epic #543 / #545: After normalising, an empty string on either side must score 0, never 1.
         if (string.IsNullOrEmpty(exp) || string.IsNullOrEmpty(act))

@@ -732,6 +732,7 @@ public partial class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 OnPropertyChanged(nameof(SearchProfileNonStrict));
                 OnPropertyChanged(nameof(SearchProfileStrict));
                 OnPropertyChanged(nameof(SearchProfileStricter));
+                OnPropertyChanged(nameof(SearchProfileCustom));
                 OnPropertyChanged(nameof(SearchProfileModeText));
                 SaveSettings();
             }
@@ -750,6 +751,7 @@ public partial class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 OnPropertyChanged(nameof(SearchProfileNonStrict));
                 OnPropertyChanged(nameof(SearchProfileStrict));
                 OnPropertyChanged(nameof(SearchProfileStricter));
+                OnPropertyChanged(nameof(SearchProfileCustom));
                 OnPropertyChanged(nameof(SearchProfileModeText));
                 SaveSettings();
             }
@@ -806,6 +808,9 @@ public partial class SettingsViewModel : INotifyPropertyChanged, IDisposable
             ApplySearchProfile("Stricter");
         }
     }
+
+    public bool SearchProfileCustom =>
+        SearchQualityProfiles.Detect(_config) == SearchQualityProfileKind.Custom;
 
     public string SearchProfileModeText => SearchQualityProfiles.Describe(_config);
 
@@ -1502,23 +1507,6 @@ public partial class SettingsViewModel : INotifyPropertyChanged, IDisposable
     }
 
     // Phase 2.4: Strategy Command Pattern
-    public ObservableCollection<RankingStrategyViewModel> Strategies { get; } = new();
-
-    private RankingStrategyViewModel? _selectedStrategy;
-    public RankingStrategyViewModel? SelectedStrategy
-    {
-        get => _selectedStrategy;
-        set
-        {
-            if (SetProperty(ref _selectedStrategy, value) && value != null)
-            {
-                ApplyStrategy(value.Id);
-            }
-        }
-    }
-
-    public ICommand SelectStrategyCommand { get; }
-
     // ── Safety Gate Properties (bound to SettingsPage toggles) ───────────
 
     public bool EnforceFileIntegrity
@@ -1556,68 +1544,6 @@ public partial class SettingsViewModel : INotifyPropertyChanged, IDisposable
             SaveSettings();
         }
     }
-
-    private void InitializeStrategies()
-    {
-        Strategies.Add(new RankingStrategyViewModel
-        {
-            Id = "Quality First",
-            Title = "Audiophile",
-            Description = "Prioritizes lossless, high-bitrate, and perfect rips. No compromises.",
-            IsSelected = _config.RankingProfile == "Quality First"
-        });
-
-        Strategies.Add(new RankingStrategyViewModel
-        {
-            Id = "Balanced",
-            Title = "Balanced",
-            Description = "The best mix of quality, speed, and metadata accuracy. Recommended.",
-            IsSelected = _config.RankingProfile == "Balanced" || string.IsNullOrEmpty(_config.RankingProfile)
-        });
-
-        Strategies.Add(new RankingStrategyViewModel
-        {
-            Id = "DJ Mode",
-            Title = "DJ Ready",
-            Description = "Prioritizes BPM, Key, and mix-friendly files (Extended Mixes).",
-            IsSelected = _config.RankingProfile == "DJ Mode"
-        });
-
-        // Set initial selection without triggering logic (already loaded from config)
-        _selectedStrategy = Strategies.FirstOrDefault(s => s.IsSelected);
-    }
-
-    private void ExecuteSelectStrategy(RankingStrategyViewModel? strategy)
-    {
-        if (strategy == null) return;
-
-        foreach (var s in Strategies) s.IsSelected = false;
-        strategy.IsSelected = true;
-        SelectedStrategy = strategy; // Triggers ApplyStrategy
-    }
-
-    private void ApplyStrategy(string strategyId)
-    {
-        _config.RankingProfile = strategyId;
-        _logger.LogInformation("Applying Search Strategy: {Strategy}", strategyId);
-
-        // Map ID to SearchPolicy
-        if (strategyId == "Quality First") _config.SearchPolicy = SearchPolicy.QualityFirst();
-        else if (strategyId == "DJ Mode") _config.SearchPolicy = SearchPolicy.DjReady();
-        else
-        {
-            // Balanced / Default
-            _config.SearchPolicy = new SearchPolicy
-            {
-                Priority = SearchPriority.QualityFirst,
-                PreferredMinBitrate = 320,
-                RelaxationParams = new() // Moderate relaxation
-            };
-        }
-
-        SaveSettings();
-    }
-
 
     // Unified State Management
     private SpotifyAuthStatus _spotifyState = SpotifyAuthStatus.Disconnected;
