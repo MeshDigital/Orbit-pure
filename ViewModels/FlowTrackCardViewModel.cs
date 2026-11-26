@@ -101,6 +101,14 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         set => this.RaiseAndSetIfChanged(ref _hasSavedTransition, value);
     }
 
+    private string _transitionLabel = "Auto · phrase-aligned";
+    /// <summary>Human-readable label for the transition into the next track (#530, #533).</summary>
+    public string TransitionLabel
+    {
+        get => _transitionLabel;
+        set => this.RaiseAndSetIfChanged(ref _transitionLabel, value);
+    }
+
     private bool _nextNeedsAnalysis;
     private bool _nextNeedsAttention;
 

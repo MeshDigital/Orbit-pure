@@ -110,14 +110,7 @@
                     </StackPanel>
                     <ToggleButton Classes="chip" IsChecked="{Binding MixCuesOnly}" Content="{Binding CueFilterButtonText}"
                                   VerticalAlignment="Center" Margin="0,4,8,4"
-                                  ToolTip.Tip="Focused view: hide general Workstation cues and show only Mix-In / Mix-Out points. Cue editing temporarily shows every cue; nothing is deleted."/>
-                    <ToggleButton Classes="chip" IsChecked="{Binding IsCueEditMode}" VerticalAlignment="Center" Margin="0,4,0,4"
-                                  ToolTip.Tip="Edit cues here: drag a cue line to move it, click one to rename it or change its role, right-click to add one. Arrow keys nudge the selected cue; D sets a drop. Edits save when you move on.">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <PathIcon Data="{StaticResource icon_edit}" Width="12" Height="12"/>
-                            <TextBlock Text="Edit cues"/>
-                        </StackPanel>
-                    </ToggleButton>
+                                  ToolTip.Tip="Focused view: show only Mix-In / Mix-Out cues. Edit cues in Cue Forge."/>
                     <TextBlock Classes="caption" Text="{Binding SelectedPresetDescription}" Margin="16,4,0,4"
                                VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="360"/>
                 </WrapPanel>
