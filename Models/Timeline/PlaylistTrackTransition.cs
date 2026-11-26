@@ -38,6 +38,12 @@ public class PlaylistTrackTransition
     /// <summary>Seconds into the incoming track where playback starts.</summary>
     public double? TargetTriggerSeconds { get; set; }
 
+    /// <summary>
+    /// Epic #517 / FO1d (#521): when true (default), this transition also answers for the same track
+    /// pair in other playlists/sets unless overridden. False = "This playlist only".
+    /// </summary>
+    public bool UseAsPairDefault { get; set; } = true;
+
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 
     /// <summary>Bars → beats (4 beats per bar) for the DSP layer, which works in beats.</summary>

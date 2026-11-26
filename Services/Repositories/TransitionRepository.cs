@@ -70,7 +70,7 @@ public class TransitionRepository : ITransitionRepository
                     TransitionScopeKind.Playlist,
                     outHash,
                     inHash,
-                    useAsPairDefault: hasPairHashes));
+                    useAsPairDefault: hasPairHashes && transition.UseAsPairDefault));
             }
             else
             {
@@ -79,7 +79,7 @@ public class TransitionRepository : ITransitionRepository
                     TransitionScopeKind.Playlist,
                     outHash ?? existing.OutgoingTrackHash,
                     inHash ?? existing.IncomingTrackHash,
-                    useAsPairDefault: hasPairHashes && existing.UseAsPairDefault,
+                    useAsPairDefault: hasPairHashes && transition.UseAsPairDefault,
                     existingId: existing.Id);
                 context.Entry(existing).CurrentValues.SetValues(updated);
             }
@@ -160,6 +160,7 @@ public class TransitionRepository : ITransitionRepository
             LoopRepeats = e.LoopRepeats,
             SourceTriggerSeconds = e.SourceTriggerSeconds,
             TargetTriggerSeconds = e.TargetTriggerSeconds,
+            UseAsPairDefault = e.UseAsPairDefault,
             UpdatedAtUtc = e.UpdatedAtUtc,
         };
     }

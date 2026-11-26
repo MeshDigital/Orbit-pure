@@ -1099,6 +1099,10 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
 
     private async Task SaveRatingAsync()
     {
+        // Epic #517 / FO1e (#522): core playlist editor never writes into TransitionKnowledge — Sets only.
+        if (!IsSetContext)
+            return;
+
         if (RatingService is not { } ratings)
         {
             StatusMessage = "Rating isn't available right now.";
@@ -1249,6 +1253,8 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
         }
         var applied = saved ?? fromHistory?.Transition;
         HasSavedTransition = saved != null;
+        _thisPlaylistOnly = saved != null && !saved.UseAsPairDefault;
+        this.RaisePropertyChanged(nameof(ThisPlaylistOnly));
         _customEchoDecayFactor = applied?.EchoDecayFactor;
         _customFilterStartFrequency = applied?.FilterStartFrequency;
         _customFilterEndFrequency = applied?.FilterEndFrequency;
@@ -1720,6 +1726,24 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
         private set { this.RaiseAndSetIfChanged(ref _hasSavedTransition, value); RaiseSaveStateChanged(); }
     }
 
+    private bool _thisPlaylistOnly;
+    /// <summary>
+    /// Epic #517 / FO1d (#521): when true, saving writes UseAsPairDefault = false so the transition
+    /// applies only here and won't be reused for the same track pair in other playlists.
+    /// </summary>
+    public bool ThisPlaylistOnly
+    {
+        get => _thisPlaylistOnly;
+        set
+        {
+            if (_thisPlaylistOnly != value)
+            {
+                this.RaiseAndSetIfChanged(ref _thisPlaylistOnly, value);
+                RefreshDirtyState();
+            }
+        }
+    }
+
     private bool _isDirty;
     /// <summary>The editor differs from what was loaded (the saved transition, or the Auto plan).</summary>
     public bool IsDirty
@@ -1908,6 +1932,7 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
             LoopRepeats = IsCustomMode ? CustomLoopRepeats : null,
             SourceTriggerSeconds = EffectiveSourceTriggerSeconds,
             TargetTriggerSeconds = TargetTriggerSeconds,
+            UseAsPairDefault = !ThisPlaylistOnly,
         };
 
         try
