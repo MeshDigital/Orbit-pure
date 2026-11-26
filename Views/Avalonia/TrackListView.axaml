@@ -195,7 +195,14 @@
                             <PathIcon Data="{StaticResource icon_close}" Width="10" Height="10"/>
                         </StackPanel>
                     </Button>
-                    <Button Classes="secondary small" Command="{Binding ClearDuplicateFilterCommand}"
+                    <Button Classes="secondary small" Command="{Binding ClearGenreFilterCommand}"
+                    IsVisible="{Binding HasGenreFilter}" ToolTip.Tip="Remove the genre filter">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <TextBlock Text="{Binding GenreFilterLabel}"/>
+                    <PathIcon Data="{StaticResource icon_close}" Width="10" Height="10"/>
+                </StackPanel>
+            </Button>
+            <Button Classes="secondary small" Command="{Binding ClearDuplicateFilterCommand}"
                             IsVisible="{Binding HasDuplicateFilter}" ToolTip.Tip="Stop showing only duplicates">
                         <StackPanel Orientation="Horizontal" Spacing="4">
                             <TextBlock Text="Duplicates"/>

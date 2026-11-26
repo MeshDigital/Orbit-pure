@@ -26,7 +26,7 @@ public readonly record struct GenreKey(GenreBucket Bucket, string? Subgenre = nu
         ? "Unclassified"
         : string.IsNullOrWhiteSpace(Subgenre)
             ? GenreTaxonomy.CanonicalDisplay(Bucket, null)
-            : GenreTaxonomy.CanonicalDisplay(Bucket, Subgenre);
+            : Subgenre.Trim();
 
     public bool Matches(GenreKey trackKey)
     {

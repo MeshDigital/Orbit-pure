@@ -452,17 +452,56 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
         }
     }
 
-    /// <summary>The hash filter for DB-backed lists: duplicates and/or grid review (intersected when both are on).</summary>
+    private readonly SLSKDONET.Services.Library.LibraryGenreIndex? _genreIndex;
+    private SLSKDONET.Services.Library.GenreKey? _genreFilter;
+
+    /// <summary>
+    /// Active genre filter from <see cref="SLSKDONET.Services.Library.LibraryGenreIndex"/> (Epic #561 / #563 GV2).
+    /// Applied on both the DB-paged and in-memory paths and preserved in Mix mode.
+    /// </summary>
+    public SLSKDONET.Services.Library.GenreKey? GenreFilter
+    {
+        get => _genreFilter;
+        set
+        {
+            if (EqualityComparer<SLSKDONET.Services.Library.GenreKey?>.Default.Equals(_genreFilter, value))
+                return;
+            _genreFilter = value;
+            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(HasGenreFilter));
+            this.RaisePropertyChanged(nameof(GenreFilterLabel));
+            this.RaisePropertyChanged(nameof(HasActiveFilters));
+            ScheduleViewStateSave();
+            _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
+        }
+    }
+
+    public bool HasGenreFilter => _genreFilter.HasValue;
+
+    public string GenreFilterLabel => _genreFilter is { } g ? $"Genre: {g.DisplayName}" : string.Empty;
+
+    private HashSet<string>? GenreHashFilter =>
+        _genreFilter is { } gf && _genreIndex != null
+            ? new HashSet<string>(_genreIndex.GetHashes(gf), StringComparer.Ordinal)
+            : null;
+
+    /// <summary>The hash filter for DB-backed lists: duplicates, grid review, and/or genre (intersected when combined).</summary>
     private HashSet<string>? EffectiveHashFilter
     {
         get
         {
-            var grid = _isGridReviewFilter ? _gridReviewHashes : null;
-            if (grid is null) return DuplicateHashesFilter;
-            if (DuplicateHashesFilter is null) return grid;
-            var both = new HashSet<string>(DuplicateHashesFilter);
-            both.IntersectWith(grid);
-            return both;
+            HashSet<string>? result = DuplicateHashesFilter != null ? new HashSet<string>(DuplicateHashesFilter, StringComparer.Ordinal) : null;
+            if (_isGridReviewFilter && _gridReviewHashes != null)
+            {
+                if (result == null) result = new HashSet<string>(_gridReviewHashes, StringComparer.Ordinal);
+                else result.IntersectWith(_gridReviewHashes);
+            }
+            if (GenreHashFilter is { } genreHashes)
+            {
+                if (result == null) result = genreHashes;
+                else result.IntersectWith(genreHashes);
+            }
+            return result;
         }
     }
 
@@ -709,7 +748,7 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
         nameof(IsFilterNeedsReview), nameof(IsFilterLiked), nameof(CamelotKeyFilter), nameof(QualityTierFilter),
         nameof(IsBouncerActive), nameof(VibeFilter), nameof(IsFilterFlac), nameof(IsFilterMp3), nameof(IsFilterWav),
         nameof(IsFilterLossless), nameof(IsFilterQualityGold), nameof(IsFilterQualityVerified),
-        nameof(IsFilterQualityReview), nameof(DuplicateHashesFilter), nameof(FilterArtist), nameof(FilterTitle),
+        nameof(IsFilterQualityReview), nameof(GenreFilter), nameof(DuplicateHashesFilter), nameof(FilterArtist), nameof(FilterTitle),
     };
 
     /// <summary>True when anything narrows the list. Drives the toolbar's "Clear" button and the
@@ -721,12 +760,13 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
         || _isFilterFlac || _isFilterMp3 || _isFilterWav || _isFilterLossless
         || _isFilterQualityGold || _isFilterQualityVerified || _isFilterQualityReview
         || _duplicateHashesFilter != null
-        || !string.IsNullOrWhiteSpace(_filterArtist) || !string.IsNullOrWhiteSpace(_filterTitle)
-        || StyleFilters.Any(f => f.IsSelected);
+        || _genreFilter.HasValue
+        || !string.IsNullOrWhiteSpace(_filterArtist) || !string.IsNullOrWhiteSpace(_filterTitle);
 
     public System.Windows.Input.ICommand ClearFiltersCommand { get; private set; } = null!;
 
     public System.Windows.Input.ICommand ClearCamelotKeyFilterCommand { get; private set; } = null!;
+    public System.Windows.Input.ICommand ClearGenreFilterCommand { get; private set; } = null!;
     public System.Windows.Input.ICommand ClearDuplicateFilterCommand { get; private set; } = null!;
 
     /// <summary>Resets every filter (search, status, quality, key, duplicates, style) in one go.</summary>
@@ -753,13 +793,10 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(IsTierHighFilter));
         this.RaisePropertyChanged(nameof(IsTierLowFilter));
         DuplicateHashesFilter = null;
-        foreach (var style in StyleFilters.Where(f => f.IsSelected).ToList())
-        {
-            style.PropertyChanged -= OnStyleFilterChanged;
-            style.IsSelected = false;
-            style.PropertyChanged += OnStyleFilterChanged;
-        }
-        _selectedStyleNames.Clear();
+        _genreFilter = null;
+        this.RaisePropertyChanged(nameof(GenreFilter));
+        this.RaisePropertyChanged(nameof(HasGenreFilter));
+        this.RaisePropertyChanged(nameof(GenreFilterLabel));
         ScheduleViewStateSave();
         this.RaisePropertyChanged(nameof(HasActiveFilters));
         RefreshFilteredTracks();
@@ -1007,69 +1044,6 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
 
     public PlaylistTrackViewModel? LeadSelectedTrack => SelectedTracks.FirstOrDefault();
 
-    // Phase 15: Style Filters
-    public ObservableCollection<StyleFilterItem> StyleFilters { get; } = new();
-
-    private void OnStyleFilterChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(StyleFilterItem.IsSelected))
-        {
-            _selectedStyleNames = StyleFilters.Where(f => f.IsSelected).Select(f => f.Style.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            this.RaisePropertyChanged(nameof(HasActiveFilters));
-            ScheduleViewStateSave();
-            RefreshFilteredTracks();
-        }
-    }
-
-    private bool _isLoadingStyles;
-    public async Task LoadStyleFiltersAsync()
-    {
-        if (_isLoadingStyles) return;
-        _isLoadingStyles = true;
-        
-        try 
-        {
-            var styles = await _libraryService.GetStyleDefinitionsAsync();
-            
-            _logger.LogInformation("Loading {Count} style definitions from database", styles.Count);
-            
-            // Deduplicate by Name to prevent redundant UI chips (User's specific request)
-            var uniqueStyles = styles
-                .GroupBy(s => s.Name)
-                .Select(g => g.First())
-                .OrderBy(s => s.Name)
-                .ToList();
-            
-            // Updates on UI Thread
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                // Detach event handlers before clearing
-                foreach (var item in StyleFilters) 
-                    item.PropertyChanged -= OnStyleFilterChanged;
-                
-                StyleFilters.Clear();
-
-                foreach (var style in uniqueStyles)
-                {
-                    var item = new StyleFilterItem(style);
-                    item.PropertyChanged += OnStyleFilterChanged;
-                    StyleFilters.Add(item);
-                }
-
-                ApplyStyleSelectionToLoadedFilters();
-                _logger.LogInformation("Loaded {Count} unique style filters into UI", StyleFilters.Count);
-            }, DispatcherPriority.Normal);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to load style filters");
-        }
-        finally
-        {
-            _isLoadingStyles = false;
-        }
-    }
-
     public System.Windows.Input.ICommand ToggleColumnFilterStripCommand { get; }
     public System.Windows.Input.ICommand SelectAllTracksCommand { get; }
     public System.Windows.Input.ICommand DeselectAllTracksCommand { get; }
@@ -1098,7 +1072,8 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
         SLSKDONET.Services.Similarity.SimilarityIndex similarityIndex,
         SLSKDONET.Services.Playlist.PlaylistOptimizer playlistOptimizer,
         INotificationService? notificationService = null,
-        SLSKDONET.Services.Library.ILibraryTrackListViewStateStore? viewStateStore = null)
+        SLSKDONET.Services.Library.ILibraryTrackListViewStateStore? viewStateStore = null,
+        SLSKDONET.Services.Library.LibraryGenreIndex? genreIndex = null)
     {
         _logger = logger;
         _libraryService = libraryService;
@@ -1113,6 +1088,9 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
         _playlistOptimizer = playlistOptimizer;
         _notificationService = notificationService;
         _viewStateStore = viewStateStore;
+        _genreIndex = genreIndex;
+        if (_genreIndex != null)
+            _genreIndex.Changed += OnGenreIndexChanged;
 
         ToggleMixModeCommand = ReactiveCommand.Create(() => IsMixModeEnabled = !IsMixModeEnabled);
         OpenMixTransitionCommand = ReactiveCommand.Create<PlaylistTrackViewModel?>(OpenMixTransition);
@@ -1144,6 +1122,7 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
         ClearFiltersCommand = ReactiveCommand.Create(ClearFilters);
         RetryLoadTracksCommand = ReactiveCommand.Create(RefreshFilteredTracks);
         ClearCamelotKeyFilterCommand = ReactiveCommand.Create(() => { CamelotKeyFilter = null; });
+        ClearGenreFilterCommand = ReactiveCommand.Create(() => { GenreFilter = null; });
         ClearDuplicateFilterCommand = ReactiveCommand.Create(() => { DuplicateHashesFilter = null; RefreshFilteredTracks(); });
 
         // Any filter change re-evaluates HasActiveFilters (Clear button + empty-state wording).
@@ -1186,9 +1165,6 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
         // Phase 6D: Local UI sync for track moves
         _disposables.Add(eventBus.GetEvent<TrackMovedEvent>().Subscribe(evt => OnTrackMoved(evt)));
 
-        // Phase 15: Refresh filters when definitions change
-        _disposables.Add(eventBus.GetEvent<StyleDefinitionsUpdatedEvent>().Subscribe(evt => { _ = LoadStyleFiltersAsync(); }));
-        
         // Phase 11.6: Refresh UI when track is added (cloned)
         _disposables.Add(eventBus.GetEvent<TrackAddedEvent>().Subscribe(OnTrackAdded));
 
@@ -1260,9 +1236,12 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
             .DisposeWith(_disposables);
 
         InitializeViewStatePersistence();
+    }
 
-        // Initial Load
-        _ = LoadStyleFiltersAsync();
+    private void OnGenreIndexChanged(object? sender, EventArgs e)
+    {
+        if (_genreFilter.HasValue && !_isDisposed)
+            _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
     }
     
     // Explicit handler to support attach/detach
@@ -1313,12 +1292,8 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
                 if (track is IDisposable d) d.Dispose();
             }
             CurrentProjectTracks.Clear();
-            
-            foreach (var style in StyleFilters)
-            {
-                style.PropertyChanged -= OnStyleFilterChanged;
-            }
-            StyleFilters.Clear();
+            if (_genreIndex != null)
+                _genreIndex.Changed -= OnGenreIndexChanged;
         }
 
         _isDisposed = true;
@@ -1386,7 +1361,7 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
                 job.Id,
                 IsMixModeEnabled ? string.Empty : BuildEffectiveFilter(),
                 IsMixModeEnabled ? true : (IsFilterDownloaded ? true : (IsFilterPending ? false : null)),
-                IsMixModeEnabled ? null : EffectiveHashFilter,
+                IsMixModeEnabled ? GenreHashFilter : EffectiveHashFilter,
                 camelotKeyFilter: IsMixModeEnabled ? null : CamelotKeyFilter,
                 qualityTier: IsMixModeEnabled ? null : QualityTierFilter,
                 sortColumn: SortColumn,
@@ -1519,11 +1494,8 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
         {
              // Use in-memory tracks (useful for Smart Playlists that aren't DB crates)
              _logger.LogInformation("RefreshFilteredTracks: Using in-memory tracks (Count: {Count})", CurrentProjectTracks.Count);
-             // Computed once here instead of inside FilterTracks (which used to re-run this
-             // Where().ToList() for every single track being filtered — visible input lag on
-             // large projects with style filters active).
-             var selectedStyles = StyleFilters.Where(s => s.IsSelected).ToList();
-             var filtered = ApplyInMemorySort(CurrentProjectTracks.Where(t => FilterTracks(t, selectedStyles)).ToList());
+             var genreHashes = GenreHashFilter;
+             var filtered = ApplyInMemorySort(CurrentProjectTracks.Where(t => FilterTracks(t, genreHashes)).ToList());
 
              var oldVtcMemory = FilteredTracks as VirtualizedTrackCollection;
              FilteredTracks = new ObservableCollection<PlaylistTrackViewModel>(filtered);
@@ -1536,9 +1508,8 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
 
         // Standard Path: Virtualization for DB Projects or "All Tracks"
         // Combine global SearchText with per-column filters into a single query token.
-        // In Mix mode, every other filter is bypassed and only downloaded tracks show — same
-        // "dedicated view" rule as FilterTracks's early return above, applied to the DB-backed
-        // path (real playlists, not just in-memory Smart Playlists).
+        // In Mix mode, every other filter is bypassed except GenreFilter (Epic #561 / #563 GV2)
+        // so "mix this genre" mixes only that genre.
         var effectiveFilter = IsMixModeEnabled ? string.Empty : BuildEffectiveFilter();
         var virtualized = new VirtualizedTrackCollection(
             _logger,
@@ -1548,7 +1519,7 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
             selectedProjectId,
             effectiveFilter,
             IsMixModeEnabled ? true : (IsFilterDownloaded ? true : (IsFilterPending ? false : null)),
-            IsMixModeEnabled ? null : EffectiveHashFilter,
+            IsMixModeEnabled ? GenreHashFilter : EffectiveHashFilter,
             camelotKeyFilter: IsMixModeEnabled ? null : CamelotKeyFilter,
             qualityTier: IsMixModeEnabled ? null : QualityTierFilter,
             sortColumn: SortColumn,
@@ -1605,16 +1576,17 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
         return string.Join(" ", parts);
     }
 
-    private bool FilterTracks(object obj, System.Collections.Generic.List<StyleFilterItem> selectedStyles)
+    private bool FilterTracks(object obj, HashSet<string>? genreHashes)
     {
         if (obj is not PlaylistTrackViewModel track) return false;
 
-        // "+ Mix" is a dedicated build-transitions view — every other active filter (search,
-        // style, quality tier, etc.) is bypassed while it's on, and only downloaded tracks show,
-        // since a track that isn't on disk can't be previewed/mixed. Filters resume normally the
-        // moment Mix mode turns back off (see IsMixModeEnabled's setter, which re-runs
-        // RefreshFilteredTracks on both transitions).
-        if (IsMixModeEnabled) return track.State == PlaylistTrackState.Completed;
+        // "+ Mix" is a dedicated build-transitions view — every other active filter is bypassed
+        // except GenreFilter (Epic #561 / #563 GV2), so "mix this genre" mixes only that genre.
+        if (IsMixModeEnabled)
+        {
+            if (track.State != PlaylistTrackState.Completed) return false;
+            return genreHashes == null || genreHashes.Contains(track.Model.TrackUniqueHash);
+        }
 
         // Apply state filter first
         if (!IsFilterAll)
@@ -1632,25 +1604,9 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
                 return false;
         }
 
-        // Phase 15: Style Filtering
-        // If NO styles are selected, show ALL (ignore this filter level).
-        // If ANY styles are selected, track must match ONE of them.
-        if (selectedStyles.Any())
-        {
-            var trackStyle = track.Model.DetectedSubGenre;
-            if (string.IsNullOrEmpty(trackStyle)) return false; // No style = filtered out if filter active
-
-            bool match = false;
-            foreach (var style in selectedStyles)
-            {
-                 if (string.Equals(trackStyle, style.Style.Name, StringComparison.OrdinalIgnoreCase))
-                 {
-                     match = true;
-                     break;
-                 }
-            }
-            if (!match) return false;
-        }
+        // GV2 (#563): Genre filter from LibraryGenreIndex
+        if (genreHashes != null && !genreHashes.Contains(track.Model.TrackUniqueHash))
+            return false;
         
         // Phase 22: The Bouncer (Quality Control)
         if (IsBouncerActive)

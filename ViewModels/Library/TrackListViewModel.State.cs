@@ -21,7 +21,6 @@ public partial class TrackListViewModel
     private bool _isApplyingViewState;
     private DateTime _lastViewStateRestoreAt = DateTime.MinValue;
     private double _listScrollOffset;
-    private HashSet<string> _selectedStyleNames = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> ViewStatePropertyNames = new(StringComparer.Ordinal)
     {
@@ -31,7 +30,7 @@ public partial class TrackListViewModel
         nameof(QualityTierFilter), nameof(IsBouncerActive), nameof(VibeFilter),
         nameof(IsFilterFlac), nameof(IsFilterMp3), nameof(IsFilterWav), nameof(IsFilterLossless),
         nameof(IsFilterQualityGold), nameof(IsFilterQualityVerified), nameof(IsFilterQualityReview),
-        nameof(DuplicateHashesFilter), nameof(SortColumn), nameof(SortDescending),
+        nameof(GenreFilter), nameof(DuplicateHashesFilter), nameof(SortColumn), nameof(SortDescending),
         nameof(IsColumnFilterStripVisible), nameof(IsFormatColumnVisible),
         nameof(IsForensicsColumnVisible), nameof(IsDurationColumnVisible),
         nameof(ArtistColumnWidth), nameof(EnergyColumnWidth), nameof(FormatColumnWidth),
@@ -117,44 +116,48 @@ public partial class TrackListViewModel
         }
     }
 
-    internal LibraryTrackListViewState CaptureViewState() => new()
+    internal LibraryTrackListViewState CaptureViewState()
     {
-        SearchText = _searchText,
-        FilterArtist = _filterArtist,
-        FilterTitle = _filterTitle,
-        IsFilterAll = _isFilterAll,
-        IsFilterDownloaded = _isFilterDownloaded,
-        IsFilterPending = _isFilterPending,
-        IsFilterNeedsReview = _isFilterNeedsReview,
-        IsFilterLiked = _isFilterLiked,
-        CamelotKeyFilter = _camelotKeyFilter,
-        QualityTierFilter = _qualityTierFilter,
-        IsBouncerActive = _isBouncerActive,
-        VibeFilter = _vibeFilter,
-        IsFilterFlac = _isFilterFlac,
-        IsFilterMp3 = _isFilterMp3,
-        IsFilterWav = _isFilterWav,
-        IsFilterLossless = _isFilterLossless,
-        IsFilterQualityGold = _isFilterQualityGold,
-        IsFilterQualityVerified = _isFilterQualityVerified,
-        IsFilterQualityReview = _isFilterQualityReview,
-        SelectedStyles = _selectedStyleNames.ToList(),
-        DuplicateHashes = _duplicateHashesFilter?.ToList() ?? new List<string>(),
-        SortColumn = _sortColumn,
-        SortDescending = _sortDescending,
-        IsColumnFilterStripVisible = _isColumnFilterStripVisible,
-        IsFormatColumnVisible = _isFormatColumnVisible,
-        IsForensicsColumnVisible = _isForensicsColumnVisible,
-        IsDurationColumnVisible = _isDurationColumnVisible,
-        ArtistColumnWidth = _artistColumnWidth,
-        EnergyColumnWidth = _energyColumnWidth,
-        FormatColumnWidth = _formatColumnWidth,
-        ForensicsColumnWidth = _forensicsColumnWidth,
-        DurationColumnWidth = _durationColumnWidth,
-        RatingColumnWidth = _ratingColumnWidth,
-        PreparationColumnWidth = _preparationColumnWidth,
-        ScrollOffset = _listScrollOffset,
-    };
+        var state = new LibraryTrackListViewState
+        {
+            SearchText = _searchText,
+            FilterArtist = _filterArtist,
+            FilterTitle = _filterTitle,
+            IsFilterAll = _isFilterAll,
+            IsFilterDownloaded = _isFilterDownloaded,
+            IsFilterPending = _isFilterPending,
+            IsFilterNeedsReview = _isFilterNeedsReview,
+            IsFilterLiked = _isFilterLiked,
+            CamelotKeyFilter = _camelotKeyFilter,
+            QualityTierFilter = _qualityTierFilter,
+            IsBouncerActive = _isBouncerActive,
+            VibeFilter = _vibeFilter,
+            IsFilterFlac = _isFilterFlac,
+            IsFilterMp3 = _isFilterMp3,
+            IsFilterWav = _isFilterWav,
+            IsFilterLossless = _isFilterLossless,
+            IsFilterQualityGold = _isFilterQualityGold,
+            IsFilterQualityVerified = _isFilterQualityVerified,
+            IsFilterQualityReview = _isFilterQualityReview,
+            DuplicateHashes = _duplicateHashesFilter?.ToList() ?? new List<string>(),
+            SortColumn = _sortColumn,
+            SortDescending = _sortDescending,
+            IsColumnFilterStripVisible = _isColumnFilterStripVisible,
+            IsFormatColumnVisible = _isFormatColumnVisible,
+            IsForensicsColumnVisible = _isForensicsColumnVisible,
+            IsDurationColumnVisible = _isDurationColumnVisible,
+            ArtistColumnWidth = _artistColumnWidth,
+            EnergyColumnWidth = _energyColumnWidth,
+            FormatColumnWidth = _formatColumnWidth,
+            ForensicsColumnWidth = _forensicsColumnWidth,
+            DurationColumnWidth = _durationColumnWidth,
+            RatingColumnWidth = _ratingColumnWidth,
+            PreparationColumnWidth = _preparationColumnWidth,
+            ScrollOffset = _listScrollOffset,
+        };
+        state.SetGenreFilter(_genreFilter);
+        return state;
+    }
 
     internal void ApplyViewState(LibraryTrackListViewState state)
     {
@@ -182,7 +185,7 @@ public partial class TrackListViewModel
             _isFilterQualityGold = state.IsFilterQualityGold;
             _isFilterQualityVerified = state.IsFilterQualityVerified;
             _isFilterQualityReview = state.IsFilterQualityReview;
-            _selectedStyleNames = new HashSet<string>(state.SelectedStyles, StringComparer.OrdinalIgnoreCase);
+            _genreFilter = state.GetGenreFilter();
             _duplicateHashesFilter = state.DuplicateHashes.Count > 0
                 ? new HashSet<string>(state.DuplicateHashes, StringComparer.Ordinal)
                 : null;
@@ -205,11 +208,12 @@ public partial class TrackListViewModel
             this.RaisePropertyChanged(nameof(HasActiveFilters));
             this.RaisePropertyChanged(nameof(HasCamelotKeyFilter));
             this.RaisePropertyChanged(nameof(HasDuplicateFilter));
+            this.RaisePropertyChanged(nameof(HasGenreFilter));
+            this.RaisePropertyChanged(nameof(GenreFilterLabel));
             this.RaisePropertyChanged(nameof(IsTierLosslessFilter));
             this.RaisePropertyChanged(nameof(IsTierHighFilter));
             this.RaisePropertyChanged(nameof(IsTierLowFilter));
             RaiseSortIndicatorProperties();
-            ApplyStyleSelectionToLoadedFilters();
             RefitColumns();
             RefitToolbar();
             _lastViewStateRestoreAt = DateTime.UtcNow;
@@ -217,16 +221,6 @@ public partial class TrackListViewModel
         finally
         {
             _isApplyingViewState = false;
-        }
-    }
-
-    private void ApplyStyleSelectionToLoadedFilters()
-    {
-        foreach (var style in StyleFilters)
-        {
-            style.PropertyChanged -= OnStyleFilterChanged;
-            style.IsSelected = _selectedStyleNames.Contains(style.Style.Name);
-            style.PropertyChanged += OnStyleFilterChanged;
         }
     }
 

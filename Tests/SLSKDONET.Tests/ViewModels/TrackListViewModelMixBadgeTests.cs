@@ -38,7 +38,6 @@ public class TrackListViewModelMixBadgeTests
         // auto-property backed field) — GetUninitializedObject skips every field
         // initializer/constructor, so both are otherwise null here.
         SetField(sut, "_logger", NullLogger<TrackListViewModel>.Instance);
-        SetField(sut, "<StyleFilters>k__BackingField", new ObservableCollection<StyleFilterItem>());
         SetField(sut, "_limitedTracks", Enumerable.Empty<PlaylistTrackViewModel>());
         return sut;
     }

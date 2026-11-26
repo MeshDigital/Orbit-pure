@@ -23,7 +23,6 @@ public class LibraryTrackListViewStateTests
             PreparationColumnWidth = 20,
             ScrollOffset = -50,
         };
-        state.SelectedStyles.AddRange(new[] { "House", "house", "" });
         state.DuplicateHashes.AddRange(new[] { "a", "a", "" });
 
         state.Normalize();
@@ -33,7 +32,6 @@ public class LibraryTrackListViewStateTests
         Assert.Equal(TrackListColumnLayout.EnergyWidth, state.EnergyColumnWidth);
         Assert.Equal(96, state.PreparationColumnWidth);
         Assert.Equal(0, state.ScrollOffset);
-        Assert.Equal(new[] { "House" }, state.SelectedStyles);
         Assert.Equal(new[] { "a" }, state.DuplicateHashes);
     }
 
@@ -42,7 +40,6 @@ public class LibraryTrackListViewStateTests
     {
         var sut = (TrackListViewModel)System.Runtime.CompilerServices.RuntimeHelpers
             .GetUninitializedObject(typeof(TrackListViewModel));
-        SetField(sut, "<StyleFilters>k__BackingField", new ObservableCollection<StyleFilterItem>());
 
         var expected = new LibraryTrackListViewState
         {
@@ -72,7 +69,7 @@ public class LibraryTrackListViewStateTests
             PreparationColumnWidth = 136,
             ScrollOffset = 840,
         };
-        expected.SelectedStyles.Add("Techno");
+        expected.SetGenreFilter(new SLSKDONET.Services.Library.GenreKey(SLSKDONET.Engine.Analysis.GenreBucket.Techno));
         expected.DuplicateHashes.Add("same-hash");
 
         sut.ApplyViewState(expected);
@@ -102,7 +99,7 @@ public class LibraryTrackListViewStateTests
         Assert.Equal(90, actual.RatingColumnWidth);
         Assert.Equal(136, actual.PreparationColumnWidth);
         Assert.Equal(840, actual.ScrollOffset);
-        Assert.Equal(new[] { "Techno" }, actual.SelectedStyles);
+        Assert.Equal(new SLSKDONET.Services.Library.GenreKey(SLSKDONET.Engine.Analysis.GenreBucket.Techno), actual.GetGenreFilter());
         Assert.Equal(new[] { "same-hash" }, actual.DuplicateHashes);
     }
 
