@@ -675,10 +675,10 @@ public sealed partial class WorkstationViewModel
     // ── Cue auto-analysis ─────────────────────────────────────────────────────
 
     /// <summary>
-    /// For each track in <paramref name="tracks"/>: skip those that already have
-    /// cue points, then run <see cref="AnalyzeTrackStructureJob"/> for the rest.
-    /// Progress and busy-state are reported on the UI thread so the button can
-    /// show a spinner / progress text while running.
+    /// Prepares each eligible track in <paramref name="tracks"/> via
+    /// <see cref="Services.AudioAnalysis.IPlaylistPrepService"/> so Workstation and the playlist
+    /// "Prep for Mix" action share one pipeline. Progress and busy-state are reported on the UI
+    /// thread so the button can show a spinner / progress text while running.
     /// </summary>
     private async Task RunCueAnalysisAsync(List<PlaylistTrack> tracks)
     {
@@ -704,46 +704,62 @@ public sealed partial class WorkstationViewModel
         IsAnalyzing = true;
         AnalysisProgress = 0;
 
-        int done = 0;
-        int skipped = 0;
-        int total = tracks.Count;
-
         try
         {
-            foreach (var track in tracks)
+            if (_playlistPrepService is not null)
             {
-                if (ct.IsCancellationRequested) break;
-
-                string? hash = track.TrackUniqueHash;
-                if (string.IsNullOrWhiteSpace(hash))
+                var progress = new Progress<SLSKDONET.Services.AudioAnalysis.PlaylistPrepProgress>(p =>
                 {
-                    done++;
-                    continue;
-                }
+                    AnalysisProgress = p.Percent;
+                    AnalysisStatusText = p.StatusText;
+                });
 
-                // Skip tracks that already have cue data
-                var existing = await _cueService.GetByTrackIdAsync(hash, ct);
-                if (existing.Count > 0)
+                var result = await _playlistPrepService.PrepareTracksAsync(tracks, progress, ct);
+                AnalysisStatusText = result.WasCancelled
+                    ? $"Cancelled — {result.Prepared + result.Skipped} processed"
+                    : $"Done — {result.Prepared} analyzed · {result.Skipped} already ready"
+                      + (result.Failed > 0 ? $" · {result.Failed} failed" : string.Empty);
+            }
+            else
+            {
+                int done = 0;
+                int skipped = 0;
+                int total = tracks.Count;
+
+                foreach (var track in tracks)
                 {
-                    skipped++;
+                    if (ct.IsCancellationRequested) break;
+
+                    string? hash = track.TrackUniqueHash;
+                    if (string.IsNullOrWhiteSpace(hash))
+                    {
+                        done++;
+                        continue;
+                    }
+
+                    var existing = await _cueService.GetByTrackIdAsync(hash, ct);
+                    if (existing.Count > 0)
+                    {
+                        skipped++;
+                        done++;
+                        AnalysisProgress = (int)(done * 100.0 / total);
+                        AnalysisStatusText = $"Skipped {skipped} · {done}/{total}";
+                        continue;
+                    }
+
+                    var shortHash = hash.Length > 8 ? hash[..8] : hash;
+                    AnalysisStatusText = $"Analyzing {track.Title ?? shortHash}… ({done + 1}/{total})";
+
+                    await _analyzeJob.ExecuteAsync(hash, ct);
+
                     done++;
                     AnalysisProgress = (int)(done * 100.0 / total);
-                    AnalysisStatusText = $"Skipped {skipped} · {done}/{total}";
-                    continue;
                 }
 
-                var shortHash = hash.Length > 8 ? hash[..8] : hash;
-                AnalysisStatusText = $"Analyzing {track.Title ?? shortHash}… ({done + 1}/{total})";
-
-                await _analyzeJob.ExecuteAsync(hash, ct);
-
-                done++;
-                AnalysisProgress = (int)(done * 100.0 / total);
+                AnalysisStatusText = ct.IsCancellationRequested
+                    ? $"Cancelled — {done} processed"
+                    : $"Done — {done - skipped} analyzed · {skipped} already had cues";
             }
-
-            AnalysisStatusText = ct.IsCancellationRequested
-                ? $"Cancelled — {done} processed"
-                : $"Done — {done - skipped} analyzed · {skipped} already had cues";
 
             if (ActivePlaylist is { } playlist)
             {

@@ -2275,6 +2275,17 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
         if (TrackHash is null || Session.TrackHash is null) return;
         if (_libraryService == null || _engineCueService == null) return;
 
+        var userCues = Session.Cues.Where(c => c.Source == CueSource.User).ToList();
+        if (userCues.Count > 0 && _dialogService is not null)
+        {
+            bool confirmed = await _dialogService.ConfirmAsync(
+                "Re-detect cues?",
+                $"This track has {userCues.Count} locked cue(s) you placed or imported. Re-detecting will keep your locked cues unchanged and regenerate only auto cues. Continue?",
+                confirmLabel: "Re-detect",
+                cancelLabel: "Cancel");
+            if (!confirmed) return;
+        }
+
         IsGenerating = true;
         try
         {
@@ -2300,15 +2311,16 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
                 vocalIntensity: features.VocalIntensity > 0 ? (double?)features.VocalIntensity : null,
                 profile: SelectedCueGenerationProfile);
 
-            var userCues = Session.Cues.Where(c => c.Source == CueSource.User).ToList();
             await _ui(() =>
             {
-                var merged = generatedEntities.Select(OrbitCue.FromEntity).ToList();
-                foreach (var u in userCues)
+                var lockedSectionRoles = userCues.Where(u => u.IsSectionMarker).Select(u => u.Role).ToHashSet();
+                var merged = new List<OrbitCue>(userCues);
+                foreach (var auto in generatedEntities.Select(OrbitCue.FromEntity))
                 {
-                    // Section markers are always kept: they bound regions, they don't compete with cues.
-                    bool conflicts = !u.IsSectionMarker && merged.Any(c => !c.IsLoop && Math.Abs(c.Timestamp - u.Timestamp) < 1.0);
-                    if (!conflicts) merged.Add(u);
+                    if (auto.IsSectionMarker && lockedSectionRoles.Contains(auto.Role)) continue;
+                    bool collidesWithUser = !auto.IsSectionMarker &&
+                        userCues.Any(u => u.IsLoop == auto.IsLoop && Math.Abs(u.Timestamp - auto.Timestamp) < 1.0);
+                    if (!collidesWithUser) merged.Add(auto);
                 }
                 ResolvePadConflicts(merged);
                 ApplyRekordboxColors(merged);

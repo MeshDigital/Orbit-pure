@@ -49,6 +49,7 @@ public sealed partial class WorkstationViewModel : ReactiveObject, IDisposable
     private readonly IDialogService? _dialogService;
     private readonly INotificationService? _notificationService;
     private readonly IFileInteractionService? _fileInteractionService;
+    private readonly SLSKDONET.Services.AudioAnalysis.IPlaylistPrepService? _playlistPrepService;
     private readonly BpmSyncService           _bpmSync = new();
     private readonly Dictionary<string, double> _flowTransitionLengthOverrides = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _flowTransitionPhraseMarkerOverrides = new(StringComparer.Ordinal);
@@ -634,13 +635,15 @@ public sealed partial class WorkstationViewModel : ReactiveObject, IDisposable
         SLSKDONET.Services.Library.PlaylistExportService? playlistExporter = null,
         IDialogService? dialogService = null,
         INotificationService? notificationService = null,
-        IFileInteractionService? fileInteractionService = null)
+        IFileInteractionService? fileInteractionService = null,
+        SLSKDONET.Services.AudioAnalysis.IPlaylistPrepService? playlistPrepService = null)
     {
         _logger = logger;
         _playlistExporter = playlistExporter;
         _dialogService = dialogService;
         _notificationService = notificationService;
         _fileInteractionService = fileInteractionService;
+        _playlistPrepService = playlistPrepService;
         _library           = library;
         _deckPair          = deckPair;
         _stemSeparator     = stemSeparator;
