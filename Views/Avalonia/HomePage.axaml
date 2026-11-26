@@ -271,7 +271,7 @@
                     </Border>
                 </StackPanel>
 
-                <!-- Discover: Recently added / Downloaded / For you, one tabbed panel -->
+                <!-- Discover: Recently added / Downloaded, one tabbed panel -->
                 <Border Classes="card">
                     <StackPanel Spacing="12">
                         <Grid ColumnDefinitions="Auto,*">
@@ -282,8 +282,6 @@
                                                   Command="{Binding SelectDiscoverTabCommand}" CommandParameter="RecentlyAdded"/>
                                     <ToggleButton Classes="chip" Content="Downloaded" IsChecked="{Binding IsDownloadedTabActive, Mode=OneWay}"
                                                   Command="{Binding SelectDiscoverTabCommand}" CommandParameter="Downloaded"/>
-                                    <ToggleButton Classes="chip" Content="For you" IsChecked="{Binding IsForYouTabActive, Mode=OneWay}"
-                                                  Command="{Binding SelectDiscoverTabCommand}" CommandParameter="ForYou"/>
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -365,43 +363,6 @@
                             </ScrollViewer>
                             <TextBlock Classes="caption" Text="Loading…" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding IsLoadingRecentDownloads}"/>
                             <TextBlock Classes="caption" Text="No completed downloads yet." HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowRecentDownloadsEmptyState}"/>
-                        </Grid>
-
-                        <!-- For you (Spotify recommendations) -->
-                        <Grid IsVisible="{Binding IsForYouTabActive}" MinHeight="72">
-                            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                                <ItemsControl ItemsSource="{Binding SpotifyRecommendations}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <StackPanel Orientation="Horizontal" Spacing="12"/>
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="svc:SpotifyTrackViewModel">
-                                            <Border Classes="tile" Width="240" Padding="8">
-                                                <Grid ColumnDefinitions="48,*,Auto" RowDefinitions="Auto,Auto,Auto">
-                                                    <Border Grid.RowSpan="3" Width="48" Height="48" CornerRadius="{StaticResource RadiusSm}" ClipToBounds="True" Background="{StaticResource BrushBg3}">
-                                                        <Image Source="{Binding Artwork.Image}" Stretch="UniformToFill"
-                                                               IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-                                                    </Border>
-                                                    <TextBlock Grid.Column="1" Classes="body-sm" FontWeight="SemiBold" Foreground="{StaticResource BrushText0}" Text="{Binding Title}" TextTrimming="CharacterEllipsis" Margin="8,0"/>
-                                                    <TextBlock Grid.Column="1" Grid.Row="1" Classes="caption" Text="{Binding Artist}" TextTrimming="CharacterEllipsis" Margin="8,0"/>
-                                                    <TextBlock Grid.Column="1" Grid.Row="2" Classes="caption" Text="In library" Foreground="{StaticResource BrushSuccess}" Margin="8,4,8,0"
-                                                               IsVisible="{Binding InLibrary}"/>
-                                                    <Button Grid.Column="2" Grid.RowSpan="3" Classes="icon small" VerticalAlignment="Center"
-                                                            Command="{ReflectionBinding $parent[UserControl].DataContext.QuickSearchCommand}"
-                                                            CommandParameter="{Binding}"
-                                                            ToolTip.Tip="Search Soulseek for this track">
-                                                        <PathIcon Data="{StaticResource icon_search}" Width="14" Height="14"/>
-                                                    </Button>
-                                                </Grid>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </ScrollViewer>
-                            <TextBlock Classes="caption" Text="No recommendations yet. Connect Spotify in Settings to get some."
-                                       HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding !SpotifyRecommendations.Count}"/>
                         </Grid>
                     </StackPanel>
                 </Border>

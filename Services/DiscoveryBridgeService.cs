@@ -41,51 +41,16 @@ public class DiscoveryBridgeService
 
         try
         {
-            // 1. Spotify Recommendations (Sonically Similar)
-            if (!string.IsNullOrEmpty(spotifyId))
-            {
-                var reco = await _spotifyEnrichment.GetRecommendationsForTrackAsync(spotifyId, 15);
-                foreach (var t in reco)
-                {
-                    if (seenTracks.Add($"{t.Artist}|{t.Title}"))
-                    {
-                        results.Add(new DiscoveryTrack
-                        {
-                            Artist = t.Artist ?? "Unknown",
-                            Title = t.Title ?? "Unknown",
-                            SpotifyId = t.Id,
-                            MatchReason = "Spotify Recommendation (Sonic)",
-                            ImageUrl = t.ImageUrl
-                        });
-                    }
-                }
-            }
-
-            // 2. MusicBrainz Deep Discovery (Relationship-based)
+            // 1. MusicBrainz Deep Discovery (Relationship-based)
+            // Note (Epic #508 / #510): Spotify GET /recommendations is unavailable for dev-mode apps,
+            // so external discovery relies on MusicBrainz and local sonic similarity.
             if (!string.IsNullOrEmpty(mbid))
             {
-                // Note: GetCreditsAsync returns producers/mixers. 
-                // In a full implementation, we'd then query recordings BY those people.
-                // For this bridge, we'll log the discovery path and add a few "same artist" discoveries as placeholders
-                // until we implement full credit-based search in MusicBrainzService.
                 var credits = await _musicBrainz.GetCreditsAsync(mbid);
                 if (credits != null)
                 {
                     _logger.LogInformation("Discovery Bridge: Found credits for {Artist} - {Title}. Producers: {Producers}", 
                         artist, title, string.Join(", ", credits.Producers));
-                    
-                    // TODO: In Phase 3.1, implement "Recordings by Producer" lookup in MusicBrainzService
-                }
-            }
-
-            // Fallback: If no external IDs, try to identify first
-            if (string.IsNullOrEmpty(spotifyId) && string.IsNullOrEmpty(mbid))
-            {
-                var idResult = await _spotifyEnrichment.IdentifyTrackAsync(artist, title);
-                if (idResult.Success && !string.IsNullOrEmpty(idResult.SpotifyId))
-                {
-                    // Recurse with ID
-                    return await DiscoverRelatedTracksAsync(artist, title, idResult.SpotifyId);
                 }
             }
         }

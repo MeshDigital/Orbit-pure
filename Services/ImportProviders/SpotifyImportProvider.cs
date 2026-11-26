@@ -147,9 +147,16 @@ public class SpotifyImportProvider : IStreamingImportProvider
 
         // Not connected: the public web page is the only source.
         List<SearchQuery> tracks;
+        var scrapeOutcome = SpotifyScraperOutcome.Empty;
         try
         {
             tracks = await ScrapeAsync(input);
+        }
+        catch (System.Net.Http.HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "Spotify public-page import network failure for {Url}", input);
+            tracks = new List<SearchQuery>();
+            scrapeOutcome = SpotifyScraperOutcome.NetworkError;
         }
         catch (Exception ex)
         {
@@ -159,11 +166,27 @@ public class SpotifyImportProvider : IStreamingImportProvider
 
         if (tracks.Count == 0)
         {
+            if (SpotifyImportErrors.IsPersonalisedMixInput(input))
+            {
+                throw new ImportSourceException(
+                    SpotifyImportErrors.PersonalisedMixMessage,
+                    requiresSignIn: false,
+                    canRetry: false);
+            }
+            if (scrapeOutcome == SpotifyScraperOutcome.NetworkError)
+            {
+                throw new ImportSourceException(
+                    "Couldn't reach Spotify's public page. Check your connection and try again.",
+                    requiresSignIn: false,
+                    canRetry: true);
+            }
+
             // Not connected and the public page failed too (private playlist, consent wall, bad
-            // link). Connecting the account is the usual fix.
+            // link). Connecting the account is the usual fix if the user owns it.
             throw new ImportSourceException(
-                "Couldn't read this Spotify link from its public page. Connect Spotify to import private or large playlists.",
-                requiresSignIn: true);
+                "Couldn't read this Spotify link from its public page. Make the playlist public, or connect Spotify if you own it.",
+                requiresSignIn: true,
+                canRetry: false);
         }
 
         yield return ScrapedBatch(tracks);
@@ -188,13 +211,23 @@ public class SpotifyImportProvider : IStreamingImportProvider
             input, SpotifyImportErrors.IsAccountNotAllowlisted(apiEx) ? "account not allowlisted for this Client ID" : apiEx.Message);
     }
 
-    /// <summary>When the public page fails too, the API's reason is the one worth showing.</summary>
+    /// <summary>When the public page fails too, combine the API refusal and scraper outcome into actionable copy.</summary>
     private async Task<List<SearchQuery>> ScrapeOrRethrowApiErrorAsync(string input, Exception apiFailure)
     {
         List<SearchQuery> tracks;
+        var scrapeOutcome = SpotifyImportErrors.IsPersonalisedMixInput(input)
+            ? SpotifyScraperOutcome.PersonalisedMix
+            : SpotifyScraperOutcome.Empty;
         try
         {
             tracks = await ScrapeAsync(input);
+        }
+        catch (System.Net.Http.HttpRequestException scrapeEx)
+        {
+            _logger.LogWarning(scrapeEx, "Spotify public-page fallback network failure for {Url}", input);
+            tracks = new List<SearchQuery>();
+            if (scrapeOutcome != SpotifyScraperOutcome.PersonalisedMix)
+                scrapeOutcome = SpotifyScraperOutcome.NetworkError;
         }
         catch (Exception scrapeEx)
         {
@@ -203,7 +236,7 @@ public class SpotifyImportProvider : IStreamingImportProvider
         }
 
         if (tracks.Count == 0)
-            throw SpotifyImportErrors.Translate(apiFailure);
+            throw SpotifyImportErrors.Translate(apiFailure, isAuthenticated: IsApiConfigured(), scraperOutcome: scrapeOutcome, input: input);
         return tracks;
     }
 

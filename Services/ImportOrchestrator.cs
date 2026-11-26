@@ -356,7 +356,7 @@ public class ImportOrchestrator
             var error = ex as ImportSourceException ?? ImportProviders.SpotifyImportErrors.Translate(ex);
             _logger.LogError(ex, "Import preview stream failed: {Message}", error.Message);
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                _previewViewModel.ShowError(error.Message, error.RequiresSignIn));
+                _previewViewModel.ShowError(error.Message, error.RequiresSignIn, error.CanRetry));
         }
     }
 
