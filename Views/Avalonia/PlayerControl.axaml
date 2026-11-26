@@ -140,17 +140,25 @@
                                                 </Button>
                                             </Grid>
                                             <!-- This row's transition into the next one; click to edit it on the Mix tab. -->
-                                            <Button IsVisible="{Binding ShowMixTransitionBadge}"
-                                                    Command="{Binding $parent[UserControl].DataContext.OpenMixTransitionCommand}"
-                                                    CommandParameter="{Binding}"
-                                                    Classes="ghost small" Margin="20,0,0,0"
-                                                    HorizontalAlignment="Left"
-                                                    ToolTip.Tip="Edit transition into the next track">
-                                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                                    <PathIcon Data="{StaticResource icon_mix}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
-                                                    <TextBlock Classes="caption" Text="{Binding TransitionPresetLabel}"/>
-                                                </StackPanel>
-                                            </Button>
+                                            <StackPanel Orientation="Horizontal" Spacing="4" Margin="20,0,0,0"
+                                                        IsVisible="{Binding ShowMixTransitionBadge}">
+                                                <Button Command="{Binding $parent[UserControl].DataContext.OpenMixTransitionCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        Classes="ghost small"
+                                                        HorizontalAlignment="Left"
+                                                        ToolTip.Tip="{Binding TransitionEarlierMixTooltip}">
+                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <PathIcon Data="{StaticResource icon_mix}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                        <TextBlock Classes="caption" Text="{Binding TransitionPresetLabel}"/>
+                                                    </StackPanel>
+                                                </Button>
+                                                <Button IsVisible="{Binding IsTransitionFromEarlierMix}"
+                                                        Command="{Binding $parent[UserControl].DataContext.UseAutoForPairCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        Classes="ghost small"
+                                                        Content="Use Auto instead"
+                                                        ToolTip.Tip="Override this pair with Auto for this playlist only"/>
+                                            </StackPanel>
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>
@@ -570,17 +578,25 @@
                                                     </StackPanel>
                                                 </Grid>
                                             </Button>
-                                            <Button IsVisible="{Binding ShowMixTransitionBadge}"
-                                                    Command="{Binding $parent[UserControl].DataContext.OpenMixTransitionCommand}"
-                                                    CommandParameter="{Binding}"
-                                                    Classes="ghost small" Margin="20,0,0,0"
-                                                    HorizontalAlignment="Left"
-                                                    ToolTip.Tip="Edit transition into the next track">
-                                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                                    <PathIcon Data="{StaticResource icon_mix}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
-                                                    <TextBlock Classes="caption" Text="{Binding TransitionPresetLabel}"/>
-                                                </StackPanel>
-                                            </Button>
+                                            <StackPanel Orientation="Horizontal" Spacing="4" Margin="20,0,0,0"
+                                                        IsVisible="{Binding ShowMixTransitionBadge}">
+                                                <Button Command="{Binding $parent[UserControl].DataContext.OpenMixTransitionCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        Classes="ghost small"
+                                                        HorizontalAlignment="Left"
+                                                        ToolTip.Tip="{Binding TransitionEarlierMixTooltip}">
+                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <PathIcon Data="{StaticResource icon_mix}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                        <TextBlock Classes="caption" Text="{Binding TransitionPresetLabel}"/>
+                                                    </StackPanel>
+                                                </Button>
+                                                <Button IsVisible="{Binding IsTransitionFromEarlierMix}"
+                                                        Command="{Binding $parent[UserControl].DataContext.UseAutoForPairCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        Classes="ghost small"
+                                                        Content="Use Auto instead"
+                                                        ToolTip.Tip="Override this pair with Auto for this playlist only"/>
+                                            </StackPanel>
                                         </StackPanel>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>

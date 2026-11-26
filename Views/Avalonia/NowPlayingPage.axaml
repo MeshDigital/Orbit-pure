@@ -95,6 +95,19 @@
                         <TextBlock Classes="mono muted" Text="{Binding CurrentTrack.EnergyRating, StringFormat='Energy {0}'}"/>
                         <TextBlock Classes="caption" Text="{Binding CurrentTrack.ForensicVerdictText}" VerticalAlignment="Center"/>
                     </StackPanel>
+                    <!-- Next transition label (#530) -->
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0"
+                                IsVisible="{Binding HasCurrentTransitionLabel}">
+                        <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                            <PathIcon Data="{StaticResource icon_mix}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}" Foreground="{StaticResource BrushAccent}"/>
+                            <TextBlock Classes="caption" Foreground="{StaticResource BrushText1}" Text="{Binding CurrentTransitionLabel}"/>
+                        </StackPanel>
+                        <Button IsVisible="{Binding IsCurrentTransitionFromEarlierMix}"
+                                Command="{Binding UseAutoForCurrentPairCommand}"
+                                Classes="ghost small"
+                                Content="Use Auto instead"
+                                ToolTip.Tip="Override this pair with Auto for this playlist only"/>
+                    </StackPanel>
                 </StackPanel>
 
                 <!-- Visualizer + artwork -->

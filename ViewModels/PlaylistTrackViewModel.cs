@@ -887,6 +887,31 @@ public partial class PlaylistTrackViewModel : INotifyPropertyChanged, Library.IL
         set => SetProperty(ref _transitionPresetLabel, value);
     }
 
+    private bool _isTransitionFromEarlierMix;
+    /// <summary>True when this hop's transition came from Step 2 (shared pair default from an earlier mix).</summary>
+    public bool IsTransitionFromEarlierMix
+    {
+        get => _isTransitionFromEarlierMix;
+        set => SetProperty(ref _isTransitionFromEarlierMix, value);
+    }
+
+    private string? _transitionEarlierMixSourceName;
+    public string? TransitionEarlierMixSourceName
+    {
+        get => _transitionEarlierMixSourceName;
+        set
+        {
+            if (SetProperty(ref _transitionEarlierMixSourceName, value))
+            {
+                OnPropertyChanged(nameof(TransitionEarlierMixTooltip));
+            }
+        }
+    }
+
+    public string TransitionEarlierMixTooltip => string.IsNullOrWhiteSpace(TransitionEarlierMixSourceName)
+        ? "Reused from an earlier mix — click to edit, or choose Use Auto instead for this playlist"
+        : $"Reused from '{TransitionEarlierMixSourceName}' — click to edit, or choose Use Auto instead for this playlist";
+
     private string _transitionBadgeColor = "#66888888";
     public string TransitionBadgeColor
     {

@@ -419,6 +419,26 @@ namespace SLSKDONET.ViewModels
             set { if (SetProperty(ref _repeatMode, value)) SchedulePreloadNext(); }
         }
 
+        private bool? _sessionMixModeOverride;
+
+        /// <summary>
+        /// True while the current playback session has mixing active (per-queue override from the
+        /// playlist Mix/Play buttons, falling back to <see cref="IsCrossfadeEnabled"/>).
+        /// </summary>
+        public bool IsMixSessionActive => _sessionMixModeOverride ?? IsCrossfadeEnabled;
+
+        /// <summary>
+        /// Applies per-queue Mix/Play mode for this playback session without silently mutating the
+        /// user's persisted <c>PlaybackCrossfadeEnabled</c> setting (Epic #517 / #529).
+        /// </summary>
+        internal void ApplySessionMixMode(bool mixModeEnabled)
+        {
+            _sessionMixModeOverride = mixModeEnabled;
+            _playerService.CrossfadeEnabled = mixModeEnabled;
+            OnPropertyChanged(nameof(IsMixSessionActive));
+            OnPropertyChanged(nameof(IsCrossfadeEnabled));
+        }
+
         /// <summary>Gapless/crossfade: when enabled, the preloaded next track overlaps and
         /// fades in while the current one fades out, instead of a hard cut at track boundaries.</summary>
         public bool IsCrossfadeEnabled
@@ -426,12 +446,44 @@ namespace SLSKDONET.ViewModels
             get => _playerService.CrossfadeEnabled;
             set
             {
-                if (_playerService.CrossfadeEnabled == value) return;
+                _sessionMixModeOverride = null;
+                if (_playerService.CrossfadeEnabled == value)
+                {
+                    OnPropertyChanged(nameof(IsMixSessionActive));
+                    return;
+                }
                 _playerService.CrossfadeEnabled = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(IsMixSessionActive));
                 PersistPlaybackSettings(c => c.PlaybackCrossfadeEnabled = value);
             }
         }
+
+        private string _currentTransitionLabel = string.Empty;
+        /// <summary>Label for the active track's upcoming transition shown in Now Playing (#530).</summary>
+        public string CurrentTransitionLabel
+        {
+            get => _currentTransitionLabel;
+            private set
+            {
+                if (SetProperty(ref _currentTransitionLabel, value))
+                {
+                    OnPropertyChanged(nameof(HasCurrentTransitionLabel));
+                }
+            }
+        }
+
+        public bool HasCurrentTransitionLabel => !string.IsNullOrWhiteSpace(CurrentTransitionLabel);
+
+        private bool _isCurrentTransitionFromEarlierMix;
+        public bool IsCurrentTransitionFromEarlierMix
+        {
+            get => _isCurrentTransitionFromEarlierMix;
+            private set => SetProperty(ref _isCurrentTransitionFromEarlierMix, value);
+        }
+
+        public ICommand UseAutoForPairCommand { get; private set; } = null!;
+        public ICommand UseAutoForCurrentPairCommand { get; private set; } = null!;
 
         /// <summary>Length of the crossfade overlap, in seconds. Only used when
         /// <see cref="IsCrossfadeEnabled"/> is true.</summary>
@@ -1077,9 +1129,12 @@ namespace SLSKDONET.ViewModels
                         DebounceSaveQueue();
                     }
                     
-                    // 3. Play the requested start track (or the first) if any were added
+                    // 3. Apply per-queue Mix/Play mode without flipping the user's global setting,
+                    //    then play the requested start track (or the first) if any were added.
                     if (Queue.Any())
                     {
+                        ApplySessionMixMode(evt.MixModeEnabled);
+
                         int startIndex = 0;
                         if (evt.StartTrackId is Guid startId)
                         {
@@ -1089,9 +1144,8 @@ namespace SLSKDONET.ViewModels
                         CurrentQueueIndex = startIndex;
                         PlayTrackAtIndex(startIndex);
 
-                        // Mix was enabled on the playlist when Play was pressed — surface the
-                        // transition settings for the first hop immediately instead of leaving the
-                        // user to discover the MIX module (and that it does anything) on their own.
+                        // Mix was enabled on the playlist when Mix was pressed — surface the
+                        // transition settings for the first hop immediately.
                         if (evt.MixModeEnabled)
                         {
                             ShowMixPanelForCurrentPair();
@@ -1253,6 +1307,8 @@ namespace SLSKDONET.ViewModels
             ToggleShuffleCommand = new RelayCommand(ToggleShuffle);
             ToggleRepeatCommand = new RelayCommand(ToggleRepeat);
             ToggleCrossfadeCommand = new RelayCommand(() => IsCrossfadeEnabled = !IsCrossfadeEnabled);
+            UseAutoForPairCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(UseAutoForPairAsync);
+            UseAutoForCurrentPairCommand = new AsyncRelayCommand(() => UseAutoForPairAsync(CurrentTrack));
             TogglePlayerDockCommand = new RelayCommand(TogglePlayerDock);
             ToggleQueueCommand = new RelayCommand(ToggleQueue);
             ToggleLikeCommand = new AsyncRelayCommand(ToggleLikeAsync); // Phase 9.3
