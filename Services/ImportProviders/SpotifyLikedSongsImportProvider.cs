@@ -127,7 +127,7 @@ public class SpotifyLikedSongsImportProvider : IImportProvider, IStreamingImport
             SpotifyUri = track.Uri,
             ReleaseDate = !string.IsNullOrEmpty(track.Album.ReleaseDate) ? DateTime.TryParse(track.Album.ReleaseDate, out var d) ? d : null : null,
             CanonicalDuration = track.DurationMs,
-            Popularity = track.Popularity,
+            Popularity = 0, // Removed in Spotify Feb 2026 dev-mode API
             AlbumArtUrl = track.Album.Images?.FirstOrDefault()?.Url,
             ForceRefresh = this.ForceRefresh
         };

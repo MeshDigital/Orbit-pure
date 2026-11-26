@@ -179,7 +179,7 @@ public class SpotifyEnrichmentService
                 OfficialArtist = track.Artists.FirstOrDefault()?.Name ?? artist,
                 OfficialTitle = track.Name,
                 AlbumArtUrl = track.Album.Images.OrderByDescending(i => i.Width).FirstOrDefault()?.Url ?? "",
-                ISRC = track.ExternalIds != null && track.ExternalIds.ContainsKey("isrc") ? track.ExternalIds["isrc"] : null,
+                ISRC = null, // ExternalIds marked removed in SpotifyAPI.Web 7.4.2
                 // Feature fields remain null here
             };
         }
@@ -241,64 +241,7 @@ public class SpotifyEnrichmentService
         }
     }
 
-    /// <summary>
-    /// Stage 3: Batch fetch Artist details to get Genres.
-    /// Tracks don't contain genres, but Artists do.
-    /// </summary>
-    public async Task<Dictionary<string, System.Collections.Generic.List<string>>> GetArtistGenresBatchAsync(System.Collections.Generic.List<string> artistIds)
-    {
-        var result = new Dictionary<string, System.Collections.Generic.List<string>>();
-        if (!artistIds.Any()) return result;
-
-        try
-        {
-            var client = await _authService.GetAuthenticatedClientAsync();
-            
-            // API allows max 50 IDs per call for Artists
-            var chunkedIds = artistIds.Chunk(50);
-            
-            foreach (var chunk in chunkedIds)
-            {
-                var req = new ArtistsRequest(chunk.ToList());
-                var artistsResponse = await client.Artists.GetSeveral(req);
-                
-                if (artistsResponse?.Artists != null)
-                {
-                    foreach (var artist in artistsResponse.Artists)
-                    {
-                        if (artist != null && artist.Genres != null && artist.Genres.Any())
-                        {
-                            result[artist.Id] = artist.Genres;
-                        }
-                    }
-                }
-            }
-        }
-        catch (APITooManyRequestsException ex)
-        {
-            _logger.LogError("Spotify 429 Rate Limit hit (Genres Batch). Backing off for {Seconds}s.", ex.RetryAfter.TotalSeconds);
-            _isServiceDegraded = true;
-            _retryAfter = DateTime.UtcNow.Add(ex.RetryAfter).AddSeconds(1);
-        }
-        catch (APIException apiEx)
-        {
-            if (apiEx.Response?.StatusCode == System.Net.HttpStatusCode.Forbidden)
-            {
-                 // Epic #508 / #510: Never trip the global circuit breaker on 403 from an unrelated endpoint.
-                 _logger.LogWarning("Spotify API 403 Forbidden in GetArtistGenresBatchAsync. Reason: {Body}", apiEx.Response?.Body ?? "Unknown");
-            }
-            else
-            {
-                _logger.LogError(apiEx, "Spotify API error in GetArtistGenresBatchAsync");
-            }
-        }
-        catch (Exception ex)
-        {
-             _logger.LogError(ex, "Failed to batch fetch artist genres");
-        }
-        
-        return result;
-    }
+    // Epic #508 / #515 & #516: GetArtistGenresBatchAsync (GET /artists several) removed by Spotify Feb 2026 and had no callers.
 
     /// <summary>
     /// Fetches the current user's personal playlists.
@@ -355,8 +298,8 @@ public class SpotifyEnrichmentService
             var client = await _authService.GetAuthenticatedClientAsync();
             if (client == null) return new System.Collections.Generic.List<object>();
 
-            var request = new PlaylistGetItemsRequest { Limit = 100 };
-            var firstPage = await client.Playlists.GetItems(playlistId, request);
+            var request = new PlaylistGetItemsRequest { Limit = InputParsers.SpotifyInputSource.PlaylistItemsPageSize };
+            var firstPage = await client.Playlists.GetPlaylistItems(playlistId, request);
             
             // Paginate to get all tracks
             var allItems = await client.PaginateAll(firstPage);

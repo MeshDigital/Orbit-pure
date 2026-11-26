@@ -1048,18 +1048,33 @@ public class SpotifyImportViewModel : INotifyPropertyChanged, IDisposable
             UserPlaylists.Clear();
 
             var client = await _authService.GetAuthenticatedClientAsync();
+            string? currentUserId = null;
+            try
+            {
+                currentUserId = (await client.UserProfile.Current())?.Id;
+            }
+            catch
+            {
+                // Non-fatal: still load playlists even if profile lookup fails.
+            }
+
             var page = await client.Playlists.CurrentUsers();
             
             await foreach (var playlist in client.Paginate(page))
             {
+                bool isOwnedOrCollab = playlist.Collaborative == true
+                    || (!string.IsNullOrEmpty(currentUserId) &&
+                        string.Equals(playlist.Owner?.Id, currentUserId, StringComparison.OrdinalIgnoreCase));
+
                 UserPlaylists.Add(new SpotifyPlaylistViewModel
                 {
                     Id = playlist.Id ?? "",
                     Name = playlist.Name ?? "Unnamed Playlist",
                     ImageUrl = playlist.Images?.FirstOrDefault()?.Url ?? "",
-                    TrackCount = playlist.Tracks?.Total ?? 0,
+                    TrackCount = playlist.Items?.Total ?? 0,
                     Owner = playlist.Owner?.DisplayName ?? "Unknown",
-                    Url = (playlist.ExternalUrls != null && playlist.ExternalUrls.ContainsKey("spotify")) ? playlist.ExternalUrls["spotify"] : ""
+                    Url = SLSKDONET.Services.InputParsers.SpotifyInputSource.BuildPlaylistUrl(playlist.Id, playlist.ExternalUrls),
+                    IsOwnedOrCollaborative = isOwnedOrCollab
                 });
             }
 

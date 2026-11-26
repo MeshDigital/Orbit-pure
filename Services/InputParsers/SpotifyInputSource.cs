@@ -140,19 +140,19 @@ public class SpotifyInputSource : IInputSource
             var playlistName = playlist.Name ?? "Spotify Playlist";
             var playlistOwner = playlist.Owner?.DisplayName;
             
-            var request = new PlaylistGetItemsRequest { Limit = 100 };
-            var items = await client.Playlists.GetItems(playlistId, request);
+            var request = new PlaylistGetItemsRequest { Limit = PlaylistItemsPageSize };
+            var items = await client.Playlists.GetPlaylistItems(playlistId, request);
             var total = items.Total ?? 0;
             var batch = new List<SearchQuery>();
             
             await foreach (var item in client.Paginate(items))
                 {
-                    if (item.Track is FullTrack track)
+                    if (ExtractFullTrack(item) is { } track)
                     {
                         var mapped = MapToSearchQuery(track, playlistName, total, playlistId);
                         mapped.SourceOwner = playlistOwner;
                         batch.Add(mapped);
-                        if (batch.Count >= 50)
+                        if (batch.Count >= PlaylistItemsPageSize)
                         {
                              yield return new List<SearchQuery>(batch);
                              batch.Clear();
@@ -196,18 +196,43 @@ public class SpotifyInputSource : IInputSource
         return queries;
     }
 
+	/// <summary>Max playlist page size under Spotify's Feb 2026 dev-mode rules (/playlists/{id}/items).</summary>
+	public const int PlaylistItemsPageSize = 50;
+
+	/// <summary>Max search limit under Spotify's Feb 2026 dev-mode rules (GET /search).</summary>
+	public const int MaxSearchLimit = 10;
+
+	/// <summary>
+	/// Extracts the <see cref="FullTrack"/> from a playlist item. Spotify's Feb 2026
+	/// <c>/playlists/{id}/items</c> endpoint populates <see cref="PlaylistTrack{T}.Item"/>
+	/// rather than the deprecated <c>Track</c> field.
+	/// </summary>
+	internal static FullTrack? ExtractFullTrack(PlaylistTrack<IPlayableItem> item) =>
+		item.Item as FullTrack;
+
+	/// <summary>Clamps a requested Spotify search limit to the Feb 2026 max of 10.</summary>
+	internal static int ClampSearchLimit(int requested) => Math.Clamp(requested, 1, MaxSearchLimit);
+
+	/// <summary>Builds a canonical Spotify playlist URL directly from its ID.</summary>
+	internal static string BuildPlaylistUrl(string? playlistId, Dictionary<string, string>? externalUrls = null)
+	{
+		if (!string.IsNullOrWhiteSpace(playlistId))
+			return $"https://open.spotify.com/playlist/{playlistId}";
+		return externalUrls != null && externalUrls.TryGetValue("spotify", out var url) ? url : string.Empty;
+	}
+
 	private async Task<List<SearchQuery>> FetchPlaylistTracksAsync(SpotifyClient client, string playlistId)
 	{
 		var queries = new List<SearchQuery>();
 		var playlist = await client.Playlists.Get(playlistId);
 		
-		var request = new PlaylistGetItemsRequest { Limit = 100 };
-		var items = await client.Playlists.GetItems(playlistId, request);
+		var request = new PlaylistGetItemsRequest { Limit = PlaylistItemsPageSize };
+		var items = await client.Playlists.GetPlaylistItems(playlistId, request);
 		var total = items.Total ?? 0;
 
 		await foreach (var item in client.Paginate(items))
 			{
-				if (item.Track is FullTrack track)
+				if (ExtractFullTrack(item) is { } track)
 				{
 					queries.Add(MapToSearchQuery(track, playlist.Name ?? "Spotify Playlist", total, playlistId));
 				}
@@ -234,23 +259,13 @@ public class SpotifyInputSource : IInputSource
 			SpotifyAlbumId = track.Album?.Id,
 			SpotifyArtistId = track.Artists?.FirstOrDefault()?.Id,
 			AlbumArtUrl = track.Album?.Images?.FirstOrDefault()?.Url,
-			Popularity = track.Popularity,
+			Popularity = 0, // Removed in Spotify Feb 2026 dev-mode API
 			CanonicalDuration = track.DurationMs,
 			ReleaseDate = DateTime.TryParse(track.Album?.ReleaseDate, out var rd) ? rd : null,
-            ISRC = track.ExternalIds != null && track.ExternalIds.ContainsKey("isrc") ? track.ExternalIds["isrc"] : null,
+            ISRC = null, // ExternalIds marked removed in SpotifyAPI.Web 7.4.2
             SpotifyPlaylistId = playlistId,
             SpotifyUri = track.Uri,
             IsEnriched = false,
-            // TrackHashUtil.Compute is the same formula Models.Track.UniqueHash uses — confirmed,
-            // by sampling real downloaded tracks, to be the dominant hash format already used
-            // across almost this entire library. Without a hash at all here, ImportOrchestrator's
-            // sync-merge dedup (keyed on TrackUniqueHash) could never match an incoming track
-            // against one already in the playlist, so every re-sync re-added every track as a
-            // brand-new row instead of recognizing it as already present. This path (the real
-            // Spotify API, via SpotifyInputSource) went untested for a long time because
-            // IsAuthenticated was never restored at startup — see App.axaml.cs — so imports almost
-            // always fell back to SpotifyScraperInputSource, which sets a DIFFERENT ("artist|title"
-            // with a pipe) hash — don't copy that format, it's the inconsistent one.
             TrackHash = TrackHashUtil.Compute(artist, title)
 		};
 	}
@@ -272,12 +287,11 @@ public class SpotifyInputSource : IInputSource
             SpotifyAlbumId = album.Id,
             SpotifyArtistId = track.Artists?.FirstOrDefault()?.Id,
             AlbumArtUrl = album.Images?.FirstOrDefault()?.Url, // Use FullAlbum images
-            Popularity = album.Popularity, // SimpleTrack lacks popularity, use Album's? Or fetch details? SimpleTrack usually lacks it.
+            Popularity = 0, // Removed in Spotify Feb 2026 dev-mode API
             CanonicalDuration = track.DurationMs,
             ReleaseDate = DateTime.TryParse(album.ReleaseDate, out var rd) ? rd : null,
             SpotifyPlaylistId = playlistId,
             SpotifyUri = track.Uri,
-            // SimpleTrack doesn't provide ExternalIds usually, so ISRC might be missing here without fetch
             IsEnriched = false,
             TrackHash = TrackHashUtil.Compute(artist, title)
         };
@@ -349,12 +363,12 @@ public class SpotifyInputSource : IInputSource
 		return null;
 	}
 
-    public async Task<List<SpotifyPlaylistViewModel>> SearchPlaylistsAsync(string query, int limit = 20)
+    public async Task<List<SpotifyPlaylistViewModel>> SearchPlaylistsAsync(string query, int limit = MaxSearchLimit)
     {
         if (string.IsNullOrWhiteSpace(query)) return new();
         
         var client = await GetClientAsync();
-        var searchRequest = new SearchRequest(SearchRequest.Types.Playlist, query) { Limit = limit };
+        var searchRequest = new SearchRequest(SearchRequest.Types.Playlist, query) { Limit = ClampSearchLimit(limit) };
         var response = await client.Search.Item(searchRequest);
         
         var results = new List<SpotifyPlaylistViewModel>();
@@ -367,21 +381,21 @@ public class SpotifyInputSource : IInputSource
                     Id = p.Id ?? "",
                     Name = p.Name ?? "Unnamed Playlist",
                     ImageUrl = p.Images?.FirstOrDefault()?.Url ?? "",
-                    TrackCount = p.Tracks?.Total ?? 0,
+                    TrackCount = p.Items?.Total ?? 0,
                     Owner = p.Owner?.DisplayName ?? "Unknown",
-                    Url = (p.ExternalUrls != null && p.ExternalUrls.ContainsKey("spotify")) ? p.ExternalUrls["spotify"] : ""
+                    Url = BuildPlaylistUrl(p.Id, p.ExternalUrls)
                 });
             }
         }
         return results;
     }
 
-    public async Task<List<SpotifyPlaylistViewModel>> SearchAlbumsAsync(string query, int limit = 20)
+    public async Task<List<SpotifyPlaylistViewModel>> SearchAlbumsAsync(string query, int limit = MaxSearchLimit)
     {
         if (string.IsNullOrWhiteSpace(query)) return new();
 
         var client = await GetClientAsync();
-        var searchRequest = new SearchRequest(SearchRequest.Types.Album, query) { Limit = limit };
+        var searchRequest = new SearchRequest(SearchRequest.Types.Album, query) { Limit = ClampSearchLimit(limit) };
         var response = await client.Search.Item(searchRequest);
 
         var results = new List<SpotifyPlaylistViewModel>();
@@ -396,7 +410,9 @@ public class SpotifyInputSource : IInputSource
                     ImageUrl = a.Images?.FirstOrDefault()?.Url ?? "",
                     TrackCount = a.TotalTracks,
                     Owner = a.Artists?.FirstOrDefault()?.Name ?? "Unknown Artist",
-                    Url = (a.ExternalUrls != null && a.ExternalUrls.ContainsKey("spotify")) ? a.ExternalUrls["spotify"] : ""
+                    Url = !string.IsNullOrWhiteSpace(a.Id)
+                        ? $"https://open.spotify.com/album/{a.Id}"
+                        : (a.ExternalUrls != null && a.ExternalUrls.ContainsKey("spotify")) ? a.ExternalUrls["spotify"] : ""
                 });
             }
         }
