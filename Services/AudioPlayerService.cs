@@ -991,21 +991,25 @@ namespace SLSKDONET.Services
 
         /// <summary>
         /// Loudness normalization à la ReplayGain, using each track's already-analyzed integrated
-        /// loudness instead of a separate scan pass. Deliberately attenuation-only (never boosts
-        /// a quiet track above unity gain) — boosting risks clipping since there's no limiter in
-        /// this signal chain, and every other player with this feature defaults the same way.
+        /// loudness (or a quick non-blocking stream estimate when LUFS hasn't been analysed yet).
+        /// Deliberately attenuation-only (never boosts a quiet track above unity gain) — boosting
+        /// risks clipping since there's no limiter in this signal chain, and every other player
+        /// with this feature defaults the same way.
         /// </summary>
-        private float ComputeLoudnessGain(double? trackLoudnessLufs)
+        internal static float ComputeLoudnessGainForTarget(bool enabled, double targetLufs, double? trackLoudnessLufs)
         {
             // AsLufs rejects legacy values (Essentia's 0–1 average_loudness was stored as "LUFS"
             // before re-analysis; treating 0.8 as LUFS cut every such track by ~15 dB).
-            if (!_config.LoudnessNormalizationEnabled
+            if (!enabled
                 || SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(trackLoudnessLufs) is not double lufs)
                 return 1f;
 
-            var gainDb = Math.Min(0.0, _config.LoudnessNormalizationTargetLufs - lufs);
+            var gainDb = Math.Min(0.0, targetLufs - lufs);
             return (float)Math.Pow(10.0, gainDb / 20.0);
         }
+
+        private float ComputeLoudnessGain(double? trackLoudnessLufs) =>
+            ComputeLoudnessGainForTarget(_config.LoudnessNormalizationEnabled, _config.LoudnessNormalizationTargetLufs, trackLoudnessLufs);
 
         private Deck CreateDeck(string filePath, double? trackLoudnessLufs = null)
         {
@@ -1013,11 +1017,26 @@ namespace SLSKDONET.Services
             // ffmpeg-decoded WAV instead of failing to load. FilePath is what is actually read,
             // so ExactSeek knows whether a decode-forward seek is needed.
             var reader = SLSKDONET.Services.Audio.PlayableAudio.Open(filePath, out var playablePath);
+            double? effectiveLufs = trackLoudnessLufs;
+            if (_config.LoudnessNormalizationEnabled
+                && SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter.AsLufs(effectiveLufs) is null)
+            {
+                try
+                {
+                    effectiveLufs = SLSKDONET.Services.AudioAnalysis.IntegratedLoudnessMeter
+                        .EstimateQuickLufsFromStream(reader);
+                }
+                catch (Exception ex)
+                {
+                    Serilog.Log.Warning(ex, "[AudioPlayerService] Quick loudness estimate failed for {File}; using unity gain.", filePath);
+                }
+            }
+
             var deck = new Deck
             {
                 FilePath = playablePath,
                 AudioFile = reader,
-                LoudnessGain = ComputeLoudnessGain(trackLoudnessLufs)
+                LoudnessGain = ComputeLoudnessGain(effectiveLufs)
             };
 
             // Set up channel and resampler for pitch (turntable style)

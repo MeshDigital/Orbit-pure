@@ -134,6 +134,78 @@ public static class IntegratedLoudnessMeter
     public static string Format(double? stored) =>
         AsLufs(stored) is double lufs ? lufs.ToString("0.0", CultureInfo.InvariantCulture) + " LUFS" : "—";
 
+    /// <summary>
+    /// Fast, non-blocking loudness estimate over the first <paramref name="maxScanSeconds"/> of an
+    /// <see cref="NAudio.Wave.ISampleProvider"/> (Epic #517 / #528). Uses the same K-weighted
+    /// BS.1770-4 <see cref="Accumulator"/> so unanalysed tracks still get level-matched playback
+    /// within a tight tolerance of full-track LUFS, without running full analysis.
+    /// </summary>
+    public static double? EstimateQuickLufs(NAudio.Wave.ISampleProvider source, double maxScanSeconds = 8.0)
+    {
+        if (source is null || maxScanSeconds <= 0) return null;
+        int sampleRate = source.WaveFormat.SampleRate;
+        int channels = source.WaveFormat.Channels;
+        if (sampleRate < 8000 || channels < 1) return null;
+
+        var accumulator = new Accumulator(sampleRate, channels);
+        int maxSamples = (int)Math.Min(int.MaxValue, Math.Ceiling(maxScanSeconds * sampleRate * channels));
+        var buffer = new float[Math.Min(16384, Math.Max(4096, channels * 2048))];
+        int totalRead = 0;
+        double sumSquares = 0;
+
+        while (totalRead < maxSamples)
+        {
+            int toRead = Math.Min(buffer.Length, maxSamples - totalRead);
+            int read = source.Read(buffer, 0, toRead);
+            if (read <= 0) break;
+
+            var slice = buffer.AsSpan(0, read);
+            accumulator.Add(slice);
+            for (int i = 0; i < read; i++) sumSquares += slice[i] * (double)slice[i];
+            totalRead += read;
+        }
+
+        if (totalRead == 0) return null;
+        var lufs = accumulator.GetIntegratedLufs();
+        if (AsLufs(lufs) is double valid) return valid;
+
+        // Sub-400 ms clip fallback: plain RMS in dBFS (clamped to valid LUFS gate range).
+        double rms = Math.Sqrt(sumSquares / totalRead);
+        if (rms <= 1e-6) return null;
+        return AsLufs(20.0 * Math.Log10(rms));
+    }
+
+    /// <summary>
+    /// Quick loudness estimate directly from a seekable <see cref="NAudio.Wave.WaveStream"/>,
+    /// restoring <see cref="NAudio.Wave.WaveStream.Position"/> afterwards so playback starts from
+    /// the beginning untouched. Seeks into the body of longer tracks (~25%) so silent/ambient
+    /// intros don't skew the gain estimate.
+    /// </summary>
+    public static double? EstimateQuickLufsFromStream(NAudio.Wave.WaveStream reader, double maxScanSeconds = 8.0)
+    {
+        if (reader is null || maxScanSeconds <= 0) return null;
+        long savedPos = reader.CanSeek ? reader.Position : 0;
+        try
+        {
+            if (reader.CanSeek && reader.TotalTime.TotalSeconds > 24.0)
+            {
+                int blockAlign = Math.Max(1, reader.WaveFormat.BlockAlign);
+                long targetByte = (long)(reader.Length * 0.25);
+                reader.Position = targetByte - (targetByte % blockAlign);
+            }
+
+            var sampleChannel = new NAudio.Wave.SampleProviders.SampleChannel(reader, true);
+            return EstimateQuickLufs(sampleChannel, maxScanSeconds);
+        }
+        finally
+        {
+            if (reader.CanSeek)
+            {
+                reader.Position = savedPos;
+            }
+        }
+    }
+
     private static double PowerToLufs(double power) => -0.691 + 10.0 * Math.Log10(power);
     private static double LufsToPower(double lufs) => Math.Pow(10.0, (lufs + 0.691) / 10.0);
 
