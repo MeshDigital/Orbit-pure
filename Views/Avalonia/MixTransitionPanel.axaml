@@ -319,9 +319,8 @@
                     </StackPanel>
                 </Expander>
 
-                <!-- Rating (rebuild plan P3.3): teaches the knowledge graph which transitions work.
-                     Stored by track pair, so it counts wherever these two tracks meet again. -->
-                <StackPanel Spacing="8">
+                <!-- Rating (rebuild plan P3.3 / FO1e #522): quarantined to Sets only; core playlist editor never writes ratings. -->
+                <StackPanel Spacing="8" IsVisible="{Binding IsSetContext}">
                     <TextBlock Classes="section" Text="RATE THIS TRANSITION"/>
                     <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding RatingSummaryText}"/>
                     <Border Classes="param-row">
@@ -345,6 +344,9 @@
             <!-- Pinned save footer — always reachable regardless of how far the content scrolls. -->
             <Border Grid.Row="1" Padding="16,10" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,1,0,0">
                 <StackPanel Spacing="8">
+                    <CheckBox Content="This playlist only"
+                              IsChecked="{Binding ThisPlaylistOnly, Mode=TwoWay}"
+                              ToolTip.Tip="When checked, this transition applies only here and won't be reused automatically for the same track pair in other playlists."/>
                     <Button Classes="primary" Content="Save transition" Command="{Binding SaveCommand}"
                             HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
                     <TextBlock Classes="caption" Text="{Binding StatusMessage}"

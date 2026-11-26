@@ -73,7 +73,7 @@ public sealed class SetTransitionRepository : ITransitionRepository
                     TransitionScopeKind.Set,
                     outHash,
                     inHash,
-                    useAsPairDefault: hasPairHashes));
+                    useAsPairDefault: hasPairHashes && transition.UseAsPairDefault));
             }
             else
             {
@@ -82,7 +82,7 @@ public sealed class SetTransitionRepository : ITransitionRepository
                     TransitionScopeKind.Set,
                     outHash ?? existing.OutgoingTrackHash,
                     inHash ?? existing.IncomingTrackHash,
-                    useAsPairDefault: hasPairHashes && existing.UseAsPairDefault,
+                    useAsPairDefault: hasPairHashes && transition.UseAsPairDefault,
                     existingId: existing.Id);
                 db.Entry(existing).CurrentValues.SetValues(updated);
             }
