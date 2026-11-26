@@ -17,8 +17,10 @@ public class LibrarySidepanelResponsiveLayoutTests
         Assert.Contains("<TabControl.ItemsPanel>", xaml);
         Assert.Contains("<WrapPanel Orientation=\"Horizontal\"/>", xaml);
 
-        foreach (var tab in new[] { "Inspector", "Similar", "Playing", "Notifications", "Mix", "Discover" })
-            Assert.Contains($"<TabItem Header=\"{tab}\">", xaml);
+        // Epic #517 / #540 streamlined the right sidebar to 3 tabs (Inspector, Similar, Mix).
+        Assert.Contains("<TabItem Header=\"Inspector\">", xaml);
+        Assert.Contains("<TabItem Header=\"Similar\">", xaml);
+        Assert.Contains("<TabItem IsVisible=\"{Binding Sidebar.IsMixTabVisible}\">", xaml);
     }
 
     [Fact]

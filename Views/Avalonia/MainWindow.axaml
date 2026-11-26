@@ -434,15 +434,6 @@
                                         <TextBlock Text="Cue Forge" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
-
-                                <Button x:Name="NavAnalysis" Classes="nav" Command="{Binding NavigateAnalysisCommand}"
-                                        ToolTip.Tip="Analysis Pipeline"
-                                        Classes.selected="{Binding IsAnalysisOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <PathIcon Data="{StaticResource icon_chart}"/>
-                                        <TextBlock Text="Analysis" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
                             </StackPanel>
                         </StackPanel>
 
@@ -618,40 +609,44 @@
                                             <DataTemplate DataType="vmDiag:BlackBoxTerminalViewModel">
                                                 <controls:BlackBoxTerminal/>
                                             </DataTemplate>
+                                            <DataTemplate DataType="svc:NotificationCenterService">
+                                                <controls:NotificationsPanel/>
+                                            </DataTemplate>
                                         </ContentControl.DataTemplates>
                                     </ContentControl>
                                 </TabItem>
 
+                                <!-- Similar + Discover unified (#540) -->
                                 <TabItem Header="Similar">
-                                    <views:SimilarTracksPanel DataContext="{Binding Sidebar.SimilarTracksVm}"/>
+                                    <Grid RowDefinitions="Auto,*">
+                                        <Border Grid.Row="0" Padding="8,6" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <RadioButton Classes="chip" GroupName="similarMode" Content="Similar"
+                                                             IsChecked="{Binding !Sidebar.IsDiscoverInSimilarActive, Mode=OneWay}"
+                                                             Command="{Binding Sidebar.ShowSimilarSubtabCommand}"/>
+                                                <RadioButton Classes="chip" GroupName="similarMode" Content="Discover"
+                                                             IsChecked="{Binding Sidebar.IsDiscoverInSimilarActive, Mode=OneWay}"
+                                                             Command="{Binding Sidebar.ShowDiscoverSubtabCommand}"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <Panel Grid.Row="1">
+                                            <views:SimilarTracksPanel DataContext="{Binding Sidebar.SimilarTracksVm}"
+                                                                      IsVisible="{Binding !$parent[Window].DataContext.Sidebar.IsDiscoverInSimilarActive}"/>
+                                            <controls:PlaylistDiscoveryPanel DataContext="{Binding Sidebar.DiscoveryVm}"
+                                                                             IsVisible="{Binding $parent[Window].DataContext.Sidebar.IsDiscoverInSimilarActive}"/>
+                                        </Panel>
+                                    </Grid>
                                 </TabItem>
 
-                                <TabItem Header="Playing">
-                                    <views:PlayerControl DataContext="{Binding Sidebar.PlayerVm}"/>
-                                </TabItem>
-
-                                <!-- Own tab rather than a DataTemplate case inside Inspector's
-                                     ContentControl — notifications previously rendered wherever the
-                                     Inspector tab's shared content area happened to be pointed,
-                                     since NotificationCenterService matched none of SidebarViewModel's
-                                     explicit tab-routing checks and fell into the generic Inspector
-                                     branch. Bound directly to the stable Sidebar.NotificationCenter
-                                     instance (like Similar Tracks/Now Playing above), so it's always
-                                     populated regardless of whatever else CurrentContent points to. -->
-                                <TabItem Header="Notifications">
-                                    <controls:NotificationsPanel DataContext="{Binding Sidebar.NotificationCenter}"/>
-                                </TabItem>
-
-                                <!-- Mix (Spotify-Mix-parity): transition editor for a clicked
-                                     Mix-mode badge between two adjacent playlist tracks. -->
-                                <TabItem Header="Mix">
+                                <!-- Mix appears only while mixing (#540) -->
+                                <TabItem IsVisible="{Binding Sidebar.IsMixTabVisible}">
+                                    <TabItem.Header>
+                                        <StackPanel Orientation="Horizontal" Spacing="5">
+                                            <PathIcon Data="{StaticResource icon_mix}" Width="13" Height="13"/>
+                                            <TextBlock Text="Mix"/>
+                                        </StackPanel>
+                                    </TabItem.Header>
                                     <views:MixTransitionPanel DataContext="{Binding Sidebar.MixTransitionVm}"/>
-                                </TabItem>
-
-                                <!-- Discover: tracks to add to the selected playlist (Beatport + Deezer),
-                                     queued straight into the Soulseek download pipeline. -->
-                                <TabItem Header="Discover">
-                                    <controls:PlaylistDiscoveryPanel DataContext="{Binding Sidebar.DiscoveryVm}"/>
                                 </TabItem>
 
                             </TabControl>
