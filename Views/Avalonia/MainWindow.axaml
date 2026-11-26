@@ -348,8 +348,8 @@
                 <Border.ContextMenu>
                     <ContextMenu>
                         <MenuItem Header="Show ACQUIRE" IsChecked="{Binding IsAcquireVisible}" ToggleType="CheckBox"/>
-                        <MenuItem Header="Show SYSTEM" IsChecked="{Binding IsSystemVisible}" ToggleType="CheckBox"/>
-                        <MenuItem Header="Show EXPERIMENTAL" IsChecked="{Binding IsCreativeVisible}" ToggleType="CheckBox"/>
+                        <MenuItem Header="Show LIBRARY &amp; PREP" IsChecked="{Binding IsSystemVisible}" ToggleType="CheckBox"/>
+                        <MenuItem Header="Show LABS" IsChecked="{Binding IsCreativeVisible}" ToggleType="CheckBox"/>
                         <Separator/>
                         <MenuItem Header="Zen Mode (F10)" IsChecked="{Binding IsZenMode}" ToggleType="CheckBox"/>
                     </ContextMenu>
@@ -377,15 +377,6 @@
                                     </StackPanel>
                                 </Button>
 
-                                <Button x:Name="NavInbox" Classes="nav" Command="{Binding NavigateProjectsCommand}"
-                                        ToolTip.Tip="Inbox (Ctrl+4)"
-                                        Classes.selected="{Binding IsProjectsOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <PathIcon Data="{StaticResource icon_inbox}"/>
-                                        <TextBlock Text="Inbox" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-
                                 <Button x:Name="NavImport" Classes="nav" Command="{Binding NavigateImportCommand}"
                                         ToolTip.Tip="Import"
                                         Classes.selected="{Binding IsImportOverlayActive}">
@@ -394,29 +385,38 @@
                                         <TextBlock Text="Import" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
+
+                                <Button x:Name="NavInbox" Classes="nav" Command="{Binding NavigateProjectsCommand}"
+                                        ToolTip.Tip="Downloads (Ctrl+4)"
+                                        Classes.selected="{Binding IsProjectsOverlayActive}">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_inbox}"/>
+                                        <TextBlock Text="Downloads" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <Button x:Name="NavUsers" Classes="nav" Command="{Binding NavigateUsersCommand}"
+                                        ToolTip.Tip="Users &amp; Shares"
+                                        Classes.selected="{Binding IsUsersOverlayActive}">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_users}"/>
+                                        <TextBlock Text="Users" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
                             </StackPanel>
                         </StackPanel>
 
-                        <!-- SYSTEM UTILITIES -->
+                        <!-- LIBRARY & PREP -->
                         <StackPanel IsVisible="{Binding IsSystemVisible}">
                             <Button Classes="group-header" Command="{Binding ToggleSystemCommand}"
                                     ToolTip.Tip="Collapse / expand">
                                 <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Classes="section" Text="SYSTEM" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="0" Classes="section" Text="LIBRARY &amp; PREP" VerticalAlignment="Center"/>
                                     <TextBlock Grid.Column="1" Classes="caption" Text="{Binding SystemChevron}" VerticalAlignment="Center"/>
                                 </Grid>
                             </Button>
 
                             <StackPanel Spacing="2" IsVisible="{Binding IsSystemExpanded}">
-                                <Button Classes="nav" Command="{Binding NavigateHomeCommand}"
-                                        ToolTip.Tip="Dashboard (Ctrl+1)"
-                                        Classes.selected="{Binding IsHomeOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <PathIcon Data="{StaticResource icon_home}"/>
-                                        <TextBlock Text="Dashboard" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-
                                 <Button x:Name="NavLibrary" Classes="nav" Command="{Binding NavigateLibraryCommand}"
                                         ToolTip.Tip="Library (Ctrl+3)"
                                         Classes.selected="{Binding IsLibraryOverlayActive}">
@@ -426,12 +426,12 @@
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigateUsersCommand}"
-                                        ToolTip.Tip="Users &amp; Contacts"
-                                        Classes.selected="{Binding IsUsersOverlayActive}">
+                                <Button x:Name="NavCueForge" Classes="nav" Command="{Binding NavigateCueForgeCommand}"
+                                        ToolTip.Tip="Cue Forge — Beat grids, cues, and loops"
+                                        Classes.selected="{Binding IsCueForgeOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <PathIcon Data="{StaticResource icon_users}"/>
-                                        <TextBlock Text="Users" VerticalAlignment="Center"/>
+                                        <PathIcon Data="{StaticResource icon_target}"/>
+                                        <TextBlock Text="Cue Forge" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
 
@@ -443,55 +443,50 @@
                                         <TextBlock Text="Analysis" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
+                            </StackPanel>
+                        </StackPanel>
 
-                                <Button x:Name="NavSettings" Classes="nav" Command="{Binding NavigateSettingsCommand}"
-                                        ToolTip.Tip="Settings (Ctrl+Shift+S)"
-                                        Classes.selected="{Binding IsSettingsOverlayActive}">
+                        <!-- PLAY & MIX -->
+                        <StackPanel>
+                            <Button Classes="group-header" Command="{Binding TogglePlayMixCommand}"
+                                    ToolTip.Tip="Collapse / expand">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Classes="section" Text="PLAY &amp; MIX" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Classes="caption" Text="{Binding PlayMixChevron}" VerticalAlignment="Center"/>
+                                </Grid>
+                            </Button>
+
+                            <StackPanel Spacing="2" IsVisible="{Binding IsPlayMixExpanded}">
+                                <Button x:Name="NavNowPlaying" Classes="nav" Command="{Binding NavigatePlayerCommand}"
+                                        ToolTip.Tip="Now Playing"
+                                        Classes.selected="{Binding IsPlayerOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <PathIcon Data="{StaticResource icon_settings}"/>
-                                        <TextBlock Text="Settings" VerticalAlignment="Center"/>
+                                        <PathIcon Data="{StaticResource icon_music}"/>
+                                        <TextBlock Text="Now Playing" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <Button x:Name="NavFlowBuilder" Classes="nav" Command="{Binding NavigateFlowBuilderCommand}"
+                                        ToolTip.Tip="Transitions — Arrange playlist transitions for ORBIT playback with MIX enabled"
+                                        Classes.selected="{Binding IsFlowBuilderOverlayActive}">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_waves}"/>
+                                        <TextBlock Text="Transitions" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
                             </StackPanel>
                         </StackPanel>
 
-                        <!-- EXPERIMENTAL -->
+                        <!-- LABS (off by default on fresh installs; Settings → Labs) -->
                         <StackPanel IsVisible="{Binding IsCreativeVisible}">
                             <Button Classes="group-header" Command="{Binding ToggleCreativeCommand}"
                                     ToolTip.Tip="Collapse / expand">
                                 <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Classes="section" Text="EXPERIMENTAL" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="0" Classes="section" Text="LABS" VerticalAlignment="Center"/>
                                     <TextBlock Grid.Column="1" Classes="caption" Text="{Binding CreativeChevron}" VerticalAlignment="Center"/>
                                 </Grid>
                             </Button>
                             <StackPanel Spacing="2" IsVisible="{Binding IsCreativeExpanded}">
-                                <Button x:Name="NavCueForge" Classes="nav" Command="{Binding NavigateCueForgeCommand}"
-                                        ToolTip.Tip="Cue Forge — Visual cue generation and loop placement"
-                                        Classes.selected="{Binding IsCueForgeOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <PathIcon Data="{StaticResource icon_target}"/>
-                                        <TextBlock Text="Cue Forge" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-
-                                <Button x:Name="NavEditLab" Classes="nav" Command="{Binding NavigateEditLabCommand}"
-                                        ToolTip.Tip="Edit Lab — Combine tracks and stems into intros and edits, then render them to the library"
-                                        Classes.selected="{Binding IsEditLabOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <PathIcon Data="{StaticResource icon_mix}"/>
-                                        <TextBlock Text="Edit Lab" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-
-                                <Button x:Name="NavFlowBuilder" Classes="nav" Command="{Binding NavigateFlowBuilderCommand}"
-                                        ToolTip.Tip="Flow Builder — Arrange playlist transitions for ORBIT playback with MIX enabled"
-                                        Classes.selected="{Binding IsFlowBuilderOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <PathIcon Data="{StaticResource icon_waves}"/>
-                                        <TextBlock Text="Flow Builder" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-
                                 <Button x:Name="NavSets" Classes="nav" Command="{Binding NavigateSetsCommand}"
                                         ToolTip.Tip="Sets — Plan gigs as slots with roles and energy targets"
                                         Classes.selected="{Binding IsSetsOverlayActive}">
@@ -509,7 +504,38 @@
                                         <TextBlock Text="Workstation" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
+
+                                <Button x:Name="NavEditLab" Classes="nav" Command="{Binding NavigateEditLabCommand}"
+                                        ToolTip.Tip="Edit Lab — Combine tracks and stems into intros and edits, then render them to the library"
+                                        Classes.selected="{Binding IsEditLabOverlayActive}">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_mix}"/>
+                                        <TextBlock Text="Edit Lab" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
                             </StackPanel>
+                        </StackPanel>
+
+                        <!-- Utility links: Dashboard & Settings -->
+                        <Border Classes="divider" Margin="12,8"/>
+                        <StackPanel Spacing="2">
+                            <Button Classes="nav" Command="{Binding NavigateHomeCommand}"
+                                    ToolTip.Tip="Dashboard (Ctrl+1)"
+                                    Classes.selected="{Binding IsHomeOverlayActive}">
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <PathIcon Data="{StaticResource icon_home}"/>
+                                    <TextBlock Text="Dashboard" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+
+                            <Button x:Name="NavSettings" Classes="nav" Command="{Binding NavigateSettingsCommand}"
+                                    ToolTip.Tip="Settings (Ctrl+Shift+S)"
+                                    Classes.selected="{Binding IsSettingsOverlayActive}">
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <PathIcon Data="{StaticResource icon_settings}"/>
+                                    <TextBlock Text="Settings" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>

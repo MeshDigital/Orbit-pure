@@ -51,7 +51,7 @@
                 BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
             <Grid ColumnDefinitions="*,Auto">
                 <StackPanel VerticalAlignment="Center" Spacing="2" IsVisible="{Binding !#FlowRoot.IsEmbedded}">
-                    <TextBlock Classes="h1" Text="Flow Builder"/>
+                    <TextBlock Classes="h1" Text="Transitions"/>
                     <TextBlock Classes="subtitle" Text="{Binding HeaderSubtitle}" TextTrimming="CharacterEllipsis"/>
                 </StackPanel>
 

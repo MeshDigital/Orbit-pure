@@ -374,6 +374,22 @@ public partial class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
     public bool HasPersonalGenre => PersonalGenre is not null;
 
+    /// <summary>Epic #517 (#536): enables Labs pages (Sets, Workstation, Edit Lab) and knowledge agents.</summary>
+    public bool LabsEnabled
+    {
+        get => _config.LabsEnabled;
+        set
+        {
+            if (_config.LabsEnabled != value)
+            {
+                _config.LabsEnabled = value;
+                OnPropertyChanged();
+                SaveSettings();
+                _eventBus.Publish(new LabsEnabledChangedEvent(value));
+            }
+        }
+    }
+
     /// <summary>Opt-in background knowledge agents (transition-candidate scan). Applies after restart.</summary>
     public bool EnableKnowledgeAgents
     {

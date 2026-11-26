@@ -34,9 +34,10 @@ public sealed class KnowledgeSwarmHost : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!_config.EnableKnowledgeAgents)
+        if (!_config.LabsEnabled || !_config.EnableKnowledgeAgents)
         {
-            _logger.LogInformation("[KnowledgeSwarm] disabled (Settings → Advanced → Knowledge agents); not starting agents");
+            _logger.LogInformation("[KnowledgeSwarm] disabled (LabsEnabled={Labs}, EnableKnowledgeAgents={Agents}); not starting agents",
+                _config.LabsEnabled, _config.EnableKnowledgeAgents);
             return;
         }
 

@@ -276,6 +276,8 @@ public class ConfigManager
 
                 // [Advanced]
                 EnableNetworkActivityMonitor = !bool.TryParse(config["Advanced:EnableNetworkActivityMonitor"], out var enam) || enam, // Default true
+                LabsEnabled = bool.TryParse(config["Advanced:LabsEnabled"], out var le) && le,
+                LabsMigrationNoteShown = bool.TryParse(config["Advanced:LabsMigrationNoteShown"], out var lmns) && lmns,
                 EnableKnowledgeAgents = !bool.TryParse(config["Advanced:EnableKnowledgeAgents"], out var eka) || eka, // Default true (#205 P4.6)
             };
 
@@ -543,6 +545,8 @@ public class ConfigManager
         iniContent.AppendLine();
         iniContent.AppendLine("[Advanced]");
         iniContent.AppendLine($"EnableNetworkActivityMonitor = {config.EnableNetworkActivityMonitor}");
+        iniContent.AppendLine($"LabsEnabled = {config.LabsEnabled}");
+        iniContent.AppendLine($"LabsMigrationNoteShown = {config.LabsMigrationNoteShown}");
         iniContent.AppendLine($"EnableKnowledgeAgents = {config.EnableKnowledgeAgents}");
 
         lock (_saveLock)
