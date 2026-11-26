@@ -311,11 +311,12 @@ public sealed class RekordboxDbWriteServiceTests : IDisposable
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir != null && !File.Exists(Path.Combine(dir.FullName, "SLSKDONET.csproj"))) dir = dir.Parent;
         Assert.NotNull(dir);
-        var exe = Directory.GetFiles(Path.Combine(dir!.FullName, "bin"), "RekordboxBridge.exe", SearchOption.AllDirectories)
+        var bridgeName = OperatingSystem.IsWindows() ? "RekordboxBridge.exe" : "RekordboxBridge";
+        var exe = Directory.GetFiles(Path.Combine(dir!.FullName, "bin"), bridgeName, SearchOption.AllDirectories)
             .Where(p => p.Contains(Path.Combine("Tools", "RekordboxBridge"), StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(File.GetLastWriteTimeUtc)
             .FirstOrDefault();
-        Assert.True(exe != null, "RekordboxBridge.exe wasn't built — build SLSKDONET.csproj first.");
+        Assert.True(exe != null, $"{bridgeName} wasn't built — build SLSKDONET.csproj first.");
         return exe!;
     }
 }
