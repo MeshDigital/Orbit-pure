@@ -34,11 +34,16 @@ public static class TransitionPresetLibrary
             },
             "Blend" => new TransitionModel { Type = TransitionType.EqSwap, DurationBeats = 16 * 4 },
             "Wave" => new TransitionModel { Type = TransitionType.WaveDuck, DurationBeats = 8 * 4, WaveDuckDepth = 0.45f },
-            "Melt" => new TransitionModel
+            "Melt" or "EchoOut" => new TransitionModel
             {
                 Type = TransitionType.EchoOut,
                 DurationBeats = 16 * 4,
                 EchoDecayFactor = 0.75f,
+            },
+            "Cut" => new TransitionModel
+            {
+                Type = TransitionType.Cut,
+                DurationBeats = 1 * 4,
             },
             // DnB transitions (Vande Veire's auto-DJ), timed by TransitionPlanner. Rolling and Drop
             // Sync centre the window on the incoming drop and swap the bassline exactly there.
@@ -65,6 +70,48 @@ public static class TransitionPresetLibrary
 
         return model;
     }
+
+    /// <summary>
+    /// Tempo-jump threshold above which beat-matched blending is replaced by an echo-out or cut
+    /// fallback (matches <see cref="Engine.Transitions.TransitionEngine"/>'s 6 % threshold).
+    /// </summary>
+    public const double TempoJumpThreshold = 0.06;
+
+    /// <summary>
+    /// Returns true when an automatic pair lacks a beat grid on either side or exceeds the 6 %
+    /// tempo-jump threshold — in both cases playback falls back to an echo-out or cut transition
+    /// instead of attempting a beat-locked EQ blend (Epic #517 / #528).
+    /// </summary>
+    public static bool RequiresUnreadyFallback(
+        Engine.Transitions.TrackStructure? outgoing,
+        Engine.Transitions.TrackStructure? incoming,
+        double? fallbackOutgoingBpm = null,
+        double? fallbackIncomingBpm = null)
+    {
+        if (outgoing is null || incoming is null) return true;
+        if (outgoing.BeatGrid is not { Count: > 0 } || incoming.BeatGrid is not { Count: > 0 }) return true;
+
+        double outBpm = outgoing.Bpm > 0 ? outgoing.Bpm : (fallbackOutgoingBpm ?? 0);
+        double inBpm = incoming.Bpm > 0 ? incoming.Bpm : (fallbackIncomingBpm ?? 0);
+        if (outBpm > 0 && inBpm > 0)
+        {
+            double diffPct = System.Math.Abs(outBpm - inBpm) / outBpm;
+            if (diffPct > TempoJumpThreshold) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Builds the clean EchoOut fallback used when a pair lacks a beat grid or jumps more than 6 %
+    /// in tempo.
+    /// </summary>
+    public static TransitionModel BuildUnreadyFallback() => new()
+    {
+        Type = TransitionType.EchoOut,
+        DurationBeats = 4 * 4,
+        EchoDecayFactor = 0.72f,
+    };
 
     private static TransitionModel BuildAuto(TrackPairCompatibilityScorer.PairScore? pairScore)
     {

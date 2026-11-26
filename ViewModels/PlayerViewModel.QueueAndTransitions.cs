@@ -606,7 +606,18 @@ namespace SLSKDONET.ViewModels
                 // of a generic duration-based guess.
                 sourceTrigger = null;
                 targetTrigger = null;
-                if (planned is { } plan)
+                if (Services.Timeline.TransitionPresetLibrary.RequiresUnreadyFallback(
+                        planned?.Outgoing, planned?.Incoming, outgoingBpm, bpm))
+                {
+                    model = Services.Timeline.TransitionPresetLibrary.BuildUnreadyFallback();
+                    presetName = "EchoOut";
+                    if (planned is { } fallbackPlan)
+                    {
+                        sourceTrigger = fallbackPlan.Plan.SourceTriggerSeconds;
+                        targetTrigger = fallbackPlan.Plan.TargetTriggerSeconds;
+                    }
+                }
+                else if (planned is { } plan)
                 {
                     model = Services.Timeline.TransitionPresetLibrary.Build(plan.Plan.PresetName, score, plan.Plan.DurationBars);
                     presetName = plan.Plan.PresetName;
