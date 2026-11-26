@@ -165,6 +165,8 @@
                         <PathIcon Data="{StaticResource icon_more}" Width="16" Height="16"/>
                         <Button.Flyout>
                             <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                <MenuItem Header="Analysis queue &amp; coverage" Command="{Binding MainViewModel.NavigateAnalysisCommand}"
+                                          ToolTip.Tip="Open the Analysis page to inspect coverage, queue status, and re-analyse tracks"/>
                                 <MenuItem Header="Library maintenance…" Command="{Binding OpenLibraryMaintenanceCommand}"
                                           ToolTip.Tip="Fix malformed tags, fill missing metadata and group unclassified tracks into style playlists, with a preview and one-click undo"/>
                                 <MenuItem Header="Find exact duplicates…" Command="{Binding FindExactDuplicatesCommand}"

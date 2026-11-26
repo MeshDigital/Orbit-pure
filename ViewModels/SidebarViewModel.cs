@@ -43,22 +43,29 @@ namespace SLSKDONET.ViewModels
         public bool IsMixTab           => ActiveTab == SidebarTab.Mix;
         public bool IsDiscoverTab      => ActiveTab == SidebarTab.Discover;
 
-        // TabControl.SelectedIndex has no enum overload — this is the int-typed mirror of
-        // ActiveTab that the XAML actually binds to (two-way, so a manual tab click updates
-        // ActiveTab too). ActiveTab itself was previously computed but never actually wired to
-        // the TabControl at all — every tab-routing decision below had no visible effect, which
-        // is the root cause behind notifications (and anything else not explicitly special-cased)
-        // silently rendering wherever the Inspector tab's ContentControl happened to be showing.
+        private bool _isDiscoverInSimilarActive;
+        public bool IsDiscoverInSimilarActive
+        {
+            get => _isDiscoverInSimilarActive;
+            set => this.RaiseAndSetIfChanged(ref _isDiscoverInSimilarActive, value);
+        }
+
+        private bool _mixPairExplicitlyOpened;
+        /// <summary>Mix tab is shown only while mixing or when a transition pair is open (#540).</summary>
+        public bool IsMixTabVisible => PlayerVm.IsMixSessionActive || _mixPairExplicitlyOpened;
+
+        public ReactiveCommand<Unit, Unit> ShowSimilarSubtabCommand { get; }
+        public ReactiveCommand<Unit, Unit> ShowDiscoverSubtabCommand { get; }
+
         public int ActiveTabIndex
         {
             get => ActiveTab switch
             {
                 SidebarTab.Inspector => 0,
+                SidebarTab.Notifications => 0,
                 SidebarTab.Similarity => 1,
-                SidebarTab.Player => 2,
-                SidebarTab.Notifications => 3,
-                SidebarTab.Mix => 4,
-                SidebarTab.Discover => 5,
+                SidebarTab.Discover => 1,
+                SidebarTab.Mix => 2,
                 _ => 0,
             };
             set
@@ -66,11 +73,8 @@ namespace SLSKDONET.ViewModels
                 var newTab = value switch
                 {
                     0 => SidebarTab.Inspector,
-                    1 => SidebarTab.Similarity,
-                    2 => SidebarTab.Player,
-                    3 => SidebarTab.Notifications,
-                    4 => SidebarTab.Mix,
-                    5 => SidebarTab.Discover,
+                    1 => IsDiscoverInSimilarActive ? SidebarTab.Discover : SidebarTab.Similarity,
+                    2 => SidebarTab.Mix,
                     _ => SidebarTab.Inspector,
                 };
                 if (newTab != ActiveTab)
@@ -81,34 +85,35 @@ namespace SLSKDONET.ViewModels
             }
         }
 
-        /// <summary>A click on the actual tab strip must update the service as well as the selected
-        /// header. Otherwise Playing → Inspector leaves CurrentPanelVm pointing at the player and
-        /// renders the "nothing to inspect" fallback instead of the last real inspector.</summary>
         private void OpenPanelForTab(SidebarTab tab)
         {
             switch (tab)
             {
                 case SidebarTab.Inspector:
                     if (_lastInspectorContent != null)
-                        _rightPanelService.OpenPanel(_lastInspectorContent, "TRACK INSPECTOR", "🔬");
+                        _rightPanelService.OpenPanel(_lastInspectorContent, "TRACK INSPECTOR", "");
                     else
                         _rightPanelService.IsPanelOpen = true;
                     break;
                 case SidebarTab.Similarity:
+                    IsDiscoverInSimilarActive = false;
                     SimilarTracksVm.PrimeFromInspectorContext(_lastInspectorContent ?? CurrentContent);
-                    _rightPanelService.OpenPanel(SimilarTracksVm, "SIMILAR TRACKS", "🔗");
+                    _rightPanelService.OpenPanel(SimilarTracksVm, "SIMILAR TRACKS", "");
                     break;
                 case SidebarTab.Player:
-                    _rightPanelService.OpenPanel(PlayerVm, "NOW PLAYING", "🎵");
+                    _rightPanelService.OpenPanel(PlayerVm, "NOW PLAYING", "");
                     break;
                 case SidebarTab.Notifications:
-                    _rightPanelService.OpenPanel(NotificationCenter, "NOTIFICATIONS", "🔔");
+                    _rightPanelService.OpenPanel(NotificationCenter, "NOTIFICATIONS", "");
                     break;
                 case SidebarTab.Mix:
-                    _rightPanelService.OpenPanel(MixTransitionVm, "MIX", "🎛");
+                    _mixPairExplicitlyOpened = true;
+                    this.RaisePropertyChanged(nameof(IsMixTabVisible));
+                    _rightPanelService.OpenPanel(MixTransitionVm, "MIX", "");
                     break;
                 case SidebarTab.Discover:
-                    _rightPanelService.OpenPanel(DiscoveryVm, "DISCOVER", "✨");
+                    IsDiscoverInSimilarActive = true;
+                    _rightPanelService.OpenPanel(DiscoveryVm, "DISCOVER", "");
                     break;
             }
         }
@@ -207,10 +212,36 @@ namespace SLSKDONET.ViewModels
                 .Subscribe(_ => this.RaisePropertyChanged(nameof(ModeIcon)))
                 .DisposeWith(_disposables);
 
+            // Track mixing state so the Mix tab hides/shows automatically (#540)
+            PlayerVm.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(PlayerViewModel.IsMixSessionActive))
+                {
+                    if (!PlayerVm.IsMixSessionActive) _mixPairExplicitlyOpened = false;
+                    this.RaisePropertyChanged(nameof(IsMixTabVisible));
+                }
+            };
+
+            ShowSimilarSubtabCommand = ReactiveCommand.Create(() =>
+            {
+                IsDiscoverInSimilarActive = false;
+                ActiveTab = SidebarTab.Similarity;
+            });
+            ShowDiscoverSubtabCommand = ReactiveCommand.Create(() =>
+            {
+                IsDiscoverInSimilarActive = true;
+                ActiveTab = SidebarTab.Discover;
+            });
+
             // Open right sidebar when bridge between event is triggered (from Flow Builder/intelligence)
             ReactiveUI.MessageBus.Current.Listen<SLSKDONET.Events.FindBridgeBetweenTracksEvent>()
                 .ObserveOn(RxApp.MainThreadScheduler)
-                .Subscribe(_ => _rightPanelService.OpenPanel(SimilarTracksVm, "SIMILAR TRACKS", "🔗"))
+                .Subscribe(_ =>
+                {
+                    IsDiscoverInSimilarActive = false;
+                    ActiveTab = SidebarTab.Similarity;
+                    _rightPanelService.OpenPanel(SimilarTracksVm, "SIMILAR TRACKS", "");
+                })
                 .DisposeWith(_disposables);
 
             // Open right sidebar when "Find Similar" is requested for a single track (Library row button)
@@ -218,8 +249,9 @@ namespace SLSKDONET.ViewModels
                 .ObserveOn(RxApp.MainThreadScheduler)
                 .Subscribe(_ =>
                 {
+                    IsDiscoverInSimilarActive = false;
                     ActiveTab = SidebarTab.Similarity;
-                    _rightPanelService.OpenPanel(SimilarTracksVm, "SIMILAR TRACKS", "🔗");
+                    _rightPanelService.OpenPanel(SimilarTracksVm, "SIMILAR TRACKS", "");
                 })
                 .DisposeWith(_disposables);
 
@@ -228,27 +260,30 @@ namespace SLSKDONET.ViewModels
                 .ObserveOn(RxApp.MainThreadScheduler)
                 .Subscribe(evt =>
                 {
+                    _mixPairExplicitlyOpened = true;
+                    this.RaisePropertyChanged(nameof(IsMixTabVisible));
                     ActiveTab = SidebarTab.Mix;
-                    _rightPanelService.OpenPanel(MixTransitionVm, "MIX", "🎛");
+                    _rightPanelService.OpenPanel(MixTransitionVm, "MIX", "");
                     _ = MixTransitionVm.LoadPairAsync(evt.PlaylistId, evt.OutgoingPlaylistTrackId, evt.IncomingPlaylistTrackId);
                 })
                 .DisposeWith(_disposables);
 
-            // Discover tab for a playlist (Library header button).
+            // Discover opens inside the Similar tab (#540).
             ReactiveUI.MessageBus.Current.Listen<SLSKDONET.Events.OpenPlaylistDiscoverEvent>()
                 .ObserveOn(RxApp.MainThreadScheduler)
                 .Subscribe(evt =>
                 {
                     DiscoveryVm.SetPlaylist(evt.PlaylistId, evt.Title, load: false);
+                    IsDiscoverInSimilarActive = true;
                     ActiveTab = SidebarTab.Discover;
-                    _rightPanelService.OpenPanel(DiscoveryVm, "DISCOVER", "✨");
+                    _rightPanelService.OpenPanel(DiscoveryVm, "DISCOVER", "");
                 })
                 .DisposeWith(_disposables);
 
             SwitchToPlayerCommand     = ReactiveCommand.Create(() =>
             {
                 ActiveTab = SidebarTab.Player;
-                _rightPanelService.OpenPanel(PlayerVm, "NOW PLAYING", "🎵");
+                _rightPanelService.OpenPanel(PlayerVm, "NOW PLAYING", "");
             });
             SwitchToInspectorCommand  = ReactiveCommand.Create(() =>
             {
@@ -256,7 +291,7 @@ namespace SLSKDONET.ViewModels
 
                 if (_lastInspectorContent != null)
                 {
-                    _rightPanelService.OpenPanel(_lastInspectorContent, "TRACK INSPECTOR", "🔬");
+                    _rightPanelService.OpenPanel(_lastInspectorContent, "TRACK INSPECTOR", "");
                 }
                 else
                 {
@@ -267,14 +302,16 @@ namespace SLSKDONET.ViewModels
             {
                 var context = _lastInspectorContent ?? CurrentContent;
                 SimilarTracksVm.PrimeFromInspectorContext(context);
+                IsDiscoverInSimilarActive = false;
                 ActiveTab = SidebarTab.Similarity;
-                _rightPanelService.OpenPanel(SimilarTracksVm, "SIMILAR TRACKS", "🔗");
+                _rightPanelService.OpenPanel(SimilarTracksVm, "SIMILAR TRACKS", "");
             });
             CloseCommand = ReactiveCommand.Create(() => _rightPanelService.ClosePanel());
 
             OpenNotificationsCommand = ReactiveCommand.Create(() =>
             {
-                _rightPanelService.OpenPanel(NotificationCenter, "NOTIFICATIONS", "🔔");
+                ActiveTab = SidebarTab.Inspector;
+                _rightPanelService.OpenPanel(NotificationCenter, "NOTIFICATIONS", "");
             });
         }
 

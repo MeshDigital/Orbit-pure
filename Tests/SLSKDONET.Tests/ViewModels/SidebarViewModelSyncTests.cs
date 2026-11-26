@@ -47,7 +47,8 @@ public class SidebarViewModelSyncTests
         Assert.Equal(SidebarTab.Notifications, sut.ActiveTab);
         Assert.True(sut.IsNotificationsTab);
         Assert.False(sut.IsInspectorTab);
-        Assert.Equal(3, sut.ActiveTabIndex);
+        // Notifications renders inside the Inspector tab's ContentControl (#540 removed the separate Notifications tab).
+        Assert.Equal(0, sut.ActiveTabIndex);
     }
 
     [Fact]
@@ -60,9 +61,9 @@ public class SidebarViewModelSyncTests
 
         foreach (var (index, tab) in new[]
                  {
-                     (0, SidebarTab.Inspector), (1, SidebarTab.Similarity),
-                     (2, SidebarTab.Player), (3, SidebarTab.Notifications),
-                     (4, SidebarTab.Mix),
+                     (0, SidebarTab.Inspector),
+                     (1, SidebarTab.Similarity),
+                     (2, SidebarTab.Mix),
                  })
         {
             sut.ActiveTabIndex = index;
@@ -134,11 +135,8 @@ public class SidebarViewModelSyncTests
 
         var cases = new[]
         {
-            (Index: 2, Content: (object)player),
-            (Index: 3, Content: (object)notifications),
             (Index: 1, Content: (object)similar),
-            (Index: 4, Content: (object)mix),
-            (Index: 5, Content: (object)discover),
+            (Index: 2, Content: (object)mix),
             (Index: 0, Content: (object)track),
         };
 
@@ -253,9 +251,10 @@ public class SidebarViewModelSyncTests
         var discover = CreateUninitializedDiscoveryVm();
         using var sut = new SidebarViewModel(rightPanel, CreateUninitializedPlayerVm(), CreateSimilarTracksVm(), CreateUninitializedNotificationCenter(), CreateUninitializedMixTransitionVm(), discover);
 
-        rightPanel.OpenPanel(discover, "DISCOVER", "✨");
+        rightPanel.OpenPanel(discover, "DISCOVER", "");
         Assert.Equal(SidebarTab.Discover, sut.ActiveTab);
-        Assert.Equal(5, sut.ActiveTabIndex);
+        // Discover lives inside the Similar tab (#540).
+        Assert.Equal(1, sut.ActiveTabIndex);
         Assert.True(discover.IsActive);
 
         // Clicking tracks while browsing suggestions must not bounce the panel to Inspector.
