@@ -41,42 +41,10 @@ public class SearchResultMatcher
     private readonly AppConfig _config;
 
     /// <summary>Score taken off a remix/VIP/bootleg/edit candidate for a request that names no version (#333).</summary>
-    public const int VersionMismatchPenalty = 50;
+    public const int VersionMismatchPenalty = Matching.VersionTag.DerivativeMismatchPenalty;
 
-    // Unambiguous derivative words count anywhere in the name; ambiguous ones ("edit", "live", "dub") only inside
-    // brackets, so a song called "Live Forever" or "Dub Be Good To Me" isn't mistaken for a version.
-    private static readonly System.Text.RegularExpressions.Regex StrongVersionWord = new(
-        @"\b(remix|rmx|re-?mix|vip|bootleg|mash-?up|re-?work|refix|re-?fix)\b",
-        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
-    private static readonly System.Text.RegularExpressions.Regex BracketGroup = new(
-        @"[\(\[]([^\)\]]+)[\)\]]", System.Text.RegularExpressions.RegexOptions.Compiled);
-    private static readonly System.Text.RegularExpressions.Regex BracketVersionWord = new(
-        @"\b(edit|re-?edit|flip|remake|dub|live|cover|acoustic|instrumental|acapella|a cappella|version|mix)\b",
-        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
-    private static readonly System.Text.RegularExpressions.Regex NeutralVersion = new(
-        @"\b(original|extended|radio|clean|explicit|album|single|main|club|remaster(ed)?)\s*(mix|edit|version|cut)?\b",
-        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
-
-    /// <summary>
-    /// The derivative version a title or file name names ("remix", "vip", "edit"…), or null for the original track.
-    /// Original/Extended/Radio/Club Mix and similar are the same recording, so they are not derivatives.
-    /// </summary>
-    internal static string? DerivativeVersionTag(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return null;
-        var normalised = text.Replace('_', ' ');
-        foreach (System.Text.RegularExpressions.Match group in BracketGroup.Matches(normalised))
-        {
-            var inner = group.Groups[1].Value;
-            var cleaned = NeutralVersion.Replace(inner, " ");
-            var strongInBracket = StrongVersionWord.Match(cleaned);
-            if (strongInBracket.Success) return strongInBracket.Value.ToLowerInvariant().Replace("-", string.Empty);
-            var word = BracketVersionWord.Match(cleaned);
-            if (word.Success) return word.Value.ToLowerInvariant();
-        }
-        var strong = StrongVersionWord.Match(NeutralVersion.Replace(BracketGroup.Replace(normalised, " "), " "));
-        return strong.Success ? strong.Value.ToLowerInvariant().Replace("-", string.Empty) : null;
-    }
+    /// <summary>Delegates to the shared <see cref="Matching.VersionTag.DerivativeVersionTag"/> helper.</summary>
+    internal static string? DerivativeVersionTag(string? text) => Matching.VersionTag.DerivativeVersionTag(text);
 
     public SearchResultMatcher(ILogger<SearchResultMatcher> logger, AppConfig config)
     {
@@ -304,23 +272,13 @@ public class SearchResultMatcher
             breakdown.Add("Title: Mismatch (0)");
         }
 
-        // 3b. Version (#333): a request without a version tag ("Frannabik - Down") must not be satisfied by a remix,
-        // VIP, bootleg or edit of it ("…down (bad legs remix)"), which contains the plain title as a substring. The
-        // penalty drops such a candidate under the 70-point acceptance bar, so an original always wins when one exists.
-        var requestedVersion = DerivativeVersionTag(model.Title);
-        var offeredVersion = DerivativeVersionTag(Path.GetFileNameWithoutExtension(candidate.Filename ?? string.Empty));
-        if (requestedVersion is null && offeredVersion is not null)
+        // 3b. Shared Version & Edit-Length Gate (#333 / #386 / #547):
+        var versionVerdict = Matching.VersionTag.Evaluate(model.Title, Path.GetFileNameWithoutExtension(candidate.Filename ?? string.Empty));
+        if (versionVerdict.ScoreDelta != 0)
         {
-            score -= VersionMismatchPenalty;
-            breakdown.Add($"Version: candidate is a {offeredVersion}, the request isn't (-{VersionMismatchPenalty})");
-        }
-        else if (requestedVersion is not null && offeredVersion is not null &&
-                 !string.Equals(requestedVersion, offeredVersion, StringComparison.OrdinalIgnoreCase))
-        {
-            // #386: the user asked for one specific derivative (e.g. Acoustic) and got a different
-            // one (e.g. Remix) — penalise the mismatch, not just the plain-title-vs-derivative case.
-            score -= VersionMismatchPenalty;
-            breakdown.Add($"Version: candidate is {offeredVersion} but requested {requestedVersion} (-{VersionMismatchPenalty})");
+            score += versionVerdict.ScoreDelta;
+            if (!string.IsNullOrEmpty(versionVerdict.Reason))
+                breakdown.Add(versionVerdict.Reason);
         }
 
         // 4. Purist Format Priority (AIFF=100, FLAC=90, WAV=80 baseline profile)
