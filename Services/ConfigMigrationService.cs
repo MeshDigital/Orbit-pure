@@ -18,73 +18,25 @@ public class ConfigMigrationService
     }
 
     /// <summary>
-    /// Checks the configuration for legacy settings and migrates them to the new format if needed.
+    /// Ensures any legacy <c>RankingProfile</c> value normalises to the standard
+    /// <see cref="SearchPriority.QualityFirst"/> policy while preserving the user's saved
+    /// Safety Gates (Epic #543 / #546 SQ2).
     /// </summary>
-    /// <param name="config">The AppConfig instance to check and update.</param>
-    /// <returns>True if migration occurred and config should be saved; otherwise false.</returns>
     public bool Migrate(AppConfig config)
     {
-#pragma warning disable CS0618 // Type or member is obsolete
-        bool changed = false;
-
-        // Migration: ScoringWeights -> SearchPolicy
-        // We detect "legacy mode" if the SearchPolicy is default but user had Custom weights
-        // This is a heuristic - we'll run this once if we detect a specific flag or just always run "smart fix" on startup
-        
-        // Strategy: Inspect the 'RankingProfile' string or the weights themselves
-        
-        if (config.RankingProfile == "Custom" && config.SearchPolicy.Priority == SearchPriority.QualityFirst)
+        if (config.SearchPolicy == null)
         {
-            // User had custom weights. Let's try to interpret them.
-            _logger.LogInformation("Detected Custom legacy ranking profile. Attempting migration to SearchPolicy.");
-            
-            var weights = config.CustomWeights;
-            var newPolicy = new SearchPolicy();
-
-            // 1. Determine Priority
-            if (weights.MusicalWeight > 20)
-            {
-                // High emphasis on musical keys/BPM implies DJ intent
-                 _logger.LogInformation("Legacy config prioritized Musical Key/BPM. Migrating to 'DjReady' priority.");
-                newPolicy = SearchPolicy.DjReady();
-            }
-            else
-            {
-                // Default to Quality
-                _logger.LogInformation("Legacy config standard. Migrating to 'QualityFirst' priority.");
-                newPolicy = SearchPolicy.QualityFirst();
-            }
-
-            // 2. Determine Speed vs Quality
-            if (weights.AvailabilityWeight > weights.QualityWeight + 20)
-            {
-                // User cared WAY more about finding *something* (Availability) than Quality
-                 _logger.LogInformation("Legacy config prioritized Availability. Enabling 'PreferSpeedOverQuality'.");
-                newPolicy.PreferSpeedOverQuality = true;
-            }
-
-            config.SearchPolicy = newPolicy;
-            
-            // Set profile to something meaningful so we don't migrate again unnecessarily
-            config.RankingProfile = "Migrated_Custom"; 
-            changed = true;
-        }
-        else if (config.RankingProfile == "DJ Mode")
-        {
-             _logger.LogInformation("Legacy profile 'DJ Mode'. Migrating to 'DjReady' policy.");
-             config.SearchPolicy = SearchPolicy.DjReady();
-             config.RankingProfile = "Migrated_DJ";
-             changed = true;
-        }
-        else if (config.RankingProfile == "Data Saver")
-        {
-             _logger.LogInformation("Legacy profile 'Data Saver'. Migrating to 'DataSaver' policy.");
-             config.SearchPolicy = SearchPolicy.DataSaver();
-             config.RankingProfile = "Migrated_DataSaver";
-             changed = true;
+            config.SearchPolicy = SearchPolicy.QualityFirst();
+            return true;
         }
 
-        return changed;
-#pragma warning restore CS0618 // Type or member is obsolete
+        if (config.SearchPolicy.Priority != SearchPriority.QualityFirst)
+        {
+            _logger.LogInformation("Normalizing legacy search priority {Priority} to QualityFirst while preserving safety gates.", config.SearchPolicy.Priority);
+            config.SearchPolicy.Priority = SearchPriority.QualityFirst;
+            return true;
+        }
+
+        return false;
     }
 }

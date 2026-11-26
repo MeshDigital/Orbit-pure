@@ -981,11 +981,14 @@ public class DownloadDiscoveryService
                 
                 _logger.LogInformation("🧠 BRAIN: Timeout reached. Starting relaxation strategy...");
                 
-                // Relaxation Tier 1: Lower bitrate floor (e.g. 320 -> 256)
-                if (minBitrate > 256)
+                // Relaxation Tier 1: Never drop below the active profile's lossy floor (Epic #543 / #546).
+                var profileLossyFloor = Math.Max(0, _config.PreferredMinBitrate);
+                var relaxedFloor = Math.Max(256, profileLossyFloor);
+                if (minBitrate > relaxedFloor)
                 {
-                    _logger.LogInformation("🧠 BRAIN: Relaxation Tier 1: Lowering bitrate floor to 256kbps");
-                    var relaxedTracks = allTracks.Where(t => t.Bitrate >= 256).ToList();
+                    _logger.LogInformation("🧠 BRAIN: Relaxation Tier 1: Lowering bitrate floor from {From}kbps to {To}kbps (respecting profile lossy floor {ProfileFloor}kbps)",
+                        minBitrate, relaxedFloor, profileLossyFloor);
+                    var relaxedTracks = allTracks.Where(t => SearchQualityProfiles.IsBitrateAcceptable(t.Format ?? Path.GetExtension(t.Filename ?? ""), t.Bitrate, relaxedFloor)).ToList();
                     bestMatch = _matcher.FindBestMatch(track, relaxedTracks, matchOptions).BestMatch;
                     if (bestMatch != null)
                     {

@@ -53,40 +53,6 @@ public class TieredTrackComparerTests
     }
 
     [Fact]
-    public void DjMode_ShouldPrioritize_BpmMatch()
-    {
-        // Arrange
-        var policy = SearchPolicy.DjReady(); // DJ Mode
-        var comparer = new TieredTrackComparer(policy, _searchTrack);
-
-        var highQualityMismatch = new Track 
-        { 
-            Bitrate = 320, 
-            Length = 300, 
-            BPM = 140, // BPM Mismatch
-            HasFreeUploadSlot = true
-        };
-
-        var lowerQualityMatch = new Track 
-        { 
-            Bitrate = 192, 
-            Length = 300, 
-            BPM = 120, // Perfect BPM Match
-            HasFreeUploadSlot = true
-        };
-
-        // Act
-        int result = comparer.Compare(lowerQualityMatch, highQualityMismatch);
-
-        // Assert
-        // In DJ Mode, the BPM match might push it to a higher tier or sort order
-        // Depending on exact implementation:
-        // Tier 1 (Diamond) might require 320kbps AND BPM match?
-        // Let's assume matching BPM is weighted heavily in DJ Mode.
-        Assert.True(result < 0, "In DJ Mode, BPM match should win");
-    }
-
-    [Fact]
     public void QualityFirst_ShouldPrioritize_Bitrate()
     {
         // Arrange
@@ -116,47 +82,29 @@ public class TieredTrackComparerTests
     }
 
     [Fact]
-    public void DjMode_ShouldPrioritize_KeyMatch()
+    public void QualityFirst_ShouldUseSonicScoreAsTieBreak_WhenQualityAndAvailabilityMatch()
     {
-        // Arrange
-        var policy = SearchPolicy.DjReady();
-        var searchWithKey = new Track { Artist = "A", Title = "T", BPM = 120, MusicalKey = "8A", Energy = 0.5 };
+        // Arrange (Epic #543 / #546: DjReady removed; QualityFirst still uses sonic score as 15% tie-break)
+        var policy = SearchPolicy.QualityFirst();
+        var searchWithKey = new Track { Artist = "A", Title = "T", BPM = 120, MusicalKey = "8A", Energy = 0.8 };
         var comparer = new TieredTrackComparer(policy, searchWithKey);
 
-        var keyMatch = new Track { Bitrate = 320, BPM = 120, MusicalKey = "8A", Energy = 0.5, HasFreeUploadSlot = true };
-        var keyMismatch = new Track { Bitrate = 320, BPM = 120, MusicalKey = "1A", Energy = 0.5, HasFreeUploadSlot = true };
+        var sonicMatch = new Track { Bitrate = 320, BPM = 120, MusicalKey = "8A", Energy = 0.8, HasFreeUploadSlot = true };
+        var sonicMismatch = new Track { Bitrate = 320, BPM = 120, MusicalKey = "1A", Energy = 0.2, HasFreeUploadSlot = true };
 
         // Act
-        int result = comparer.Compare(keyMatch, keyMismatch);
+        int result = comparer.Compare(sonicMatch, sonicMismatch);
 
         // Assert
-        Assert.True(result < 0, "Key match should be ranked higher than mismatch in DJ Mode");
-        Assert.Equal(TrackTier.Diamond, comparer.CalculateTier(keyMatch));
-    }
-
-    [Fact]
-    public void DjMode_ShouldPrioritize_EnergyMatch()
-    {
-        // Arrange
-        var policy = SearchPolicy.DjReady();
-        var searchWithEnergy = new Track { Artist = "A", Title = "T", BPM = 120, Energy = 0.8 };
-        var comparer = new TieredTrackComparer(policy, searchWithEnergy);
-
-        var energyMatch = new Track { Bitrate = 320, BPM = 120, Energy = 0.8, HasFreeUploadSlot = true };
-        var energyMismatch = new Track { Bitrate = 320, BPM = 120, Energy = 0.2, HasFreeUploadSlot = true };
-
-        // Act
-        int result = comparer.Compare(energyMatch, energyMismatch);
-
-        // Assert
-        Assert.True(result < 0, "Energy match should be ranked higher than mismatch in DJ Mode");
+        Assert.True(result < 0, "Sonic match should win tie-break within Diamond tier");
+        Assert.Equal(TrackTier.Diamond, comparer.CalculateTier(sonicMatch));
     }
 
     [Fact]
     public void Leniency_MissingCandidateMetadata_ShouldNotBeTrash()
     {
         // Arrange
-        var policy = SearchPolicy.DjReady();
+        var policy = SearchPolicy.QualityFirst();
         var searchTrack = new Track { Artist = "A", Title = "T", BPM = 120, MusicalKey = "8A", Energy = 0.8 };
         var comparer = new TieredTrackComparer(policy, searchTrack);
 

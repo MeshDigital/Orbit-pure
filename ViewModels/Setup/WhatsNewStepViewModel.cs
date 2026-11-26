@@ -18,6 +18,7 @@ public sealed class WhatsNewStepViewModel : SetupStepViewModel
 
     public IReadOnlyList<WhatsNewItem> Items { get; } = new[]
     {
+        new WhatsNewItem("Cleaner Search & quality settings and smarter matching", "Removed Ranking strategy and Fuzzy normalization toggles, combined File integrity and Upscale detection into one File checks card, added a Custom quality profile chip, fixed non-Latin title matching, and unified the remix/Extended-vs-Radio-Edit version gate across both matchers."),
         new WhatsNewItem("Public Spotify links work without sign-in", "Paste any public Spotify playlist or album link in Import with no Spotify login required. For Liked Songs, private playlists, or playlists over 100 tracks, connect your own free Spotify app in the wizard or Settings → Connection."),
         new WhatsNewItem("Mix playlists with one click", "Every playlist header now has Mix beside Play, a Ready badge (e.g. Ready 42/45) with Prep for Mix, and clear transition labels in the queue and Now Playing."),
         new WhatsNewItem("Focused sidebar & Labs toggle", "Pages are grouped into Acquire, Library & Prep, and Play & Mix (Flow Builder is now Transitions). Sets, Workstation, and Edit Lab live under Settings → Labs — kept on automatically if you already have saved sets."),

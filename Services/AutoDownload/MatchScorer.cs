@@ -90,6 +90,11 @@ public class MatchScorer
         var responseScore = ScoreResponseTime(candidate);
         score += responseScore * ScoringWeights.ResponseTimeWeight * 100;
 
+        // 6. SHARED VERSION & EDIT-LENGTH GATE (Epic #543 / #547 SQ3)
+        var candidateStem = Path.GetFileNameWithoutExtension(candidate.Filename ?? candidate.Title ?? string.Empty);
+        var versionVerdict = Matching.VersionTag.Evaluate(targetTrack.Title, candidateStem);
+        score += versionVerdict.ScoreDelta;
+
         return Math.Max(0, Math.Min(100, score)); // Clamp to 0-100
     }
 

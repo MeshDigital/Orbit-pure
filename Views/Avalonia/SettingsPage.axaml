@@ -687,14 +687,17 @@
                                                 <RadioButton Classes="chip" GroupName="searchProfile" Content="Stricter"
                                                              ToolTip.Tip="FLAC only"
                                                              IsChecked="{Binding SearchProfileStricter, Mode=TwoWay}"/>
+                                                <RadioButton Classes="chip" GroupName="searchProfile" Content="Custom"
+                                                             ToolTip.Tip="Custom bitrate or format list"
+                                                             IsChecked="{Binding SearchProfileCustom, Mode=OneWay}"/>
                                             </StackPanel>
                                         </Border>
                                     </Grid>
                                     <Border Classes="divider"/>
                                     <Grid Classes="row" ColumnDefinitions="*,Auto">
                                         <StackPanel Classes="label">
-                                            <TextBlock Classes="body" Text="Minimum bitrate"/>
-                                            <TextBlock Classes="caption" Text="320 kbps is the lowest accepted value."/>
+                                            <TextBlock Classes="body" Text="Minimum bitrate (lossy)"/>
+                                            <TextBlock Classes="caption" Text="Lowest accepted bitrate for lossy formats. Lossless always uses the 400 kbps floor."/>
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Orientation="Horizontal">
                                             <NumericUpDown Value="{Binding MinBitrate, Mode=TwoWay}" Minimum="128" Maximum="1411" Increment="32"/>
@@ -726,42 +729,39 @@
                             </Border>
                         </StackPanel>
 
+                        <!-- One File checks card (Before download + After download) — Epic #543 / #546 -->
                         <StackPanel Classes="settings-section"
-                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Search Strategy ranking DJ Mode Audiophile Quality First Balanced'}">
-                            <TextBlock Classes="section" Text="RANKING STRATEGY"/>
-                            <Border Classes="card">
-                                <ItemsControl ItemsSource="{Binding Strategies}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="vm:RankingStrategyViewModel">
-                                            <RadioButton GroupName="rankingStrategy" Margin="0,8"
-                                                         IsChecked="{Binding IsSelected, Mode=OneWay}"
-                                                         Command="{ReflectionBinding $parent[UserControl].DataContext.SelectStrategyCommand}"
-                                                         CommandParameter="{Binding}">
-                                                <StackPanel Spacing="2">
-                                                    <TextBlock Classes="body" Text="{Binding Title}"/>
-                                                    <TextBlock Classes="caption" Text="{Binding Description}" TextWrapping="Wrap"/>
-                                                </StackPanel>
-                                            </RadioButton>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </Border>
-                        </StackPanel>
-
-                        <StackPanel Classes="settings-section"
-                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Safety gates enforce file integrity strict title match duration match reject'}">
-                            <TextBlock Classes="section" Text="SAFETY GATES"/>
-                            <TextBlock Classes="caption" Text="Applied before ranking. A candidate that fails any enabled gate is rejected."/>
+                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='File checks integrity upscale detection VBR fraud transcode spectral before after download'}">
+                            <TextBlock Classes="section" Text="FILE CHECKS"/>
                             <Border Classes="card">
                                 <StackPanel>
                                     <Grid Classes="row" ColumnDefinitions="*,Auto">
                                         <StackPanel Classes="label">
-                                            <TextBlock Classes="body" Text="File integrity"/>
-                                            <TextBlock Classes="caption" Text="Reject fake FLAC and upscaled MP3 files."/>
+                                            <TextBlock Classes="body" Text="Before download — File integrity"/>
+                                            <TextBlock Classes="caption" TextWrapping="Wrap"
+                                                       Text="Checks file size against bitrate and enforces the 400 kbps lossless floor before queuing."/>
                                         </StackPanel>
                                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnforceFileIntegrity, Mode=TwoWay}"/>
                                     </Grid>
                                     <Border Classes="divider"/>
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                        <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="After download — Upscale detection"/>
+                                            <TextBlock Classes="caption" TextWrapping="Wrap"
+                                                       Text="Scans downloaded lossless files (FLAC/WAV/AIFF) for frequency cutoffs and flags suspected transcodes (keeps the file; no re-grab loop)."/>
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnableVbrFraudDetection, Mode=TwoWay}"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel Classes="settings-section"
+                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Safety gates strict title match duration match reject'}">
+                            <TextBlock Classes="section" Text="SAFETY GATES"/>
+                            <TextBlock Classes="caption" Text="Applied before ranking. A candidate that fails any enabled gate is rejected."/>
+                            <Border Classes="card">
+                                <StackPanel>
                                     <Grid Classes="row" ColumnDefinitions="*,Auto">
                                         <StackPanel Classes="label">
                                             <TextBlock Classes="body" Text="Strict title match"/>
@@ -782,30 +782,14 @@
                         </StackPanel>
 
                         <StackPanel Classes="settings-section"
-                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Smart matching fuzzy normalization relaxation strategy timeout VBR fraud detection upscale guard'}">
-                            <TextBlock Classes="section" Text="SMART MATCHING"/>
+                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Smart matching relaxation strategy timeout'}">
+                            <TextBlock Classes="section" Text="ADAPTIVE RELAXATION"/>
                             <Border Classes="card">
                                 <StackPanel>
                                     <Grid Classes="row" ColumnDefinitions="*,Auto">
                                         <StackPanel Classes="label">
-                                            <TextBlock Classes="body" Text="Fuzzy normalization"/>
-                                            <TextBlock Classes="caption" Text="Cleans titles, strips special characters and handles &quot;feat.&quot; variants."/>
-                                        </StackPanel>
-                                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnableFuzzyNormalization, Mode=TwoWay}"/>
-                                    </Grid>
-                                    <Border Classes="divider"/>
-                                    <Grid Classes="row" ColumnDefinitions="*,Auto">
-                                        <StackPanel Classes="label">
-                                            <TextBlock Classes="body" Text="Upscale detection"/>
-                                            <TextBlock Classes="caption" Text="Flags 320 kbps and FLAC files that were upscaled from low-quality sources."/>
-                                        </StackPanel>
-                                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnableVbrFraudDetection, Mode=TwoWay}"/>
-                                    </Grid>
-                                    <Border Classes="divider"/>
-                                    <Grid Classes="row" ColumnDefinitions="*,Auto">
-                                        <StackPanel Classes="label">
                                             <TextBlock Classes="body" Text="Adaptive relaxation"/>
-                                            <TextBlock Classes="caption" Text="Widens the filters step by step when no perfect match turns up."/>
+                                            <TextBlock Classes="caption" Text="Widens the filters step by step when no perfect match turns up (never below your profile's lossy floor)."/>
                                         </StackPanel>
                                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnableRelaxationStrategy, Mode=TwoWay}"/>
                                     </Grid>
