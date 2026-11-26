@@ -31,7 +31,7 @@ public sealed class LibraryTrackListViewStateStoreTests : IDisposable
             PreparationColumnWidth = 144,
             ScrollOffset = 1260,
         };
-        first.SelectedStyles.Add("Drum & Bass");
+        first.SetGenreFilter(new SLSKDONET.Services.Library.GenreKey(SLSKDONET.Engine.Analysis.GenreBucket.DrumAndBass));
         first.DuplicateHashes.Add("hash-a");
 
         await store.SaveAsync("playlist-first", first);
@@ -49,7 +49,7 @@ public sealed class LibraryTrackListViewStateStoreTests : IDisposable
         Assert.Equal(218, restored.ArtistColumnWidth);
         Assert.Equal(144, restored.PreparationColumnWidth);
         Assert.Equal(1260, restored.ScrollOffset);
-        Assert.Equal(new[] { "Drum & Bass" }, restored.SelectedStyles);
+        Assert.Equal(new SLSKDONET.Services.Library.GenreKey(SLSKDONET.Engine.Analysis.GenreBucket.DrumAndBass), restored.GetGenreFilter());
         Assert.Equal(new[] { "hash-a" }, restored.DuplicateHashes);
 
         Assert.NotNull(other);

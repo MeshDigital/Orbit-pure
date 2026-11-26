@@ -33,8 +33,33 @@ public sealed class LibraryTrackListViewState
     public bool IsFilterQualityGold { get; set; }
     public bool IsFilterQualityVerified { get; set; }
     public bool IsFilterQualityReview { get; set; }
-    public List<string> SelectedStyles { get; set; } = new();
+    public SLSKDONET.Engine.Analysis.GenreBucket? GenreFilterBucket { get; set; }
+    public string? GenreFilterSubgenre { get; set; }
+    public bool GenreFilterIsUnclassified { get; set; }
     public List<string> DuplicateHashes { get; set; } = new();
+
+    public SLSKDONET.Services.Library.GenreKey? GetGenreFilter()
+    {
+        if (GenreFilterIsUnclassified)
+            return SLSKDONET.Services.Library.GenreKey.Unclassified;
+        if (GenreFilterBucket is { } bucket)
+            return new SLSKDONET.Services.Library.GenreKey(bucket, string.IsNullOrWhiteSpace(GenreFilterSubgenre) ? null : GenreFilterSubgenre);
+        return null;
+    }
+
+    public void SetGenreFilter(SLSKDONET.Services.Library.GenreKey? key)
+    {
+        if (key is null)
+        {
+            GenreFilterBucket = null;
+            GenreFilterSubgenre = null;
+            GenreFilterIsUnclassified = false;
+            return;
+        }
+        GenreFilterIsUnclassified = key.Value.IsUnclassified;
+        GenreFilterBucket = key.Value.IsUnclassified ? null : key.Value.Bucket;
+        GenreFilterSubgenre = key.Value.IsUnclassified ? null : key.Value.Subgenre;
+    }
 
     public TrackSortColumn SortColumn { get; set; } = TrackSortColumn.Default;
     public bool SortDescending { get; set; }
@@ -60,9 +85,7 @@ public sealed class LibraryTrackListViewState
         SearchText ??= string.Empty;
         FilterArtist ??= string.Empty;
         FilterTitle ??= string.Empty;
-        SelectedStyles ??= new List<string>();
         DuplicateHashes ??= new List<string>();
-        SelectedStyles = SelectedStyles.Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         DuplicateHashes = DuplicateHashes.Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.Ordinal).ToList();
 
         if (!Enum.IsDefined(typeof(TrackSortColumn), SortColumn)) SortColumn = TrackSortColumn.Default;
