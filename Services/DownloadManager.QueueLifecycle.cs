@@ -1412,9 +1412,11 @@ public partial class DownloadManager
         }
 
         var requiredMinBitrate = minBitrateOverride ?? _config.PreferredMinBitrate;
-        if (requiredMinBitrate > 0 && track.Bitrate > 0 && track.Bitrate < requiredMinBitrate)
+        if (!SearchQualityProfiles.IsBitrateAcceptable(extension, track.Bitrate, requiredMinBitrate))
         {
-            reason = $"bitrate {track.Bitrate}kbps below required {requiredMinBitrate}kbps";
+            reason = SLSKDONET.Services.Audio.AudioFormats.IsLossless(extension)
+                ? $"lossless bitrate {track.Bitrate}kbps below verified-lossless floor {SearchQualityProfiles.LosslessBitrateFloorKbps}kbps"
+                : $"bitrate {track.Bitrate}kbps below required {requiredMinBitrate}kbps";
             return false;
         }
 

@@ -385,7 +385,11 @@ public class AutoSearchService
             AllowedExtensions = allowedFormats,
             MinBitrateKbps = ResolveMinBitrate(track),
             MinFileSizeBytes = _config.AutoDownloadMinFileSizeBytes,
-            AllowMp3Fallback = _config.EnableMp3Fallback && track.Status == TrackStatus.OnHold
+            AllowMp3Fallback = _config.EnableMp3Fallback && track.Status == TrackStatus.OnHold,
+            ExcludedPhrasesCsv = _config.AutoDownloadExcludedPhrases,
+            OnExcludedPhraseRejected = phrase =>
+                _logger.LogInformation("[AutoSearch] Rejected candidate for '{Artist} - {Title}' due to excluded phrase '{Phrase}'",
+                    track.Artist, track.Title, phrase)
         };
 
         var best = filteredCandidates

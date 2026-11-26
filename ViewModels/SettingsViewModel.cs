@@ -31,27 +31,6 @@ public enum SpotifyAuthStatus
 
 public partial class SettingsViewModel : INotifyPropertyChanged, IDisposable
 {
-    private const string NonStrictPreferredFormats = "flac,wav,aiff,aif,mp3";
-    private const int NonStrictMinBitrate = 192;
-    private const int NonStrictMaxBitrate = 0;
-    private const int NonStrictSearchResponseLimit = 300;
-    private const int NonStrictSearchFileLimit = 300;
-    private const int NonStrictMaxPeerQueueLength = 200;
-
-    private const string StrictPreferredFormats = "flac,wav,aiff,aif";
-    private const int StrictMinBitrate = 320;
-    private const int StrictMaxBitrate = 0;
-    private const int StrictSearchResponseLimit = 200;
-    private const int StrictSearchFileLimit = 200;
-    private const int StrictMaxPeerQueueLength = 120;
-
-    private const string StricterPreferredFormats = "flac";
-    private const int StricterMinBitrate = 701;
-    private const int StricterMaxBitrate = 0;
-    private const int StricterSearchResponseLimit = 100;
-    private const int StricterSearchFileLimit = 100;
-    private const int StricterMaxPeerQueueLength = 50;
-
     private bool _isApplyingSearchProfile;
     private bool _isDisposed;
     private bool _isInitialized;
@@ -745,11 +724,15 @@ public partial class SettingsViewModel : INotifyPropertyChanged, IDisposable
         get => _config.PreferredMinBitrate;
         set
         {
-                // Enforce minimum base kbps of 320
-                var clampedValue = Math.Max(value, 320);
-                if (_config.PreferredMinBitrate != clampedValue)
-                {
-                    _config.PreferredMinBitrate = clampedValue;
+            var clampedValue = Math.Clamp(value, 128, 1411);
+            if (_config.PreferredMinBitrate != clampedValue)
+            {
+                _config.PreferredMinBitrate = clampedValue;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(SearchProfileNonStrict));
+                OnPropertyChanged(nameof(SearchProfileStrict));
+                OnPropertyChanged(nameof(SearchProfileStricter));
+                OnPropertyChanged(nameof(SearchProfileModeText));
                 SaveSettings();
             }
         }
@@ -824,11 +807,7 @@ public partial class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    public string SearchProfileModeText => SearchProfileStricter
-        ? "STRICTER overwrite: FLAC-only + 701kbps floor"
-        : SearchProfileStrict
-            ? "STRICT overwrite: FLAC/WAV/AIFF/AIF + 320kbps floor"
-            : "NON-STRICT overwrite: expanded formats + 192kbps floor";
+    public string SearchProfileModeText => SearchQualityProfiles.Describe(_config);
 
     public bool EnableAutoDownloadStrictMode
     {
@@ -1230,33 +1209,13 @@ public partial class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _isApplyingSearchProfile = true;
         try
         {
-            if (string.Equals(mode, "Stricter", StringComparison.OrdinalIgnoreCase))
-            {
-                _config.PreferredFormats = StricterPreferredFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
-                _config.PreferredMinBitrate = StricterMinBitrate;
-                _config.PreferredMaxBitrate = StricterMaxBitrate;
-                _config.SearchResponseLimit = StricterSearchResponseLimit;
-                _config.SearchFileLimit = StricterSearchFileLimit;
-                _config.MaxPeerQueueLength = StricterMaxPeerQueueLength;
-            }
-            else if (string.Equals(mode, "Strict", StringComparison.OrdinalIgnoreCase))
-            {
-                _config.PreferredFormats = StrictPreferredFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
-                _config.PreferredMinBitrate = StrictMinBitrate;
-                _config.PreferredMaxBitrate = StrictMaxBitrate;
-                _config.SearchResponseLimit = StrictSearchResponseLimit;
-                _config.SearchFileLimit = StrictSearchFileLimit;
-                _config.MaxPeerQueueLength = StrictMaxPeerQueueLength;
-            }
-            else
-            {
-                _config.PreferredFormats = NonStrictPreferredFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
-                _config.PreferredMinBitrate = NonStrictMinBitrate;
-                _config.PreferredMaxBitrate = NonStrictMaxBitrate;
-                _config.SearchResponseLimit = NonStrictSearchResponseLimit;
-                _config.SearchFileLimit = NonStrictSearchFileLimit;
-                _config.MaxPeerQueueLength = NonStrictMaxPeerQueueLength;
-            }
+            var kind = string.Equals(mode, "Stricter", StringComparison.OrdinalIgnoreCase)
+                ? SearchQualityProfileKind.Stricter
+                : string.Equals(mode, "Strict", StringComparison.OrdinalIgnoreCase)
+                    ? SearchQualityProfileKind.Strict
+                    : SearchQualityProfileKind.NonStrict;
+
+            SearchQualityProfiles.Apply(_config, kind);
 
             OnPropertyChanged(nameof(PreferredFormats));
             OnPropertyChanged(nameof(MinBitrate));
@@ -1273,32 +1232,14 @@ public partial class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private bool IsNonStrictProfileActive()
-    {
-        var formats = NormalizeFormats(_config.PreferredFormats);
-        return formats.SetEquals(new HashSet<string>(new[] { "flac", "wav", "aiff", "aif", "mp3" }))
-               && _config.PreferredMinBitrate <= NonStrictMinBitrate
-               && _config.SearchResponseLimit >= NonStrictSearchResponseLimit
-               && _config.SearchFileLimit >= NonStrictSearchFileLimit;
-    }
+    private bool IsNonStrictProfileActive() =>
+        SearchQualityProfiles.Detect(_config) == SearchQualityProfileKind.NonStrict;
 
-    private bool IsStrictProfileActive()
-    {
-        var formats = NormalizeFormats(_config.PreferredFormats);
-        return formats.SetEquals(new HashSet<string>(new[] { "flac", "wav", "aiff", "aif" }))
-               && _config.PreferredMinBitrate >= StrictMinBitrate
-               && _config.PreferredMinBitrate < StricterMinBitrate;
-    }
+    private bool IsStrictProfileActive() =>
+        SearchQualityProfiles.Detect(_config) == SearchQualityProfileKind.Strict;
 
-    private bool IsStricterProfileActive()
-    {
-        var formats = NormalizeFormats(_config.PreferredFormats);
-        return formats.Count == 1
-               && formats.Contains("flac")
-               && _config.PreferredMinBitrate >= StricterMinBitrate
-               && _config.SearchResponseLimit <= StricterSearchResponseLimit
-               && _config.SearchFileLimit <= StricterSearchFileLimit;
-    }
+    private bool IsStricterProfileActive() =>
+        SearchQualityProfiles.Detect(_config) == SearchQualityProfileKind.Stricter;
 
     private static HashSet<string> NormalizeFormats(List<string>? formats)
     {

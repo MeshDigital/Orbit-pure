@@ -89,8 +89,10 @@ public class SoulseekSearchHelperTests
         // Act
         var filtered = _service.BuildFilteredQuery(track, baseQuery);
 
-        // Assert: "remix" should be stripped
-        Assert.DoesNotContain("remix", filtered, StringComparison.OrdinalIgnoreCase);
+        // Assert (Epic #543 / #545): user-excluded phrases are NOT stripped from the outgoing query
+        // (asking for a remix must still find remixes); instead they reject unrequested candidates.
+        Assert.Contains("remix", filtered, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("remix", SoulseekSearchHelper.FindExcludedPhraseInCandidate("Artist - Track (Bootleg Remix).flac", "Artist Track", _mockConfig.Object.AutoDownloadExcludedPhrases));
     }
 
     /// <summary>

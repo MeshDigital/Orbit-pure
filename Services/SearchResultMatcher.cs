@@ -604,7 +604,7 @@ public class SearchResultMatcher
     /// Calculates string similarity using Levenshtein Distance.
     /// Returns a score from 0 (completely different) to 1 (identical).
     /// </summary>
-    private double CalculateSimilarity(string expected, string actual)
+    internal double CalculateSimilarity(string expected, string actual)
     {
         if (string.IsNullOrEmpty(expected) && string.IsNullOrEmpty(actual))
             return 1.0;
@@ -621,6 +621,10 @@ public class SearchResultMatcher
             exp = NormalizeFuzzy(exp);
             act = NormalizeFuzzy(act);
         }
+
+        // Epic #543 / #545: After normalising, an empty string on either side must score 0, never 1.
+        if (string.IsNullOrEmpty(exp) || string.IsNullOrEmpty(act))
+            return 0.0;
 
         // Exact match
         if (exp == act)
@@ -814,34 +818,48 @@ public class SearchResultMatcher
     }
 
     /// <summary>
-    /// Normalizes a string for fuzzy matching by removing special characters,
-    /// smart quotes, en-dashes, and normalizing "feat." variants.
+    /// Normalizes a string for fuzzy comparison only (never touches stored tags or filenames).
+    /// Preserves letters and digits in every Unicode script, folds diacritics ("Tiësto" == "Tiesto"),
+    /// collapses dotted initialisms ("A.M.C" == "amc"), and normalizes "feat." variants.
     /// </summary>
-    private string NormalizeFuzzy(string input)
+    internal static string NormalizeFuzzy(string input)
     {
         if (string.IsNullOrEmpty(input)) return input;
 
-        // 0. Lowercase immediately to ensure regex [a-z] works and we don't strip uppercase chars
-        input = input.ToLowerInvariant();
+        // 0. Fold diacritics (FormD -> drop NonSpacingMark -> FormC) and lowercase.
+        var decomposed = input.Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new System.Text.StringBuilder(decomposed.Length);
+        foreach (var ch in decomposed)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch) != System.Globalization.UnicodeCategory.NonSpacingMark)
+                sb.Append(ch);
+        }
+        var folded = sb.ToString().Normalize(System.Text.NormalizationForm.FormC).ToLowerInvariant();
 
-        // 1. Normalize "feat." variants
-        var featNormal = System.Text.RegularExpressions.Regex.Replace(input, @"\b(feat\.?|ft\.?|featuring)\b", "feat", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        // 1. Collapse dotted initialisms like "A.M.C" -> "amc" before punctuation stripping
+        folded = System.Text.RegularExpressions.Regex.Replace(
+            folded,
+            @"(?<=\b[\p{L}\p{N}])\.(?=[\p{L}\p{N}]\b)",
+            string.Empty);
 
-        // 2. Normalize dashes (smart quotes, long dashes)
+        // 2. Normalize "feat." variants
+        var featNormal = System.Text.RegularExpressions.Regex.Replace(folded, @"\b(feat\.?|ft\.?|featuring)\b", "feat", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        // 3. Normalize dashes and smart quotes
         var dashNormal = featNormal
-            .Replace('—', '-') // Em-dash
-            .Replace('–', '-') // En-dash
-            .Replace('′', '\'') // Smart single quote
-            .Replace('‘', '\'') // Smart single quote
-            .Replace('’', '\'') // Smart single quote
-            .Replace('″', '\"') // Smart double quote
-            .Replace('“', '\"') // Smart double quote
-            .Replace('”', '\"'); // Smart double quote
+            .Replace('—', '-')
+            .Replace('–', '-')
+            .Replace('′', '\'')
+            .Replace('‘', '\'')
+            .Replace('’', '\'')
+            .Replace('″', '\"')
+            .Replace('“', '\"')
+            .Replace('”', '\"');
 
-        // 3. Remove other non-alphanumeric frictional characters (except space, quote)
-        var frictionalNormal = System.Text.RegularExpressions.Regex.Replace(dashNormal, @"[^a-z0-9\s\']", " ");
+        // 4. Keep letters and digits in EVERY Unicode script (\p{L}, \p{N}), whitespace, and apostrophe
+        var frictionalNormal = System.Text.RegularExpressions.Regex.Replace(dashNormal, @"[^\p{L}\p{N}\s']", " ");
 
-        // 4. Collapse whitespace
+        // 5. Collapse whitespace
         return System.Text.RegularExpressions.Regex.Replace(frictionalNormal, @"\s+", " ").Trim();
     }
 }

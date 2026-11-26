@@ -179,13 +179,16 @@ public class SoulseekSearchHelper
     }
 
     /// <summary>
-    /// Removes server-excluded and custom-excluded phrases from a query.
+    /// Removes ONLY server-banned phrases from an outgoing Soulseek query (so the server doesn't
+    /// drop the search). User-configured <see cref="AppConfig.AutoDownloadExcludedPhrases"/> are
+    /// applied as a candidate filter via <see cref="FindExcludedPhraseInCandidate"/> instead of
+    /// mutating the query (Epic #543 / #545 SQ1).
     /// </summary>
-    private string StripExcludedPhrases(string query)
+    internal string StripExcludedPhrases(string query)
     {
         var result = query;
 
-        // Strip server-excluded phrases
+        // Strip server-excluded phrases only
         foreach (var phrase in _serverExcludedPhrases)
         {
             if (string.IsNullOrWhiteSpace(phrase)) continue;
@@ -196,26 +199,37 @@ public class SoulseekSearchHelper
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         }
 
-        // Strip custom excluded phrases (from config)
-        if (!string.IsNullOrEmpty(_config.AutoDownloadExcludedPhrases))
-        {
-            var customExcluded = _config.AutoDownloadExcludedPhrases
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Where(p => !string.IsNullOrWhiteSpace(p));
-
-            foreach (var phrase in customExcluded)
-            {
-                result = System.Text.RegularExpressions.Regex.Replace(
-                    result,
-                    System.Text.RegularExpressions.Regex.Escape(phrase.Trim()),
-                    "",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            }
-        }
-
         // Clean up extra whitespace
         result = System.Text.RegularExpressions.Regex.Replace(result, @"\s+", " ").Trim();
         return result;
+    }
+
+    /// <summary>
+    /// Returns the first user-excluded phrase that appears in <paramref name="candidateFilename"/>
+    /// but NOT in the requested <paramref name="requestedText"/> (so explicitly asking for a remix
+    /// still allows remix candidates).
+    /// </summary>
+    public static string? FindExcludedPhraseInCandidate(string? candidateFilename, string? requestedText, string? excludedPhrasesCsv)
+    {
+        if (string.IsNullOrWhiteSpace(candidateFilename) || string.IsNullOrWhiteSpace(excludedPhrasesCsv))
+            return null;
+
+        var requested = requestedText ?? string.Empty;
+        var phrases = excludedPhrasesCsv
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(p => !string.IsNullOrWhiteSpace(p));
+
+        foreach (var phrase in phrases)
+        {
+            var pattern = $@"\b{System.Text.RegularExpressions.Regex.Escape(phrase)}\b";
+            if (System.Text.RegularExpressions.Regex.IsMatch(requested, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                continue;
+
+            if (System.Text.RegularExpressions.Regex.IsMatch(candidateFilename, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return phrase;
+        }
+
+        return null;
     }
 
     /// <summary>

@@ -43,10 +43,9 @@ public static class SearchFilterPolicy
 
         var bitrateAttr = file.Attributes?.FirstOrDefault(a => a.Type == FileAttributeType.BitRate);
         var rawBitrate = bitrateAttr?.Value ?? 0;
-        // Only apply bitrate filter when the peer actually reported a bitrate.
-        // rawBitrate == 0 means the attribute is absent; rejecting these would silently
-        // eliminate the majority of Soulseek results that lack embedded metadata.
-        if (bitrateFilter.Min.HasValue && rawBitrate > 0 && rawBitrate < bitrateFilter.Min.Value)
+        // Epic #543 / #545: One lossless floor (>400 kbps or unreported) for lossless extensions;
+        // lossy floor applies only to lossy extensions.
+        if (!SearchQualityProfiles.IsBitrateAcceptable(extension, rawBitrate, bitrateFilter.Min))
         {
             return new SearchFilterDecision(false, SearchRejectionReason.Bitrate);
         }
