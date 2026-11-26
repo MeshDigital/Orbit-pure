@@ -109,8 +109,12 @@ public sealed class ConnectionsStepViewModel : SetupStepViewModel, IDisposable
         try
         {
             var result = await _spotify.ConnectAsync();
-            IsSpotifyConnected = result.Connected || _spotify.IsConnected;
-            StatusMessage = IsSpotifyConnected ? null : result.Message;
+            IsSpotifyConnected = result.Connected || _spotify.IsConnected || result.Outcome == SpotifyConnectOutcome.Connected;
+            StatusMessage = IsSpotifyConnected
+                ? null
+                : result.Outcome == SpotifyConnectOutcome.NotAllowlisted
+                    ? SpotifyConnectResult.NotAllowlistedMessage
+                    : result.Message;
         }
         catch (Exception ex)
         {

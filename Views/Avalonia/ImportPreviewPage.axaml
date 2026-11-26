@@ -111,6 +111,7 @@
                         <Button Classes="ghost small" Content="Reconnect Spotify" Command="{Binding ReconnectCommand}"
                                 IsVisible="{Binding ErrorRequiresSignIn}"/>
                         <Button Classes="secondary small" Content="Retry" Command="{Binding RetryCommand}"
+                                IsVisible="{Binding ErrorCanRetry}"
                                 ToolTip.Tip="Load the source again from the start"/>
                     </StackPanel>
                 </Grid>
@@ -295,6 +296,7 @@
                         </StackPanel>
                     </Button>
                     <Button Classes="secondary" Content="Retry" Command="{Binding RetryCommand}"
+                            IsVisible="{Binding ErrorCanRetry}"
                             ToolTip.Tip="Load the source again"/>
                 </StackPanel>
             </StackPanel>

@@ -27,6 +27,8 @@ namespace SLSKDONET.ViewModels;
 /// </summary>
 public partial class SettingsViewModel
 {
+    public SLSKDONET.Services.Setup.SpotifyConnectOutcome LastSpotifyConnectOutcome { get; private set; } = SLSKDONET.Services.Setup.SpotifyConnectOutcome.Failed;
+
     /// <summary>Spotify OAuth sign-in (browser). Also used by the setup wizard's Connections step.</summary>
     public async Task ConnectSpotifyAsync()
     {
@@ -34,6 +36,7 @@ public partial class SettingsViewModel
         _connectCts?.Cancel();
         _connectCts?.Dispose();
         _connectCts = new CancellationTokenSource();
+        LastSpotifyConnectOutcome = SLSKDONET.Services.Setup.SpotifyConnectOutcome.Failed;
 
         try
         {
@@ -49,6 +52,9 @@ public partial class SettingsViewModel
                 // Update display based on new auth state
                 SpotifyState = _spotifyAuthService.IsAuthenticated ? SpotifyAuthStatus.Connected : SpotifyAuthStatus.Disconnected;
                 SpotifyDisplayName = IsSpotifyConnected ? "Connected" : "Not Connected";
+                LastSpotifyConnectOutcome = IsSpotifyConnected
+                    ? SLSKDONET.Services.Setup.SpotifyConnectOutcome.Connected
+                    : SLSKDONET.Services.Setup.SpotifyConnectOutcome.Failed;
                 SpotifyUseApi = true; // Auto-enable API usage on success
                 _config.SpotifyUseApi = true; // Ensure backing field is also set
                 _configManager.Save(_config); // Save the enabled state
@@ -58,30 +64,35 @@ public partial class SettingsViewModel
         catch (SLSKDONET.Services.ImportProviders.SpotifyAccountNotAllowlistedException)
         {
             // Already logged with the full explanation by SpotifyAuthService.
+            LastSpotifyConnectOutcome = SLSKDONET.Services.Setup.SpotifyConnectOutcome.NotAllowlisted;
             SpotifyDisplayName = "This Spotify account isn't allowlisted for this Client ID";
             SpotifyState = SpotifyAuthStatus.Disconnected;
         }
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Spotify connection flow cancelled");
+            LastSpotifyConnectOutcome = SLSKDONET.Services.Setup.SpotifyConnectOutcome.Cancelled;
             SpotifyDisplayName = "Cancelled";
             SpotifyState = SpotifyAuthStatus.Disconnected;
         }
         catch (TimeoutException ex)
         {
             _logger.LogError(ex, "Spotify connection timed out");
+            LastSpotifyConnectOutcome = SLSKDONET.Services.Setup.SpotifyConnectOutcome.Failed;
             SpotifyDisplayName = "Timeout - Try again";
             SpotifyState = SpotifyAuthStatus.Disconnected;
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("Port") || ex.Message.Contains("port"))
         {
             _logger.LogError(ex, "Port conflict during Spotify connection");
+            LastSpotifyConnectOutcome = SLSKDONET.Services.Setup.SpotifyConnectOutcome.Failed;
             SpotifyDisplayName = "Port conflict - Restart app";
             SpotifyState = SpotifyAuthStatus.Disconnected;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Spotify connection failed");
+            LastSpotifyConnectOutcome = SLSKDONET.Services.Setup.SpotifyConnectOutcome.Failed;
             SpotifyDisplayName = $"Error: {ex.Message.Substring(0, Math.Min(30, ex.Message.Length))}...";
             SpotifyState = SpotifyAuthStatus.Disconnected;
         }

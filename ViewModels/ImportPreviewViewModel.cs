@@ -468,6 +468,9 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     private bool _errorRequiresSignIn;
     public bool ErrorRequiresSignIn { get => _errorRequiresSignIn; private set => Set(ref _errorRequiresSignIn, value); }
 
+    private bool _errorCanRetry = true;
+    public bool ErrorCanRetry { get => _errorCanRetry; private set => Set(ref _errorCanRetry, value); }
+
     private string? _sourceNotice;
     /// <summary>How the source was read (CSV columns used, rows skipped); shown above the list.</summary>
     public string? SourceNotice
@@ -512,10 +515,11 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     }
 
     /// <summary>Puts the preview into its error state (or a warning banner when some rows already loaded).</summary>
-    public void ShowError(string message, bool requiresSignIn = false)
+    public void ShowError(string message, bool requiresSignIn = false, bool canRetry = true)
     {
         ErrorMessage = message;
         ErrorRequiresSignIn = requiresSignIn;
+        ErrorCanRetry = canRetry;
         HasError = true;
         IsLoading = false;
         RaiseViewStateChanged();

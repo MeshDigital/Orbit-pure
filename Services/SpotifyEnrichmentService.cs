@@ -194,10 +194,9 @@ public class SpotifyEnrichmentService
         {
              if (apiEx.Response?.StatusCode == System.Net.HttpStatusCode.Forbidden)
              {
-                 _logger.LogWarning("Spotify API 403 Forbidden during Identification. Service degraded for 30 mins. Reason: {Body}", apiEx.Response?.Body ?? "Unknown");
-                 _isServiceDegraded = true;
-                 _retryAfter = DateTime.UtcNow.AddMinutes(30);
-                 return new TrackEnrichmentResult { Success = false, Error = "Service Degraded (403)" };
+                 // Epic #508 / #510: A 403 on one endpoint must never degrade unrelated endpoints for 30 min.
+                 _logger.LogWarning("Spotify API 403 Forbidden during Identification. Reason: {Body}", apiEx.Response?.Body ?? "Unknown");
+                 return new TrackEnrichmentResult { Success = false, Error = "Forbidden (403)" };
              }
              _logger.LogError(apiEx, "Spotify Identification failed (API Error) for {Artist} - {Track}", artist, trackName);
              return new TrackEnrichmentResult { Success = false, Error = apiEx.Message };
@@ -225,113 +224,23 @@ public class SpotifyEnrichmentService
         return identification;
     }
 
-    /// <summary>
-    /// Fetches personalized recommendations based on the user's top tracks.
-    /// </summary>
-    /// <summary>
-    /// Fetches personalized recommendations based on the user's top tracks.
-    /// </summary>
-    public async Task<System.Collections.Generic.List<SpotifyTrackViewModel>> GetRecommendationsAsync(int limit = 10)
+    // Epic #508 / #510: GET /recommendations was removed by Spotify for dev-mode apps (Nov 2024+).
+    // Circuit breaker (_isServiceDegraded) only trips on 429 rate limits, never on 403/404.
+    internal static void ResetCircuitBreaker()
     {
-        return await GetRecommendationsForSeedsAsync(null, limit);
+        _isServiceDegraded = false;
+        _retryAfter = DateTime.MinValue;
     }
 
-    /// <summary>
-    /// Fetches recommendations using a specific track as a seed.
-    /// </summary>
-    public async Task<System.Collections.Generic.List<SpotifyTrackViewModel>> GetRecommendationsForTrackAsync(string spotifyId, int limit = 20)
+    internal static void RecordApiError(System.Net.HttpStatusCode statusCode, TimeSpan? retryAfter = null)
     {
-        if (string.IsNullOrEmpty(spotifyId)) return new();
-        return await GetRecommendationsForSeedsAsync(new System.Collections.Generic.List<string> { spotifyId }, limit);
+        if (statusCode == System.Net.HttpStatusCode.TooManyRequests)
+        {
+            _isServiceDegraded = true;
+            _retryAfter = DateTime.UtcNow.Add(retryAfter ?? TimeSpan.FromSeconds(30)).AddSeconds(1);
+        }
     }
 
-    private async Task<System.Collections.Generic.List<SpotifyTrackViewModel>> GetRecommendationsForSeedsAsync(System.Collections.Generic.List<string>? seedIds, int limit = 10)
-    {
-        // 1. Circuit Breaker Check
-        if (_isServiceDegraded)
-        {
-            if (DateTime.UtcNow < _retryAfter)
-            {
-                _logger.LogWarning("Spotify API Circuit Breaker Active. Skipping recommendations.");
-                return new System.Collections.Generic.List<SpotifyTrackViewModel>();
-            }
-            _isServiceDegraded = false; // Reset if cooldown passed
-        }
-
-        var result = new System.Collections.Generic.List<SpotifyTrackViewModel>();
-        try
-        {
-            var client = await _authService.GetAuthenticatedClientAsync();
-            
-            // If no seeds provided, get user's top tracks
-            System.Collections.Generic.List<string> effectiveSeeds = seedIds ?? new();
-            if (!effectiveSeeds.Any())
-            {
-                try
-                {
-                    var topTracks = await client.Personalization.GetTopTracks(new PersonalizationTopRequest { Limit = 5 });
-                    effectiveSeeds = topTracks.Items?.Select(t => t.Id).Take(5).ToList() ?? new System.Collections.Generic.List<string>();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to fetch top tracks for Recommendations seeds");
-                    return result;
-                }
-            }
-            
-            if (!effectiveSeeds.Any())
-            {
-                _logger.LogWarning("No seeds available for Spotify Recommendations.");
-                return result;
-            }
-
-            _logger.LogDebug("Using {Count} seeds for Spotify recommendations", effectiveSeeds.Count);
-
-            var recommendationsReq = new RecommendationsRequest { Limit = limit };
-            foreach (var trackId in effectiveSeeds)
-            {
-                recommendationsReq.SeedTracks.Add(trackId);
-            }
-
-            var recommendations = await client.Browse.GetRecommendations(recommendationsReq);
-            
-            if (recommendations.Tracks != null)
-            {
-                foreach (var track in recommendations.Tracks)
-                {
-                    result.Add(new SpotifyTrackViewModel
-                    {
-                        Id = track.Id,
-                        Title = track.Name,
-                        Artist = track.Artists.FirstOrDefault()?.Name,
-                        AlbumName = track.Album.Name,
-                        ImageUrl = track.Album.Images.OrderByDescending(i => i.Width).LastOrDefault()?.Url ?? "",
-                        ISRC = track.ExternalIds != null && track.ExternalIds.ContainsKey("isrc") ? track.ExternalIds["isrc"] : null
-                    });
-                }
-            }
-        }
-        catch (APIException apiEx)
-        {
-             if (apiEx.Response?.StatusCode == System.Net.HttpStatusCode.NotFound) return result;
-
-             if (apiEx.Response?.StatusCode == System.Net.HttpStatusCode.Forbidden)
-             {
-                 _logger.LogWarning("Spotify API 403 Forbidden in Recommendations. Disabling service.");
-                 _isServiceDegraded = true;
-                 _retryAfter = DateTime.UtcNow.AddMinutes(30);
-                 return result;
-             }
-
-             _logger.LogError(apiEx, "Spotify API error in Recommendations");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to fetch Spotify recommendations");
-        }
-        
-        return result;
-    }
     /// <summary>
     /// Stage 3: Batch fetch Artist details to get Genres.
     /// Tracks don't contain genres, but Artists do.
@@ -375,9 +284,8 @@ public class SpotifyEnrichmentService
         {
             if (apiEx.Response?.StatusCode == System.Net.HttpStatusCode.Forbidden)
             {
-                 _logger.LogWarning("Spotify API 403 Forbidden in GetArtistGenresBatchAsync. Disabling service temporarily.");
-                 _isServiceDegraded = true;
-                 _retryAfter = DateTime.UtcNow.AddMinutes(30);
+                 // Epic #508 / #510: Never trip the global circuit breaker on 403 from an unrelated endpoint.
+                 _logger.LogWarning("Spotify API 403 Forbidden in GetArtistGenresBatchAsync. Reason: {Body}", apiEx.Response?.Body ?? "Unknown");
             }
             else
             {

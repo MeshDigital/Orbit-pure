@@ -33,11 +33,17 @@ public sealed class SettingsSpotifySetupGateway : ISpotifySetupGateway, IDisposa
     public async Task<SpotifyConnectResult> ConnectAsync()
     {
         await _settings.ConnectSpotifyAsync();
-        return _auth.IsAuthenticated
-            ? new SpotifyConnectResult(true, "Connected")
-            : new SpotifyConnectResult(false, _settings.SpotifyDisplayName is { Length: > 0 } msg && msg != "Not Connected"
-                ? $"Not connected ({msg}). Try again, or connect later in Settings → Connection."
-                : "Not connected. Try again, or connect later in Settings → Connection.");
+        if (_auth.IsAuthenticated)
+            return SpotifyConnectResult.Succeeded();
+
+        return _settings.LastSpotifyConnectOutcome switch
+        {
+            SpotifyConnectOutcome.NotAllowlisted => SpotifyConnectResult.NotAllowlisted(),
+            SpotifyConnectOutcome.Cancelled => SpotifyConnectResult.Cancelled(),
+            _ => SpotifyConnectResult.Failed(_settings.SpotifyDisplayName is { Length: > 0 } msg && msg != "Not Connected"
+                ? $"Not connected ({msg}). Connect later in Settings → Connection."
+                : "Not connected. Connect later in Settings → Connection.")
+        };
     }
 
     public void CancelConnect() => _settings.CancelSpotifyConnect();

@@ -538,11 +538,10 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
             var healthTask = Timed("LibraryHealth", LoadLibraryHealthAsync);
             var recentTask = Timed("RecentPlaylists", LoadRecentPlaylistsAsync);
             var recentDownloadsTask = Timed("RecentDownloads", LoadRecentDownloadsAsync);
-            var spotifyTask = Timed("Spotify", LoadSpotifyRecommendationsAsync);
             var intelligenceTask = Timed("Intelligence", LoadIntelligenceStatsAsync);
             var trendTask = Timed("DownloadTrend", LoadDownloadTrendAsync);
 
-            await Task.WhenAll(healthTask, recentTask, recentDownloadsTask, spotifyTask, intelligenceTask, trendTask);
+            await Task.WhenAll(healthTask, recentTask, recentDownloadsTask, intelligenceTask, trendTask);
             _logger.LogInformation("[Dashboard] Refresh completed in {Ms}ms", sw.ElapsedMilliseconds);
 
             RefreshTopPeers();
@@ -791,51 +790,8 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private async Task LoadSpotifyRecommendationsAsync()
-    {
-        if (!_spotifyAuth.IsAuthenticated)
-        {
-            Dispatcher.UIThread.Post(() =>
-            {
-                SpotifyRecommendations.Clear();
-                IsLoadingSpotify = false;
-            });
-            return;
-        }
-
-        Dispatcher.UIThread.Post(() => IsLoadingSpotify = true);
-        try
-        {
-            var tracks = await _spotifyEnrichment.GetRecommendationsAsync(8);
-
-            // Check library for each track in parallel instead of awaiting one DB round-trip
-            // at a time — bounded to 8 recommendations, so this stays cheap even run every load.
-            var lookupTasks = tracks
-                .Where(t => !string.IsNullOrEmpty(t.ISRC))
-                .Select(async track => track.InLibrary = await _databaseService.FindLibraryEntryAsync(track.ISRC!) != null)
-                .ToList();
-            await Task.WhenAll(lookupTasks);
-
-            foreach (var track in tracks)
-            {
-                track.Artwork = new ArtworkProxy(_artworkCacheService, track.ImageUrl);
-            }
-
-            Dispatcher.UIThread.Post(() =>
-            {
-                SpotifyRecommendations.Clear();
-                foreach (var t in tracks) SpotifyRecommendations.Add(t);
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to load Spotify recommendations");
-        }
-        finally
-        {
-            Dispatcher.UIThread.Post(() => IsLoadingSpotify = false);
-        }
-    }
+    // Epic #508 / #510: Spotify GET /recommendations is unavailable for dev-mode apps;
+    // the dead "For you" panel and background recommendations fetch have been removed.
 
     private void ExecuteViewPlaylist(PlaylistCardViewModel? card)
     {

@@ -85,12 +85,16 @@ public class ImportBatchResult
 /// </summary>
 public class ImportSourceException : System.Exception
 {
-    public ImportSourceException(string message, bool requiresSignIn = false, System.Exception? inner = null)
+    public ImportSourceException(string message, bool requiresSignIn = false, System.Exception? inner = null, bool canRetry = true)
         : base(message, inner)
     {
         RequiresSignIn = requiresSignIn;
+        CanRetry = canRetry;
     }
 
     /// <summary>True when connecting (or reconnecting) the account would fix it.</summary>
     public bool RequiresSignIn { get; }
+
+    /// <summary>True when retrying the same request could succeed (e.g. network error or 429).</summary>
+    public bool CanRetry { get; }
 }

@@ -77,7 +77,34 @@ public interface ISetupSettingsGateway
     void WriteAudio(SetupAudioSettings settings);
 }
 
-public sealed record SpotifyConnectResult(bool Connected, string Message);
+public enum SpotifyConnectOutcome
+{
+    Connected,
+    NotAllowlisted,
+    Cancelled,
+    Failed
+}
+
+public sealed record SpotifyConnectResult(
+    bool Connected,
+    string Message,
+    SpotifyConnectOutcome Outcome = SpotifyConnectOutcome.Failed)
+{
+    public const string NotAllowlistedMessage =
+        "This Spotify account can't use ORBIT's built-in Spotify app. Import public playlists by pasting their link, or set up your own Spotify app in Settings → Connection (the account that creates it needs Premium).";
+
+    public static SpotifyConnectResult Succeeded(string message = "Connected") =>
+        new(true, message, SpotifyConnectOutcome.Connected);
+
+    public static SpotifyConnectResult NotAllowlisted() =>
+        new(false, NotAllowlistedMessage, SpotifyConnectOutcome.NotAllowlisted);
+
+    public static SpotifyConnectResult Cancelled() =>
+        new(false, "Sign-in was cancelled. You can connect later in Settings → Connection.", SpotifyConnectOutcome.Cancelled);
+
+    public static SpotifyConnectResult Failed(string message) =>
+        new(false, message, SpotifyConnectOutcome.Failed);
+}
 
 public interface ISpotifySetupGateway
 {
