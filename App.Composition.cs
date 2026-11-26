@@ -584,6 +584,8 @@ public partial class App
         services.AddSingleton<Services.Library.Maintenance.StyleBackfillService>();
         // GA10 (#255): re-fuses genre from stored model outputs (no audio); the Jamendo head is the shared one.
         services.AddSingleton<Services.Library.Maintenance.GenreRefreshService>();
+        // GV1 (#562): single resolved genre index built from TrackGenreResolver.
+        services.AddSingleton<Services.Library.LibraryGenreIndex>();
         // GA11 (#256): personal genre head, retrained in the background from genre corrections.
         services.AddSingleton<Services.Genre.PersonalGenreHeadService>();
         services.AddSingleton<ViewModels.Settings.PersonalGenreSettingsViewModel>();
