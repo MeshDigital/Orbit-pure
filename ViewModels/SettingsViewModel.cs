@@ -1323,20 +1323,26 @@ public partial class SettingsViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
-    /// The user's own Spotify app Client ID; empty means ORBIT's built-in one (which only serves
-    /// accounts on its development-mode allowlist).
+    /// Shared "Use your own Spotify app" setup ViewModel (Epic #508 / #514), reused by the Setup Wizard.
+    /// </summary>
+    public Setup.OwnSpotifyAppViewModel OwnSpotifyApp { get; private set; } = null!;
+
+    /// <summary>
+    /// The configured Spotify app Client ID (empty = none configured; public links still work).
     /// </summary>
     public string SpotifyClientId
     {
-        get => IsUsingBuiltInSpotifyClientId ? "" : _config.SpotifyClientId ?? "";
+        get => _config.SpotifyClientId ?? string.Empty;
         set
         {
-            var clientId = string.IsNullOrWhiteSpace(value) ? DefaultSpotifyClientId : value.Trim();
-            if (clientId == _config.SpotifyClientId) return;
+            var clientId = value?.Trim() ?? string.Empty;
+            if (clientId == (_config.SpotifyClientId ?? string.Empty)) return;
 
             _config.SpotifyClientId = clientId;
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsUsingBuiltInSpotifyClientId));
+            OnPropertyChanged(nameof(IsSpotifyClientIdConfigured));
+            OwnSpotifyApp?.RefreshFromConfig();
             SaveSettings();
 
             // Tokens belong to the app that issued them; the old session can't refresh under the new ID.
@@ -1345,8 +1351,11 @@ public partial class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    public bool IsSpotifyClientIdConfigured =>
+        !string.IsNullOrWhiteSpace(_config.SpotifyClientId);
+
     public bool IsUsingBuiltInSpotifyClientId =>
-        string.IsNullOrWhiteSpace(_config.SpotifyClientId) || _config.SpotifyClientId == DefaultSpotifyClientId;
+        SpotifyClientIdMigrationService.Classify(_config.SpotifyClientId) == SpotifyClientIdKind.BuiltInTester;
 
     /// <summary>What to register as the Redirect URI in the user's own Spotify app.</summary>
     public string SpotifyRedirectUri => _config.SpotifyRedirectUri;

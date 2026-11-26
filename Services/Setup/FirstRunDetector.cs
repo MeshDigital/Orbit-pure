@@ -55,7 +55,7 @@ public static class FirstRunDetector
     // unmerged branch takes the next free number above 10.
     // 16 = Focus & Optimisation (Epic #517): unified transition store, Prep for Mix on playlists,
     // visible Auto-Mix + Technique dropdown, regrouped sidebar, and Labs toggle (Sets/Workstation/Edit Lab).
-    public const int CurrentSetupVersion = 16;
+    public const int CurrentSetupVersion = 17;
 
     /// <param name="fallbackDownloadDirectory">
     /// The folder ORBIT fills in when config.ini has none (<see cref="Configuration.AppConfig.FallbackDownloadDirectory"/>).

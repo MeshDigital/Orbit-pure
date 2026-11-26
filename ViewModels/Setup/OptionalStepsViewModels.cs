@@ -34,8 +34,11 @@ public sealed class ConnectionsStepViewModel : SetupStepViewModel, IDisposable
 
     public override string Title => "Optional connections";
     public override string ShortTitle => "Connections";
-    public override string Subtitle => "Connect Spotify to import your playlists and Liked Songs. You can do this later in Settings.";
+    public override string Subtitle => "Paste any public Spotify playlist link in Import with no sign-in needed. Connect your own Spotify app for Liked Songs, private playlists, or playlists over 100 tracks.";
     public override bool CanSkip => true;
+
+    public OwnSpotifyAppViewModel? OwnSpotifyApp => _spotify.OwnSpotifyApp;
+    public bool HasOwnSpotifyApp => OwnSpotifyApp != null;
 
     public ICommand ConnectSpotifyCommand { get; }
     public ICommand CancelSpotifyCommand { get; }

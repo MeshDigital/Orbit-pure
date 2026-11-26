@@ -105,6 +105,15 @@ public class SpotifyImportProvider : IStreamingImportProvider
 
     public async IAsyncEnumerable<ImportBatchResult> ImportStreamAsync(string input)
     {
+        // Epic #508 / #513: Detect personalised mixes (Daily Mix, Discover Weekly, etc.) up front.
+        if (SpotifyImportErrors.IsPersonalisedMixInput(input))
+        {
+            throw new ImportSourceException(
+                SpotifyImportErrors.PersonalisedMixMessage,
+                requiresSignIn: false,
+                canRetry: false);
+        }
+
         if (IsApiConfigured())
         {
             Exception? apiFailure = null;
@@ -207,6 +216,7 @@ public class SpotifyImportProvider : IStreamingImportProvider
 
     private void LogFallback(Exception apiEx, string input)
     {
+        Spotify403Diagnostics.RecordIfForbidden(apiEx, _logger);
         _logger.LogWarning("Spotify API refused {Url} ({Reason}); trying the public web page instead",
             input, SpotifyImportErrors.IsAccountNotAllowlisted(apiEx) ? "account not allowlisted for this Client ID" : apiEx.Message);
     }
@@ -240,10 +250,25 @@ public class SpotifyImportProvider : IStreamingImportProvider
         return tracks;
     }
 
-    private static ImportBatchResult ScrapedBatch(List<SearchQuery> tracks) => new()
+    internal static ImportBatchResult ScrapedBatch(List<SearchQuery> tracks)
     {
-        Tracks = tracks,
-        SourceTitle = tracks.FirstOrDefault()?.SourceTitle ?? "Spotify Playlist",
-        TotalEstimated = tracks.Count
-    };
+        int reportedTotal = tracks.FirstOrDefault()?.TotalTracks ?? tracks.Count;
+        string? notice = null;
+        if (reportedTotal > tracks.Count && tracks.Count > 0)
+        {
+            notice = $"Spotify's public page only lists the first {tracks.Count} tracks. Connect your own Spotify app in Settings → Connection to import all {reportedTotal}.";
+        }
+        else if (tracks.Count >= 100)
+        {
+            notice = "Spotify's public page only lists the first 100 tracks. Connect your own Spotify app in Settings → Connection to import larger playlists.";
+        }
+
+        return new ImportBatchResult
+        {
+            Tracks = tracks,
+            SourceTitle = tracks.FirstOrDefault()?.SourceTitle ?? "Spotify Playlist",
+            TotalEstimated = Math.Max(reportedTotal, tracks.Count),
+            Notice = notice
+        };
+    }
 }

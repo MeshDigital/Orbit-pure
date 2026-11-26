@@ -461,13 +461,14 @@ public partial class SettingsViewModel
         KeyboardMappings = keyboardMappings;
         _dialogService = dialogService;
 
-        // Ensure default Client ID is set if empty
-        if (string.IsNullOrEmpty(_config.SpotifyClientId))
-        {
-            _config.SpotifyClientId = DefaultSpotifyClientId;
-            // Clear secret if we are setting the public ID, as PKCE doesn't use it
-            _config.SpotifyClientSecret = "";
-        }
+        // Epic #508 / #512: Do NOT silently back-fill DefaultSpotifyClientId when empty.
+        // Empty SpotifyClientId means "no Spotify app configured" (public links still work without sign-in).
+        OwnSpotifyApp = new Setup.OwnSpotifyAppViewModel(
+            readClientId: () => _config.SpotifyClientId ?? string.Empty,
+            writeClientId: id => SpotifyClientId = id,
+            redirectUri: SpotifyRedirectUri,
+            openDashboard: OpenSpotifyDashboard,
+            copyRedirectUri: () => CopySpotifyRedirectUriCommand?.Execute(null));
 
         SaveSettingsCommand = new RelayCommand(SaveSettingsWithConfirmation);
         BrowseDownloadPathCommand = new AsyncRelayCommand(BrowseDownloadPathAsync);

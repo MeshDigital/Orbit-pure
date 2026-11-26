@@ -112,6 +112,8 @@ public interface ISpotifySetupGateway
     event EventHandler<bool>? ConnectionChanged;
     Task<SpotifyConnectResult> ConnectAsync();
     void CancelConnect();
+    /// <summary>Optional shared "Use your own Spotify app" setup ViewModel (Epic #508 / #514).</summary>
+    SLSKDONET.ViewModels.Setup.OwnSpotifyAppViewModel? OwnSpotifyApp => null;
 }
 
 public sealed record FfmpegCheckResult(bool IsAvailable, string Version);

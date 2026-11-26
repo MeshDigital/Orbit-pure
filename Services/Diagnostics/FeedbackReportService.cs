@@ -215,10 +215,7 @@ public sealed class FeedbackReportService
         using var process = System.Diagnostics.Process.GetCurrentProcess();
         var inv = CultureInfo.InvariantCulture;
 
-        var clientId = _config.SpotifyClientId;
-        var clientIdKind = string.IsNullOrWhiteSpace(clientId) ? "not set"
-            : clientId == SpotifyAuthService.DefaultClientId ? "ORBIT built-in (development mode: allowlisted accounts only)"
-            : "custom";
+        var clientIdKind = SpotifyClientIdMigrationService.DescribeKind(_config.SpotifyClientId);
 
         var sb = new StringBuilder();
         sb.AppendLine("ORBIT feedback report");
@@ -238,6 +235,7 @@ public sealed class FeedbackReportService
         sb.AppendLine(inv, $"Spotify signed in:    {YesNo(_spotifyAuth?.IsAuthenticated)}");
         sb.AppendLine(inv, $"Spotify API enabled:  {YesNo(_config.SpotifyUseApi)}");
         sb.AppendLine(inv, $"Spotify Client ID:    {clientIdKind}");
+        sb.AppendLine(inv, $"Spotify last error:   {ImportProviders.Spotify403Diagnostics.LastErrorKind}");
         sb.AppendLine(inv, $"Spotify secret set:   {YesNo(!string.IsNullOrWhiteSpace(_config.SpotifyClientSecret))}");
         sb.AppendLine(inv, $"Spotify redirect URI: {_config.SpotifyRedirectUri}");
         sb.AppendLine();

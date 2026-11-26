@@ -106,7 +106,6 @@ public class ConfigManager
 
 
                 // [Spotify]
-                SpotifyUsePublicOnly = !bool.TryParse(config["Spotify:SpotifyUsePublicOnly"], out var supo) || supo, // Default true
                 SpotifyClientId = config["Spotify:SpotifyClientId"],
                 SpotifyClientSecret = DecodeSpotifySecret(config["Spotify:SpotifyClientSecret"]),
                 SpotifyUseApi = !bool.TryParse(config["Spotify:MetadataEnrichmentEnabled"], out var sua) || sua,
@@ -412,7 +411,6 @@ public class ConfigManager
         iniContent.AppendLine("[Spotify]");
         iniContent.AppendLine($"SpotifyClientId = {config.SpotifyClientId}");
         iniContent.AppendLine($"SpotifyClientSecret = {EncodeSpotifySecret(config.SpotifyClientSecret)}");
-        iniContent.AppendLine($"SpotifyUsePublicOnly = {config.SpotifyUsePublicOnly}");
         iniContent.AppendLine($"SpotifyCallbackPort = {config.SpotifyCallbackPort}");
         iniContent.AppendLine($"SpotifyRedirectUri = {config.SpotifyRedirectUri}");
         iniContent.AppendLine($"SpotifyRememberAuth = {config.SpotifyRememberAuth}");

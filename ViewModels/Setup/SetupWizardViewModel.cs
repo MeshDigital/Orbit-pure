@@ -96,6 +96,9 @@ public sealed class SetupWizardViewModel : SetupObservable, IDisposable
         else
         {
             steps.Add(WhatsNew);
+            // Epic #508 / #514: Offer Connections step in upgrade mode only to users who are NOT already connected.
+            if (!spotify.IsConnected)
+                steps.Add(Connections);
         }
         steps.Add(Done);
         Steps = new ReadOnlyCollection<SetupStepViewModel>(steps);

@@ -1,0 +1,74 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:setup="clr-namespace:SLSKDONET.ViewModels.Setup"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.OwnSpotifyAppSetupControl"
+             x:DataType="setup:OwnSpotifyAppViewModel"
+             x:CompileBindings="True">
+    <StackPanel Spacing="8">
+        <StackPanel Classes="label">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Classes="body" FontWeight="SemiBold" Text="Your own Spotify app"/>
+                <TextBlock Classes="caption" VerticalAlignment="Center"
+                           Text="{Binding ModeLabel}"
+                           IsVisible="{Binding !IsUsingOwnApp}"/>
+                <TextBlock Classes="caption success" VerticalAlignment="Center"
+                           Text="{Binding ModeLabel}"
+                           IsVisible="{Binding IsUsingOwnApp}"/>
+            </StackPanel>
+            <TextBlock Classes="caption" TextWrapping="Wrap"
+                       Text="Paste any public Spotify playlist link in Import with no sign-in needed. For Liked Songs, private playlists, or playlists over 100 tracks, connect your own free Spotify app in three steps."/>
+            <TextBlock Classes="caption" TextWrapping="Wrap"
+                       Text="{Binding PremiumRequirementNote}"/>
+        </StackPanel>
+
+        <Grid Classes="row" ColumnDefinitions="*,Auto">
+            <TextBlock Classes="body-sm" TextWrapping="Wrap" VerticalAlignment="Center"
+                       Text="1. Create an app (any name, e.g. ORBIT) and tick Web API."/>
+            <Button Grid.Column="1" Classes="secondary small" Command="{Binding OpenDashboardCommand}"
+                    ToolTip.Tip="Opens developer.spotify.com in your browser">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource icon_open_external}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                    <TextBlock Text="Open dashboard"/>
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <Grid Classes="row" ColumnDefinitions="*,Auto">
+            <StackPanel VerticalAlignment="Center" Spacing="4">
+                <TextBlock Classes="body-sm" TextWrapping="Wrap" Text="2. Add this Redirect URI to the app and save:"/>
+                <SelectableTextBlock Classes="mono" Text="{Binding RedirectUri}"/>
+            </StackPanel>
+            <Button Grid.Column="1" Classes="secondary small" Command="{Binding CopyRedirectUriCommand}"
+                    ToolTip.Tip="Copy the Redirect URI">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource icon_copy}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                    <TextBlock Text="Copy"/>
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <Grid Classes="row" ColumnDefinitions="*,Auto">
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock Classes="body-sm" TextWrapping="Wrap"
+                           Text="3. Paste your app's 32-character Client ID here, then click Connect Spotify."/>
+                <TextBlock Classes="caption warning" TextWrapping="Wrap"
+                           Text="{Binding ValidationError}"
+                           IsVisible="{Binding HasValidationError}"/>
+            </StackPanel>
+            <TextBox Grid.Column="1" Classes="field mono"
+                     Text="{Binding ClientIdInput, UpdateSourceTrigger=LostFocus}"
+                     Watermark="32-character Client ID"/>
+        </Grid>
+
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Classes="ghost small" Content="Use ORBIT tester app"
+                    Command="{Binding UseBuiltInTesterAppCommand}"
+                    IsVisible="{Binding !IsUsingTesterApp}"
+                    ToolTip.Tip="Only works if the ORBIT maintainer added your Spotify email to the tester allowlist"/>
+            <Button Classes="ghost small" Content="Clear app configuration"
+                    Command="{Binding ClearClientIdCommand}"
+                    IsVisible="{Binding !IsNoneConfigured}"
+                    ToolTip.Tip="Remove the saved Client ID and use public-link imports only"/>
+        </StackPanel>
+    </StackPanel>
+</UserControl>
