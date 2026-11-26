@@ -535,6 +535,7 @@ public partial class App
             sp.GetRequiredService<Services.PhraseAlignmentService>());
         services.AddSingleton<Services.AnalyzeTrackStructureJob>();
         services.AddSingleton<Services.AudioAnalysis.IPlaylistPrepService, Services.AudioAnalysis.PlaylistPrepService>();
+        services.AddSingleton<Services.AudioAnalysis.IPlaylistPrepCoordinator, Services.AudioAnalysis.PlaylistPrepCoordinator>();
 
         services.AddSingleton<SLSKDONET.ViewModels.Workstation.WorkstationViewModel>();
         services.AddSingleton<SLSKDONET.ViewModels.Workstation.CueEditorViewModel>();

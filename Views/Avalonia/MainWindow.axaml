@@ -263,9 +263,22 @@
                             <TextBlock Text="{Binding FailedCount}" Foreground="{StaticResource BrushError}"/>
                         </StackPanel>
                     </StackPanel>
-                    <StackPanel Classes="stat" Orientation="Horizontal" Spacing="5" ToolTip.Tip="Analysis queue">
-                        <PathIcon Data="{StaticResource icon_brain}"/>
-                        <TextBlock Text="{Binding AnalysisQueueCount}"/>
+                    <!-- Top-bar Analysis status pill (#527): shows "Analysing 14/80", clicks into Analysis queue, inline cancel -->
+                    <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                        <Button Classes="ghost small" Command="{Binding NavigateAnalysisCommand}"
+                                Padding="8,3"
+                                ToolTip.Tip="{Binding AnalysisStatusPillTooltip}">
+                            <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                                <PathIcon Data="{StaticResource icon_brain}" Width="13" Height="13"/>
+                                <TextBlock Classes="mono" Text="{Binding AnalysisStatusPillText}" FontSize="12" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Classes="icon small" Command="{Binding CancelPlaylistPrepCommand}"
+                                IsVisible="{Binding CanCancelAnalysisPill}"
+                                ToolTip.Tip="Cancel playlist prep"
+                                VerticalAlignment="Center">
+                            <PathIcon Data="{StaticResource icon_close}" Width="11" Height="11"/>
+                        </Button>
                     </StackPanel>
                     <Rectangle Classes="sep"/>
                     <Button Classes="icon" Command="{Binding SendFeedbackCommand}"
