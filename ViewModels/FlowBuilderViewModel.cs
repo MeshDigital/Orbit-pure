@@ -50,6 +50,7 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     private readonly MixTransitionViewModel _mixTransitionVm;
     private readonly SLSKDONET.Services.Audio.ILibraryPreviewPlayer? _libraryPreviewPlayer;
     private readonly SLSKDONET.Services.Repositories.ITransitionRepository? _transitionRepository;
+    private readonly SLSKDONET.Services.Transitions.ITransitionResolver? _transitionResolver;
     private FlowTrackCardViewModel? _activePreviewTrackCard;
     private string? _transitionCacheKey;
     private IReadOnlyDictionary<(string FromHash, string ToHash), PlaylistRecommendation>? _transitionCache;
@@ -350,7 +351,8 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         MixTransitionViewModel mixTransitionVm,
         SLSKDONET.Services.Similarity.SectionVectorService? sectionVectors = null,
         SLSKDONET.Services.Audio.ILibraryPreviewPlayer? libraryPreviewPlayer = null,
-        SLSKDONET.Services.Repositories.ITransitionRepository? transitionRepository = null)
+        SLSKDONET.Services.Repositories.ITransitionRepository? transitionRepository = null,
+        SLSKDONET.Services.Transitions.ITransitionResolver? transitionResolver = null)
     {
         _mixTransitionVm = mixTransitionVm;
         _mixTransitionVm.Closed += OnMixEditorClosed;
@@ -364,6 +366,7 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         }));
         _libraryPreviewPlayer = libraryPreviewPlayer;
         _transitionRepository = transitionRepository;
+        _transitionResolver = transitionResolver;
         if (_libraryPreviewPlayer != null)
         {
             _libraryPreviewPlayer.PreviewStopped += OnTrackPreviewStopped;
@@ -588,26 +591,65 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(HeaderSubtitle));
     }
 
-    /// <summary>Marks each pair whose transition is saved, from the playlist's stored transitions.</summary>
+    /// <summary>Marks each pair whose transition is saved (either in this playlist or via a shared pair default).</summary>
     private async Task RefreshSavedTransitionsAsync()
     {
-        if (_transitionRepository == null || SelectedPlaylist == null) return;
-        HashSet<(Guid, Guid)> saved;
-        try
+        if ((_transitionResolver == null && _transitionRepository == null) || SelectedPlaylist == null) return;
+        var playlistId = SelectedPlaylist.Id;
+        var pairs = new List<(int Index, Guid OutId, Guid InId, string? OutHash, string? InHash)>();
+        await Dispatcher.UIThread.InvokeAsync(() =>
         {
-            saved = (await _transitionRepository.GetTransitionsForPlaylistAsync(SelectedPlaylist.Id))
-                .Select(t => (t.OutgoingPlaylistTrackId, t.IncomingPlaylistTrackId))
-                .ToHashSet();
-        }
-        catch (Exception ex)
+            for (int i = 0; i < Tracks.Count - 1; i++)
+                pairs.Add((i, Tracks[i].Model.Id, Tracks[i + 1].Model.Id, Tracks[i].Model.TrackUniqueHash, Tracks[i + 1].Model.TrackUniqueHash));
+        });
+
+        var resolvedIndices = new HashSet<int>();
+        if (_transitionResolver != null)
         {
-            Serilog.Log.Warning(ex, "[FlowBuilder] Couldn't read saved transitions for {Playlist}", SelectedPlaylist.Id);
-            return;
+            foreach (var p in pairs)
+            {
+                try
+                {
+                    var res = await _transitionResolver.ResolveAsync(
+                        SLSKDONET.Data.Entities.TransitionScopeKind.Playlist,
+                        playlistId,
+                        p.OutId,
+                        p.InId,
+                        p.OutHash,
+                        p.InHash);
+                    if (res.Source != SLSKDONET.Services.Transitions.ResolvedTransitionSource.Auto)
+                        resolvedIndices.Add(p.Index);
+                }
+                catch (Exception ex)
+                {
+                    Serilog.Log.Warning(ex, "[FlowBuilder] Couldn't resolve transition for {Out}->{In}", p.OutId, p.InId);
+                }
+            }
         }
+        else
+        {
+            try
+            {
+                var saved = (await _transitionRepository!.GetTransitionsForPlaylistAsync(playlistId))
+                    .Select(t => (t.OutgoingPlaylistTrackId, t.IncomingPlaylistTrackId))
+                    .ToHashSet();
+                foreach (var p in pairs)
+                {
+                    if (saved.Contains((p.OutId, p.InId)))
+                        resolvedIndices.Add(p.Index);
+                }
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Warning(ex, "[FlowBuilder] Couldn't read saved transitions for {Playlist}", playlistId);
+                return;
+            }
+        }
+
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             for (int i = 0; i < Tracks.Count; i++)
-                Tracks[i].HasSavedTransition = i < Tracks.Count - 1 && saved.Contains((Tracks[i].Model.Id, Tracks[i + 1].Model.Id));
+                Tracks[i].HasSavedTransition = i < Tracks.Count - 1 && resolvedIndices.Contains(i);
             RaiseHeaderChanged();
         });
     }

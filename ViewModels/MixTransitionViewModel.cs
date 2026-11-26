@@ -1187,29 +1187,65 @@ public partial class MixTransitionViewModel : ReactiveObject, IDisposable
         await LoadEditorAsync(IncomingEditor, incoming, IncomingTrack, targetCues);
 
         PlaylistTrackTransition? saved = null;
-        try
-        {
-            saved = await _store.GetTransitionAsync(outgoing.Id, incoming.Id);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Couldn't read the saved transition for {Outgoing}->{Incoming}", outgoing.Id, incoming.Id);
-        }
-        if (generation != _loadGeneration) return;
-        // Nothing saved here yet: start from the latest transition saved for these two tracks
-        // anywhere else (rebuild plan P3.4). It isn't stored here until the DJ presses Save.
         SLSKDONET.Services.Sets.TransitionFromHistory? fromHistory = null;
-        if (saved == null && _serviceProvider.GetService(typeof(SLSKDONET.Services.Sets.ITransitionHistoryService)) is SLSKDONET.Services.Sets.ITransitionHistoryService history)
+        if (_serviceProvider.GetService(typeof(SLSKDONET.Services.Transitions.ITransitionResolver)) is SLSKDONET.Services.Transitions.ITransitionResolver resolver)
         {
             try
             {
-                fromHistory = await history.FindLatestAsync(outgoing.TrackUniqueHash, incoming.TrackUniqueHash, outgoing.Id, incoming.Id);
+                var scopeKind = isSet
+                    ? SLSKDONET.Data.Entities.TransitionScopeKind.Set
+                    : SLSKDONET.Data.Entities.TransitionScopeKind.Playlist;
+                var resolved = await resolver.ResolveAsync(
+                    scopeKind,
+                    playlistId,
+                    outgoing.Id,
+                    incoming.Id,
+                    outgoing.TrackUniqueHash,
+                    incoming.TrackUniqueHash,
+                    storeOverride: _store);
+                if (generation != _loadGeneration) return;
+                if (resolved.Source == SLSKDONET.Services.Transitions.ResolvedTransitionSource.Container)
+                {
+                    saved = resolved.SavedTransition;
+                }
+                else if (resolved.Source == SLSKDONET.Services.Transitions.ResolvedTransitionSource.PairDefault && resolved.SavedTransition != null)
+                {
+                    fromHistory = new SLSKDONET.Services.Sets.TransitionFromHistory(
+                        resolved.SavedTransition,
+                        resolved.EarlierMixSourceName ?? (resolved.EarlierMixIsSet ? "a set" : "a playlist"),
+                        resolved.EarlierMixIsSet);
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Couldn't look up earlier transitions for {Outgoing}->{Incoming}", outgoing.TrackUniqueHash, incoming.TrackUniqueHash);
+                _logger.LogWarning(ex, "Couldn't resolve transition for {Outgoing}->{Incoming}", outgoing.Id, incoming.Id);
+            }
+        }
+        else
+        {
+            try
+            {
+                saved = await _store.GetTransitionAsync(outgoing.Id, incoming.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Couldn't read the saved transition for {Outgoing}->{Incoming}", outgoing.Id, incoming.Id);
             }
             if (generation != _loadGeneration) return;
+            // Nothing saved here yet: start from the latest transition saved for these two tracks
+            // anywhere else (rebuild plan P3.4). It isn't stored here until the DJ presses Save.
+            if (saved == null && _serviceProvider.GetService(typeof(SLSKDONET.Services.Sets.ITransitionHistoryService)) is SLSKDONET.Services.Sets.ITransitionHistoryService history)
+            {
+                try
+                {
+                    fromHistory = await history.FindLatestAsync(outgoing.TrackUniqueHash, incoming.TrackUniqueHash, outgoing.Id, incoming.Id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Couldn't look up earlier transitions for {Outgoing}->{Incoming}", outgoing.TrackUniqueHash, incoming.TrackUniqueHash);
+                }
+                if (generation != _loadGeneration) return;
+            }
         }
         var applied = saved ?? fromHistory?.Transition;
         HasSavedTransition = saved != null;

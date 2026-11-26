@@ -508,36 +508,61 @@ namespace SLSKDONET.ViewModels
         }
 
         private readonly SLSKDONET.Services.Transitions.TransitionPlanService? _transitionPlanService;
+        private readonly SLSKDONET.Services.Transitions.ITransitionResolver? _transitionResolver;
 
         private async Task AttachSavedTransitionAsync(string preloadedPath, PlaylistTrackViewModel? outgoing, PlaylistTrackViewModel incoming)
         {
-            if (_transitionRepository == null || outgoing == null)
+            if ((_transitionResolver == null && _transitionRepository == null) || outgoing == null)
             {
                 return;
             }
 
             var bpm = incoming.Model?.BPM is > 0 ? incoming.Model.BPM!.Value : 128.0;
             double? outgoingBpm = outgoing.Model?.BPM is > 0 ? outgoing.Model.BPM : null;
-            var saved = await _transitionRepository.GetTransitionAsync(outgoing.Id, incoming.Id);
 
             // Structure-based plan (sections, phrases, DnB transition types, vocal check) — also the
             // source of exact analysed BPMs, which the engine uses to tempo-match the incoming deck.
             var score = Services.Playlist.TrackPairCompatibilityScorer.Score(
                 outgoing.CamelotDisplay, incoming.CamelotDisplay, outgoing.Energy, incoming.Energy);
+
+            SLSKDONET.Models.Timeline.PlaylistTrackTransition? saved = null;
             (SLSKDONET.Engine.Transitions.TransitionPlan Plan, SLSKDONET.Engine.Transitions.TrackStructure Outgoing, SLSKDONET.Engine.Transitions.TrackStructure Incoming)? planned = null;
-            if (_transitionPlanService != null
-                && outgoing.Model?.TrackUniqueHash is { Length: > 0 } outHash
-                && incoming.Model?.TrackUniqueHash is { Length: > 0 } inHash)
+
+            if (_transitionResolver != null)
             {
-                try
+                var resolved = await _transitionResolver.ResolveAsync(
+                    SLSKDONET.Data.Entities.TransitionScopeKind.Playlist,
+                    outgoing.Model?.PlaylistId ?? Guid.Empty,
+                    outgoing.Id,
+                    incoming.Id,
+                    outgoing.Model?.TrackUniqueHash,
+                    incoming.Model?.TrackUniqueHash,
+                    score.CombinedScore);
+
+                saved = resolved.SavedTransition;
+                if (resolved.AutoPlan != null && resolved.OutgoingStructure != null && resolved.IncomingStructure != null)
                 {
-                    planned = await _transitionPlanService.PlanAsync(outHash, inHash, score.CombinedScore);
-                }
-                catch (Exception ex)
-                {
-                    Serilog.Log.Warning(ex, "[Mix] Transition planning failed for {Out} -> {In}", outHash, inHash);
+                    planned = (resolved.AutoPlan, resolved.OutgoingStructure, resolved.IncomingStructure);
                 }
             }
+            else
+            {
+                saved = await _transitionRepository!.GetTransitionAsync(outgoing.Id, incoming.Id);
+                if (_transitionPlanService != null
+                    && outgoing.Model?.TrackUniqueHash is { Length: > 0 } outHash
+                    && incoming.Model?.TrackUniqueHash is { Length: > 0 } inHash)
+                {
+                    try
+                    {
+                        planned = await _transitionPlanService.PlanAsync(outHash, inHash, score.CombinedScore);
+                    }
+                    catch (Exception ex)
+                    {
+                        Serilog.Log.Warning(ex, "[Mix] Transition planning failed for {Out} -> {In}", outHash, inHash);
+                    }
+                }
+            }
+
             if (planned is { } p)
             {
                 bpm = p.Incoming.Bpm;
