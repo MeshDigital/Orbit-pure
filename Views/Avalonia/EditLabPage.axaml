@@ -305,7 +305,7 @@
 
             <!-- Source bin -->
             <Border Grid.Column="0" Classes="panel" BorderThickness="0,0,1,0">
-                <Grid RowDefinitions="Auto,Auto,*">
+                <Grid RowDefinitions="Auto,Auto,*,Auto">
                     <Border Grid.Row="0" Classes="panel-header">
                         <Grid ColumnDefinitions="*,Auto">
                             <TextBlock Classes="section" Text="TRACKS" VerticalAlignment="Center"/>
@@ -403,6 +403,36 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </ScrollViewer>
+
+                    <!-- Stem rack (Epic #517 / #541 FO5a: migrated from Workstation) -->
+                    <Border Grid.Row="3" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,1,0,0" Padding="12,10">
+                        <StackPanel Spacing="8">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="section" Text="STEM RACK" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Classes="caption" Text="{Binding StemRack.StemControlSummary}" VerticalAlignment="Center"/>
+                            </Grid>
+                            <UniformGrid Columns="4">
+                                <ToggleButton Classes="chip" Content="Vox" IsChecked="{Binding StemRack.VocalsMuted}"
+                                              HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,4,0"
+                                              ToolTip.Tip="Mute vocal stem clips"/>
+                                <ToggleButton Classes="chip" Content="Drum" IsChecked="{Binding StemRack.DrumsMuted}"
+                                              HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,4,0"
+                                              ToolTip.Tip="Mute drum stem clips"/>
+                                <ToggleButton Classes="chip" Content="Bass" IsChecked="{Binding StemRack.BassMuted}"
+                                              HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,4,0"
+                                              ToolTip.Tip="Mute bass stem clips"/>
+                                <ToggleButton Classes="chip" Content="Other" IsChecked="{Binding StemRack.OtherMuted}"
+                                              HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                              ToolTip.Tip="Mute other/melody stem clips"/>
+                            </UniformGrid>
+                            <WrapPanel Orientation="Horizontal">
+                                <Button Classes="secondary small" Content="Instrumental" Command="{Binding StemRack.ToggleInstrumentalCommand}" Margin="0,0,4,4"/>
+                                <Button Classes="secondary small" Content="Drums only" Command="{Binding StemRack.ToggleDrumsOnlyCommand}" Margin="0,0,4,4"/>
+                                <Button Classes="secondary small" Content="No vocals" Command="{Binding StemRack.ToggleVocalOffCommand}" Margin="0,0,4,4"/>
+                                <Button Classes="ghost small" Content="Reset" Command="{Binding StemRack.ResetAllStemsCommand}" Margin="0,0,0,4"/>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
                 </Grid>
             </Border>
 

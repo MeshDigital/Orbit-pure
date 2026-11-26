@@ -73,6 +73,11 @@ public sealed partial class EditLabViewModel : ReactiveObject, IEditArrangerHost
 
     public EditProjectEditor Editor { get; } = new();
 
+    /// <summary>
+    /// Four-stem mute/preset rack migrated from Workstation into Edit Lab (Epic #517 / #541 FO5a).
+    /// </summary>
+    public EditLabStemRackViewModel StemRack { get; } = new();
+
     public EditLabViewModel(
         EditProjectStore store,
         EditLabSourceService sources,
@@ -137,8 +142,32 @@ public sealed partial class EditLabViewModel : ReactiveObject, IEditArrangerHost
 
         InitializeTemplates();
         InitializeRender();
+        StemRack.OnStemMuteChanged = ApplyStemRackMutes;
 
         _ = Guard(RefreshRecentAsync);
+    }
+
+    private void ApplyStemRackMutes()
+    {
+        if (!HasProject) return;
+        bool hasStemClips = Editor.Project.AllClips.Any(c =>
+            c.Stem is EditStem.Vocals or EditStem.Drums or EditStem.Bass or EditStem.Other);
+        if (!hasStemClips) return;
+
+        Editor.Mutate(p =>
+        {
+            foreach (var clip in p.AllClips)
+            {
+                clip.Muted = clip.Stem switch
+                {
+                    EditStem.Vocals => StemRack.VocalsMuted,
+                    EditStem.Drums => StemRack.DrumsMuted,
+                    EditStem.Bass => StemRack.BassMuted,
+                    EditStem.Other => StemRack.OtherMuted,
+                    _ => clip.Muted
+                };
+            }
+        }, coalesceKey: "stem-rack-mute");
     }
 
     // ── Commands ────────────────────────────────────────────────────────────
