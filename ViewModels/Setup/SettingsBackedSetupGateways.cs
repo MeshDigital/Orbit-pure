@@ -28,6 +28,8 @@ public sealed class SettingsSpotifySetupGateway : ISpotifySetupGateway, IDisposa
 
     public bool IsConnected => _auth.IsAuthenticated;
 
+    public OwnSpotifyAppViewModel? OwnSpotifyApp => _settings.OwnSpotifyApp;
+
     public event EventHandler<bool>? ConnectionChanged;
 
     public async Task<SpotifyConnectResult> ConnectAsync()

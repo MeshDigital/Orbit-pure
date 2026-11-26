@@ -130,8 +130,7 @@ public class AppConfig
     // Spotify integration
     public string? SpotifyClientId { get; set; }
     public string? SpotifyClientSecret { get; set; }
-    public bool SpotifyUseApi { get; set; } = true; // Circuit Breaker handles 403s gracefully
-    public bool SpotifyUsePublicOnly { get; set; } = false; // Use authenticated API for accurate searches
+    public bool SpotifyUseApi { get; set; } = true; // Circuit Breaker handles 429s gracefully
     
     // Spotify OAuth settings
     public string SpotifyRedirectUri { get; set; } = "http://127.0.0.1:5000/callback";

@@ -18,6 +18,7 @@ public sealed class WhatsNewStepViewModel : SetupStepViewModel
 
     public IReadOnlyList<WhatsNewItem> Items { get; } = new[]
     {
+        new WhatsNewItem("Public Spotify links work without sign-in", "Paste any public Spotify playlist or album link in Import with no Spotify login required. For Liked Songs, private playlists, or playlists over 100 tracks, connect your own free Spotify app in the wizard or Settings → Connection."),
         new WhatsNewItem("Mix playlists with one click", "Every playlist header now has Mix beside Play, a Ready badge (e.g. Ready 42/45) with Prep for Mix, and clear transition labels in the queue and Now Playing."),
         new WhatsNewItem("Focused sidebar & Labs toggle", "Pages are grouped into Acquire, Library & Prep, and Play & Mix (Flow Builder is now Transitions). Sets, Workstation, and Edit Lab live under Settings → Labs — kept on automatically if you already have saved sets."),
         new WhatsNewItem("Sets has its own page", "Plan a gig as slot cards with a role, energy target and notes, and a compatibility score between every pair. Keep Plan B tracks per slot, search a track pool under the set, and add tracks from the Library with right-click → Add to Set."),

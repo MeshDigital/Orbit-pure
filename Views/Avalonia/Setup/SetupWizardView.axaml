@@ -438,6 +438,9 @@
                                             </StackPanel>
                                         </Grid>
                                     </Border>
+                                    <Border Classes="card" Padding="16,12" IsVisible="{Binding HasOwnSpotifyApp}">
+                                        <controls:OwnSpotifyAppSetupControl DataContext="{Binding OwnSpotifyApp}"/>
+                                    </Border>
                                     <TextBlock Classes="caption" Text="Without Spotify you can still import public Spotify playlist links, pasted tracklists and CSV files."/>
                                 </StackPanel>
                             </DataTemplate>

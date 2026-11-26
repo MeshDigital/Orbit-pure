@@ -80,6 +80,16 @@ public static class SpotifyImportErrors
                 return new ImportSourceException(
                     $"Spotify is rate-limiting requests. Try again in {Math.Max(1, (int)tooMany.RetryAfter.TotalSeconds)} s.", requiresSignIn: false, inner: ex, canRetry: true);
             case APIException api when api.Response?.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.NotFound:
+                if (api.Response.StatusCode == HttpStatusCode.Forbidden)
+                {
+                    var kind = Spotify403Diagnostics.RecordIfForbidden(api);
+                    if (kind == Spotify403Kind.OwnerPremiumRequired)
+                    {
+                        return new ImportSourceException(
+                            "The Spotify account that owns this app needs an active Premium subscription (Spotify rule since Feb 2026). Public playlists can still be imported by link without signing in.",
+                            requiresSignIn: false, inner: ex, canRetry: false);
+                    }
+                }
                 if (isMix)
                     return new ImportSourceException(PersonalisedMixMessage, requiresSignIn: false, inner: ex, canRetry: false);
                 if (scraperOutcome == SpotifyScraperOutcome.NetworkError)
