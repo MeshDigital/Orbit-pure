@@ -56,6 +56,18 @@ public class MatchScorer
     {
         options ??= new MatchScoringOptions();
 
+        // Epic #543 / #545: Reject candidates containing a user-excluded phrase unless requested.
+        if (!string.IsNullOrWhiteSpace(options.ExcludedPhrasesCsv))
+        {
+            var requested = $"{targetTrack.Artist} {targetTrack.Title}";
+            var excluded = SoulseekSearchHelper.FindExcludedPhraseInCandidate(candidate.Filename, requested, options.ExcludedPhrasesCsv);
+            if (excluded != null)
+            {
+                options.OnExcludedPhraseRejected?.Invoke(excluded);
+                return 0;
+            }
+        }
+
         double score = 0;
 
         // 1. EXACTNESS (50 pts max)
@@ -392,6 +404,15 @@ public class MatchScoringOptions
     /// Allow MP3 fallback if no lossless available (default false).
     /// </summary>
     public bool AllowMp3Fallback { get; set; } = false;
+
+    /// <summary>
+    /// Comma-separated user-excluded phrases (Epic #543 / #545): candidates matching any phrase
+    /// not present in the requested track are rejected with score 0.
+    /// </summary>
+    public string? ExcludedPhrasesCsv { get; set; }
+
+    /// <summary>Optional callback invoked when a candidate is rejected by an excluded phrase.</summary>
+    public Action<string>? OnExcludedPhraseRejected { get; set; }
 
     /// <summary>
     /// Usernames of repeated/trusted sources (optional).

@@ -743,7 +743,7 @@
                                             <TextBlock Classes="caption" Text="320 kbps is the lowest accepted value."/>
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                            <NumericUpDown Value="{Binding MinBitrate, Mode=TwoWay}" Minimum="320" Maximum="1000" Increment="32"/>
+                                            <NumericUpDown Value="{Binding MinBitrate, Mode=TwoWay}" Minimum="128" Maximum="1411" Increment="32"/>
                                             <TextBlock Classes="caption unit" Text="kbps"/>
                                         </StackPanel>
                                     </Grid>
