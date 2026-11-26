@@ -123,13 +123,13 @@ public class SpotifyMetadataService : ISpotifyMetadataService
         if (metadata == null) return false;
 
         track.SpotifyTrackId = metadata.Id;
-        track.ISRC = metadata.ExternalIds != null && metadata.ExternalIds.ContainsKey("isrc") ? metadata.ExternalIds["isrc"] : null;
+        track.ISRC = null; // ExternalIds marked removed in SpotifyAPI.Web 7.4.2
         track.SpotifyAlbumId = metadata.Album.Id;
         track.SpotifyArtistId = metadata.Artists.FirstOrDefault()?.Id;
         track.AlbumArtUrl = metadata.Album.Images.FirstOrDefault()?.Url;
         track.ArtistImageUrl = null;
         track.Genres = null;
-        track.Popularity = metadata.Popularity;
+        track.Popularity = 0; // Removed in Spotify Feb 2026 dev-mode API
         track.CanonicalDuration = metadata.DurationMs;
         
         if (DateTime.TryParse(metadata.Album.ReleaseDate, out var releaseDate))
@@ -164,7 +164,7 @@ public class SpotifyMetadataService : ISpotifyMetadataService
         query.AlbumArtUrl = metadata.Album.Images.FirstOrDefault()?.Url;
         query.ArtistImageUrl = null;
         query.Genres = null;
-        query.Popularity = metadata.Popularity;
+        query.Popularity = 0; // Removed in Spotify Feb 2026 dev-mode API
         query.CanonicalDuration = metadata.DurationMs;
         
         if (DateTime.TryParse(metadata.Album.ReleaseDate, out var releaseDate))

@@ -130,7 +130,7 @@
     <!-- Dependency Injection -->
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0" />
-    <PackageReference Include="SpotifyAPI.Web.Auth" Version="7.2.1" />
+    <PackageReference Include="SpotifyAPI.Web.Auth" Version="7.4.2" />
     <PackageReference Include="Soulseek" Version="9.1.0" />
 
     <!-- Async/Concurrency -->
@@ -147,7 +147,7 @@
     <PackageReference Include="System.Text.Json" Version="9.0.0" />
 
     <!-- Spotify API client -->
-    <PackageReference Include="SpotifyAPI.Web" Version="7.2.1" />
+    <PackageReference Include="SpotifyAPI.Web" Version="7.4.2" />
 
     <!-- Windows DPAPI for secure token storage -->
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />

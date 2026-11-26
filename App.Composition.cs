@@ -142,7 +142,7 @@ public partial class App
         services.AddSingleton<SpotifyMetadataService>(); // Keep concrete registration just in case
         services.AddSingleton<ArtworkCacheService>(); // Phase 0: Artwork caching
         services.AddSingleton<PlaylistMosaicService>(); // Generates 2×2 mosaic cover art for playlists without a dedicated cover image
-        services.AddSingleton<SpotifyBulkFetcher>(); // Phase 8: Robust Bulk Fetcher
+        // Epic #508 / #515 & #516: SpotifyBulkFetcher (GET /tracks several) removed by Spotify Feb 2026 and never injected.
         
         // Phase 1: Library Enrichment
         services.AddSingleton<SpotifyEnrichmentService>();
