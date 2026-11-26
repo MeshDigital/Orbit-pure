@@ -311,6 +311,10 @@
                                                                       IsVisible="{Binding Card.Model.SourceUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                                                       ToolTip.Tip="Spotify playlists re-fetch automatically. Pasted tracklists open their source page so you can re-paste the current list."/>
                                                             <Separator/>
+                                                            <MenuItem Header="Prep for Mix"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.PrepPlaylistForMixCommand}"
+                                                                      CommandParameter="{Binding Card.Model}"
+                                                                      ToolTip.Tip="Analyse missing BPM, beat grids, cues, and loudness so this playlist mixes cleanly. Your own cues are never touched."/>
                                                             <MenuItem Header="Regenerate cues"
                                                                       Command="{ReflectionBinding $parent[UserControl].DataContext.Projects.GenerateCuesCommand}"
                                                                       CommandParameter="{Binding Card.Model}"
@@ -449,6 +453,78 @@
                         <TextBlock Classes="mono" TextTrimming="CharacterEllipsis" MaxLines="1"><Run Text="{Binding SelectedProject.TotalTracks, StringFormat='{}{0} tracks'}"/><Run Text=" · " Foreground="{StaticResource BrushText2}"/><Run Text="{Binding SelectedProject.SuccessfulCount, StringFormat='{}{0} downloaded'}" Foreground="{StaticResource BrushSuccess}"/><Run Text="{Binding SelectedProject.FailedCountSuffix}" Foreground="{StaticResource BrushError}"/></TextBlock>
                     </StackPanel>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <!-- Mix readiness badge (#526): "Ready 42/45" with clickable list of unready tracks & Prep for Mix -->
+                        <Button Classes="ghost small"
+                                IsVisible="{Binding Readiness.IsVisible}"
+                                ToolTip.Tip="{Binding Readiness.BadgeTooltip}"
+                                Padding="8,4">
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <Ellipse Width="7" Height="7" Fill="{StaticResource BrushSuccess}" IsVisible="{Binding Readiness.AllReady}"/>
+                                <Ellipse Width="7" Height="7" Fill="{StaticResource BrushWarning}" IsVisible="{Binding Readiness.HasUnreadyTracks}"/>
+                                <Ellipse Width="7" Height="7" Fill="{StaticResource BrushError}" IsVisible="{Binding Readiness.HasError}"/>
+                                <TextBlock Classes="mono" Text="{Binding Readiness.BadgeText}" FontSize="12"/>
+                            </StackPanel>
+                            <Button.Flyout>
+                                <Flyout Placement="BottomEdgeAlignedRight">
+                                    <Border Width="340" Padding="4">
+                                        <StackPanel Spacing="8">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <StackPanel Grid.Column="0" Spacing="2">
+                                                    <TextBlock Text="Mix readiness" Classes="h3"/>
+                                                    <TextBlock Classes="mono caption" Text="{Binding Readiness.BadgeText}"/>
+                                                </StackPanel>
+                                                <Button Grid.Column="1" Classes="primary small"
+                                                        Content="Prep for Mix"
+                                                        IsVisible="{Binding Readiness.CanPrepForMix}"
+                                                        Command="{Binding Readiness.PrepForMixCommand}"
+                                                        VerticalAlignment="Center"/>
+                                            </Grid>
+
+                                            <TextBlock Text="Checking track readiness…" Classes="caption"
+                                                       IsVisible="{Binding Readiness.IsLoading}"/>
+
+                                            <StackPanel Spacing="6" IsVisible="{Binding Readiness.HasError}">
+                                                <TextBlock Text="{Binding Readiness.ErrorMessage}" Classes="caption"
+                                                           Foreground="{StaticResource BrushError}" TextWrapping="Wrap"/>
+                                                <Button Classes="ghost small" Content="Retry"
+                                                        Command="{Binding Readiness.RefreshCommand}" HorizontalAlignment="Left"/>
+                                            </StackPanel>
+
+                                            <TextBlock Text="No local tracks yet. Download tracks to prepare them for mixing."
+                                                       Classes="caption" TextWrapping="Wrap"
+                                                       IsVisible="{Binding Readiness.IsEmpty}"/>
+
+                                            <TextBlock Text="Every local track in this playlist has BPM, beat grid, cues, and loudness."
+                                                       Classes="caption" Foreground="{StaticResource BrushSuccess}" TextWrapping="Wrap"
+                                                       IsVisible="{Binding Readiness.AllReady}"/>
+
+                                            <ScrollViewer MaxHeight="280" IsVisible="{Binding Readiness.HasUnreadyTracks}">
+                                                <ItemsControl ItemsSource="{Binding Readiness.UnreadyTracks}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="liblib:UnreadyTrackItem">
+                                                            <Border Padding="6,5" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
+                                                                <Grid ColumnDefinitions="*,Auto">
+                                                                    <StackPanel Grid.Column="0" Spacing="1">
+                                                                        <TextBlock Text="{Binding DisplayLabel}" Classes="body-sm" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                                        <TextBlock Text="{Binding MissingSummary}" Classes="caption" TextTrimming="CharacterEllipsis"/>
+                                                                    </StackPanel>
+                                                                    <Button Grid.Column="1" Classes="ghost small"
+                                                                            Margin="8,0,0,0"
+                                                                            Content="Open in Cue Forge"
+                                                                            Command="{ReflectionBinding $parent[UserControl].DataContext.Readiness.OpenInCueForgeCommand}"
+                                                                            CommandParameter="{Binding}"
+                                                                            VerticalAlignment="Center"/>
+                                                                </Grid>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </ScrollViewer>
+                                        </StackPanel>
+                                    </Border>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
                         <Button Classes="ghost" Click="OpenDiscover_Click"
                                 IsVisible="{Binding IsLibraryIntelligencePanelVisible}"
                                 ToolTip.Tip="Discover: suggest tracks to add to this playlist (Beatport + Deezer), downloadable via Soulseek">

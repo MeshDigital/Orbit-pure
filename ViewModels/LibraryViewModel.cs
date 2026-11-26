@@ -81,6 +81,12 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     public LibraryMultiSelectionInspectorViewModel MultiSelection { get; }
     public PlaylistIntelligenceViewModel Intelligence { get; }
 
+    /// <summary>Mix readiness badge ("Ready 42/45") and unready track list for the active playlist (#526).</summary>
+    public Library.PlaylistReadinessViewModel Readiness { get; }
+
+    /// <summary>Runs PlaylistPrepService for a playlist from right-click or the readiness badge (#527).</summary>
+    public System.Windows.Input.ICommand PrepPlaylistForMixCommand { get; }
+
     private Views.MainViewModel? _mainViewModel;
     public Views.MainViewModel? MainViewModel
     {
@@ -623,6 +629,12 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         MultiSelection = new LibraryMultiSelectionInspectorViewModel(this);
         var optimizer = _serviceProvider?.GetService(typeof(Services.Playlist.PlaylistOptimizer)) as Services.Playlist.PlaylistOptimizer;
         Intelligence = new PlaylistIntelligenceViewModel(this, _trackSimilarityService, optimizer);
+        Readiness = new Library.PlaylistReadinessViewModel(
+            _dbFactory,
+            openInCueForge: item => _eventBus.Publish(new OpenInCueForgeFromInspectorEvent(item.TrackUniqueHash)),
+            prepForMix: ExecutePrepPlaylistByIdAsync,
+            logger: _logger);
+        PrepPlaylistForMixCommand = new AsyncRelayCommand<PlaylistJob>(ExecutePrepPlaylistForMixAsync);
 
         // Bridge TrackList and Operations for ContextMenu functionality
         Tracks.Operations = operations;
@@ -693,6 +705,21 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
             Dispatcher.UIThread.InvokeAsync(() => BatchTagEditCommand.Execute(null))));
         _disposables.Add(_eventBus.GetEvent<OpenInCueForgeFromInspectorEvent>().Subscribe(evt =>
             Dispatcher.UIThread.InvokeAsync(() => Operations.OpenInCueForgeCommand.Execute(FindSelectedTrack(evt.TrackGlobalId)))));
+        _disposables.Add(
+            _eventBus.GetEvent<TrackAnalysisUpdatedEvent>().Select(_ => System.Reactive.Unit.Default)
+                .Merge(_eventBus.GetEvent<TrackMetadataUpdatedEvent>().Select(_ => System.Reactive.Unit.Default))
+                .Merge(_eventBus.GetEvent<Services.AudioAnalysis.PlaylistPrepStatusChangedEvent>()
+                    .Where(e => !e.IsRunning)
+                    .Select(_ => System.Reactive.Unit.Default))
+                .Throttle(TimeSpan.FromMilliseconds(250))
+                .Subscribe(unit =>
+                {
+                    var current = SelectedProject;
+                    if (current is { Id: var id } && id != Guid.Empty)
+                    {
+                        _ = Readiness.RefreshAsync(id, current.SourceTitle);
+                    }
+                }));
         _disposables.Add(_eventBus.GetEvent<OpenInEditLabFromInspectorEvent>().Subscribe(evt =>
             Dispatcher.UIThread.InvokeAsync(() => Operations.OpenInEditLabCommand.Execute(FindSelectedTrack(evt.TrackGlobalId)))));
         _disposables.Add(_eventBus.GetEvent<RetryDownloadFromInspectorEvent>().Subscribe(evt =>
@@ -1203,5 +1230,33 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         IngestionBacklogCount = metrics.IngestionBacklog;
         DesiredDownloadCount = metrics.DesiredDownloads;
         OnPropertyChanged(nameof(LibraryCountDifferentiationSummary));
+    }
+
+    private async Task ExecutePrepPlaylistForMixAsync(PlaylistJob? job)
+    {
+        if (job is null || job.Id == Guid.Empty) return;
+        await ExecutePrepPlaylistByIdAsync(job.Id, job.SourceTitle);
+    }
+
+    private async Task ExecutePrepPlaylistByIdAsync(Guid playlistId, string playlistTitle)
+    {
+        if (playlistId == Guid.Empty) return;
+
+        var coordinator = _serviceProvider?.GetService(typeof(Services.AudioAnalysis.IPlaylistPrepCoordinator))
+            as Services.AudioAnalysis.IPlaylistPrepCoordinator;
+        if (coordinator is null)
+        {
+            _notificationService.Show(
+                "Prep for Mix unavailable",
+                "Playlist prep service is not available in this session.",
+                Views.NotificationType.Warning);
+            return;
+        }
+
+        await coordinator.RunAsync(playlistId, playlistTitle);
+        if (SelectedProject is { Id: var selectedId } && selectedId == playlistId)
+        {
+            await Readiness.RefreshAsync(playlistId, playlistTitle);
+        }
     }
 }

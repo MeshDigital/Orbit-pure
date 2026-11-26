@@ -141,10 +141,12 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         SLSKDONET.ViewModels.Activity.BackgroundActivityHubViewModel? activity = null,
         SLSKDONET.ViewModels.Workstation.WorkstationViewModel? workstation = null,
         SLSKDONET.ViewModels.Sets.SetsViewModel? sets = null,
-        SLSKDONET.ViewModels.Maintenance.MaintenanceShellViewModel? maintenance = null)
+        SLSKDONET.ViewModels.Maintenance.MaintenanceShellViewModel? maintenance = null,
+        SLSKDONET.Services.AudioAnalysis.IPlaylistPrepCoordinator? playlistPrepCoordinator = null)
 
     {
         _setsViewModel = sets;
+        _playlistPrepCoordinator = playlistPrepCoordinator;
         _logger = logger;
         _config = config;
         _configManager = configManager;
@@ -259,6 +261,11 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         _disposables.Add(_eventBus.GetEvent<OpenPlaylistInLibraryEvent>()
             .Subscribe(evt => Dispatcher.UIThread.Post(() => HandleOpenPlaylistInLibrary(evt))));
+
+        _disposables.Add(_eventBus.GetEvent<SLSKDONET.Services.AudioAnalysis.PlaylistPrepStatusChangedEvent>()
+            .Subscribe(evt => Dispatcher.UIThread.Post(() => ApplyPlaylistPrepStatus(evt))));
+
+        CancelPlaylistPrepCommand = new RelayCommand(() => _playlistPrepCoordinator?.Cancel());
 
         // Initialize commands
         NavigateHomeCommand = new RelayCommand(NavigateToHome); // Phase 6D
@@ -896,8 +903,77 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 OnPropertyChanged(nameof(AnalysisETA));
                 OnPropertyChanged(nameof(HasETA));
                 OnPropertyChanged(nameof(IsGlobalActivityActive)); // Notify unified activity
+                OnPropertyChanged(nameof(IsAnalysisPillActive));
+                OnPropertyChanged(nameof(AnalysisStatusPillText));
+                OnPropertyChanged(nameof(AnalysisStatusPillTooltip));
             }
         }
+    }
+
+    private readonly SLSKDONET.Services.AudioAnalysis.IPlaylistPrepCoordinator? _playlistPrepCoordinator;
+    private bool _isPlaylistPrepRunning;
+    private int _playlistPrepCompleted;
+    private int _playlistPrepTotal;
+    private string _playlistPrepTitle = string.Empty;
+
+    public ICommand CancelPlaylistPrepCommand { get; }
+
+    public bool IsPlaylistPrepRunning
+    {
+        get => _isPlaylistPrepRunning;
+        private set
+        {
+            if (SetProperty(ref _isPlaylistPrepRunning, value))
+            {
+                OnPropertyChanged(nameof(CanCancelAnalysisPill));
+                OnPropertyChanged(nameof(IsAnalysisPillActive));
+                OnPropertyChanged(nameof(AnalysisStatusPillText));
+                OnPropertyChanged(nameof(AnalysisStatusPillTooltip));
+                OnPropertyChanged(nameof(IsGlobalActivityActive));
+            }
+        }
+    }
+
+    public bool IsAnalysisPillActive => IsPlaylistPrepRunning || AnalysisQueueCount > 0;
+    public bool CanCancelAnalysisPill => IsPlaylistPrepRunning;
+
+    public string AnalysisStatusPillText
+    {
+        get
+        {
+            if (IsPlaylistPrepRunning)
+            {
+                return _playlistPrepTotal > 0
+                    ? $"Analysing {_playlistPrepCompleted}/{_playlistPrepTotal}"
+                    : "Analysing…";
+            }
+
+            if (AnalysisQueueCount > 0)
+            {
+                int total = AnalysisProcessedCount + AnalysisQueueCount;
+                return AnalysisProcessedCount > 0
+                    ? $"Analysing {AnalysisProcessedCount}/{total}"
+                    : $"Analysing {AnalysisQueueCount}";
+            }
+
+            return "0";
+        }
+    }
+
+    public string AnalysisStatusPillTooltip => IsPlaylistPrepRunning
+        ? $"Prepping '{_playlistPrepTitle}' ({_playlistPrepCompleted}/{_playlistPrepTotal}) — click to open Analysis queue"
+        : AnalysisQueueCount > 0
+            ? $"Analysis queue ({AnalysisQueueCount} remaining) — click to open"
+            : "Analysis queue — click to open";
+
+    private void ApplyPlaylistPrepStatus(SLSKDONET.Services.AudioAnalysis.PlaylistPrepStatusChangedEvent evt)
+    {
+        _playlistPrepCompleted = evt.Completed;
+        _playlistPrepTotal = evt.Total;
+        _playlistPrepTitle = evt.PlaylistTitle;
+        IsPlaylistPrepRunning = evt.IsRunning;
+        OnPropertyChanged(nameof(AnalysisStatusPillText));
+        OnPropertyChanged(nameof(AnalysisStatusPillTooltip));
     }
 
     private int _analysisProcessedCount;

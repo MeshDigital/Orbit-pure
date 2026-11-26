@@ -304,6 +304,7 @@ public partial class LibraryViewModel
         {
             Tracks.SuspendViewState();
             Intelligence.ResetSmartInsertPairContext();
+            _ = Readiness.RefreshAsync(null);
             _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
             _ = Intelligence.RefreshOverviewStatsAsync();
             ReactiveUI.MessageBus.Current.SendMessage(new CloseInspectorEvent());
@@ -325,6 +326,7 @@ public partial class LibraryViewModel
         await RefreshSavedDoublesAsync();
         _logger.LogInformation("[PERF] Project select '{Title}': LoadProjectTracks {LoadMs}ms, SavedDoubles {DoublesMs}ms",
             project.SourceTitle, loadMs, selectSw.ElapsedMilliseconds - loadMs);
+        _ = Readiness.RefreshAsync(project.Id, project.SourceTitle);
         _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
         _ = Intelligence.RefreshOverviewStatsAsync();
 
