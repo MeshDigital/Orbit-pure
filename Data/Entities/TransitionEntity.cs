@@ -98,7 +98,7 @@ public class TransitionEntity
         if (string.Equals(preset, "Wave", StringComparison.OrdinalIgnoreCase))
             return "WaveDuck";
         if (string.Equals(preset, "Melt", StringComparison.OrdinalIgnoreCase))
-            return "EchoOut";
+            return string.Equals(type, "EchoOut", StringComparison.OrdinalIgnoreCase) ? "EchoOut" : "Melt";
         if (string.Equals(preset, "DoubleDrop", StringComparison.OrdinalIgnoreCase)
             || string.Equals(type, "DoubleDrop", StringComparison.OrdinalIgnoreCase)
             || string.Equals(type, "Loop", StringComparison.OrdinalIgnoreCase))
