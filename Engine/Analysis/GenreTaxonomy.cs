@@ -271,6 +271,41 @@ public static class GenreTaxonomy
     }
 
     /// <summary>
+    /// Unwraps a JSON string array such as <c>["Techno","House"]</c> into individual genre tokens,
+    /// or splits standard comma/semicolon/slash/newline-delimited genre text (Epic #561 / #562 GV1).
+    /// </summary>
+    public static IReadOnlyList<string> SplitGenreText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return Array.Empty<string>();
+        var trimmed = text.Trim();
+
+        if (trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[^1] == ']')
+        {
+            try
+            {
+                var arr = System.Text.Json.JsonSerializer.Deserialize<string[]>(trimmed);
+                if (arr is { Length: > 0 })
+                {
+                    return arr
+                        .SelectMany(item => (item ?? string.Empty).Split(
+                            new[] { ',', ';', '/', '\n', '\r', '|' },
+                            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                        .Where(s => !string.IsNullOrWhiteSpace(s))
+                        .ToList();
+                }
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                // Fall through to delimiter split
+            }
+        }
+
+        return trimmed.Split(
+            new[] { ',', ';', '/', '\n', '\r', '|' },
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    /// <summary>
     /// Every non-junk value of a multi-value genre text, mapped in tag order
     /// ("Drum &amp; Bass, Liquid" → DnB, DnB/Liquid). Empty when the text is empty or all junk.
     /// </summary>
@@ -279,8 +314,7 @@ public static class GenreTaxonomy
         var result = new List<GenreBucketMapping>();
         if (string.IsNullOrWhiteSpace(text)) return result;
 
-        var parts = text.Split(new[] { ',', ';', '/', '\n', '\r', '|' },
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var parts = SplitGenreText(text);
 
         foreach (var part in parts)
         {
