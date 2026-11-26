@@ -194,34 +194,26 @@
                                                 </Grid>
                                             </Border>
 
-                                            <!-- Pair link to the next track: score bar, key, tempo, saved state -->
+                                            <!-- Pair link to the next track: transition label (#530, #533), key, tempo -->
                                             <Button Classes="pair-link"
                                                     Classes.selected="{Binding IsActiveTransition}"
                                                     IsVisible="{Binding HasBridge}"
                                                     Command="{Binding SelectTransitionInspectorCommand}"
-                                                    ToolTip.Tip="{Binding Bridge.Tooltip}">
-                                                <Grid ColumnDefinitions="40,28,*,Auto,Auto">
-                                                    <ProgressBar Grid.Column="0" Classes="meter" VerticalAlignment="Center"
-                                                                 Classes.success="{Binding Bridge.IsGoodScore}"
-                                                                 Classes.warning="{Binding Bridge.IsFairScore}"
-                                                                 Classes.error="{Binding Bridge.IsPoorScore}"
-                                                                 Minimum="0" Maximum="100" Value="{Binding Bridge.ScorePercent}"/>
-                                                    <TextBlock Grid.Column="1" Classes="mono" Text="{Binding Bridge.ScoreDisplay}"
-                                                               VerticalAlignment="Center" TextAlignment="Right"/>
-                                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" Margin="8,0,0,0" VerticalAlignment="Center">
+                                                    ToolTip.Tip="Click to edit this transition">
+                                                <Grid ColumnDefinitions="*,Auto,Auto">
+                                                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
+                                                                ToolTip.Tip="Saved for ORBIT playlist playback with MIX enabled when these tracks are adjacent">
+                                                        <Ellipse Classes="status-dot success" IsVisible="{Binding HasSavedTransition}"/>
+                                                        <TextBlock Classes="caption" Text="{Binding TransitionLabel}" TextTrimming="CharacterEllipsis"/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="6,0,0,0" VerticalAlignment="Center">
                                                         <TextBlock Classes="mono muted" Text="{Binding Bridge.KeyRelationDisplay}"/>
                                                         <TextBlock Classes="mono muted" Text="{Binding Bridge.BpmDeltaDisplay}"/>
                                                     </StackPanel>
-                                                    <PathIcon Grid.Column="3" Data="{StaticResource icon_alert}" Width="12" Height="12"
-                                                              Foreground="{StaticResource BrushWarning}" Margin="4,0"
+                                                    <PathIcon Grid.Column="2" Data="{StaticResource icon_alert}" Width="12" Height="12"
+                                                              Foreground="{StaticResource BrushWarning}" Margin="4,0,0,0"
                                                               IsVisible="{Binding PairNeedsAttention}"
                                                               ToolTip.Tip="One of these tracks needs attention. Unavailable audio must be repaired before opening this pair."/>
-                                                    <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"
-                                                                IsVisible="{Binding HasSavedTransition}"
-                                                                ToolTip.Tip="Saved for ORBIT playlist playback with MIX enabled when these tracks are adjacent">
-                                                        <Ellipse Classes="status-dot success"/>
-                                                        <TextBlock Classes="caption" Text="Saved"/>
-                                                    </StackPanel>
                                                 </Grid>
                                             </Button>
                                         </StackPanel>

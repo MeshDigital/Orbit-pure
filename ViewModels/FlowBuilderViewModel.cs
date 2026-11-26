@@ -596,14 +596,15 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     {
         if ((_transitionResolver == null && _transitionRepository == null) || SelectedPlaylist == null) return;
         var playlistId = SelectedPlaylist.Id;
-        var pairs = new List<(int Index, Guid OutId, Guid InId, string? OutHash, string? InHash)>();
+        var pairs = new List<(int Index, Guid OutId, Guid InId, string? OutHash, string? InHash, double? OutBpm, double? InBpm)>();
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             for (int i = 0; i < Tracks.Count - 1; i++)
-                pairs.Add((i, Tracks[i].Model.Id, Tracks[i + 1].Model.Id, Tracks[i].Model.TrackUniqueHash, Tracks[i + 1].Model.TrackUniqueHash));
+                pairs.Add((i, Tracks[i].Model.Id, Tracks[i + 1].Model.Id, Tracks[i].Model.TrackUniqueHash, Tracks[i + 1].Model.TrackUniqueHash, Tracks[i].Model.BPM, Tracks[i + 1].Model.BPM));
         });
 
         var resolvedIndices = new HashSet<int>();
+        var labelsByIndex = new Dictionary<int, string>();
         if (_transitionResolver != null)
         {
             foreach (var p in pairs)
@@ -619,6 +620,8 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
                         p.InHash);
                     if (res.Source != SLSKDONET.Services.Transitions.ResolvedTransitionSource.Auto)
                         resolvedIndices.Add(p.Index);
+                    labelsByIndex[p.Index] = SLSKDONET.Services.Transitions.TransitionLabelFormatter
+                        .Format(res, p.OutBpm, p.InBpm).Text;
                 }
                 catch (Exception ex)
                 {
@@ -631,12 +634,27 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
             try
             {
                 var saved = (await _transitionRepository!.GetTransitionsForPlaylistAsync(playlistId))
-                    .Select(t => (t.OutgoingPlaylistTrackId, t.IncomingPlaylistTrackId))
-                    .ToHashSet();
+                    .ToDictionary(t => (t.OutgoingPlaylistTrackId, t.IncomingPlaylistTrackId));
                 foreach (var p in pairs)
                 {
-                    if (saved.Contains((p.OutId, p.InId)))
+                    if (saved.TryGetValue((p.OutId, p.InId), out var row))
+                    {
                         resolvedIndices.Add(p.Index);
+                        var res = new SLSKDONET.Services.Transitions.ResolvedTransition(
+                            SLSKDONET.Services.Transitions.ResolvedTransitionSource.Container,
+                            SLSKDONET.Data.Entities.TransitionEntity.MapLegacyTechnique(row.PresetName, row.Type.ToString()),
+                            row, null, false, null, null, null);
+                        labelsByIndex[p.Index] = SLSKDONET.Services.Transitions.TransitionLabelFormatter
+                            .Format(res, p.OutBpm, p.InBpm).Text;
+                    }
+                    else
+                    {
+                        var res = new SLSKDONET.Services.Transitions.ResolvedTransition(
+                            SLSKDONET.Services.Transitions.ResolvedTransitionSource.Auto,
+                            "Auto", null, null, false, null, null, null);
+                        labelsByIndex[p.Index] = SLSKDONET.Services.Transitions.TransitionLabelFormatter
+                            .Format(res, p.OutBpm, p.InBpm).Text;
+                    }
                 }
             }
             catch (Exception ex)
@@ -649,7 +667,11 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             for (int i = 0; i < Tracks.Count; i++)
+            {
                 Tracks[i].HasSavedTransition = i < Tracks.Count - 1 && resolvedIndices.Contains(i);
+                if (labelsByIndex.TryGetValue(i, out var label))
+                    Tracks[i].TransitionLabel = label;
+            }
             RaiseHeaderChanged();
         });
     }
