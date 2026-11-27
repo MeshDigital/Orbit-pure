@@ -42,6 +42,21 @@ public sealed class EditLabViewModelTests : IDisposable
         catch (IOException) { /* temp dir */ }
     }
 
+    private static string? TryReadText(string path)
+    {
+        if (!File.Exists(path)) return null;
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            return reader.ReadToEnd();
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Polls <paramref name="condition"/> without blocking a thread, so background
     /// continuations (autosave) can run while the test waits.</summary>
     private static async Task<bool> WaitUntilAsync(Func<bool> condition, int timeoutMs)
@@ -195,7 +210,9 @@ public sealed class EditLabViewModelTests : IDisposable
         // Wait asynchronously, not with SpinWait: the autosave's Task.Delay continuation needs a
         // thread, and on 2-core CI runners xUnit's limited-concurrency context could be fully
         // occupied by the blocked test thread plus a parallel test — the save then never ran in time.
-        Assert.True(await WaitUntilAsync(() => File.Exists(path) && File.ReadAllText(path).Contains("My intro"), 15000));
+        // Use shared-read + transient IOException tolerance (#613) so polling while EditProjectStore
+        // is mid-flush never throws a sharing violation on Windows.
+        Assert.True(await WaitUntilAsync(() => TryReadText(path)?.Contains("My intro") == true, 15000));
 
         await _vm.CloseProjectCommand.Execute();
         Assert.False(_vm.HasProject);
