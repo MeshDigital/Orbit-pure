@@ -49,7 +49,6 @@ public class AppDbContext : DbContext
     public DbSet<Entities.PrivateMessageEntity> PrivateMessages { get; set; } // Social: 1:1 Soulseek chat
     public DbSet<Entities.RoomMessageEntity> RoomMessages { get; set; } // Social: Soulseek chat rooms
     public DbSet<Entities.RekordboxExportCueSyncEntity> RekordboxExportCueSync { get; set; } // Rekordbox export: three-way cue merge tracking
-    public DbSet<Entities.PlaylistTrackTransitionEntity> PlaylistTrackTransitions { get; set; } // Mix: saved per-track-pair transition config
     public DbSet<Entities.MetadataLookupCacheEntity> MetadataLookupCache { get; set; } // Enrichment: cached provider lookups
     public DbSet<Entities.MetadataProvenanceEntity> MetadataProvenance { get; set; } // Enrichment: per-field source of stored metadata
     public DbSet<Entities.MaintenanceRunEntity> MaintenanceRuns { get; set; } // Library Maintenance: one undoable run
@@ -64,7 +63,6 @@ public class AppDbContext : DbContext
     public DbSet<Entities.TransitionTemplateEntity> TransitionTemplates { get; set; } // Phase 1: reusable "how to mix" recipes
     public DbSet<Entities.SetStoryEdgeEntity> SetStoryEdges { get; set; } // Phase 1: Story Graph branching edges
     public DbSet<Entities.SetSlotAlternateEntity> SetSlotAlternates { get; set; } // Sets page: "Plan B" tracks per slot
-    public DbSet<Entities.SetTrackTransitionEntity> SetTrackTransitions { get; set; } // Sets page: saved slot→slot transitions
     public DbSet<Entities.TransitionEntity> Transitions { get; set; } // Epic #517 / FO1a: unified transition store
     public DbSet<Entities.TransitionPlayEntity> TransitionPlays { get; set; } // Epic #517 / FO3f (#534): passive play log
     public DbSet<Entities.MixRecipeEntity> MixRecipes { get; set; } // Phase 1: reusable branching patterns
@@ -404,17 +402,6 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Entities.SetSlotAlternateEntity>()
             .HasIndex(a => a.SlotId)
             .HasDatabaseName("IX_SetSlotAlternates_SlotId");
-
-        // Sets page: saved transitions between slots (raw-SQL patch in SchemaMigratorService).
-        modelBuilder.Entity<Entities.SetTrackTransitionEntity>(e =>
-        {
-            e.HasOne<Entities.SetListEntity>().WithMany().HasForeignKey(t => t.SetId).OnDelete(DeleteBehavior.Cascade);
-            e.HasOne<Entities.SetTrackEntity>().WithMany().HasForeignKey(t => t.OutgoingSlotId).OnDelete(DeleteBehavior.Cascade);
-            e.HasOne<Entities.SetTrackEntity>().WithMany().HasForeignKey(t => t.IncomingSlotId).OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(t => new { t.OutgoingSlotId, t.IncomingSlotId }).IsUnique().HasDatabaseName("IX_SetTrackTransitions_Pair");
-            e.HasIndex(t => t.SetId).HasDatabaseName("IX_SetTrackTransitions_SetId");
-            e.HasIndex(t => t.IncomingSlotId).HasDatabaseName("IX_SetTrackTransitions_IncomingSlotId");
-        });
 
         // Epic #517 / FO1a (#518): unified transition store (playlist + set scopes + track-pair fallback).
         modelBuilder.Entity<Entities.TransitionEntity>(e =>
