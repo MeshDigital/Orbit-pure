@@ -901,54 +901,14 @@ public sealed partial class WorkstationViewModel
     /// </summary>
     public static FlowCompatibilityScore ComputeFlowHarmonicCompatibility(string? sourceCamelotKey, string? targetCamelotKey, int semitoneShift)
     {
-        var harmony01 = TrackMatchScorer.ComputeHarmony(sourceCamelotKey, targetCamelotKey, out _);
-        var shiftPenalty = Math.Min(18d, Math.Abs(semitoneShift) * 3d);
-        var finalScore = Math.Clamp((harmony01 * 100d) - shiftPenalty, 0d, 100d);
-        var label = finalScore switch
-        {
-            >= 80d => "lock",
-            >= 60d => "safe",
-            >= 40d => "stretch",
-            _ => "risky"
-        };
-
-        return new FlowCompatibilityScore(Math.Round(finalScore, 1), label);
+        var axis = Services.Playlist.TrackPairCompatibilityScorer.ComputeHarmonicCompatibility(sourceCamelotKey, targetCamelotKey, semitoneShift);
+        return new FlowCompatibilityScore(axis.Score, axis.Label);
     }
 
     public static FlowCompatibilityScore ComputeFlowEnergyCompatibility(double? sourceEnergy, double? targetEnergy, double transitionLengthSeconds)
     {
-        var source = Math.Clamp(sourceEnergy ?? 0.5, 0.0, 1.0);
-        var target = Math.Clamp(targetEnergy ?? 0.5, 0.0, 1.0);
-        var delta = Math.Abs(source - target);
-
-        var baseline = delta switch
-        {
-            <= 0.10 => 92d,
-            <= 0.20 => 78d,
-            <= 0.35 => 58d,
-            _ => 28d
-        };
-
-        var length = Math.Max(2.0, transitionLengthSeconds);
-        var lengthAdjustment = delta switch
-        {
-            <= 0.10 when length <= 10.0 => 4d,
-            <= 0.10 when length > 18.0 => -5d,
-            > 0.35 when length < 8.0 => -10d,
-            > 0.20 when length >= 12.0 => 4d,
-            _ => 0d
-        };
-
-        var finalScore = Math.Clamp(baseline + lengthAdjustment, 0d, 100d);
-        var label = delta switch
-        {
-            <= 0.10 => "smooth",
-            <= 0.20 => "lift",
-            <= 0.35 => "aggressive",
-            _ => "mismatch"
-        };
-
-        return new FlowCompatibilityScore(Math.Round(finalScore, 1), label);
+        var axis = Services.Playlist.TrackPairCompatibilityScorer.ComputeEnergyCompatibility(sourceEnergy, targetEnergy, transitionLengthSeconds);
+        return new FlowCompatibilityScore(axis.Score, axis.Label);
     }
 
     public static double ComputeCombinedFlowCompatibilityScore(double harmonicScore, double energyScore)

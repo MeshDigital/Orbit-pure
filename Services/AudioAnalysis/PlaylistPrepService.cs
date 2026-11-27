@@ -9,7 +9,6 @@ using SLSKDONET.Configuration;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
-using SLSKDONET.ViewModels.Workstation;
 
 namespace SLSKDONET.Services.AudioAnalysis;
 
@@ -305,11 +304,11 @@ public sealed class PlaylistPrepService : IPlaylistPrepService
         if (_eligibilityOverride is not null)
             return _eligibilityOverride(track);
 
-        return WorkstationDeckViewModel.GetTrackEligibilityIssue(track) is not
-            (WorkstationTrackEligibilityIssue.NoTrack
-             or WorkstationTrackEligibilityIssue.NotDownloaded
-             or WorkstationTrackEligibilityIssue.MissingFile
-             or WorkstationTrackEligibilityIssue.MissingHash);
+        return track != null
+            && track.Status == TrackStatus.Downloaded
+            && !string.IsNullOrWhiteSpace(track.ResolvedFilePath)
+            && File.Exists(track.ResolvedFilePath)
+            && !string.IsNullOrWhiteSpace(track.TrackUniqueHash);
     }
 
     private async Task<(AudioFeaturesEntity? Features, List<CuePointEntity> Cues)> LoadTrackStateAsync(

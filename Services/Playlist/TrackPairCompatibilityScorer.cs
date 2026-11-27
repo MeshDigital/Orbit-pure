@@ -1,24 +1,18 @@
 using System;
 using System.Collections.Generic;
-using SLSKDONET.ViewModels.Workstation;
+using SLSKDONET.Services.Similarity;
 
 namespace SLSKDONET.Services.Playlist;
 
 /// <summary>
-/// Row-friendly (non-canvas) façade over the harmonic/energy compatibility formulas the
-/// Workstation "SET PLAN" Flow timeline already uses
-/// (<see cref="WorkstationViewModel.ComputeFlowHarmonicCompatibility"/>,
-/// <see cref="WorkstationViewModel.ComputeFlowEnergyCompatibility"/>). Deliberately delegates
-/// rather than re-implements for those two axes, so they never drift apart.
-///
-/// BPM and genre are NOT shared with the Flow timeline's own combine formula
-/// (<see cref="WorkstationViewModel.ComputeCombinedFlowCompatibilityScore"/>, which stays a plain
-/// 0.6/0.4 harmonic/energy blend) — this facade's <see cref="PairScore.CombinedScore"/>
-/// intentionally diverges from it now that the Mix badge and reorder-suggestion features need a
-/// richer signal than the low-level per-transition editor does.
+/// Pure harmonic/energy/BPM/genre compatibility scorer shared by playback, queue badges,
+/// <c>PlaybackTransitionDecider</c>, and Workstation Flow transitions (#611).
+/// Lives in <c>Services/Playlist</c> with zero dependency on Labs view models.
 /// </summary>
 public static class TrackPairCompatibilityScorer
 {
+    public readonly record struct AxisScore(double Score, string Label);
+
     // NOTE: HarmonicScore/HarmonicLabel/EnergyScore/EnergyLabel/CombinedScore keep their original
     // positional order (existing callers, e.g. TransitionPresetLibraryTests, construct this via
     // positional args) — Bpm/Genre fields are appended after CombinedScore rather than inserted
@@ -29,6 +23,65 @@ public static class TrackPairCompatibilityScorer
         double CombinedScore,
         double BpmScore = 65.0, string BpmLabel = "unknown",
         double GenreScore = 65.0, string GenreLabel = "unknown");
+
+    /// <summary>
+    /// Harmonic compatibility on the Camelot wheel using <see cref="TrackMatchScorer.ComputeHarmony"/>
+    /// with optional semitone shift penalty (#611, extracted unchanged from WorkstationViewModel).
+    /// </summary>
+    public static AxisScore ComputeHarmonicCompatibility(string? sourceCamelotKey, string? targetCamelotKey, int semitoneShift = 0)
+    {
+        var harmony01 = TrackMatchScorer.ComputeHarmony(sourceCamelotKey, targetCamelotKey, out _);
+        var shiftPenalty = Math.Min(18d, Math.Abs(semitoneShift) * 3d);
+        var finalScore = Math.Clamp((harmony01 * 100d) - shiftPenalty, 0d, 100d);
+        var label = finalScore switch
+        {
+            >= 80d => "lock",
+            >= 60d => "safe",
+            >= 40d => "stretch",
+            _ => "risky"
+        };
+
+        return new AxisScore(Math.Round(finalScore, 1), label);
+    }
+
+    /// <summary>
+    /// Energy delta + transition length compatibility (#611, extracted unchanged from WorkstationViewModel).
+    /// </summary>
+    public static AxisScore ComputeEnergyCompatibility(double? sourceEnergy, double? targetEnergy, double transitionLengthSeconds)
+    {
+        var source = Math.Clamp(sourceEnergy ?? 0.5, 0.0, 1.0);
+        var target = Math.Clamp(targetEnergy ?? 0.5, 0.0, 1.0);
+        var delta = Math.Abs(source - target);
+
+        var baseline = delta switch
+        {
+            <= 0.10 => 92d,
+            <= 0.20 => 78d,
+            <= 0.35 => 58d,
+            _ => 28d
+        };
+
+        var length = Math.Max(2.0, transitionLengthSeconds);
+        var lengthAdjustment = delta switch
+        {
+            <= 0.10 when length <= 10.0 => 4d,
+            <= 0.10 when length > 18.0 => -5d,
+            > 0.35 when length < 8.0 => -10d,
+            > 0.20 when length >= 12.0 => 4d,
+            _ => 0d
+        };
+
+        var finalScore = Math.Clamp(baseline + lengthAdjustment, 0d, 100d);
+        var label = delta switch
+        {
+            <= 0.10 => "smooth",
+            <= 0.20 => "lift",
+            <= 0.35 => "aggressive",
+            _ => "mismatch"
+        };
+
+        return new AxisScore(Math.Round(finalScore, 1), label);
+    }
 
     /// <param name="outgoingBpm">Outgoing track's BPM, if known. Null/0 on either side scores a
     /// neutral mid value rather than penalizing unanalyzed tracks.</param>
@@ -43,8 +96,8 @@ public static class TrackPairCompatibilityScorer
         double? outgoingBpm = null, double? incomingBpm = null,
         double? genreSimilarity = null)
     {
-        var harmonic = WorkstationViewModel.ComputeFlowHarmonicCompatibility(outgoingCamelotKey, incomingCamelotKey, semitoneShift: 0);
-        var energy = WorkstationViewModel.ComputeFlowEnergyCompatibility(outgoingEnergy, incomingEnergy, transitionLengthSeconds);
+        var harmonic = ComputeHarmonicCompatibility(outgoingCamelotKey, incomingCamelotKey, semitoneShift: 0);
+        var energy = ComputeEnergyCompatibility(outgoingEnergy, incomingEnergy, transitionLengthSeconds);
         var (bpmScore, bpmLabel) = ComputeBpmScore(outgoingBpm, incomingBpm);
         var (genreScore, genreLabel) = ComputeGenreScore(genreSimilarity);
 
@@ -70,8 +123,7 @@ public static class TrackPairCompatibilityScorer
     };
 
     /// <summary>
-    /// Human-readable reasons a transition scored poorly, for the badge tooltip. Mirrors
-    /// <see cref="WorkstationViewModel"/>'s own (private) BuildFlowWarningFlags pattern.
+    /// Human-readable reasons a transition scored poorly, for the badge tooltip.
     /// </summary>
     public static IReadOnlyList<string> BuildWarnings(PairScore score, double? outgoingBpm = null, double? incomingBpm = null)
     {

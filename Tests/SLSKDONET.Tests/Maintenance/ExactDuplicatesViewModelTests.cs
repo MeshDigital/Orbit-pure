@@ -16,6 +16,7 @@ using Xunit;
 
 namespace SLSKDONET.Tests.Maintenance;
 
+[Collection(NonParallelCollection.Name)]
 public sealed class ExactDuplicatesViewModelTests : IDisposable
 {
     private readonly EventBusService _bus = new();
