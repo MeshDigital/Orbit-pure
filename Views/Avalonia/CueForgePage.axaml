@@ -843,6 +843,33 @@
                                 <TextBlock Grid.Column="1" Classes="caption mono" Text="{Binding Session.CueCountDisplay}" VerticalAlignment="Center"/>
                             </Grid>
                         </Border>
+                        <!-- CF1 (#603): Auto cues without CUE-DETR ±1 beat agreement, drops first -->
+                        <Border DockPanel.Dock="Top" Classes="inset" Margin="8,6,8,2" Padding="8,5"
+                                IsVisible="{Binding HasCuesToCheckFirst}">
+                            <StackPanel Spacing="4">
+                                <TextBlock Classes="section warning" Text="{Binding CuesToCheckFirstHeader}"/>
+                                <ItemsControl ItemsSource="{Binding CuesToCheckFirst}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="models:OrbitCue">
+                                            <Button Classes="secondary small" Margin="0,0,4,4"
+                                                    Command="{ReflectionBinding #Root.DataContext.JumpToCheckCueCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip.Tip="{Binding WhyHereTooltip}">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <Border Width="6" Height="6" CornerRadius="3" VerticalAlignment="Center"
+                                                            Background="{Binding Color, Converter={StaticResource HexBrush}}"/>
+                                                    <TextBlock Text="{Binding Name}"/>
+                                                    <TextBlock Classes="caption mono muted" Text="{Binding TimestampDisplay}"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
                         <Grid DockPanel.Dock="Top" ColumnDefinitions="12,64,80,*,88,56,32" Margin="8,4">
                             <TextBlock Grid.Column="1" Classes="caption" Text="Type"/>
                             <TextBlock Grid.Column="2" Classes="caption" Text="Time"/>

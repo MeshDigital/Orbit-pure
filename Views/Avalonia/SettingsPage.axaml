@@ -880,7 +880,7 @@
                         </StackPanel>
 
                         <StackPanel Classes="settings-section"
-                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Analysis analyse analyze new downloads automatically BPM key cues queue engine nwaves naudio'}">
+                                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Analysis analyse analyze new downloads automatically BPM key cues queue engine nwaves naudio cuedetr cue-detr prep mix'}">
                             <TextBlock Classes="section" Text="ANALYSIS"/>
                             <Border Classes="card">
                                 <StackPanel>
@@ -891,6 +891,15 @@
                                         </StackPanel>
                                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding AnalyzeNewDownloads, Mode=TwoWay}"
                                                       AutomationProperties.Name="Analyse new downloads automatically"/>
+                                    </Grid>
+                                    <Border Classes="divider"/>
+                                    <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                        <StackPanel Classes="label">
+                                            <TextBlock Classes="body" Text="Run CUE-DETR cue check during Prep for Mix"/>
+                                            <TextBlock Classes="caption" Text="Cross-checks auto cues against CUE-DETR (~10 s/track on CPU, cached per track) and highlights unconfirmed drops in Cue Forge."/>
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding PrepForMixRunCueDetr, Mode=TwoWay}"
+                                                      AutomationProperties.Name="Run CUE-DETR cue check during Prep for Mix"/>
                                     </Grid>
                                     <Border Classes="divider"/>
                                     <Grid Classes="row" ColumnDefinitions="*,Auto">

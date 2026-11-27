@@ -125,6 +125,21 @@ public partial class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>Settings → Library: run CUE-DETR AI cue verification during Prep for Mix (#603).</summary>
+    public bool PrepForMixRunCueDetr
+    {
+        get => _config.PrepForMixRunCueDetr;
+        set
+        {
+            if (_config.PrepForMixRunCueDetr != value)
+            {
+                _config.PrepForMixRunCueDetr = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
     /// <summary>Option labels for the BPM/key backend ComboBox. Member names of
     /// <see cref="SLSKDONET.Models.AnalysisAudioEngine"/>.</summary>
     public static string[] AvailableAnalysisAudioEngines { get; } = { "Essentia", "InProcess" };

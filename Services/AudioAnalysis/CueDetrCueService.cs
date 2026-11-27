@@ -40,6 +40,32 @@ public sealed class CueDetrCueService
 
     public bool IsModelAvailable => _cueDetr.IsAvailable;
 
+    /// <summary>
+    /// CF1 (#603): Ensures <see cref="Data.Entities.AudioFeaturesEntity.CueDetrJson"/> is populated
+    /// for <paramref name="trackHash"/> without modifying any existing cues. Returns true when
+    /// cached or newly computed, false when skipped/unavailable.
+    /// </summary>
+    public async Task<bool> EnsureCachedAsync(string trackHash, string? filePath, CancellationToken ct = default)
+    {
+        var features = await _database.GetAudioFeaturesByHashAsync(trackHash).ConfigureAwait(false);
+        if (features == null || features.Bpm <= 0 || features.TrackDuration <= 0)
+            return false;
+
+        var cached = ReadCache(features.CueDetrJson, _cueDetr.ModelTag);
+        if (cached != null) return true;
+
+        if (!_cueDetr.IsAvailable || string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+            return false;
+
+        ct.ThrowIfCancellationRequested();
+        var detected = await _cueDetr.DetectFileAsync(filePath, ct).ConfigureAwait(false);
+        if (detected == null) return false;
+
+        await SaveCacheAsync(trackHash, detected, ct).ConfigureAwait(false);
+        _logger.LogInformation("[CueDetr] Cached {Ai} AI cue points for {Hash} during Prep for Mix", detected.Count, trackHash);
+        return true;
+    }
+
     public async Task<CueDetrRegenResult> RegenerateAsync(string trackHash, string? filePath, CueSourceMode mode, CancellationToken ct = default)
     {
         var features = await _database.GetAudioFeaturesByHashAsync(trackHash).ConfigureAwait(false);

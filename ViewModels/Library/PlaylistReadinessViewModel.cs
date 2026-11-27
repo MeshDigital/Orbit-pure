@@ -25,7 +25,8 @@ public sealed record UnreadyTrackItem(
     string TrackUniqueHash,
     string Artist,
     string Title,
-    string MissingSummary)
+    string MissingSummary,
+    bool HasUnconfirmedDrop = false)
 {
     public string DisplayLabel =>
         string.IsNullOrWhiteSpace(Artist) ? Title : $"{Artist} — {Title}";
@@ -302,14 +303,21 @@ public sealed class PlaylistReadinessViewModel : INotifyPropertyChanged
             }
             else
             {
+                bool unconfirmedDrop = Engine.Analysis.CueDetr.CueDetrFusion.HasUnconfirmedAutoDrop(features, cues);
                 unready.Add(new UnreadyTrackItem(
                     TrackId: track.Id,
                     TrackUniqueHash: track.TrackUniqueHash,
                     Artist: track.Artist ?? string.Empty,
                     Title: track.Title ?? track.TrackUniqueHash,
-                    MissingSummary: string.Join(" · ", evaluation.MissingItems)));
+                    MissingSummary: string.Join(" · ", evaluation.MissingItems),
+                    HasUnconfirmedDrop: unconfirmedDrop));
             }
         }
+
+        // CF1 (#603): Sort tracks with unconfirmed auto drops first, preserving playlist order within each group.
+        unready = unready
+            .OrderByDescending(u => u.HasUnconfirmedDrop)
+            .ToList();
 
         return (ready, tracks.Count, unready);
     }
