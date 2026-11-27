@@ -262,6 +262,7 @@ namespace SLSKDONET.Services
         public event EventHandler<CrossfadeStartedEventArgs>? CrossfadeStarted;
         public event EventHandler<double>? CrossfadeProgressChanged;
         public event EventHandler? CrossfadeEnded;
+        public event EventHandler<OutputFallbackEventArgs>? OutputFellBack;
 
         /// <summary>Fired when the engine autonomously advances to a preloaded track (gapless
         /// swap or crossfade completion), so listeners can sync "now playing" state without
@@ -882,30 +883,66 @@ namespace SLSKDONET.Services
             var mode = Enum.TryParse<AudioOutputMode>(_config.AudioOutputMode, out var parsed)
                 ? parsed
                 : AudioOutputMode.WasapiShared;
-            var deviceName = _config.AudioOutputDeviceName;
+            var attempts = BuildOutputAttempts(mode, _config.AudioOutputDeviceName, AudioOutputBackend.Current);
+            var output = OpenFirstAvailable(attempts, source, out var fallback);
+            if (fallback != null)
+            {
+                Serilog.Log.Warning(fallback.Reason, "[AudioPlayerService] Configured output {Configured} failed; playing on {Fallback}",
+                    fallback.Configured, fallback.Actual);
+                OutputFellBack?.Invoke(this, fallback);
+            }
+            return output;
+        }
 
-            // Construction rarely fails — Init is where a busy/unsupported device throws, so each
-            // attempt includes Init. Fallbacks: the chosen device in shared mode, then the Windows
-            // default. (The old fallback went straight to the default device and only wrote to the
-            // console, so a failing selection looked like "the setting does nothing".)
+        /// <summary>
+        /// The outputs to try, in order, for the configured mode and device: the configured one, then
+        /// the same device in WASAPI shared mode, then the OS default. Construction rarely fails —
+        /// Init is where a busy/unsupported device throws, so <see cref="OpenFirstAvailable"/> includes
+        /// Init in each attempt.
+        /// <para>The shared-mode retry only applies to WASAPI device names. In ASIO mode the stored
+        /// name is an ASIO <em>driver</em> name, which never matches a WASAPI endpoint, so that retry
+        /// used to land silently on the Windows default device under a misleading label. An ASIO
+        /// driver allows one stream, so this is exactly what happens to a mix's incoming deck.</para>
+        /// </summary>
+        internal static List<(string Label, Func<IWavePlayer> Create)> BuildOutputAttempts(
+            AudioOutputMode mode, string? deviceName, IAudioOutputBackend backend)
+        {
             var attempts = new List<(string Label, Func<IWavePlayer> Create)>
             {
-                ($"{mode}/{deviceName ?? "default"}", () => AudioOutputProvider.CreateDevice(mode, deviceName)),
+                ($"{mode}/{deviceName ?? "default"}", () => backend.CreateDevice(mode, deviceName)),
             };
-            if (mode != AudioOutputMode.WasapiShared && deviceName != null)
-                attempts.Add(($"WasapiShared/{deviceName}", () => AudioOutputProvider.CreateSharedDevice(deviceName, 50)));
-            attempts.Add(("Default output backend", () => AudioOutputProvider.CreateDefaultFallbackDevice(100)));
+            if (mode is not (AudioOutputMode.WasapiShared or AudioOutputMode.Asio) && deviceName != null)
+                attempts.Add(($"WasapiShared/{deviceName}", () => backend.CreateSharedDevice(deviceName, 50)));
+            attempts.Add(("System default output", () => backend.CreateDefaultFallbackDevice(100)));
+            return attempts;
+        }
 
+        /// <summary>Opens the first attempt whose device constructs and initialises. <paramref name="fallback"/>
+        /// is set when that wasn't the first (configured) attempt. Throws when none opens.</summary>
+        internal static IWavePlayer OpenFirstAvailable(
+            IReadOnlyList<(string Label, Func<IWavePlayer> Create)> attempts, ISampleProvider source,
+            out OutputFallbackEventArgs? fallback)
+        {
+            fallback = null;
             Exception? last = null;
-            foreach (var (label, create) in attempts)
+            for (int i = 0; i < attempts.Count; i++)
             {
+                var (label, create) = attempts[i];
                 IWavePlayer? output = null;
                 try
                 {
                     output = create();
                     output.Init(source);
-                    if (last != null)
-                        Serilog.Log.Warning(last, "[AudioPlayerService] Configured output failed; playing on {Fallback}", label);
+                    if (i > 0)
+                    {
+                        fallback = new OutputFallbackEventArgs
+                        {
+                            Configured = attempts[0].Label,
+                            Actual = label,
+                            ConfiguredIsAsio = attempts[0].Label.StartsWith(nameof(AudioOutputMode.Asio) + "/", StringComparison.Ordinal),
+                            Reason = last,
+                        };
+                    }
                     return output;
                 }
                 catch (Exception ex)

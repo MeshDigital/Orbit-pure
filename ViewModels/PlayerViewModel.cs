@@ -940,9 +940,32 @@ namespace SLSKDONET.ViewModels
         // Phase 5C: UI Throttling
         private DateTime _lastTimeUpdate = DateTime.MinValue;
 
-        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IRightPanelService rightPanelService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null, AppConfig? config = null, ConfigManager? configManager = null, SLSKDONET.Services.Repositories.ITransitionRepository? transitionRepository = null, MixTransitionViewModel? mixTransitionViewModel = null, SLSKDONET.Services.Repositories.ITrackRepository? trackRepository = null, ICuePointService? cuePointService = null, IDialogService? dialogService = null, SLSKDONET.Services.AnalysisQueueService? analysisQueueService = null, SLSKDONET.Services.Audio.ILibraryPreviewPlayer? libraryPreviewPlayer = null, SLSKDONET.Services.Audio.ITransitionPreviewPlayer? transitionPreviewPlayer = null, SLSKDONET.Services.Transitions.TransitionPlanService? transitionPlanService = null, SLSKDONET.Services.Transitions.ITransitionResolver? transitionResolver = null, SLSKDONET.Services.Transitions.ITransitionPlayLogService? transitionPlayLog = null)
+        private readonly INotificationService? _notificationService;
+        // One toast per configured output per session: the fallback repeats on every mix.
+        private readonly HashSet<string> _reportedOutputFallbacks = new(StringComparer.Ordinal);
+
+        /// <summary>Toast text for a deck that couldn't open the configured output (see
+        /// <see cref="IAudioPlayerService.OutputFellBack"/>). Public for tests.</summary>
+        public static (string Title, string Message) DescribeOutputFallback(OutputFallbackEventArgs e) => e.ConfiguredIsAsio
+            ? ("Mix played on another output",
+               $"The ASIO driver ({e.Configured}) plays one stream at a time, so the next track went to {e.Actual}. " +
+               "For mixing, choose WASAPI in Settings → Audio Output.")
+            : ("Audio output fell back",
+               $"{e.Configured} couldn't be opened, so playback uses {e.Actual}. Check Settings → Audio Output.");
+
+        /// <summary>Shows <see cref="DescribeOutputFallback"/> once per configured output; true when shown.</summary>
+        internal bool ReportOutputFallback(OutputFallbackEventArgs e)
+        {
+            if (_notificationService == null || !_reportedOutputFallbacks.Add(e.Configured)) return false;
+            var (title, message) = DescribeOutputFallback(e);
+            _notificationService.Show(title, message, NotificationType.Warning);
+            return true;
+        }
+
+        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IRightPanelService rightPanelService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null, AppConfig? config = null, ConfigManager? configManager = null, SLSKDONET.Services.Repositories.ITransitionRepository? transitionRepository = null, MixTransitionViewModel? mixTransitionViewModel = null, SLSKDONET.Services.Repositories.ITrackRepository? trackRepository = null, ICuePointService? cuePointService = null, IDialogService? dialogService = null, SLSKDONET.Services.AnalysisQueueService? analysisQueueService = null, SLSKDONET.Services.Audio.ILibraryPreviewPlayer? libraryPreviewPlayer = null, SLSKDONET.Services.Audio.ITransitionPreviewPlayer? transitionPreviewPlayer = null, SLSKDONET.Services.Transitions.TransitionPlanService? transitionPlanService = null, SLSKDONET.Services.Transitions.ITransitionResolver? transitionResolver = null, SLSKDONET.Services.Transitions.ITransitionPlayLogService? transitionPlayLog = null, INotificationService? notificationService = null)
         {
             _transitionPlayLog = transitionPlayLog;
+            _notificationService = notificationService;
             _playerService = playerService;
             _databaseService = databaseService;
             _artworkCacheService = artworkCacheService;
@@ -1188,6 +1211,12 @@ namespace SLSKDONET.ViewModels
             // match without calling Play() again, since the audio is already running.
             Observable.FromEventPattern(h => _playerService.TrackAdvanced += h, h => _playerService.TrackAdvanced -= h)
                 .Subscribe(_ => Dispatcher.UIThread.Post(OnTrackAdvanced))
+                .DisposeWith(_disposables);
+
+            // A deck that couldn't open the configured output plays elsewhere; say so instead of
+            // letting the incoming track of a mix come out of the wrong speakers unannounced.
+            Observable.FromEventPattern<OutputFallbackEventArgs>(h => _playerService.OutputFellBack += h, h => _playerService.OutputFellBack -= h)
+                .Subscribe(e => Dispatcher.UIThread.Post(() => ReportOutputFallback(e.EventArgs)))
                 .DisposeWith(_disposables);
 
             // Mix transition visibility during real playback — see the IsCrossfading/
