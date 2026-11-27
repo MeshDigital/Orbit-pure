@@ -72,6 +72,11 @@ namespace SLSKDONET.Services
         /// <summary>Raised once when the active crossfade finishes.</summary>
         event EventHandler? CrossfadeEnded;
 
+        /// <summary>Raised when a deck's configured output (Settings → Audio Output) could not be
+        /// opened and the deck plays on a fallback device instead — e.g. the incoming deck of a
+        /// mix on an ASIO driver that only allows one stream. Raised from a non-UI thread.</summary>
+        event EventHandler<OutputFallbackEventArgs>? OutputFellBack;
+
         /// <param name="trackLoudnessLufs">The track's already-analyzed integrated loudness (LUFS), if known — used for loudness-normalized playback when enabled in Settings. Null plays at unadjusted gain.</param>
         void Play(string uri, double? trackLoudnessLufs = null);
         /// <summary>Opens and initializes the output device without starting playback.</summary>
@@ -111,5 +116,22 @@ namespace SLSKDONET.Services
 
         /// <summary>Total length of the crossfade, in seconds.</summary>
         public double DurationSeconds { get; init; }
+    }
+
+    /// <summary>A deck's configured output failed to open and it plays on <see cref="Actual"/> instead.</summary>
+    public sealed class OutputFallbackEventArgs : EventArgs
+    {
+        /// <summary>The configured output, e.g. "Asio/Focusrite USB ASIO".</summary>
+        public required string Configured { get; init; }
+
+        /// <summary>The output the deck actually opened, e.g. "System default output".</summary>
+        public required string Actual { get; init; }
+
+        /// <summary>True when the configured mode was ASIO (one stream per driver, so a mix's
+        /// second deck can't share it).</summary>
+        public bool ConfiguredIsAsio { get; init; }
+
+        /// <summary>Why the configured output failed.</summary>
+        public Exception? Reason { get; init; }
     }
 }
