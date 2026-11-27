@@ -231,6 +231,30 @@ public class TrackRepository : ITrackRepository
     public async Task<List<PlaylistTrackEntity>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null)
     {
         using var context = new AppDbContext();
+        var query = await BuildOrderedPlaylistTracksQueryAsync(context, playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier);
+
+        var results = await query
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync();
+
+        await AttachCuePointCountsAsync(context, results);
+
+        return results;
+    }
+
+    public async Task<List<PlaylistTrackEntity>> GetOrderedPlaylistTracksAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null)
+    {
+        using var context = new AppDbContext();
+        var query = await BuildOrderedPlaylistTracksQueryAsync(context, playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier);
+
+        var results = await query.ToListAsync();
+        await AttachCuePointCountsAsync(context, results);
+        return results;
+    }
+
+    private async Task<IQueryable<PlaylistTrackEntity>> BuildOrderedPlaylistTracksQueryAsync(AppDbContext context, Guid playlistId, string? filter, bool? downloadedOnly, IEnumerable<string>? hashFilter, string? camelotKeyFilter, TrackSortColumn sortColumn, bool sortDescending, string? qualityTier)
+    {
         var query = context.PlaylistTracks
             .Include(t => t.TechnicalDetails)
             .Include(t => t.AudioFeatures)
@@ -244,16 +268,7 @@ public class TrackRepository : ITrackRepository
 
         var textFilterHashes = await ResolveTextFilterHashesAsync(context, playlistId, filter);
         query = ApplyFilters(query, textFilterHashes, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier);
-        query = ApplyPlaylistTrackSort(query, sortColumn, sortDescending);
-
-        var results = await query
-            .Skip(skip)
-            .Take(take)
-            .ToListAsync();
-
-        await AttachCuePointCountsAsync(context, results);
-
-        return results;
+        return ApplyPlaylistTrackSort(query, sortColumn, sortDescending);
     }
 
     /// <summary>
@@ -1233,8 +1248,21 @@ public class TrackRepository : ITrackRepository
     public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null)
     {
         using var context = new AppDbContext();
+        var query = BuildOrderedAllTracksQuery(context, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier);
+        return await ProjectAllTracksAsync(query.Skip(skip).Take(take));
+    }
+
+    public async Task<List<PlaylistTrackEntity>> GetOrderedAllTracksAsync(string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null)
+    {
+        using var context = new AppDbContext();
+        var query = BuildOrderedAllTracksQuery(context, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier);
+        return await ProjectAllTracksAsync(query);
+    }
+
+    private IQueryable<LibraryEntryEntity> BuildOrderedAllTracksQuery(AppDbContext context, string? filter, bool? downloadedOnly, IEnumerable<string>? hashFilter, string? camelotKeyFilter, TrackSortColumn sortColumn, bool sortDescending, string? qualityTier)
+    {
         var hashSet = hashFilter?.Where(h => !string.IsNullOrWhiteSpace(h)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        
+
         IQueryable<LibraryEntryEntity> query;
 
         // 2. Apply Filters (Use FTS5 if filter is present)
@@ -1260,8 +1288,10 @@ public class TrackRepository : ITrackRepository
                 query = query.Where(t => string.IsNullOrEmpty(t.FilePath));
         }
 
-        if (hashSet is { Count: > 0 })
+        if (hashSet != null)
         {
+            if (hashSet.Count == 0)
+                return query.Where(_ => false);
             query = query.Where(t => hashSet.Contains(t.UniqueHash));
         }
 
@@ -1272,13 +1302,12 @@ public class TrackRepository : ITrackRepository
         }
 
         query = ApplyQualityTierFilter(query, qualityTier);
+        return ApplyLibraryEntrySort(query, sortColumn, sortDescending);
+    }
 
-        // 4. Order & Page (Optimized: Select only what's needed for the list view, avoiding heavy blobs)
-        query = ApplyLibraryEntrySort(query, sortColumn, sortDescending);
-
+    private static async Task<List<PlaylistTrackEntity>> ProjectAllTracksAsync(IQueryable<LibraryEntryEntity> query)
+    {
         var entries = await query
-            .Skip(skip)
-            .Take(take)
             .Select(e => new 
             {
                 e.Id,

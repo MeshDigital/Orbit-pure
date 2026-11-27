@@ -234,6 +234,12 @@ public interface ILibraryService
     Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null);
 
     /// <summary>
+    /// Loads the full unpaged, ordered track list matching the exact grid query (filters + sort) for
+    /// a playlist or All Tracks (<see cref="Guid.Empty"/>) (Epic #561 / #565 GV4, #566 GV5).
+    /// </summary>
+    Task<List<PlaylistTrack>> GetOrderedPlaylistTracksAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null);
+
+    /// <summary>
     /// The error of the most recent <see cref="GetTrackCountAsync"/> /
     /// <see cref="GetPagedPlaylistTracksAsync"/> call, or null when it succeeded. Those two return
     /// 0 / an empty page on failure (many callers rely on that), so the track grid reads this to

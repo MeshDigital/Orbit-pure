@@ -1,6 +1,9 @@
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Configuration;
 using SLSKDONET.Data;
+using SLSKDONET.Engine.Analysis;
+using SLSKDONET.Engine.Analysis.GenreFusion;
+using SLSKDONET.Services.Library;
 using SLSKDONET.Services.Models;
 using Microsoft.EntityFrameworkCore;
 using SLSKDONET.Models;
@@ -11,6 +14,24 @@ using System.Linq;
 using System.Threading.Tasks;
 
 namespace SLSKDONET.Services;
+
+/// <summary>Cached top-genre planet entry stored in <c>LibraryHealth.TopGenresJson</c> (Epic #561 / #567 GV6).</summary>
+public sealed record TopGenreSnapshotEntry(
+    string Genre,
+    int Count,
+    GenreBucket? Bucket = null,
+    string? Subgenre = null,
+    bool IsUnclassified = false)
+{
+    public GenreKey? ToGenreKey()
+    {
+        if (IsUnclassified)
+            return GenreKey.Unclassified;
+        if (Bucket.HasValue)
+            return new GenreKey(Bucket.Value, string.IsNullOrWhiteSpace(Subgenre) ? null : Subgenre.Trim());
+        return null;
+    }
+}
 
 public record LibraryIntelligenceStats(
     int TotalCount,
@@ -48,15 +69,57 @@ public class DashboardService
     private readonly ILogger<DashboardService> _logger;
     private readonly DatabaseService _databaseService;
     private readonly AppConfig _config;
+    private readonly LibraryGenreIndex? _genreIndex;
 
     public DashboardService(
         ILogger<DashboardService> logger,
         DatabaseService databaseService,
-        AppConfig config)
+        AppConfig config,
+        LibraryGenreIndex? genreIndex = null)
     {
         _logger = logger;
         _databaseService = databaseService;
         _config = config;
+        _genreIndex = genreIndex;
+    }
+
+    /// <summary>
+    /// Builds up to <paramref name="maxPlanets"/> top genre planets from <see cref="LibraryGenreIndex.GetTree"/>
+    /// so Genre Galaxy counts match the Library GENRES tree for the exact same <see cref="GenreKey"/>.
+    /// Club buckets (Drum and Bass, Dubstep, Techno, House) appear as top-level planets alongside the top
+    /// non-club tags from <see cref="GenreBucket.Other"/>, excluding Unclassified.
+    /// </summary>
+    public static List<TopGenreSnapshotEntry> BuildTopGenresFromIndex(LibraryGenreIndex genreIndex, int maxPlanets = 8)
+    {
+        var tree = genreIndex.GetTree();
+        var candidates = new List<GenreTreeNode>();
+
+        foreach (var node in tree)
+        {
+            if (node.Key.IsUnclassified || node.TrackCount <= 0)
+                continue;
+
+            if (node.Key.Bucket == GenreBucket.Other)
+            {
+                candidates.AddRange(node.Children.Where(c => c.TrackCount > 0));
+            }
+            else
+            {
+                candidates.Add(node);
+            }
+        }
+
+        return candidates
+            .OrderByDescending(n => n.TrackCount)
+            .ThenBy(n => n.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .Take(Math.Max(1, maxPlanets))
+            .Select(n => new TopGenreSnapshotEntry(
+                n.DisplayName,
+                n.TrackCount,
+                n.Key.Bucket,
+                n.Key.Subgenre,
+                n.Key.IsUnclassified))
+            .ToList();
     }
 
     public async Task<LibraryHealthEntity?> GetLibraryHealthAsync()
@@ -125,19 +188,32 @@ public class DashboardService
             health.FreeStorageBytes = storageInsight.FreeBytes;
             health.LastScanDate = DateTime.Now;
             
-            // Calculate top genres (Simplified aggregation)
-            var genreCounts = context.PlaylistTracks
-                .Where(t => !string.IsNullOrEmpty(t.Genres))
-                .Select(t => t.Genres) // Only the one column needs to leave the DB, not full track rows
-                .AsEnumerable() // Pull into memory for JSON parsing
-                .SelectMany(g => (g ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                .GroupBy(g => g)
-                .Select(g => new { Genre = g.Key, Count = g.Count() })
-                .OrderByDescending(g => g.Count)
-                .Take(8)
-                .ToList();
-                
-            health.TopGenresJson = System.Text.Json.JsonSerializer.Serialize(genreCounts);
+            // Calculate top genres from LibraryGenreIndex (canonical unique tracks, same keys as Library tree — Epic #561 / #567 GV6)
+            if (_genreIndex != null)
+            {
+                if (!_genreIndex.IsReady)
+                {
+                    await _genreIndex.BuildAsync().ConfigureAwait(false);
+                }
+
+                var topGenres = BuildTopGenresFromIndex(_genreIndex, maxPlanets: 8);
+                health.TopGenresJson = System.Text.Json.JsonSerializer.Serialize(topGenres);
+            }
+            else
+            {
+                var genreCounts = context.PlaylistTracks
+                    .Where(t => !string.IsNullOrEmpty(t.Genres))
+                    .Select(t => t.Genres)
+                    .AsEnumerable()
+                    .SelectMany(g => GenreTaxonomy.SplitGenreText(g))
+                    .GroupBy(g => g, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => new TopGenreSnapshotEntry(g.Key, g.Count()))
+                    .OrderByDescending(g => g.Count)
+                    .Take(8)
+                    .ToList();
+
+                health.TopGenresJson = System.Text.Json.JsonSerializer.Serialize(genreCounts);
+            }
             // Reset drift marker after a full canonical recalculation pass.
             health.PendingUpdates = 0;
 

@@ -666,6 +666,25 @@ public partial class LibraryService
         }
     }
 
+    public async Task<List<PlaylistTrack>> GetOrderedPlaylistTracksAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null)
+    {
+        try
+        {
+            var entities = playlistId == Guid.Empty
+                ? await _databaseService.GetOrderedAllTracksAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier).ConfigureAwait(false)
+                : await _databaseService.GetOrderedPlaylistTracksAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier).ConfigureAwait(false);
+            var tracks = entities.Select(EntityToPlaylistTrack).ToList();
+            _lastTrackQueryError = null;
+            return tracks;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load ordered playlist tracks for {PlaylistId}", playlistId);
+            _lastTrackQueryError = ex.Message;
+            return new List<PlaylistTrack>();
+        }
+    }
+
     public async Task SavePlaylistTrackAsync(PlaylistTrack track)
     {
         try
