@@ -76,6 +76,10 @@ public partial class LibraryViewModel
     public ICommand OpenSourceUrlCommand { get; set; } = null!;
     public ICommand ExportPlaylistCommand { get; set; } = null!;
     public ICommand ExportPlaylistM3uCommand { get; set; } = null!;
+    public ICommand ExportPlaylistTraktorCommand { get; set; } = null!;
+    public ICommand ExportPlaylistVirtualDjCommand { get; set; } = null!;
+    public ICommand ExportPlaylistSeratoCommand { get; set; } = null!;
+    public ICommand RelocateMissingFolderCommand { get; set; } = null!;
     public ICommand CopyPlaylistTracklistCommand { get; set; } = null!;
     public ICommand ExportPlaylistCsvCommand { get; set; } = null!;
     public ICommand ComparePlaylistsCommand { get; set; } = null!;
@@ -180,6 +184,10 @@ public partial class LibraryViewModel
         ExportPlaylistCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistAsync);
         InitiateMp3SearchCommand = new AsyncRelayCommand<object>(ExecuteInitiateMp3SearchAsync);
         ExportPlaylistM3uCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistM3uAsync);
+        ExportPlaylistTraktorCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistTraktorAsync);
+        ExportPlaylistVirtualDjCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistVirtualDjAsync);
+        ExportPlaylistSeratoCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistSeratoAsync);
+        RelocateMissingFolderCommand = new AsyncRelayCommand(ExecuteRelocateMissingFolderAsync);
         SaveGenreAsPlaylistCommand = new AsyncRelayCommand<object>(ExecuteSaveGenreAsPlaylistParamAsync);
         SaveGenreAsSmartCrateCommand = new AsyncRelayCommand<object>(ExecuteSaveGenreAsSmartCrateParamAsync);
         CopyPlaylistTracklistCommand = new AsyncRelayCommand<object>(ExecuteCopyPlaylistTracklistAsync);
@@ -568,6 +576,232 @@ public partial class LibraryViewModel
         {
             _logger.LogError(ex, "Failed to compare playlists");
             _notificationService.Show("Compare Failed", ex.Message, NotificationType.Error);
+        }
+    }
+
+    private async Task<List<Services.Export.ExportTrackProjection>> BuildExportProjectionsAsync(Guid playlistId)
+    {
+        var tracks = await _libraryService.LoadPlaylistTracksAsync(playlistId);
+        var hashes = tracks
+            .Select(t => t.TrackUniqueHash)
+            .Where(h => !string.IsNullOrWhiteSpace(h))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        var cuesByHash = new Dictionary<string, List<CuePointEntity>>(StringComparer.Ordinal);
+        var featuresByHash = new Dictionary<string, AudioFeaturesEntity>(StringComparer.Ordinal);
+
+        if (hashes.Count > 0)
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var cues = await db.CuePoints.AsNoTracking()
+                .Where(c => hashes.Contains(c.TrackUniqueHash))
+                .OrderBy(c => c.TimestampInSeconds)
+                .ToListAsync();
+            foreach (var c in cues)
+            {
+                if (!cuesByHash.TryGetValue(c.TrackUniqueHash, out var list))
+                {
+                    list = new List<CuePointEntity>();
+                    cuesByHash[c.TrackUniqueHash] = list;
+                }
+                list.Add(c);
+            }
+
+            var features = await db.AudioFeatures.AsNoTracking()
+                .Where(f => hashes.Contains(f.TrackUniqueHash))
+                .ToListAsync();
+            foreach (var f in features)
+                featuresByHash.TryAdd(f.TrackUniqueHash, f);
+        }
+
+        return tracks.Select(t =>
+        {
+            var hash = t.TrackUniqueHash ?? string.Empty;
+            cuesByHash.TryGetValue(hash, out var cues);
+            featuresByHash.TryGetValue(hash, out var feat);
+            return Services.Export.ExportTrackProjectionBuilder.Build(t, cues, feat);
+        }).ToList();
+    }
+
+    private async Task ExecuteExportPlaylistTraktorAsync(object? param)
+    {
+        if (param is not PlaylistJob project) return;
+        try
+        {
+            var projections = await BuildExportProjectionsAsync(project.Id);
+            if (projections.Count == 0)
+            {
+                _notificationService.Show("Nothing to Export", $"{project.SourceTitle} has no tracks.", NotificationType.Warning);
+                return;
+            }
+
+            var safeName = string.Concat(project.SourceTitle.Split(Path.GetInvalidFileNameChars()));
+            var path = await _dialogService.SaveFileAsync("Export Traktor NML playlist", string.IsNullOrWhiteSpace(safeName) ? "playlist" : safeName, "nml");
+            if (string.IsNullOrWhiteSpace(path)) return;
+
+            var preflight = Services.Export.ExportFieldMapping.Preflight(projections, Services.Export.ExportTargetKind.Traktor);
+            Services.Export.TraktorNmlExporter.WriteToFile(path, project.SourceTitle, projections);
+
+            var detail = preflight.Warnings.Count > 0
+                ? $"Exported {projections.Count} tracks to {Path.GetFileName(path)}. Note: {string.Join(" ", preflight.Warnings)}"
+                : $"Exported {projections.Count} tracks to {Path.GetFileName(path)}. Import in Traktor via Import Playlist.";
+            _notificationService.Show("Traktor NML Exported", detail, NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to export Traktor NML for {Playlist}", project.SourceTitle);
+            _notificationService.Show("Traktor Export Failed", ex.Message, NotificationType.Error);
+        }
+    }
+
+    private async Task ExecuteExportPlaylistVirtualDjAsync(object? param)
+    {
+        if (param is not PlaylistJob project) return;
+        try
+        {
+            var projections = await BuildExportProjectionsAsync(project.Id);
+            if (projections.Count == 0)
+            {
+                _notificationService.Show("Nothing to Export", $"{project.SourceTitle} has no tracks.", NotificationType.Warning);
+                return;
+            }
+
+            var safeName = string.Concat(project.SourceTitle.Split(Path.GetInvalidFileNameChars()));
+            var folderPath = await _dialogService.SaveFileAsync("Export VirtualDJ folder", string.IsNullOrWhiteSpace(safeName) ? "playlist" : safeName, "vdjfolder");
+            if (string.IsNullOrWhiteSpace(folderPath)) return;
+
+            Services.Export.VirtualDjExporter.WriteVdjFolder(folderPath, projections);
+
+            var defaultDb = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "VirtualDJ", "database.xml");
+            if (File.Exists(defaultDb))
+            {
+                var mergeConfirmed = await _dialogService.ConfirmAsync(
+                    "Update VirtualDJ database.xml?",
+                    $"Saved {Path.GetFileName(folderPath)}. Also merge ORBIT cues, BPM, and keys into VirtualDJ's database.xml? A timestamped backup will be created first.",
+                    confirmLabel: "Merge cues",
+                    cancelLabel: "Skip");
+
+                if (mergeConfirmed)
+                {
+                    var merge = Services.Export.VirtualDjExporter.MergeDatabaseXml(defaultDb, projections);
+                    if (!merge.Success)
+                    {
+                        _notificationService.Show("VirtualDJ Merge Skipped", merge.Error ?? "Could not update database.xml.", NotificationType.Warning);
+                        return;
+                    }
+                    _notificationService.Show("VirtualDJ Exported", $"Saved {Path.GetFileName(folderPath)} and updated {merge.UpdatedSongs + merge.AddedSongs} tracks in database.xml.", NotificationType.Success);
+                    return;
+                }
+            }
+
+            _notificationService.Show("VirtualDJ Folder Exported", $"Exported {projections.Count} tracks to {Path.GetFileName(folderPath)}.", NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to export VirtualDJ folder for {Playlist}", project.SourceTitle);
+            _notificationService.Show("VirtualDJ Export Failed", ex.Message, NotificationType.Error);
+        }
+    }
+
+    private async Task ExecuteExportPlaylistSeratoAsync(object? param)
+    {
+        if (param is not PlaylistJob project) return;
+        try
+        {
+            var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
+            var localPaths = tracks.Select(t => t.ResolvedFilePath).Where(p => !string.IsNullOrWhiteSpace(p)).Cast<string>().ToList();
+            if (localPaths.Count == 0)
+            {
+                _notificationService.Show("Nothing to Export", $"{project.SourceTitle} has no downloaded tracks.", NotificationType.Warning);
+                return;
+            }
+
+            var crateResult = Services.Export.SeratoCrateExporter.WriteCratesForSelection(
+                new[] { project.SourceTitle },
+                localPaths);
+
+            if (!crateResult.Success)
+            {
+                _notificationService.Show("Serato Export Blocked", crateResult.Error ?? "Could not write Serato crate.", NotificationType.Warning);
+                return;
+            }
+
+            _notificationService.Show(
+                "Serato Crate Exported",
+                $"Wrote {crateResult.WrittenCratePaths.Count} crate file(s) with {crateResult.TracksWritten} track(s).",
+                NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to export Serato crate for {Playlist}", project.SourceTitle);
+            _notificationService.Show("Serato Export Failed", ex.Message, NotificationType.Error);
+        }
+    }
+
+    private async Task ExecuteRelocateMissingFolderAsync()
+    {
+        if (_fileRelocationService == null)
+        {
+            _notificationService.Show("Relocate Unavailable", "File relocation service is not available.", NotificationType.Warning);
+            return;
+        }
+
+        try
+        {
+            var suggestions = await _fileRelocationService.SuggestMissingPrefixesAsync();
+            if (suggestions.Count == 0)
+            {
+                _notificationService.Show("No missing files", "All library tracks already point to existing files on disk.", NotificationType.Information);
+                return;
+            }
+
+            var suggestedPrefix = suggestions[0].Prefix;
+            var oldPrefix = await _dialogService.ShowPromptAsync(
+                "Relocate missing folder (1/2)",
+                $"Enter the old folder prefix to replace ({suggestions[0].MissingCount} missing track(s) under this folder):",
+                suggestedPrefix);
+            if (string.IsNullOrWhiteSpace(oldPrefix)) return;
+
+            var newFolder = await _dialogService.OpenFolderDialogAsync("Select the new folder location (2/2)");
+            if (string.IsNullOrWhiteSpace(newFolder)) return;
+
+            var preview = await _fileRelocationService.PlanRepointFolderAsync(oldPrefix.Trim(), newFolder);
+            if (preview.FoundCount == 0)
+            {
+                _notificationService.Show(
+                    "No matching files found",
+                    $"0 of {preview.MatchedPrefixCount} missing track(s) under \"{oldPrefix}\" were found in \"{newFolder}\".",
+                    NotificationType.Warning);
+                return;
+            }
+
+            var message = $"Found {preview.FoundCount} track(s) at the new folder ({preview.StillMissingCount} still missing). No files will be moved on disk; only library paths will be re-pointed (undoable).";
+            if (!string.IsNullOrWhiteSpace(preview.WarningMessage))
+                message += "\n\n" + preview.WarningMessage;
+
+            var sampleLines = preview.SampleMatches
+                .Select(m => $"{Path.GetFileName(m.SourcePath)} → {m.TargetPath}")
+                .ToList();
+
+            var confirmed = await _dialogService.ConfirmListAsync(
+                "Confirm bulk folder re-point",
+                message,
+                sampleLines,
+                confirmLabel: $"Re-point {preview.FoundCount} track(s)",
+                cancelLabel: "Cancel");
+            if (!confirmed) return;
+
+            var outcome = await _fileRelocationService.ExecuteRepointAsync(preview.Plan);
+            _notificationService.Show(
+                "Folder Relocated",
+                $"Re-pointed {outcome.Moved} track(s) to \"{newFolder}\".",
+                NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Bulk folder relocate failed");
+            _notificationService.Show("Relocate Failed", ex.Message, NotificationType.Error);
         }
     }
 

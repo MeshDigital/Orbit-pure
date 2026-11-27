@@ -203,6 +203,8 @@
                                               ToolTip.Tip="Permanently deletes tracklist placeholders like &quot;Artist - ID&quot;"/>
                                     <MenuItem Header="Fix &quot;file missing&quot; flags" Command="{Binding FixMissingFileFlagsCommand}"
                                               ToolTip.Tip="Corrects tracks flagged as missing although the file exists on disk"/>
+                                    <MenuItem Header="Relocate missing folder…" Command="{Binding RelocateMissingFolderCommand}"
+                                              ToolTip.Tip="Bulk re-point missing library files from an old drive or folder to their new location (with preview and undo)"/>
                                     <MenuItem Header="Backfill missing metadata" Command="{Binding BackfillDurationsCommand}"
                                               ToolTip.Tip="Reads real duration, bitrate and format for tracks that show '—' despite having a file"/>
                                     <MenuItem Header="Measure missing loudness" Command="{Binding MeasureMissingLoudnessCommand}"
@@ -348,6 +350,19 @@
                                                                 <MenuItem Header="Rekordbox XML…"
                                                                           Command="{ReflectionBinding $parent[UserControl].DataContext.ExportPlaylistCommand}"
                                                                           CommandParameter="{Binding Card.Model}"/>
+                                                                <MenuItem Header="Traktor NML playlist…"
+                                                                          Command="{ReflectionBinding $parent[UserControl].DataContext.ExportPlaylistTraktorCommand}"
+                                                                          CommandParameter="{Binding Card.Model}"
+                                                                          ToolTip.Tip="Standalone Traktor Pro NML playlist with cues, loops, beatgrid, BPM and key"/>
+                                                                <MenuItem Header="VirtualDJ folder…"
+                                                                          Command="{ReflectionBinding $parent[UserControl].DataContext.ExportPlaylistVirtualDjCommand}"
+                                                                          CommandParameter="{Binding Card.Model}"
+                                                                          ToolTip.Tip="VirtualDJ .vdjfolder playlist with optional guarded database.xml cue merge"/>
+                                                                <MenuItem Header="Serato crate…"
+                                                                          Command="{ReflectionBinding $parent[UserControl].DataContext.ExportPlaylistSeratoCommand}"
+                                                                          CommandParameter="{Binding Card.Model}"
+                                                                          ToolTip.Tip="Writes Serato DJ .crate file(s) grouped by drive (requires Serato DJ closed)"/>
+                                                                <Separator/>
                                                                 <MenuItem Header="M3U8 playlist…"
                                                                           Command="{ReflectionBinding $parent[UserControl].DataContext.ExportPlaylistM3uCommand}"
                                                                           CommandParameter="{Binding Card.Model}"
