@@ -801,14 +801,17 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
-    /// Genre Galaxy planet clicked — jumps to the Library so the user can explore that genre's
-    /// tracks. Doesn't auto-apply a style filter: the free-text genres shown here (from track
-    /// metadata, e.g. "drum and bass") are a different vocabulary from the Library's curated
-    /// StyleFilterItem list (e.g. "Neurofunk"), so there's no reliable 1:1 match to pre-select.
+    /// Genre Galaxy planet clicked — selects All tracks, applies the planet's canonical
+    /// <see cref="Services.Library.GenreKey"/> filter, expands/highlights the GENRES tree node,
+    /// and navigates to the Library (Epic #561 / #567 GV6).
     /// </summary>
     private void ExecuteSelectGenre(GenrePlanetViewModel? genre)
     {
         if (genre == null) return;
+        if (genre.GenreKey is { } key)
+        {
+            _libraryViewModel.ShowGenre(key);
+        }
         _navigationService.NavigateTo("Library");
     }
 
@@ -967,7 +970,30 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
             TopGenres.Clear();
             for (int i = 0; i < genres.Count; i++)
             {
-                TopGenres.Add(new GenrePlanetViewModel { Name = genres[i].Genre, Count = genres[i].Count, Color = GenrePlanetViewModel.PaletteColor(i) });
+                var g = genres[i];
+                Services.Library.GenreKey? key = null;
+                if (g.IsUnclassified)
+                {
+                    key = Services.Library.GenreKey.Unclassified;
+                }
+                else if (g.Bucket.HasValue)
+                {
+                    key = new Services.Library.GenreKey(g.Bucket.Value, string.IsNullOrWhiteSpace(g.Subgenre) ? null : g.Subgenre.Trim());
+                }
+                else if (!string.IsNullOrWhiteSpace(g.Genre))
+                {
+                    var mapped = Engine.Analysis.GenreTaxonomy.MapFreeText(g.Genre);
+                    if (!mapped.IsJunk && mapped.Weight > 0)
+                        key = new Services.Library.GenreKey(mapped.Bucket, mapped.Subgenre);
+                }
+
+                TopGenres.Add(new GenrePlanetViewModel
+                {
+                    Name = g.Genre,
+                    Count = g.Count,
+                    Color = GenrePlanetViewModel.PaletteColor(i),
+                    GenreKey = key
+                });
             }
             OnPropertyChanged(nameof(HasTopGenres));
         }
@@ -981,6 +1007,9 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     {
         public string Genre { get; set; } = string.Empty;
         public int Count { get; set; }
+        public Engine.Analysis.GenreBucket? Bucket { get; set; }
+        public string? Subgenre { get; set; }
+        public bool IsUnclassified { get; set; }
     }
 
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
@@ -1013,6 +1042,7 @@ public class GenrePlanetViewModel
     public int Count { get; set; }
     public double Size => 40 + (Math.Min(Count, 100) * 0.5);
     public string Color { get; set; } = Palette[0];
+    public Services.Library.GenreKey? GenreKey { get; set; }
 }
 
 public class RecentDownloadedTrackCardViewModel

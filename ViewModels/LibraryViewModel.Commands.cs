@@ -117,6 +117,10 @@ public partial class LibraryViewModel
     public ICommand BatchExportM3uCommand { get; set; } = null!;
     public ICommand BatchClearSelectionCommand { get; set; } = null!;
 
+    // ── Genre View actions (Epic #561 / #566 GV5) ───────────────────────────
+    public ICommand SaveGenreAsPlaylistCommand { get; set; } = null!;
+    public ICommand SaveGenreAsSmartCrateCommand { get; set; } = null!;
+
 
 
 
@@ -173,6 +177,8 @@ public partial class LibraryViewModel
         ExportPlaylistCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistAsync);
         InitiateMp3SearchCommand = new AsyncRelayCommand<object>(ExecuteInitiateMp3SearchAsync);
         ExportPlaylistM3uCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistM3uAsync);
+        SaveGenreAsPlaylistCommand = new AsyncRelayCommand<object>(ExecuteSaveGenreAsPlaylistParamAsync);
+        SaveGenreAsSmartCrateCommand = new AsyncRelayCommand<object>(ExecuteSaveGenreAsSmartCrateParamAsync);
 
 
         // Fluidity
@@ -478,33 +484,253 @@ public partial class LibraryViewModel
 
     private async Task ExecutePlayPlaylistCoreAsync(object? param, bool mixModeEnabled)
     {
-        if (param is PlaylistJob project)
+        if (param is GenreKey genreParam)
         {
-            var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
+            await ExecutePlayGenreAsync(genreParam, shuffle: false, mixModeEnabled: mixModeEnabled);
+            return;
+        }
 
-            // Only tracks with a resolved local file can actually play — matches
-            // AlbumNode.PlayAlbum()'s own filter and PlayAlbumRequestEvent's subscriber
-            // (PlayerViewModel), which silently skips anything without ResolvedFilePath anyway.
-            var playable = tracks.Where(t => !string.IsNullOrEmpty(t.ResolvedFilePath)).ToList();
+        var project = param as PlaylistJob ?? SelectedProject;
+        if (project == null) return;
+
+        var isCurrentView = SelectedProject != null && project.Id == SelectedProject.Id;
+        List<PlaylistTrack> playable;
+
+        if (isCurrentView)
+        {
+            // GV4 (#565): play the current view (all active filters incl. genre + grid sort),
+            // working identically for playlists, All tracks (Guid.Empty), Liked songs, and genre views.
+            playable = await Tracks.GetCurrentViewTracksAsync(playableOnly: true);
+        }
+        else
+        {
+            var tracks = await _libraryService.GetOrderedPlaylistTracksAsync(project.Id, downloadedOnly: true);
+            playable = tracks.Where(t => !string.IsNullOrEmpty(t.ResolvedFilePath)).ToList();
+        }
+
+        var viewTitle = isCurrentView && Tracks.GenreFilter is { } activeGenre && project.Id == Guid.Empty
+            ? activeGenre.DisplayName
+            : project.SourceTitle;
+
+        if (playable.Count == 0)
+        {
+            _notificationService.Show("Nothing to Play", $"{viewTitle} has no downloaded tracks yet.", NotificationType.Warning);
+            return;
+        }
+
+        // Start from the lead selected track when it's in the view.
+        var selected = Tracks.LeadSelectedTrack?.Model;
+        var startTrack = selected != null
+            ? playable.FirstOrDefault(t => t.Id == selected.Id
+                || (!string.IsNullOrEmpty(t.TrackUniqueHash) && t.TrackUniqueHash == selected.TrackUniqueHash))
+            : null;
+
+        _eventBus.Publish(new PlayAlbumRequestEvent(playable, mixModeEnabled, startTrack?.Id));
+        _notificationService.Show(
+            mixModeEnabled ? "Mixing" : "Playing",
+            startTrack != null ? $"{viewTitle} — from \"{startTrack.Title}\"" : viewTitle,
+            NotificationType.Information);
+    }
+
+    private async Task ExecutePlayGenreAsync(GenreKey key, bool shuffle, bool mixModeEnabled = false)
+    {
+        try
+        {
+            if (shuffle && !_playerViewModel.IsShuffling && _playerViewModel.ToggleShuffleCommand.CanExecute(null))
+            {
+                _playerViewModel.ToggleShuffleCommand.Execute(null);
+            }
+
+            List<PlaylistTrack> playable;
+            if (Tracks.GenreFilter == key && (SelectedProject == null || SelectedProject.Id == Guid.Empty))
+            {
+                playable = await Tracks.GetCurrentViewTracksAsync(playableOnly: true);
+            }
+            else
+            {
+                var hashes = _genreIndex?.GetHashes(key);
+                if (hashes == null || hashes.Count == 0)
+                {
+                    playable = new List<PlaylistTrack>();
+                }
+                else
+                {
+                    var tracks = await _libraryService.GetOrderedPlaylistTracksAsync(
+                        Guid.Empty,
+                        downloadedOnly: true,
+                        hashFilter: hashes,
+                        sortColumn: Tracks.SortColumn,
+                        sortDescending: Tracks.SortDescending);
+                    playable = tracks.Where(t => !string.IsNullOrEmpty(t.ResolvedFilePath)).ToList();
+                }
+            }
 
             if (playable.Count == 0)
             {
-                _notificationService.Show("Nothing to Play", $"{project.SourceTitle} has no downloaded tracks yet.", NotificationType.Warning);
+                _notificationService.Show("Nothing to Play", $"{key.DisplayName} has no downloaded tracks yet.", NotificationType.Warning);
                 return;
             }
 
-            // Start from the selected track when one is selected in this same playlist — the rest
-            // of the playlist is still queued (and mixed, when Mix is pressed) from there onward.
-            var selected = Tracks.LeadSelectedTrack?.Model;
-            var startTrack = selected != null && selected.PlaylistId == project.Id
-                ? playable.FirstOrDefault(t => t.Id == selected.Id)
-                : null;
-
-            _eventBus.Publish(new PlayAlbumRequestEvent(playable, mixModeEnabled, startTrack?.Id));
+            _eventBus.Publish(new PlayAlbumRequestEvent(playable, mixModeEnabled, null));
             _notificationService.Show(
-                mixModeEnabled ? "Mixing Playlist" : "Playing Playlist",
-                startTrack != null ? $"{project.SourceTitle} — from \"{startTrack.Title}\"" : project.SourceTitle,
+                shuffle ? "Shuffling Genre" : (mixModeEnabled ? "Mixing Genre" : "Playing Genre"),
+                key.DisplayName,
                 NotificationType.Information);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to play genre {Genre}", key.DisplayName);
+            _notificationService.Show("Playback Failed", ex.Message, NotificationType.Error);
+        }
+    }
+
+    private void ExecuteAnalyzeUnclassifiedGenre()
+    {
+        ShowGenre(GenreKey.Unclassified);
+        _navigationService.NavigateTo("Analysis");
+    }
+
+    private Task ExecuteSaveGenreAsPlaylistParamAsync(object? param)
+    {
+        GenreKey? key = param is GenreKey gk ? gk : Tracks.GenreFilter;
+        return key.HasValue ? ExecuteSaveGenreAsPlaylistAsync(key.Value) : Task.CompletedTask;
+    }
+
+    private Task ExecuteSaveGenreAsSmartCrateParamAsync(object? param)
+    {
+        GenreKey? key = param is GenreKey gk ? gk : Tracks.GenreFilter;
+        return key.HasValue ? ExecuteSaveGenreAsSmartCrateAsync(key.Value) : Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Prompts for a playlist name and saves a snapshot of the genre view's tracks in exact view order (Epic #561 / #566 GV5).
+    /// </summary>
+    private async Task ExecuteSaveGenreAsPlaylistAsync(GenreKey key)
+    {
+        try
+        {
+            var name = await _dialogService.ShowPromptAsync(
+                "Save genre as playlist",
+                "Playlist name:",
+                key.DisplayName);
+            if (string.IsNullOrWhiteSpace(name))
+                return;
+
+            var created = await SaveGenreAsPlaylistCoreAsync(key, name.Trim());
+            if (created == null)
+            {
+                _notificationService.Show("Nothing to Save", $"{key.DisplayName} has no tracks to save.", NotificationType.Warning);
+                return;
+            }
+
+            await Projects.LoadProjectsAsync();
+            _notificationService.Show(
+                "Playlist Saved",
+                $"Saved {created.TotalTracks} tracks to \"{created.SourceTitle}\".",
+                NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save genre {Genre} as playlist", key.DisplayName);
+            _notificationService.Show("Save Failed", ex.Message, NotificationType.Error);
+        }
+    }
+
+    /// <summary>
+    /// Testable core for GV5 "Save as playlist…": creates a new snapshot <see cref="PlaylistJob"/>
+    /// with tracks in the exact current view order.
+    /// </summary>
+    internal async Task<PlaylistJob?> SaveGenreAsPlaylistCoreAsync(GenreKey key, string playlistName)
+    {
+        List<PlaylistTrack> viewTracks;
+        if (Tracks.GenreFilter == key && (SelectedProject == null || SelectedProject.Id == Guid.Empty))
+        {
+            viewTracks = await Tracks.GetCurrentViewTracksAsync(playableOnly: false);
+        }
+        else
+        {
+            var hashes = _genreIndex?.GetHashes(key);
+            if (hashes == null || hashes.Count == 0)
+                return null;
+
+            viewTracks = await _libraryService.GetOrderedPlaylistTracksAsync(
+                Guid.Empty,
+                hashFilter: hashes,
+                sortColumn: Tracks.SortColumn,
+                sortDescending: Tracks.SortDescending);
+        }
+
+        if (viewTracks.Count == 0)
+            return null;
+
+        var newJob = new PlaylistJob
+        {
+            Id = Guid.NewGuid(),
+            SourceTitle = playlistName,
+            SourceType = "GenreSnapshot",
+            CreatedAt = DateTime.UtcNow,
+            TotalTracks = viewTracks.Count,
+            SuccessfulCount = viewTracks.Count(t => !string.IsNullOrEmpty(t.ResolvedFilePath))
+        };
+
+        for (int i = 0; i < viewTracks.Count; i++)
+        {
+            var src = viewTracks[i];
+            newJob.PlaylistTracks.Add(new PlaylistTrack
+            {
+                Id = Guid.NewGuid(),
+                PlaylistId = newJob.Id,
+                Artist = src.Artist,
+                Title = src.Title,
+                Album = src.Album,
+                TrackUniqueHash = src.TrackUniqueHash,
+                Status = src.Status,
+                ResolvedFilePath = src.ResolvedFilePath,
+                Format = src.Format,
+                Bitrate = src.Bitrate,
+                CanonicalDuration = src.CanonicalDuration,
+                BPM = src.BPM,
+                MusicalKey = src.MusicalKey,
+                Energy = src.Energy,
+                AlbumArtUrl = src.AlbumArtUrl,
+                SortOrder = i,
+                TrackNumber = i + 1,
+                AddedAt = DateTime.UtcNow
+            });
+        }
+
+        await _libraryService.SavePlaylistJobWithTracksAsync(newJob);
+        return newJob;
+    }
+
+    /// <summary>
+    /// Prompts for a crate name and saves a live smart crate backed by <see cref="GenreKey"/> (Epic #561 / #566 GV5).
+    /// </summary>
+    private async Task ExecuteSaveGenreAsSmartCrateAsync(GenreKey key)
+    {
+        try
+        {
+            var name = await _dialogService.ShowPromptAsync(
+                "Save genre as smart crate",
+                "Smart crate name (updates live when genres change):",
+                key.DisplayName);
+            if (string.IsNullOrWhiteSpace(name))
+                return;
+
+            var rules = new SmartCrateRules();
+            rules.SetGenreKey(key);
+            await _smartCrateService.CreateCrateAsync(name.Trim(), rules);
+            await SmartPlaylists.InitializeSmartPlaylists();
+
+            _notificationService.Show(
+                "Smart Crate Created",
+                $"\"{name.Trim()}\" will track {key.DisplayName} automatically.",
+                NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save genre {Genre} as smart crate", key.DisplayName);
+            _notificationService.Show("Save Failed", ex.Message, NotificationType.Error);
         }
     }
 

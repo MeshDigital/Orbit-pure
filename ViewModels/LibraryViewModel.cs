@@ -65,11 +65,14 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly Services.Library.Maintenance.TrackMetadataWriter? _metadataWriter;
     private readonly Services.Library.Files.FileRelocationService? _fileRelocationService;
+    private readonly Services.Library.LibraryGenreIndex? _genreIndex;
     
     public Library.ProjectListViewModel Projects { get; }
     public Library.TrackListViewModel Tracks { get; }
     public Library.TrackOperationsViewModel Operations { get; }
     public Library.SmartPlaylistViewModel SmartPlaylists { get; }
+    /// <summary>Collapsible GENRES tree in the Library left sidebar (Epic #561 / #564 GV3).</summary>
+    public Library.LibraryGenresSectionViewModel Genres { get; }
     public System.Collections.ObjectModel.ObservableCollection<ColumnDefinition> AvailableColumns { get; } = new();
     public LibrarySourcesViewModel LibrarySourcesViewModel { get; }
     public Library.LibraryHealthViewModel LibraryHealthViewModel { get; }
@@ -127,6 +130,87 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     { 
         get => Projects.SelectedProject;
         set => Projects.SelectedProject = value;
+    }
+
+    /// <summary>
+    /// Header title for the active Library view: shows the active genre name when browsing a genre
+    /// on All Tracks (Epic #561 / #564 GV3), otherwise the selected project's title.
+    /// </summary>
+    public string HeaderTitle =>
+        Tracks.GenreFilter is { } gf && (SelectedProject == null || SelectedProject.Id == Guid.Empty)
+            ? gf.DisplayName
+            : SelectedProject?.SourceTitle ?? string.Empty;
+
+    private int? _filteredHeaderTotalCount;
+    private int? _filteredHeaderDownloadedCount;
+
+    public int HeaderTotalTracks =>
+        Tracks.HasGenreFilter && _filteredHeaderTotalCount.HasValue
+            ? _filteredHeaderTotalCount.Value
+            : SelectedProject?.TotalTracks ?? 0;
+
+    public int HeaderDownloadedCount =>
+        Tracks.HasGenreFilter && _filteredHeaderDownloadedCount.HasValue
+            ? _filteredHeaderDownloadedCount.Value
+            : SelectedProject?.SuccessfulCount ?? 0;
+
+    /// <summary>
+    /// Selects All tracks, applies <paramref name="key"/> as the active genre filter,
+    /// expands the GENRES section, and highlights the matching tree node (Epic #561 / #564 GV3 &amp; #567 GV6).
+    /// </summary>
+    public void ShowGenre(Services.Library.GenreKey key)
+    {
+        if (Projects.LoadAllTracksCommand.CanExecute(null))
+        {
+            Projects.LoadAllTracksCommand.Execute(null);
+        }
+
+        Tracks.GenreFilter = key;
+        Genres.IsCollapsed = false;
+        Genres.SyncSelection(key);
+        RaiseHeaderChanged();
+        _ = RefreshGenreHeaderCountsAsync(key);
+    }
+
+    private void RaiseHeaderChanged()
+    {
+        OnPropertyChanged(nameof(HeaderTitle));
+        OnPropertyChanged(nameof(HeaderTotalTracks));
+        OnPropertyChanged(nameof(HeaderDownloadedCount));
+    }
+
+    private async Task RefreshGenreHeaderCountsAsync(Services.Library.GenreKey? key)
+    {
+        if (!key.HasValue || _genreIndex == null)
+        {
+            _filteredHeaderTotalCount = null;
+            _filteredHeaderDownloadedCount = null;
+            RaiseHeaderChanged();
+            return;
+        }
+
+        try
+        {
+            var projectId = SelectedProject?.Id ?? Guid.Empty;
+            var hashes = _genreIndex.GetHashes(key.Value);
+            var total = hashes.Count == 0
+                ? 0
+                : await _libraryService.GetTrackCountAsync(projectId, hashFilter: hashes);
+            var downloaded = hashes.Count == 0
+                ? 0
+                : await _libraryService.GetTrackCountAsync(projectId, downloadedOnly: true, hashFilter: hashes);
+
+            if (Tracks.GenreFilter == key)
+            {
+                _filteredHeaderTotalCount = total;
+                _filteredHeaderDownloadedCount = downloaded;
+                RaiseHeaderChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to compute genre header counts for {Genre}", key.Value.DisplayName);
+        }
     }
     
     public System.Collections.ObjectModel.ObservableCollection<PlaylistTrackViewModel> CurrentProjectTracks
@@ -570,7 +654,8 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         SimilarityIndex? similarityIndex = null,
         TransitionStyleClassifier? transitionStyleClassifier = null,
         Services.Library.Maintenance.TrackMetadataWriter? metadataWriter = null,
-        Services.Library.Files.FileRelocationService? fileRelocationService = null)
+        Services.Library.Files.FileRelocationService? fileRelocationService = null,
+        Services.Library.LibraryGenreIndex? genreIndex = null)
     {
         _dbFactory = dbFactory;
         _logger = logger;
@@ -598,6 +683,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         _savedDoublesService = savedDoublesService;
         _metadataWriter = metadataWriter;
         _fileRelocationService = fileRelocationService;
+        _genreIndex = genreIndex ?? _serviceProvider?.GetService(typeof(Services.Library.LibraryGenreIndex)) as Services.Library.LibraryGenreIndex;
         _trackSimilarityService = trackSimilarityService;
         _similarityIndex = similarityIndex;
         _transitionStyleClassifier = transitionStyleClassifier;
@@ -621,6 +707,22 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         Tracks = tracks;
         Operations = operations;
         SmartPlaylists = smartPlaylists;
+        Genres = new Library.LibraryGenresSectionViewModel(
+            _genreIndex,
+            Tracks,
+            onGenreActivated: ShowGenre,
+            onPlayGenre: key => _ = ExecutePlayGenreAsync(key, shuffle: false),
+            onShuffleGenre: key => _ = ExecutePlayGenreAsync(key, shuffle: true),
+            onSaveAsPlaylist: key => _ = ExecuteSaveGenreAsPlaylistAsync(key),
+            onSaveAsSmartCrate: key => _ = ExecuteSaveGenreAsSmartCrateAsync(key),
+            onAnalyzeUnclassified: ExecuteAnalyzeUnclassifiedGenre,
+            onOpenAnalysis: () => _navigationService.NavigateTo("Analysis"),
+            initialCollapsed: _appConfig.LibraryGenresSectionCollapsed,
+            onCollapsedChanged: collapsed =>
+            {
+                _appConfig.LibraryGenresSectionCollapsed = collapsed;
+                _configManager.Save(_appConfig);
+            });
         DoubleInspector = new LibraryDoubleInspectorViewModel(this, _logger, _trackSimilarityService, _transitionStyleClassifier);
         TrackInspector = new LibraryTrackInspectorViewModel(
             _logger,
@@ -659,6 +761,11 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
             if (e.PropertyName == nameof(Tracks.IsMixModeEnabled) && Tracks.IsMixModeEnabled && _playerViewModel.HasCurrentTrack)
             {
                 _playerViewModel.ShowMixPanelForCurrentPair();
+            }
+            else if (e.PropertyName == nameof(Tracks.GenreFilter))
+            {
+                RaiseHeaderChanged();
+                _ = RefreshGenreHeaderCountsAsync(Tracks.GenreFilter);
             }
         };
         _playerViewModel.PropertyChanged += OnPlayerViewModelPropertyChanged;
@@ -867,6 +974,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
                 SavedDoublesForLeadTrack.CollectionChanged -= OnSavedDoublesForLeadTrackCollectionChanged;
                 SavedDoublesForCurrentPlayerTrack.CollectionChanged -= OnSavedDoublesForCurrentPlayerTrackCollectionChanged;
                 Intelligence.Dispose();
+                Genres.Dispose();
             }
             _isDisposed = true;
         }

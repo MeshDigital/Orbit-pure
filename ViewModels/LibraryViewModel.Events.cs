@@ -295,6 +295,9 @@ public partial class LibraryViewModel
         // can't know about this outer wrapper. Only surfaced once something (the playlist header)
         // actually needed live updates through the wrapper instead of the direct path.
         OnPropertyChanged(nameof(SelectedProject));
+        RaiseHeaderChanged();
+        if (Tracks.HasGenreFilter)
+            _ = RefreshGenreHeaderCountsAsync(Tracks.GenreFilter);
         ReactiveUI.MessageBus.Current.SendMessage(new SLSKDONET.Events.PlaylistContextChangedEvent(project?.Id, project?.SourceTitle));
 
         SetSmartPlaylistContextMode(false);

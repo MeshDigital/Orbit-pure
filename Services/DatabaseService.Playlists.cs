@@ -209,6 +209,11 @@ public partial class DatabaseService
         return await _trackRepository.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier);
     }
 
+    public async Task<List<PlaylistTrackEntity>> GetOrderedPlaylistTracksAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null)
+    {
+        return await _trackRepository.GetOrderedPlaylistTracksAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier);
+    }
+
     public async Task<List<TrackPhraseEntity>> GetPhrasesByHashAsync(string trackHash)
     {
         return await _trackRepository.GetPhrasesByHashAsync(trackHash);
@@ -286,6 +291,11 @@ public partial class DatabaseService
     public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null)
     {
         return await _trackRepository.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier);
+    }
+
+    public async Task<List<PlaylistTrackEntity>> GetOrderedAllTracksAsync(string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null)
+    {
+        return await _trackRepository.GetOrderedAllTracksAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier);
     }
 
     public async Task<PlaylistTrackEntity?> GetPlaylistTrackByHashAsync(Guid jobId, string trackHash)

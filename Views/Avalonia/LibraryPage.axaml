@@ -172,6 +172,14 @@
                                 <MenuItem Header="Find exact duplicates…" Command="{Binding FindExactDuplicatesCommand}"
                                           ToolTip.Tip="Find the same audio stored more than once (even under different tags or file names) and merge the copies"/>
                                 <Separator/>
+                                <MenuItem Header="Save current genre as playlist…"
+                                          Command="{Binding SaveGenreAsPlaylistCommand}"
+                                          IsVisible="{Binding Tracks.HasGenreFilter}"
+                                          ToolTip.Tip="Create a snapshot playlist from the currently filtered genre in view order"/>
+                                <MenuItem Header="Save current genre as smart crate…"
+                                          Command="{Binding SaveGenreAsSmartCrateCommand}"
+                                          IsVisible="{Binding Tracks.HasGenreFilter}"
+                                          ToolTip.Tip="Create a live smart crate that follows genre edits and new analysis"/>
                                 <MenuItem Header="New smart playlist (custom criteria)…" Command="{Binding SmartPlaylists.CreateCustomSmartPlaylistCommand}" InputGesture="Ctrl+Shift+N"
                                           ToolTip.Tip="Filter by BPM, energy, valence, danceability, rating or liked status"/>
                                 <MenuItem Header="New smart crate (genre / mood)…" Command="{Binding CreateSmartPlaylistCommand}"
@@ -377,6 +385,152 @@
                             <Button Classes="primary small" Content="New playlist" Command="{Binding Projects.AddPlaylistCommand}"/>
                         </StackPanel>
 
+                        <!-- Collapsible GENRES tree (Epic #561 / #564 GV3) -->
+                        <StackPanel x:Name="GenresSidebarSection" Spacing="2">
+                            <Border Classes="divider" Margin="12,8"/>
+                            <Button Classes="ghost"
+                                    Command="{Binding Genres.ToggleCollapsedCommand}"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                    Padding="12,4" Margin="4,0">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <Panel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,6,0">
+                                        <PathIcon Data="{StaticResource icon_chevron_down}" Width="12" Height="12" IsVisible="{Binding Genres.IsExpanded}"/>
+                                        <PathIcon Data="{StaticResource icon_chevron_right}" Width="12" Height="12" IsVisible="{Binding Genres.IsCollapsed}"/>
+                                    </Panel>
+                                    <TextBlock Grid.Column="1" Classes="section" Text="GENRES" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="2" Classes="mono muted" Text="{Binding Genres.TotalTrackCount}" VerticalAlignment="Center"
+                                               IsVisible="{Binding Genres.HasNodes}"/>
+                                </Grid>
+                            </Button>
+
+                            <StackPanel IsVisible="{Binding Genres.IsExpanded}" Spacing="2" Margin="4,0">
+                                <!-- Loading state -->
+                                <TextBlock Classes="caption" Text="Sorting your library by genre…"
+                                           Margin="12,6" IsVisible="{Binding Genres.IsLoading}"/>
+
+                                <!-- Error state -->
+                                <StackPanel Spacing="6" Margin="12,6" IsVisible="{Binding Genres.HasError}">
+                                    <TextBlock Classes="caption" Text="{Binding Genres.LastError}"
+                                               Foreground="{StaticResource BrushError}" TextWrapping="Wrap"/>
+                                    <Button Classes="ghost small" Content="Retry"
+                                            Command="{Binding Genres.RetryCommand}" HorizontalAlignment="Left"/>
+                                </StackPanel>
+
+                                <!-- Empty state -->
+                                <StackPanel Spacing="6" Margin="12,6" IsVisible="{Binding Genres.IsEmpty}">
+                                    <TextBlock Classes="caption" Text="No genres yet. Analyse tracks or add genre tags." TextWrapping="Wrap"/>
+                                    <Button Classes="ghost small" Content="Analyse"
+                                            Command="{Binding Genres.OpenAnalysisCommand}" HorizontalAlignment="Left"/>
+                                </StackPanel>
+
+                                <!-- Populated tree -->
+                                <ItemsControl ItemsSource="{Binding Genres.Nodes}" IsVisible="{Binding Genres.HasNodes}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="liblib:GenreNodeViewModel">
+                                            <StackPanel Spacing="1">
+                                                <Border CornerRadius="{StaticResource RadiusMd}"
+                                                        MinHeight="32"
+                                                        Padding="4,2"
+                                                        Background="Transparent"
+                                                        Classes.genre-selected="{Binding IsSelected}">
+                                                    <Border.Styles>
+                                                        <Style Selector="Border:pointerover">
+                                                            <Setter Property="Background" Value="{StaticResource BrushHover}"/>
+                                                        </Style>
+                                                        <Style Selector="Border.genre-selected">
+                                                            <Setter Property="Background" Value="{StaticResource BrushSelected}"/>
+                                                            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+                                                            <Setter Property="BorderThickness" Value="2,0,0,0"/>
+                                                        </Style>
+                                                    </Border.Styles>
+                                                    <Border.ContextMenu>
+                                                        <ContextMenu IsVisible="{Binding ShowContextMenu}">
+                                                            <MenuItem Header="Play" Command="{Binding PlayCommand}" IsVisible="{Binding CanPlay}"/>
+                                                            <MenuItem Header="Shuffle" Command="{Binding ShuffleCommand}" IsVisible="{Binding CanShuffle}"/>
+                                                            <Separator IsVisible="{Binding CanSaveAsPlaylist}"/>
+                                                            <MenuItem Header="Save as playlist…" Command="{Binding SaveAsPlaylistCommand}" IsVisible="{Binding CanSaveAsPlaylist}"/>
+                                                            <MenuItem Header="Save as smart crate…" Command="{Binding SaveAsSmartCrateCommand}" IsVisible="{Binding CanSaveAsSmartCrate}"/>
+                                                            <Separator IsVisible="{Binding CanAnalyzeUnclassified}"/>
+                                                            <MenuItem Header="Analyse these" Command="{Binding AnalyzeUnclassifiedCommand}" IsVisible="{Binding CanAnalyzeUnclassified}"/>
+                                                        </ContextMenu>
+                                                    </Border.ContextMenu>
+                                                    <Grid ColumnDefinitions="20,*,Auto">
+                                                        <Button Grid.Column="0" Classes="icon small"
+                                                                Command="{Binding ToggleExpandCommand}"
+                                                                IsVisible="{Binding HasChildren}"
+                                                                Padding="0" Width="20" Height="20" VerticalAlignment="Center">
+                                                            <Panel>
+                                                                <PathIcon Data="{StaticResource icon_chevron_down}" Width="10" Height="10" IsVisible="{Binding IsExpanded}"/>
+                                                                <PathIcon Data="{StaticResource icon_chevron_right}" Width="10" Height="10" IsVisible="{Binding !IsExpanded}"/>
+                                                            </Panel>
+                                                        </Button>
+                                                        <Button Grid.Column="1" Classes="ghost"
+                                                                Command="{Binding ActivateCommand}"
+                                                                Padding="4,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                                                VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding DisplayName}" Classes="body-sm"
+                                                                       Foreground="{StaticResource BrushText0}"
+                                                                       TextTrimming="CharacterEllipsis"/>
+                                                        </Button>
+                                                        <TextBlock Grid.Column="2" Classes="mono muted"
+                                                                   Text="{Binding TrackCountText}"
+                                                                   Margin="4,0,8,0" VerticalAlignment="Center"/>
+                                                    </Grid>
+                                                </Border>
+
+                                                <!-- Level-2 subgenres / Other tags / "N more…" -->
+                                                <ItemsControl ItemsSource="{Binding Children}" IsVisible="{Binding IsExpanded}" Margin="16,0,0,0">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="liblib:GenreNodeViewModel">
+                                                            <Border CornerRadius="{StaticResource RadiusMd}"
+                                                                    MinHeight="32"
+                                                                    Padding="4,2"
+                                                                    Background="Transparent"
+                                                                    Classes.genre-selected="{Binding IsSelected}">
+                                                                <Border.Styles>
+                                                                    <Style Selector="Border:pointerover">
+                                                                        <Setter Property="Background" Value="{StaticResource BrushHover}"/>
+                                                                    </Style>
+                                                                    <Style Selector="Border.genre-selected">
+                                                                        <Setter Property="Background" Value="{StaticResource BrushSelected}"/>
+                                                                        <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+                                                                        <Setter Property="BorderThickness" Value="2,0,0,0"/>
+                                                                    </Style>
+                                                                </Border.Styles>
+                                                                <Border.ContextMenu>
+                                                                    <ContextMenu IsVisible="{Binding ShowContextMenu}">
+                                                                        <MenuItem Header="Play" Command="{Binding PlayCommand}" IsVisible="{Binding CanPlay}"/>
+                                                                        <MenuItem Header="Shuffle" Command="{Binding ShuffleCommand}" IsVisible="{Binding CanShuffle}"/>
+                                                                        <Separator IsVisible="{Binding CanSaveAsPlaylist}"/>
+                                                                        <MenuItem Header="Save as playlist…" Command="{Binding SaveAsPlaylistCommand}" IsVisible="{Binding CanSaveAsPlaylist}"/>
+                                                                        <MenuItem Header="Save as smart crate…" Command="{Binding SaveAsSmartCrateCommand}" IsVisible="{Binding CanSaveAsSmartCrate}"/>
+                                                                    </ContextMenu>
+                                                                </Border.ContextMenu>
+                                                                <Grid ColumnDefinitions="*,Auto">
+                                                                    <Button Grid.Column="0" Classes="ghost"
+                                                                            Command="{Binding ActivateCommand}"
+                                                                            Padding="4,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                                                            VerticalAlignment="Center">
+                                                                        <TextBlock Text="{Binding DisplayName}" Classes="body-sm"
+                                                                                   Foreground="{StaticResource BrushText1}"
+                                                                                   TextTrimming="CharacterEllipsis"/>
+                                                                    </Button>
+                                                                    <TextBlock Grid.Column="1" Classes="mono muted"
+                                                                               Text="{Binding TrackCountText}"
+                                                                               Margin="4,0,8,0" VerticalAlignment="Center"
+                                                                               IsVisible="{Binding !IsOverflowRow}"/>
+                                                                </Grid>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </StackPanel>
+
                         <!-- Saved doubles: favourite pairs (from the Double Inspector) whose tracks
                              are both in the open playlist. Click selects both; × removes the pair.
                              "View all" links scroll here via SavedDoublesSidebarFocusRequestVersion. -->
@@ -449,10 +603,10 @@
                         <PathIcon Data="{StaticResource icon_music}" Width="18" Height="18" Foreground="{StaticResource BrushText0}" Opacity="0.85"/>
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="0" Margin="12,0">
-                        <TextBlock Text="{Binding SelectedProject.SourceTitle}" Classes="h2" TextTrimming="CharacterEllipsis" MaxLines="1"
-                                   ToolTip.Tip="{Binding SelectedProject.SourceTitle}"/>
+                        <TextBlock Text="{Binding HeaderTitle}" Classes="h2" TextTrimming="CharacterEllipsis" MaxLines="1"
+                                   ToolTip.Tip="{Binding HeaderTitle}"/>
                         <!-- Runs on one line: whitespace between them would render as extra spaces. -->
-                        <TextBlock Classes="mono" TextTrimming="CharacterEllipsis" MaxLines="1"><Run Text="{Binding SelectedProject.TotalTracks, StringFormat='{}{0} tracks'}"/><Run Text=" · " Foreground="{StaticResource BrushText2}"/><Run Text="{Binding SelectedProject.SuccessfulCount, StringFormat='{}{0} downloaded'}" Foreground="{StaticResource BrushSuccess}"/><Run Text="{Binding SelectedProject.FailedCountSuffix}" Foreground="{StaticResource BrushError}"/></TextBlock>
+                        <TextBlock Classes="mono" TextTrimming="CharacterEllipsis" MaxLines="1"><Run Text="{Binding HeaderTotalTracks, StringFormat='{}{0} tracks'}"/><Run Text=" · " Foreground="{StaticResource BrushText2}"/><Run Text="{Binding HeaderDownloadedCount, StringFormat='{}{0} downloaded'}" Foreground="{StaticResource BrushSuccess}"/><Run Text="{Binding SelectedProject.FailedCountSuffix}" Foreground="{StaticResource BrushError}"/></TextBlock>
                     </StackPanel>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <!-- Mix readiness badge (#526): "Ready 42/45" with clickable list of unready tracks & Prep for Mix -->

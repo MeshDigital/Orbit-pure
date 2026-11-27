@@ -243,6 +243,7 @@ public class AppConfig
     // Library UI - Column Order Persistence
     public string LibraryColumnOrder { get; set; } = ""; // Comma-separated column IDs (empty = use default)
     public bool LibraryNavigationCollapsed { get; set; } = false; // Default expanded until user manually collapses
+    public bool LibraryGenresSectionCollapsed { get; set; } = false; // Epic #561 / #564 GV3: GENRES tree section collapsed state
     public bool LibraryNavigationAutoHideEnabled { get; set; } = false; // Disabled by default: explicit user control only
     public int LibraryNavigationAutoHideActivationToggleCount { get; set; } = 3; // Require repeated manual collapses before hover behavior arms
     public bool UseNewPlaylistSurface { get; set; } = false; // Gate 1 rollout flag for ItemsRepeater library surface

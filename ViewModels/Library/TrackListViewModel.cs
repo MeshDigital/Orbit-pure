@@ -1480,6 +1480,48 @@ public partial class TrackListViewModel : ReactiveObject, IDisposable
             new FindSimilarTrackRequestEvent(track.GlobalId, $"{track.ArtistName} - {track.TrackTitle}"));
     }
 
+    /// <summary>
+    /// Returns the unpaged, ordered track list matching the exact active grid query
+    /// (current project or All Tracks, all active filters including GenreFilter, and current sort).
+    /// Used by header Play/Mix (Epic #561 / #565 GV4) and Save genre as playlist (#566 GV5).
+    /// </summary>
+    public async Task<List<PlaylistTrack>> GetCurrentViewTracksAsync(bool playableOnly)
+    {
+        var selectedProjectId = _mainViewModel?.LibraryViewModel?.SelectedProject?.Id ?? Guid.Empty;
+
+        // In-memory path (Smart Crates / Smart Playlists)
+        if (CurrentProjectTracks.Any() && selectedProjectId == Guid.Empty)
+        {
+            var genreHashes = GenreHashFilter;
+            var filtered = ApplyInMemorySort(CurrentProjectTracks.Where(t => FilterTracks(t, genreHashes)).ToList())
+                .Select(vm => vm.Model);
+            return playableOnly
+                ? filtered.Where(t => !string.IsNullOrEmpty(t.ResolvedFilePath)).ToList()
+                : filtered.ToList();
+        }
+
+        // DB-backed path (playlists, All Tracks, genre views)
+        var effectiveFilter = IsMixModeEnabled ? string.Empty : BuildEffectiveFilter();
+        bool? effectiveDownloadedOnly = playableOnly
+            ? true
+            : (IsMixModeEnabled ? true : (IsFilterDownloaded ? true : (IsFilterPending ? false : null)));
+        var effectiveHashFilter = IsMixModeEnabled ? GenreHashFilter : EffectiveHashFilter;
+
+        var tracks = await _libraryService.GetOrderedPlaylistTracksAsync(
+            selectedProjectId,
+            filter: effectiveFilter,
+            downloadedOnly: effectiveDownloadedOnly,
+            hashFilter: effectiveHashFilter,
+            camelotKeyFilter: IsMixModeEnabled ? null : CamelotKeyFilter,
+            sortColumn: SortColumn,
+            sortDescending: SortDescending,
+            qualityTier: IsMixModeEnabled ? null : QualityTierFilter);
+
+        return playableOnly
+            ? tracks.Where(t => !string.IsNullOrEmpty(t.ResolvedFilePath)).ToList()
+            : tracks;
+    }
+
     public void RefreshFilteredTracks()
     {
         var selectedProjectId = _mainViewModel?.LibraryViewModel?.SelectedProject?.Id ?? Guid.Empty;
