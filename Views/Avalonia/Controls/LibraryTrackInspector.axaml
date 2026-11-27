@@ -469,6 +469,30 @@
                                                               ToolTip.Tip="Click a Camelot position to filter the library to that key"/>
                             </StackPanel>
                         </Expander>
+
+                        <!-- In playlists (LP3 #554) -->
+                        <StackPanel Spacing="6">
+                            <TextBlock Classes="section" Text="IN PLAYLISTS"/>
+                            <TextBlock Classes="caption muted" Text="Not in any playlist"
+                                       IsVisible="{Binding !HasMemberPlaylists}"/>
+                            <ItemsControl ItemsSource="{Binding MemberPlaylists}" IsVisible="{Binding HasMemberPlaylists}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:TrackPlaylistMembership">
+                                        <Button Classes="ghost small"
+                                                Margin="0,0,4,4" Padding="6,2"
+                                                Content="{Binding Title}"
+                                                Command="{ReflectionBinding $parent[UserControl].DataContext.OpenMemberPlaylistCommand}"
+                                                CommandParameter="{Binding PlaylistId}"
+                                                ToolTip.Tip="Open this playlist"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

@@ -24,10 +24,24 @@ public sealed record RelocationPlan(IReadOnlyList<RelocationRequest> Moves, IRea
 /// <summary>The result of executing a plan: how many moved, the per-file failures, and the journal batch id for undo.</summary>
 public sealed record RelocationOutcome(int Moved, IReadOnlyList<RelocationProblem> Failures, Guid BatchId = default);
 
+/// <summary>Preview of a bulk folder re-point operation for missing files (LP2 #553).</summary>
+public sealed record RelocateFolderPreview(
+    string OldPrefix,
+    string NewPrefix,
+    int TotalMissingInLibrary,
+    int MatchedPrefixCount,
+    int FoundCount,
+    int StillMissingCount,
+    int PathLockedCount,
+    RelocationPlan Plan,
+    IReadOnlyList<RelocationRequest> SampleMatches,
+    string? WarningMessage);
+
 /// <summary>
 /// The single move/rename path for library tracks (#344, LF2): moves the audio file and updates
 /// every path column (LibraryEntries.FilePath, PlaylistTracks.ResolvedFilePath, Tracks.LocalFilePath)
 /// in one EF transaction, then publishes a refresh event.
+/// Extended in LP2 (#553) with a re-point mode for missing files moved outside ORBIT.
 /// </summary>
 public class FileRelocationService
 {
@@ -312,10 +326,207 @@ public class FileRelocationService
         return reverted;
     }
 
+    /// <summary>
+    /// Suggests the most common parent folder prefixes among missing library files (LP2 #553).
+    /// </summary>
+    public async Task<IReadOnlyList<(string Prefix, int MissingCount)>> SuggestMissingPrefixesAsync(int maxSuggestions = 10, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var entries = await db.LibraryEntries
+            .AsNoTracking()
+            .Where(e => !string.IsNullOrEmpty(e.FilePath))
+            .Select(e => e.FilePath)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in entries)
+        {
+            if (File.Exists(path)) continue;
+            var dir = GetParentDirectoryNormalized(path);
+            if (string.IsNullOrEmpty(dir)) continue;
+            counts[dir] = counts.TryGetValue(dir, out var c) ? c + 1 : 1;
+        }
+
+        return counts
+            .OrderByDescending(kv => kv.Value)
+            .ThenBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+            .Take(Math.Max(1, maxSuggestions))
+            .Select(kv => (kv.Key, kv.Value))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Previews bulk re-pointing of missing files from <paramref name="oldPrefix"/> to
+    /// <paramref name="newPrefix"/> (LP2 #553). Handles Windows/POSIX separators and case differences.
+    /// Nothing is written until <see cref="ExecuteRepointAsync"/> is called.
+    /// </summary>
+    public async Task<RelocateFolderPreview> PlanRepointFolderAsync(
+        string oldPrefix,
+        string newPrefix,
+        int sampleLimit = 10,
+        CancellationToken ct = default)
+    {
+        var normalizedOld = NormalizePrefix(oldPrefix);
+        var normalizedNew = NormalizePrefix(newPrefix);
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var entries = await db.LibraryEntries
+            .AsNoTracking()
+            .Where(e => !string.IsNullOrEmpty(e.FilePath))
+            .Select(e => new { e.UniqueHash, e.FilePath, e.PathLockedAt })
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
+        var totalMissing = 0;
+        var matchedPrefix = 0;
+        var stillMissing = 0;
+        var pathLockedCount = 0;
+        var moves = new List<RelocationRequest>();
+        var problems = new List<RelocationProblem>();
+
+        foreach (var e in entries)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (File.Exists(e.FilePath)) continue;
+            totalMissing++;
+
+            if (!TryRemapPrefix(e.FilePath, normalizedOld, normalizedNew, out var candidateTarget))
+                continue;
+
+            matchedPrefix++;
+            if (File.Exists(candidateTarget))
+            {
+                moves.Add(new RelocationRequest(e.UniqueHash, e.FilePath, candidateTarget));
+                if (e.PathLockedAt is not null)
+                    pathLockedCount++;
+            }
+            else
+            {
+                stillMissing++;
+                problems.Add(new RelocationProblem(e.UniqueHash, $"Not found at {candidateTarget}"));
+            }
+        }
+
+        string? warning = pathLockedCount > 0
+            ? $"{pathLockedCount} path-locked track(s) will be re-pointed; Rekordbox/USB exports still reference their old paths."
+            : null;
+
+        var plan = new RelocationPlan(moves, problems);
+        return new RelocateFolderPreview(
+            OldPrefix: oldPrefix,
+            NewPrefix: newPrefix,
+            TotalMissingInLibrary: totalMissing,
+            MatchedPrefixCount: matchedPrefix,
+            FoundCount: moves.Count,
+            StillMissingCount: stillMissing,
+            PathLockedCount: pathLockedCount,
+            Plan: plan,
+            SampleMatches: moves.Take(Math.Max(1, sampleLimit)).ToList(),
+            WarningMessage: warning);
+    }
+
+    /// <summary>
+    /// Executes a re-point plan (LP2 #553): updates all three DB path columns and writes a
+    /// <see cref="LibraryActionType.Repoint"/> journal batch WITHOUT moving any file on disk.
+    /// Only rows whose target file exists on disk are re-pointed.
+    /// </summary>
+    public async Task<RelocationOutcome> ExecuteRepointAsync(RelocationPlan plan, CancellationToken ct = default)
+    {
+        var failures = new List<RelocationProblem>();
+        var journal = new List<LibraryActionLogEntity>();
+        var batchId = Guid.NewGuid();
+        var repointed = 0;
+
+        foreach (var move in plan.Moves)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!File.Exists(move.TargetPath))
+            {
+                failures.Add(new RelocationProblem(move.Hash, "Target file not found on disk"));
+                continue;
+            }
+
+            try
+            {
+                await UpdatePathsAsync(move.Hash, move.TargetPath, ct).ConfigureAwait(false);
+                journal.Add(new LibraryActionLogEntity
+                {
+                    BatchId = batchId,
+                    ActionType = LibraryActionType.Repoint,
+                    SourcePath = move.SourcePath,
+                    DestinationPath = move.TargetPath,
+                });
+                repointed++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Repoint failed for {Hash}: {Source} -> {Target}", move.Hash, move.SourcePath, move.TargetPath);
+                failures.Add(new RelocationProblem(move.Hash, ex.Message));
+            }
+        }
+
+        if (repointed > 0)
+        {
+            await WriteJournalAsync(journal, ct).ConfigureAwait(false);
+            _eventBus.Publish(new LibraryUpdatedEvent("library files repointed"));
+        }
+
+        return new RelocationOutcome(repointed, failures, batchId);
+    }
+
+    /// <summary>
+    /// Remaps <paramref name="sourcePath"/> from <paramref name="oldPrefix"/> to <paramref name="newPrefix"/>,
+    /// handling Windows (\) and POSIX (/) separators and case differences.
+    /// </summary>
+    public static bool TryRemapPrefix(string sourcePath, string oldPrefix, string newPrefix, out string targetPath)
+    {
+        targetPath = string.Empty;
+        var normSource = NormalizeSeparators(sourcePath);
+        var normOld = NormalizePrefix(oldPrefix);
+        var normNew = NormalizePrefix(newPrefix);
+        if (string.IsNullOrEmpty(normOld) || string.IsNullOrEmpty(normNew))
+            return false;
+
+        // Match exact directory boundary (either exact prefix + "/" or prefix ends with "/")
+        var prefixWithSlash = normOld.EndsWith('/') ? normOld : normOld + "/";
+        if (!normSource.StartsWith(prefixWithSlash, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var relative = normSource[prefixWithSlash.Length..];
+        var newBase = normNew.TrimEnd('/');
+        var combined = string.IsNullOrEmpty(newBase)
+            ? "/" + relative
+            : newBase + "/" + relative;
+
+        targetPath = Path.DirectorySeparatorChar == '\\'
+            ? combined.Replace('/', '\\')
+            : combined;
+        return true;
+    }
+
+    private static string NormalizeSeparators(string path) =>
+        (path ?? string.Empty).Trim().Replace('\\', '/');
+
+    private static string NormalizePrefix(string prefix)
+    {
+        var norm = NormalizeSeparators(prefix);
+        return norm.Length > 1 ? norm.TrimEnd('/') : norm;
+    }
+
+    private static string GetParentDirectoryNormalized(string path)
+    {
+        var norm = NormalizeSeparators(path);
+        var idx = norm.LastIndexOf('/');
+        return idx > 0 ? norm[..idx] : string.Empty;
+    }
+
     private async Task RevertFileAsync(LibraryActionLogEntity log, CancellationToken ct)
     {
-        // Only move the file back when it is still at the destination (the user may have moved it on).
-        if (File.Exists(log.DestinationPath) && !File.Exists(log.SourcePath))
+        // Only move the file back for actual file moves (never for Repoint entries, LP2 #553).
+        if (log.ActionType != LibraryActionType.Repoint
+            && File.Exists(log.DestinationPath)
+            && !File.Exists(log.SourcePath))
         {
             Directory.CreateDirectory(Path.GetDirectoryName(log.SourcePath)!);
             File.Move(log.DestinationPath, log.SourcePath);

@@ -27,17 +27,23 @@ public sealed class LibraryTrackInspectorViewModel
     private readonly ILogger _logger;
     private readonly ICuePointService? _cueService;
     private readonly PathProtectionService? _pathProtection;
+    private readonly ILibraryService? _libraryService;
+    private readonly Action<Guid>? _onOpenPlaylist;
     private PlaylistTrackViewModel? _attached;
     private int _generation;
 
     public LibraryTrackInspectorViewModel(
         ILogger logger,
         ICuePointService? cueService = null,
-        PathProtectionService? pathProtection = null)
+        PathProtectionService? pathProtection = null,
+        ILibraryService? libraryService = null,
+        Action<Guid>? onOpenPlaylist = null)
     {
         _logger = logger;
         _cueService = cueService;
         _pathProtection = pathProtection;
+        _libraryService = libraryService;
+        _onOpenPlaylist = onOpenPlaylist;
     }
 
     /// <summary>The track whose inspector data is currently being kept fresh.</summary>
@@ -65,6 +71,8 @@ public sealed class LibraryTrackInspectorViewModel
             await LoadCuesAsync(selected, generation);
             if (generation != _generation) return;
             await LoadPathProtectionAsync(selected, generation);
+            if (generation != _generation) return;
+            await LoadMemberPlaylistsAsync(selected, generation);
         }
         catch (Exception ex)
         {
@@ -135,6 +143,38 @@ public sealed class LibraryTrackInspectorViewModel
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to load path protection state for {TrackHash}", track.GlobalId);
+        }
+    }
+
+    internal async Task LoadMemberPlaylistsAsync(PlaylistTrackViewModel track, int generation)
+    {
+        if (_libraryService is null || string.IsNullOrWhiteSpace(track.GlobalId))
+            return;
+
+        try
+        {
+            var ids = await _libraryService.GetPlaylistIdsContainingTrackAsync(track.GlobalId);
+            if (generation != _generation) return;
+
+            var memberships = new System.Collections.Generic.List<TrackPlaylistMembership>();
+            if (ids.Count > 0)
+            {
+                var allJobs = await _libraryService.LoadAllPlaylistJobsAsync();
+                if (generation != _generation) return;
+
+                var byId = allJobs.ToDictionary(j => j.Id, j => j.SourceTitle);
+                foreach (var id in ids)
+                {
+                    if (byId.TryGetValue(id, out var title) && !string.IsNullOrWhiteSpace(title))
+                        memberships.Add(new TrackPlaylistMembership(id, title));
+                }
+            }
+
+            track.ApplyMemberPlaylists(memberships, _onOpenPlaylist);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load playlist memberships for {TrackHash}", track.GlobalId);
         }
     }
 

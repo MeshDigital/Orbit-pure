@@ -9,7 +9,8 @@ namespace SLSKDONET.Data.Entities
         SmartSort = 0,
         ManualMove = 1,
         Rename = 2,
-        Consolidate = 3
+        Consolidate = 3,
+        Repoint = 4
     }
 
     [Table("LibraryActionLogs")]

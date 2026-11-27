@@ -352,7 +352,19 @@
                                                                           Command="{ReflectionBinding $parent[UserControl].DataContext.ExportPlaylistM3uCommand}"
                                                                           CommandParameter="{Binding Card.Model}"
                                                                           ToolTip.Tip="Track order and file paths only (no cues or beatgrid). Opens in Rekordbox and most players."/>
+                                                                <MenuItem Header="CSV spreadsheet…"
+                                                                          Command="{ReflectionBinding $parent[UserControl].DataContext.ExportPlaylistCsvCommand}"
+                                                                          CommandParameter="{Binding Card.Model}"
+                                                                          ToolTip.Tip="Export the full playlist in order as an RFC 4180 CSV file"/>
+                                                                <MenuItem Header="Copy tracklist"
+                                                                          Command="{ReflectionBinding $parent[UserControl].DataContext.CopyPlaylistTracklistCommand}"
+                                                                          CommandParameter="{Binding Card.Model}"
+                                                                          ToolTip.Tip="Copy numbered plain-text tracklist with BPM and key to the clipboard"/>
                                                             </MenuItem>
+                                                            <MenuItem Header="Compare with playlist…"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.ComparePlaylistsCommand}"
+                                                                      CommandParameter="{Binding Card.Model}"
+                                                                      ToolTip.Tip="Compare this playlist against another to see shared and unique tracks"/>
                                                             <Separator/>
                                                             <MenuItem Header="Rename playlist"
                                                                       Command="{ReflectionBinding $parent[UserControl].DataContext.RenameProjectCommand}"
