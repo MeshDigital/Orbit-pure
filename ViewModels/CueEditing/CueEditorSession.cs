@@ -576,7 +576,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
     {
         foreach (var pad in HotCuePads)
         {
-            var cue = Cues.FirstOrDefault(c => c.SlotIndex == pad.Slot && !c.IsLoop);
+            var cue = Cues.FirstOrDefault(c => c.SlotIndex == pad.Slot);
             pad.Assign(cue);
             pad.IsSelected = cue != null && ReferenceEquals(cue, SelectedCue);
         }
@@ -927,18 +927,20 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
 
     private void SetSelectedCueSlot(int slotIndex)
     {
-        if (SelectedCue is not { } cue || TrackHash is null || cue.IsLoop) return;
+        if (SelectedCue is not { } cue || TrackHash is null) return;
         slotIndex = Math.Clamp(slotIndex, -1, 7);
         if (cue.SlotIndex == slotIndex) return;
         PushSnapshot();
-        // A hot cue pad holds one cue: whoever had it becomes a memory cue.
+        // A hot cue pad holds one cue or hot loop: whoever had it becomes a memory cue/loop.
         if (slotIndex >= 0)
         {
-            var priorHolder = Cues.FirstOrDefault(c => !c.IsLoop && c.SlotIndex == slotIndex && c != cue);
+            var priorHolder = Cues.FirstOrDefault(c => c.SlotIndex == slotIndex && c != cue);
             if (priorHolder is not null) priorHolder.SlotIndex = -1;
         }
         cue.SlotIndex = slotIndex;
-        FieldEdited(cue, slotIndex >= 0 ? $"{cue.Name} is on pad {(char)('A' + slotIndex)}" : $"{cue.Name} is a memory cue");
+        string kind = cue.IsLoop ? "hot loop" : "pad";
+        string memoryKind = cue.IsLoop ? "memory loop" : "memory cue";
+        FieldEdited(cue, slotIndex >= 0 ? $"{cue.Name} is on {kind} {(char)('A' + slotIndex)}" : $"{cue.Name} is a {memoryKind}");
     }
 
     private void TriggerPad(HotCuePadInfo? pad)

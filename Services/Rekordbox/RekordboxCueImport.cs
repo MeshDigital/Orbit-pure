@@ -21,8 +21,10 @@ public static class RekordboxCueImport
     public static List<OrbitCue> ToOrbitCues(RekordboxDbTrack track) =>
         track.Cues.Select(c =>
         {
-            int slot = c.IsLoop ? -1 : c.Slot;
-            string label = slot >= 0 ? ((char)('A' + slot)).ToString() : c.IsLoop ? "loop" : "memory";
+            int slot = c.Slot is >= 0 and <= 7 ? c.Slot : -1;
+            string label = slot >= 0
+                ? (c.IsLoop ? $"loop {(char)('A' + slot)}" : ((char)('A' + slot)).ToString())
+                : c.IsLoop ? "loop" : "memory";
             return new OrbitCue
             {
                 Timestamp = c.InMsec / 1000.0,
@@ -40,13 +42,13 @@ public static class RekordboxCueImport
 
     public static List<OrbitCue> Merge(IEnumerable<OrbitCue> current, IReadOnlyList<OrbitCue> imported)
     {
-        var importedPads = imported.Where(c => !c.IsLoop && c.SlotIndex >= 0).Select(c => c.SlotIndex).ToHashSet();
+        var importedPads = imported.Where(c => c.SlotIndex >= 0).Select(c => c.SlotIndex).ToHashSet();
         var merged = new List<OrbitCue>(imported);
         foreach (var cue in current)
         {
             if (cue.Source == CueSource.Auto && !cue.IsSectionMarker) continue;
             if (!cue.IsSectionMarker && imported.Any(i => i.IsLoop == cue.IsLoop && Math.Abs(i.Timestamp - cue.Timestamp) <= SameSpotSeconds)) continue;
-            if (!cue.IsLoop && importedPads.Contains(cue.SlotIndex)) cue.SlotIndex = -1;
+            if (importedPads.Contains(cue.SlotIndex)) cue.SlotIndex = -1;
             merged.Add(cue);
         }
         return merged.OrderBy(c => c.Timestamp).ToList();

@@ -33,6 +33,8 @@ public sealed class ImportedCue
     public double TimestampSeconds { get; init; }
     public string Name             { get; init; } = string.Empty;
     public string Color            { get; init; } = "#FFFFFF";
+    public bool   IsLoop           { get; init; }
+    public double LoopEndSeconds   { get; init; }
 }
 
 /// <summary>
@@ -121,6 +123,19 @@ public sealed class SeratoMetadataImporter
                     TimestampSeconds = cue.PositionMs / 1000.0,
                     Name             = string.IsNullOrEmpty(cue.Name) ? $"Cue {cue.Index + 1}" : cue.Name,
                     Color            = $"#{cue.R:X2}{cue.G:X2}{cue.B:X2}",
+                });
+            }
+
+            foreach (var loop in (entries ?? new()).Select(Serato.SeratoMarkers2.ReadLoop).Where(l => l != null && l.EndMs > l.StartMs))
+            {
+                cues.Add(new ImportedCue
+                {
+                    Index            = loop!.Index,
+                    TimestampSeconds = loop.StartMs / 1000.0,
+                    LoopEndSeconds   = loop.EndMs / 1000.0,
+                    IsLoop           = true,
+                    Name             = string.IsNullOrEmpty(loop.Name) ? $"Loop {loop.Index + 1}" : loop.Name,
+                    Color            = $"#{loop.R:X2}{loop.G:X2}{loop.B:X2}",
                 });
             }
         }

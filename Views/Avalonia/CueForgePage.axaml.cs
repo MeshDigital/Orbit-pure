@@ -218,6 +218,7 @@ public partial class CueForgePage : UserControl
         bool none = mods == KeyModifiers.None;
         bool shift = mods == KeyModifiers.Shift;
         bool ctrl = mods == KeyModifiers.Control;
+        bool alt = mods == KeyModifiers.Alt;
         bool handled = true;
 
         int pad = PadIndex(e.Key);
@@ -276,6 +277,26 @@ public partial class CueForgePage : UserControl
                 break;
             case Key.OemCloseBrackets when shift:
                 vm.SlipGridFineCommand.Execute("+").Subscribe();
+                break;
+            case Key.Left when alt:
+            case Key.PageUp when none:
+                vm.PreviousTrackCommand.Execute().Subscribe();
+                break;
+            case Key.Right when alt:
+            case Key.PageDown when none:
+                vm.NextTrackCommand.Execute().Subscribe();
+                break;
+            case Key.Q when none:
+                vm.Session.SnapToGrid = !vm.Session.SnapToGrid;
+                break;
+            case Key.L when none:
+                vm.Session.SetQuickLoopCommand.Execute(4).Subscribe();
+                break;
+            case Key.OemComma when none:
+                vm.Session.LoopHalfCommand.Execute().Subscribe();
+                break;
+            case Key.OemPeriod when none:
+                vm.Session.LoopDoubleCommand.Execute().Subscribe();
                 break;
             case Key.B when none:
                 vm.SetDownbeatAtPlayheadCommand.Execute().Subscribe();
@@ -394,16 +415,13 @@ public partial class CueForgePage : UserControl
         menu.Items.Add(Item("Move playhead here", () => vm.SeekPlayheadCommand.Execute(cue.Timestamp).Subscribe()));
         menu.Items.Add(Item("Rename…", () => vm.Session.RequestRename(cue)));
         menu.Items.Add(ColourMenu(vm, cue));
-        if (!cue.IsLoop)
+        var slots = new MenuItem { Header = cue.IsLoop ? "Hot loop pad" : "Pad" };
+        foreach (var option in CueEditorSession.CueSlotOptions)
         {
-            var slots = new MenuItem { Header = "Pad" };
-            foreach (var option in CueEditorSession.CueSlotOptions)
-            {
-                var o = option;
-                slots.Items.Add(Item(o.Label, () => { vm.Session.SelectedCue = cue; vm.Session.SetSelectedCueSlotCommand.Execute(o.Value).Subscribe(); }));
-            }
-            menu.Items.Add(slots);
+            var o = option;
+            slots.Items.Add(Item(o.Label, () => { vm.Session.SelectedCue = cue; vm.Session.SetSelectedCueSlotCommand.Execute(o.Value).Subscribe(); }));
         }
+        menu.Items.Add(slots);
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Delete", () => vm.Session.DeleteCueCommand.Execute(cue).Subscribe()));
         menu.Open(target);
