@@ -565,148 +565,14 @@ namespace SLSKDONET.ViewModels
                 return;
             }
 
-            var bpm = incoming.Model?.BPM is > 0 ? incoming.Model.BPM!.Value : 128.0;
-            double? outgoingBpm = outgoing.Model?.BPM is > 0 ? outgoing.Model.BPM : null;
+            var decision = await new SLSKDONET.Services.Transitions.PlaybackTransitionDecider(
+                    _transitionResolver, _transitionRepository, _transitionPlanService)
+                .DecideAsync(ToPairTrack(outgoing), ToPairTrack(incoming));
 
-            // Structure-based plan (sections, phrases, DnB transition types, vocal check) — also the
-            // source of exact analysed BPMs, which the engine uses to tempo-match the incoming deck.
-            var score = Services.Playlist.TrackPairCompatibilityScorer.Score(
-                outgoing.CamelotDisplay, incoming.CamelotDisplay, outgoing.Energy, incoming.Energy);
-
-            SLSKDONET.Models.Timeline.PlaylistTrackTransition? saved = null;
-            (SLSKDONET.Engine.Transitions.TransitionPlan Plan, SLSKDONET.Engine.Transitions.TrackStructure Outgoing, SLSKDONET.Engine.Transitions.TrackStructure Incoming)? planned = null;
-
-            if (_transitionResolver != null)
+            if (decision.Path == SLSKDONET.Services.Transitions.PlaybackTransitionPath.Planned && decision.Plan is { } plan)
             {
-                var resolved = await _transitionResolver.ResolveAsync(
-                    SLSKDONET.Data.Entities.TransitionScopeKind.Playlist,
-                    outgoing.Model?.PlaylistId ?? Guid.Empty,
-                    outgoing.Id,
-                    incoming.Id,
-                    outgoing.Model?.TrackUniqueHash,
-                    incoming.Model?.TrackUniqueHash,
-                    score.CombinedScore);
-
-                saved = resolved.SavedTransition;
-                if (resolved.AutoPlan != null && resolved.OutgoingStructure != null && resolved.IncomingStructure != null)
-                {
-                    planned = (resolved.AutoPlan, resolved.OutgoingStructure, resolved.IncomingStructure);
-                }
-            }
-            else
-            {
-                saved = await _transitionRepository!.GetTransitionAsync(outgoing.Id, incoming.Id);
-                if (_transitionPlanService != null
-                    && outgoing.Model?.TrackUniqueHash is { Length: > 0 } outHash
-                    && incoming.Model?.TrackUniqueHash is { Length: > 0 } inHash)
-                {
-                    try
-                    {
-                        planned = await _transitionPlanService.PlanAsync(outHash, inHash, score.CombinedScore);
-                    }
-                    catch (Exception ex)
-                    {
-                        Serilog.Log.Warning(ex, "[Mix] Transition planning failed for {Out} -> {In}", outHash, inHash);
-                    }
-                }
-            }
-
-            if (planned is { } p)
-            {
-                bpm = p.Incoming.Bpm;
-                outgoingBpm = p.Outgoing.Bpm;
-            }
-
-            SLSKDONET.Models.Timeline.TransitionModel model;
-            string presetName;
-            double? sourceTrigger;
-            double? targetTrigger;
-
-            if (saved != null)
-            {
-                model = saved.ToTransitionModel();
-                presetName = saved.PresetName;
-                sourceTrigger = saved.SourceTriggerSeconds;
-                targetTrigger = saved.TargetTriggerSeconds;
-            }
-            else
-            {
-                // No explicit save for this pair — every pair's badge already defaults its label
-                // to "Auto" (see UpdateQueueTransitionBadgesAsync/TrackListViewModel's equivalent),
-                // but nothing ever actually built and attached that Auto transition to real
-                // playback: this method used to just return here, so an unsaved pair silently
-                // played a hard cut/gapless swap with no mix effect at all — the "built but never
-                // wired" gap behind "can't get songs to play with effect". Score the pair the same
-                // way the badge does and materialize the same Auto transition TransitionPresetLibrary
-                // already knows how to build (duration/type chosen from harmonic+energy fit) so
-                // every hop in a playlist actually mixes by default, not just ones saved by hand.
-                model = Services.Timeline.TransitionPresetLibrary.Build("Auto", score);
-                presetName = "Auto";
-
-                // Without an explicit trigger point, AudioPlayerService falls back to "start the
-                // crossfade N seconds before the literal end of the file" (N derived from the
-                // preset's bar count) — reasonable, but structure-blind: it has no idea where the
-                // track's actual outro/2nd-drop/tail is, so a track with a long instrumental outro
-                // and one that cuts hard right after the last chorus get treated identically. Reuse
-                // the same cue-point/phrase-aware suggestion (TransitionEngine.OptimizeTransition)
-                // the Mix editor already computes for a manually-picked pair, so an Auto-scored pair
-                // during real playback gets the same structure-aware mix-out/mix-in points instead
-                // of a generic duration-based guess.
-                sourceTrigger = null;
-                targetTrigger = null;
-                if (Services.Timeline.TransitionPresetLibrary.RequiresUnreadyFallback(
-                        planned?.Outgoing, planned?.Incoming, outgoingBpm, bpm))
-                {
-                    model = Services.Timeline.TransitionPresetLibrary.BuildUnreadyFallback();
-                    presetName = "EchoOut";
-                    if (planned is { } fallbackPlan)
-                    {
-                        sourceTrigger = fallbackPlan.Plan.SourceTriggerSeconds;
-                        targetTrigger = fallbackPlan.Plan.TargetTriggerSeconds;
-                    }
-                }
-                else if (planned is { } plan)
-                {
-                    model = Services.Timeline.TransitionPresetLibrary.Build(plan.Plan.PresetName, score, plan.Plan.DurationBars);
-                    presetName = plan.Plan.PresetName;
-                    sourceTrigger = plan.Plan.SourceTriggerSeconds;
-                    targetTrigger = plan.Plan.TargetTriggerSeconds;
-                    Serilog.Log.Information("[Mix] {Out} -> {In}: {Reason} (out {Src:0.0}s, in {Tgt:0.0}s)",
-                        outgoing.Title, incoming.Title, plan.Plan.Reason, sourceTrigger, targetTrigger);
-                }
-                else if (_trackRepository != null && _cuePointService != null)
-                {
-                    var outgoingHash = outgoing.Model?.TrackUniqueHash;
-                    var incomingHash = incoming.Model?.TrackUniqueHash;
-                    if (!string.IsNullOrWhiteSpace(outgoingHash) && !string.IsNullOrWhiteSpace(incomingHash))
-                    {
-                        try
-                        {
-                            var sourceEntity = await _trackRepository.FindTrackAsync(outgoingHash);
-                            var targetEntity = await _trackRepository.FindTrackAsync(incomingHash);
-                            if (sourceEntity != null && targetEntity != null)
-                            {
-                                var sourceCues = await _cuePointService.GetByTrackIdAsync(outgoingHash);
-                                var targetCues = await _cuePointService.GetByTrackIdAsync(incomingHash);
-                                var suggestion = _pointSuggestionEngine.OptimizeTransition(sourceEntity, targetEntity, sourceCues, targetCues);
-                                sourceTrigger = Math.Max(0, suggestion.SourceTriggerTime);
-                                targetTrigger = Math.Max(0, suggestion.TargetTriggerTime);
-                                // Old-style cues (e.g. a "Mix-Out Warning" at 0:00 on a badly analysed
-                                // track) must not cut a track short: before half way, mix at the end instead.
-                                double realLength = _playerService.Duration;
-                                if (realLength > 0 && sourceTrigger < Engine.Transitions.TransitionPlanner.MinPlayFraction * realLength)
-                                {
-                                    sourceTrigger = null;
-                                    targetTrigger = null;
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Serilog.Log.Warning(ex, "[PlayerViewModel] Auto transition point suggestion failed for {Out}->{In}", outgoingHash, incomingHash);
-                        }
-                    }
-                }
+                Serilog.Log.Information("[Mix] {Out} -> {In}: {Reason} (out {Src:0.0}s, in {Tgt:0.0}s)",
+                    outgoing.Title, incoming.Title, plan.Reason, decision.SourceTriggerSeconds, decision.TargetTriggerSeconds);
             }
 
             // Guard against a race: by the time this DB round-trip resolves, playback may already
@@ -717,12 +583,21 @@ namespace SLSKDONET.ViewModels
             // equivalent choice just above.
             if (_preloadedQueueIndex is int stillPreloadedIndex && Queue.ElementAtOrDefault(stillPreloadedIndex)?.Model?.ResolvedFilePath == preloadedPath)
             {
-                UpcomingTransitionPresetName = presetName;
+                UpcomingTransitionPresetName = decision.PresetName;
             }
 
             Dispatcher.UIThread.Post(() => _playerService.SetPendingTransitionForNext(
-                preloadedPath, model, bpm, sourceTrigger, targetTrigger, presetName, outgoingBpm));
+                preloadedPath, decision.Model, decision.IncomingBpm, decision.SourceTriggerSeconds, decision.TargetTriggerSeconds,
+                decision.PresetName, decision.OutgoingBpm));
         }
+
+        private static SLSKDONET.Services.Transitions.PlaybackPairTrack ToPairTrack(PlaylistTrackViewModel track) => new(
+            track.Id,
+            track.Model?.PlaylistId ?? Guid.Empty,
+            track.Model?.TrackUniqueHash,
+            track.CamelotDisplay,
+            track.Energy,
+            track.Model?.BPM is > 0 ? track.Model.BPM : null);
 
         private bool _queueTransitionBadgesScheduled;
 

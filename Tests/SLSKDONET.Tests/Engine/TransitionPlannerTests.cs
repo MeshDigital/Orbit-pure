@@ -22,6 +22,32 @@ public class TransitionPlannerTests
         Drop1 = AtBar(32), Drop2 = AtBar(96), OutroCue = 295, LastSound = 298, Energy = energy,
     };
 
+    /// <summary>
+    /// Seen in MixBenchmark (#599) on real DnB stored at half time: Intro cue at 0:00, first downbeat
+    /// at 2.413 s, 87 BPM (2.759 s bars). The nearest bar line to 0 is -0.346 s; clamping it to 0
+    /// entered the incoming track half a beat off its grid.
+    /// </summary>
+    [Fact]
+    public void Plan_IntroCueBeforeTheFirstDownbeat_EntersOnABarLineNotAtZero()
+    {
+        const double inBpm = 87, inDownbeat = 2.413;
+        double inBar = 240.0 / inBpm;
+        var calmOut = Dnb(energy: 0.3, bpm: inBpm) with { FirstDownbeat = 0.4, Drop1 = 0.4 + 32 * inBar, Drop2 = 0.4 + 64 * inBar, DurationSeconds = 330, LastSound = 328, OutroCue = 0.4 + 96 * inBar };
+        var incoming = new TrackStructure
+        {
+            DurationSeconds = 300, Bpm = inBpm, FirstDownbeat = inDownbeat, IntroCue = 0.0,
+            Drop1 = inDownbeat + 16 * inBar, Drop2 = inDownbeat + 64 * inBar, LastSound = 298, Energy = 0.3,
+        };
+
+        var plan = TransitionPlanner.Plan(calmOut, incoming, compatibility: 40);
+
+        Assert.Equal(PlannedTransitionKind.Relaxed, plan.Kind);
+        double barsFromDownbeat = (plan.TargetTriggerSeconds - inDownbeat) / inBar;
+        Assert.Equal(System.Math.Round(barsFromDownbeat), barsFromDownbeat, 6); // on a bar line
+        Assert.True(plan.TargetTriggerSeconds >= 0);
+        Assert.Equal(inDownbeat, plan.TargetTriggerSeconds, 3); // the first bar line at or after 0:00
+    }
+
     [Fact]
     public void Sections_IgnoreAnOutroCueTooCloseToTheEnd_AndEndTheMainPart32BarsAfterTheLastDrop()
     {
