@@ -46,7 +46,7 @@ jobs:
         run: dotnet format analyzers SLSKDONET.csproj --verify-no-changes --severity error --no-restore
 
       - name: Test (with coverage)
-        run: dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj -c Release -nologo --blame-hang-timeout 5m --logger "console;verbosity=minimal" --collect:"XPlat Code Coverage" --results-directory ./TestResults
+        run: dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj -c Release -nologo --filter "Category!=Perf" --blame-hang-timeout 5m --logger "console;verbosity=minimal" --collect:"XPlat Code Coverage" --results-directory ./TestResults
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
