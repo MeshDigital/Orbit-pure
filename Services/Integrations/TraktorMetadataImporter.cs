@@ -171,42 +171,10 @@ public sealed class TraktorMetadataImporter
         return cues;
     }
 
-    // ── Key mapping ──────────────────────────────────────────────────────
+    // ── Key mapping (shared with KeyNotation — DX0 #555) ─────────────────
 
-    // Traktor Open Key integer → Open Key string (1m, 1d, …, 12m, 12d)
-    private static readonly string[] TraktorKeys =
-    {
-        "1m",  // 0  Am
-        "8d",  // 1  C
-        "2m",  // 2  Em
-        "9d",  // 3  G
-        "3m",  // 4  Bm
-        "10d", // 5  D
-        "4m",  // 6  F#m
-        "11d", // 7  A
-        "5m",  // 8  C#m/Dbm
-        "12d", // 9  E
-        "6m",  // 10 G#m/Abm
-        "7d",  // 11 B
-        "7m",  // 12 D#m/Ebm
-        "2d",  // 13 F#/Gb
-        "8m",  // 14 A#m/Bbm
-        "3d",  // 15 Db/C#
-        "9m",  // 16 Fm
-        "4d",  // 17 Ab/G#
-        "10m", // 18 Cm
-        "5d",  // 19 Eb/D#
-        "11m", // 20 Gm
-        "6d",  // 21 Bb/A#
-        "12m", // 22 Dm
-        "1d",  // 23 F
-    };
-
-    private static string TraktorKeyToOpenKey(int value)
-    {
-        if (value < 0 || value >= TraktorKeys.Length) return string.Empty;
-        return TraktorKeys[value];
-    }
+    private static string TraktorKeyToOpenKey(int value) =>
+        Export.KeyNotation.TryFromTraktorInt(value, out var info) ? info.OpenKey : string.Empty;
 
     // ── Colour helpers ───────────────────────────────────────────────────
 
