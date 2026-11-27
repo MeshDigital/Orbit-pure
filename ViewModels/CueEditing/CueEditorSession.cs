@@ -909,11 +909,29 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         double t = bar > 0 ? GridOffset + Math.Round((seconds - GridOffset) / bar) * bar : seconds;
         t = Math.Clamp(t, 0, Duration);
         int autoBefore = Cues.Count(c => c.Source == CueSource.Auto);
+        bool hadTwoDropsBefore = Cues.Count(c => c.Role == CueRole.Drop && !c.IsLoop) >= 2;
         var list = DropCountdownCues.PlaceDrop(Cues, t, number, CountdownBars, Bpm, GridOffset, Duration, out var drop, MemoryCountdowns);
+
+        // When placing Drop 1 manually on a track without a 2nd drop yet, auto-detect a clear
+        // 2nd drop from the phrase structure (e.g. DnB Drop 1 -> Breakdown -> Drop 2) so [DROP 2],
+        // its countdowns, and [OUT] are all placed in one step (and undo cleanly together).
+        OrbitCue? autoSecondDrop = null;
+        if (number != 2 && !hadTwoDropsBefore && list.Count(c => c.Role == CueRole.Drop && !c.IsLoop) == 1)
+        {
+            double? secondDropTime = DropCountdownCues.DetectSecondDrop(drop.Timestamp, _structurePhrases, Bpm, GridOffset, Duration);
+            if (secondDropTime is { } d2)
+            {
+                list = DropCountdownCues.PlaceDrop(list, d2, number: 2, CountdownBars, Bpm, GridOffset, Duration, out autoSecondDrop, MemoryCountdowns);
+            }
+        }
+
         int cleared = autoBefore - list.Count(c => c.Source == CueSource.Auto);
         ReplaceCues(list);
         SelectedCue = drop;
-        Changed($"{drop.Name} at {CueForgeGrid.FormatTime(drop.Timestamp)}" + AutoClearedNote(cleared));
+        string secondNote = autoSecondDrop != null
+            ? $" · detected {autoSecondDrop.Name} at {CueForgeGrid.FormatTime(autoSecondDrop.Timestamp)}"
+            : "";
+        Changed($"{drop.Name} at {CueForgeGrid.FormatTime(drop.Timestamp)}{secondNote}" + AutoClearedNote(cleared));
         // While listening, keep playing; otherwise (when the host plays by ear) let the drop be heard.
         if (AuditionAfterEdits && !_audition.IsPlaying) AuditionAt(drop.Timestamp);
     }

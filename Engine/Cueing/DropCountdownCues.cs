@@ -364,4 +364,72 @@ public static class DropCountdownCues
     /// <summary>Removes the countdowns of a drop at <paramref name="dropTime"/> (when it's deleted, moved or stops being a drop).</summary>
     public static List<OrbitCue> RemoveFor(IEnumerable<OrbitCue> cues, double dropTime, double bpm) =>
         cues.Where(c => !IsCountdownFor(c, dropTime, bpm)).ToList();
+
+    /// <summary>
+    /// Detects a clear 2nd drop from the track's structural phrase segments after the user manually
+    /// places Drop 1 (e.g. DnB arrangement: Drop 1 -> Breakdown -> Drop 2). Prefers the first Drop
+    /// phrase following a Breakdown/Build after <paramref name="firstDropSeconds"/>; falls back to
+    /// any Drop phrase at least 32 bars after Drop 1. Snaps to the bar grid.
+    /// </summary>
+    public static double? DetectSecondDrop(
+        double firstDropSeconds,
+        IReadOnlyList<PhraseSegment>? phrases,
+        double bpm,
+        double downbeat,
+        double duration)
+    {
+        if (phrases == null || phrases.Count == 0 || bpm <= 0) return null;
+
+        double bar = 240.0 / bpm;
+        double minAfterBreakdown = firstDropSeconds + 24.0 * bar;
+        double minWithoutBreakdown = firstDropSeconds + 32.0 * bar;
+        double maxDropTime = duration > 0 ? duration - 8.0 * bar : double.MaxValue;
+
+        bool sawBreakAfterFirstDrop = false;
+        double? fallbackDrop = null;
+
+        foreach (var p in phrases.OrderBy(seg => seg.Start))
+        {
+            if (p.Start <= firstDropSeconds + 4.0 * bar) continue;
+            if (p.Start >= maxDropTime) break;
+
+            string label = p.Label ?? string.Empty;
+            bool isBreakOrBuild =
+                label.Contains("Breakdown", StringComparison.OrdinalIgnoreCase) ||
+                label.Contains("Bridge", StringComparison.OrdinalIgnoreCase) ||
+                label.Contains("Build", StringComparison.OrdinalIgnoreCase) ||
+                label.Contains("Verse", StringComparison.OrdinalIgnoreCase);
+
+            if (isBreakOrBuild)
+            {
+                sawBreakAfterFirstDrop = true;
+                continue;
+            }
+
+            bool isDrop =
+                label.Contains("Drop", StringComparison.OrdinalIgnoreCase) ||
+                label.Contains("Chorus", StringComparison.OrdinalIgnoreCase) ||
+                label.Contains("Climax", StringComparison.OrdinalIgnoreCase);
+
+            if (!isDrop) continue;
+
+            if (sawBreakAfterFirstDrop && p.Start >= minAfterBreakdown)
+            {
+                return SnapToBar(p.Start, bar, downbeat, duration);
+            }
+
+            if (fallbackDrop == null && p.Start >= minWithoutBreakdown)
+            {
+                fallbackDrop = SnapToBar(p.Start, bar, downbeat, duration);
+            }
+        }
+
+        return fallbackDrop;
+    }
+
+    private static double SnapToBar(double seconds, double bar, double downbeat, double duration)
+    {
+        double snapped = downbeat + Math.Round((seconds - downbeat) / bar) * bar;
+        return duration > 0 ? Math.Clamp(snapped, 0, duration) : Math.Max(0, snapped);
+    }
 }
