@@ -940,6 +940,13 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> NextCueCommand { get; }
     public ReactiveCommand<double, Unit> SeekPlayheadCommand { get; }
     public ReactiveCommand<OrbitCue, Unit> AuditionCueCommand { get; }
+
+    /// <summary>CF1 (#603): Auto cues lacking CUE-DETR ±1 beat agreement, sorted with Drops first.</summary>
+    public ObservableCollection<OrbitCue> CuesToCheckFirst { get; } = new();
+    public bool HasCuesToCheckFirst => CuesToCheckFirst.Count > 0;
+    public string CuesToCheckFirstHeader => $"CHECK THESE FIRST ({CuesToCheckFirst.Count})";
+    public ReactiveCommand<OrbitCue, Unit> JumpToCheckCueCommand { get; }
+    private IReadOnlyList<Engine.Analysis.CueDetr.CueDetrPoint>? _cachedCueDetrPoints;
     public ReactiveCommand<Unit, Unit> BackToMixTransitionCommand { get; }
     /// <summary>"← Back to …": returns to the page this track was opened from.</summary>
     public ReactiveCommand<Unit, Unit> ReturnToOriginCommand => BackToMixTransitionCommand;
@@ -1130,6 +1137,13 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
         BackToMixTransitionCommand = ReactiveCommand.Create(ReturnToOrigin, this.WhenAnyValue(x => x.HasReturnPoint));
         SeekPlayheadCommand = ReactiveCommand.Create<double>(SetPlayhead);
         AuditionCueCommand = ReactiveCommand.Create<OrbitCue>(AuditionCue);
+        JumpToCheckCueCommand = ReactiveCommand.Create<OrbitCue>(cue =>
+        {
+            if (cue == null) return;
+            Session.SelectedCue = cue;
+            SetPlayhead(cue.Timestamp);
+        });
+        Session.Cues.CollectionChanged += (_, _) => RefreshCueConfidenceAndCheckList();
         PlayPauseCommand = ReactiveCommand.Create(TogglePlayPause, hasTrack);
         CueButtonCommand = ReactiveCommand.Create(CueButton, hasTrack);
         SetWaveformGainCommand = ReactiveCommand.Create<double>(gain =>
@@ -1521,10 +1535,15 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
             }
             RaiseGridChanged();
 
+            _cachedCueDetrPoints = features != null
+                ? Engine.Analysis.CueDetr.CueDetrFusion.ParseCachedPoints(features.CueDetrJson)
+                : null;
+
             var info = new CueTrackInfo(trackHash, TrackTitle, _trackFilePath, GridBpm, _downbeat, TrackDuration, genre);
             await _ui(() =>
             {
                 Session.Load(info, entities);
+                RefreshCueConfidenceAndCheckList();
                 // Phrase analysis (read-only) feeds the Intro end / Outro suggestions.
                 Session.SetStructureHints(PhraseSegments.ToList());
                 if (autoSaved != null && !Session.IsStatusError) Session.SetStatus(autoSaved);
@@ -1548,6 +1567,24 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
             _logger.LogError(ex, "CueForge: failed to load cues/features for {Hash}", trackHash);
             TrackLoadError = $"Couldn't fully load this track's cue data: {ex.Message}";
         }
+    }
+
+    private void RefreshCueConfidenceAndCheckList()
+    {
+        Engine.Analysis.CueDetr.CueDetrFusion.ApplyAgreement(Session.Cues, _cachedCueDetrPoints, GridBpm);
+
+        var toCheck = Session.Cues
+            .Where(c => c.NeedsCheck)
+            .OrderBy(c => c.Role == CueRole.Drop ? 0 : 1)
+            .ThenBy(c => c.Timestamp)
+            .ToList();
+
+        CuesToCheckFirst.Clear();
+        foreach (var cue in toCheck)
+            CuesToCheckFirst.Add(cue);
+
+        this.RaisePropertyChanged(nameof(HasCuesToCheckFirst));
+        this.RaisePropertyChanged(nameof(CuesToCheckFirstHeader));
     }
 
     private void RaiseGridChanged()

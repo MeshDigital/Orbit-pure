@@ -66,6 +66,7 @@ public class OrbitCue : INotifyPropertyChanged
     private int _slotIndex;
     private bool _isLoop;
     private double _loopEndSeconds;
+    private bool? _aiAgreed;
 
     /// <summary>
     /// Position in seconds.
@@ -93,8 +94,50 @@ public class OrbitCue : INotifyPropertyChanged
     public CueSource Source
     {
         get => _source;
-        set { if (Set(ref _source, value)) { Raise(nameof(WhyHereTooltip)); Raise(nameof(IsAuto)); } }
+        set
+        {
+            if (Set(ref _source, value))
+            {
+                if (_source != CueSource.Auto) _aiAgreed = null;
+                Raise(nameof(WhyHereTooltip));
+                Raise(nameof(IsAuto));
+                Raise(nameof(AiAgreed));
+                Raise(nameof(NeedsCheck));
+                Raise(nameof(ConfidenceLabel));
+            }
+        }
     }
+
+    /// <summary>
+    /// CF1 (#603): Whether CUE-DETR has a detected point within ±1 beat of this auto cue.
+    /// Always null for hand-placed/imported cues or when CUE-DETR has not been run for the track.
+    /// </summary>
+    public bool? AiAgreed
+    {
+        get => IsAuto ? _aiAgreed : null;
+        set
+        {
+            bool? effective = IsAuto ? value : null;
+            if (Set(ref _aiAgreed, effective))
+            {
+                Raise(nameof(NeedsCheck));
+                Raise(nameof(ConfidenceLabel));
+                Raise(nameof(WhyHereTooltip));
+            }
+        }
+    }
+
+    /// <summary>True only for auto-generated cues that lack CUE-DETR ±1 beat agreement.</summary>
+    public bool NeedsCheck => IsAuto && _aiAgreed == false;
+
+    /// <summary>Compact label for cue-list confidence column.</summary>
+    public string ConfidenceLabel => !IsAuto
+        ? "You"
+        : _aiAgreed == true
+            ? "✓ AI"
+            : _aiAgreed == false
+                ? "Check"
+                : $"{(int)(Confidence * 100)}%";
 
     /// <summary>
     /// Confidence score (0.0 - 1.0) based on transient alignment.
@@ -255,15 +298,19 @@ public class OrbitCue : INotifyPropertyChanged
         return copy;
     }
 
-    // "Why here?" one-liner shown as tooltip on the confidence dot
+    // "Why here?" one-liner shown as tooltip on the confidence bar
     public string WhyHereTooltip
     {
         get
         {
             string src = Source == CueSource.User ? "User cue" : $"Auto — {Role}";
             string conf = Source == CueSource.Auto ? $" ({(int)(Confidence * 100)}% confidence)" : "";
+            string ai = !IsAuto ? ""
+                : _aiAgreed == true ? " · CUE-DETR agrees (±1 beat)"
+                : _aiAgreed == false ? " · unconfirmed by CUE-DETR — check first"
+                : "";
             string bar = Timestamp > 0 ? $" @ {TimestampDisplay}" : "";
-            return $"{src}{conf}{bar}";
+            return $"{src}{conf}{ai}{bar}";
         }
     }
 }

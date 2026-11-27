@@ -68,12 +68,15 @@ public sealed class PlaylistPrepService : IPlaylistPrepService
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly IAudioAnalysisService? _audioAnalysisService;
     private readonly AnalyzeTrackStructureJob? _analyzeJob;
+    private readonly CueDetrCueService? _cueDetrCueService;
     private readonly IEventBus? _eventBus;
     private readonly ConfigManager? _configManager;
     private readonly ILogger<PlaylistPrepService>? _logger;
 
     private readonly Func<string, string, AnalysisEngine, CancellationToken, Task<bool>>? _audioAnalysisOverride;
     private readonly Func<string, bool, CancellationToken, Task<bool>>? _structureAndCuesOverride;
+    private readonly Func<string, string, CancellationToken, Task<bool>>? _cueDetrOverride;
+    private readonly Func<bool>? _runCueDetrSettingOverride;
     private readonly Func<PlaylistTrack, bool>? _eligibilityOverride;
 
     public PlaylistPrepService(
@@ -82,11 +85,13 @@ public sealed class PlaylistPrepService : IPlaylistPrepService
         AnalyzeTrackStructureJob? analyzeJob = null,
         IEventBus? eventBus = null,
         ConfigManager? configManager = null,
-        ILogger<PlaylistPrepService>? logger = null)
+        ILogger<PlaylistPrepService>? logger = null,
+        CueDetrCueService? cueDetrCueService = null)
     {
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
         _audioAnalysisService = audioAnalysisService;
         _analyzeJob = analyzeJob;
+        _cueDetrCueService = cueDetrCueService;
         _eventBus = eventBus;
         _configManager = configManager;
         _logger = logger;
@@ -98,11 +103,15 @@ public sealed class PlaylistPrepService : IPlaylistPrepService
         Func<string, bool, CancellationToken, Task<bool>> structureAndCuesOverride,
         Func<PlaylistTrack, bool>? eligibilityOverride = null,
         IEventBus? eventBus = null,
-        ILogger<PlaylistPrepService>? logger = null)
+        ILogger<PlaylistPrepService>? logger = null,
+        Func<string, string, CancellationToken, Task<bool>>? cueDetrOverride = null,
+        Func<bool>? runCueDetrSettingOverride = null)
     {
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
         _audioAnalysisOverride = audioAnalysisOverride ?? throw new ArgumentNullException(nameof(audioAnalysisOverride));
         _structureAndCuesOverride = structureAndCuesOverride ?? throw new ArgumentNullException(nameof(structureAndCuesOverride));
+        _cueDetrOverride = cueDetrOverride;
+        _runCueDetrSettingOverride = runCueDetrSettingOverride;
         _eligibilityOverride = eligibilityOverride;
         _eventBus = eventBus;
         _logger = logger;
@@ -193,8 +202,9 @@ public sealed class PlaylistPrepService : IPlaylistPrepService
             {
                 var (features, cues) = await LoadTrackStateAsync(hash, cancellationToken).ConfigureAwait(false);
                 var readiness = TrackMixReadinessEvaluator.Evaluate(features, cues);
+                bool needsCueDetr = ShouldRunCueDetr() && string.IsNullOrWhiteSpace(features?.CueDetrJson);
 
-                if (readiness.IsReady)
+                if (readiness.IsReady && !needsCueDetr)
                 {
                     skipped++;
                     completed++;
@@ -254,6 +264,22 @@ public sealed class PlaylistPrepService : IPlaylistPrepService
                         stepFailed = true;
                         errors.Add($"{label}: cue detection produced no cues.");
                     }
+                }
+
+                // Step 3 (CF1 #603): Optional CUE-DETR AI cue check for tracks without cached CueDetrJson
+                if (!stepFailed && needsCueDetr)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        wasCancelled = true;
+                        break;
+                    }
+                    ranAnyStep = true;
+                    progress?.Report(new PlaylistPrepProgress(
+                        completed, total, prepared, skipped, failed, label,
+                        $"CUE-DETR {label}… ({completed + 1}/{total})"));
+
+                    await RunCueDetrAsync(hash, track.ResolvedFilePath, cancellationToken).ConfigureAwait(false);
                 }
 
                 if (stepFailed)
@@ -372,6 +398,24 @@ public sealed class PlaylistPrepService : IPlaylistPrepService
         }
 
         return await _analyzeJob.RegenerateCuesOnlyAsync(trackUniqueHash, ct).ConfigureAwait(false);
+    }
+
+    private bool ShouldRunCueDetr()
+    {
+        if (_runCueDetrSettingOverride is not null)
+            return _runCueDetrSettingOverride();
+        if (_configManager?.GetCurrent().PrepForMixRunCueDetr != true)
+            return false;
+        return _cueDetrOverride is not null || (_cueDetrCueService?.IsModelAvailable ?? false);
+    }
+
+    private async Task<bool> RunCueDetrAsync(string trackUniqueHash, string filePath, CancellationToken ct)
+    {
+        if (_cueDetrOverride is not null)
+            return await _cueDetrOverride(trackUniqueHash, filePath, ct).ConfigureAwait(false);
+        if (_cueDetrCueService is null)
+            return false;
+        return await _cueDetrCueService.EnsureCachedAsync(trackUniqueHash, filePath, ct).ConfigureAwait(false);
     }
 
     private static string FormatTrackLabel(PlaylistTrack track)
