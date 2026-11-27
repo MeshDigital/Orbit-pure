@@ -1476,6 +1476,59 @@
                         </StackPanel>
 
                         <StackPanel Classes="settings-section"
+                                    IsVisible="{Binding HasRekordboxDbWrite}">
+                            <StackPanel IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Rekordbox library write master.db database cues backup restore'}">
+                                <TextBlock Classes="section" Text="REKORDBOX LIBRARY WRITE"/>
+                                <Border Classes="card">
+                                    <StackPanel Spacing="12">
+                                        <Border Classes="callout warning">
+                                            <Grid ColumnDefinitions="Auto,*">
+                                                <PathIcon Data="{StaticResource icon_alert}" Width="16" Height="16" Margin="0,0,8,0"
+                                                          Foreground="{StaticResource BrushWarning}" VerticalAlignment="Top"/>
+                                                <TextBlock Grid.Column="1" Classes="body-sm" TextWrapping="Wrap"
+                                                           Text="Experimental. Writes cues straight into Rekordbox's own database, which Pioneer doesn't support. Always back up your Rekordbox library first (Rekordbox → File → Library → Backup Library). ORBIT also keeps its own copy before every write."/>
+                                            </Grid>
+                                        </Border>
+                                        <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                            <StackPanel Classes="label">
+                                                <TextBlock Classes="body" Text="Write cues to Rekordbox's library"/>
+                                                <TextBlock Classes="caption" TextWrapping="Wrap"
+                                                           Text="Adds 'Write cues to Rekordbox library…' to playlist and selection menus. Rekordbox must be closed; tracks that already have Rekordbox cues are kept unless you choose to replace them. Only tracks already in your Rekordbox collection can be written."/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <TextBlock Classes="caption success" Text="On" VerticalAlignment="Center"
+                                                           IsVisible="{Binding IsRekordboxDbWriteEnabled}"/>
+                                                <Button Classes="secondary small" Content="Turn on…"
+                                                        Command="{Binding TurnOnRekordboxDbWriteCommand}"
+                                                        IsVisible="{Binding !IsRekordboxDbWriteEnabled}"
+                                                        ToolTip.Tip="Shows the risks and asks you to confirm you have a backup"/>
+                                                <Button Classes="ghost small" Content="Turn off"
+                                                        Command="{Binding TurnOffRekordboxDbWriteCommand}"
+                                                        IsVisible="{Binding IsRekordboxDbWriteEnabled}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                        <Border Classes="divider"/>
+                                        <Grid Classes="row" ColumnDefinitions="*,Auto">
+                                            <StackPanel Classes="label">
+                                                <TextBlock Classes="body" Text="ORBIT's backups of Rekordbox's library"/>
+                                                <TextBlock Classes="caption mono" TextWrapping="Wrap" Text="{Binding RekordboxDbWriteStatus}"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <Button Classes="ghost small" Content="Open folder"
+                                                        Command="{Binding OpenRekordboxBackupsCommand}"
+                                                        ToolTip.Tip="The last ten copies ORBIT made before writing"/>
+                                                <Button Classes="secondary small" Content="Restore latest…"
+                                                        Command="{Binding RestoreRekordboxBackupCommand}"
+                                                        IsEnabled="{Binding HasRekordboxBackups}"
+                                                        ToolTip.Tip="Put Rekordbox's library back as it was before ORBIT's last write"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <StackPanel Classes="settings-section"
                                     IsVisible="{Binding SettingsSearchText, Converter={StaticResource Match}, ConverterParameter='Network Activity Monitor soulseek http socket calls'}">
                             <TextBlock Classes="section" Text="NETWORK ACTIVITY"/>
                             <Border Classes="card">

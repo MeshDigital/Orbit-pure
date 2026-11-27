@@ -1193,15 +1193,9 @@ public partial class LibraryViewModel
             var outputPath = System.IO.Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
                 $"orbit-rekordbox-{DateTime.Now:yyyyMMdd-HHmmss}.xml");
-            var tracks = selected.Select(t => new Models.PlaylistTrack
-            {
-                Id               = t.Id,
-                Title            = t.Title,
-                Artist           = t.Artist,
-                ResolvedFilePath = t.Model.ResolvedFilePath ?? string.Empty,
-                BPM              = t.BPM > 0 ? t.BPM : null,
-                MusicalKey       = t.MusicalKey,
-            }).ToList();
+            // The real track models: cues are looked up by TrackUniqueHash, so a hand-built copy
+            // without it exported every track with no cues at all (and no album/rating/comments).
+            var tracks = selected.Select(t => t.Model).ToList();
             await Services.Export.TrackExportPreflight.ValidateAsync(tracks);
             await _exportService.ExportToRekordboxXmlAsync("ORBIT Batch Export", tracks, outputPath);
             _notificationService.Show(

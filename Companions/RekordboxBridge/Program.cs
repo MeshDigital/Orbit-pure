@@ -5,16 +5,22 @@ using Microsoft.Data.Sqlite;
 namespace RekordboxBridge;
 
 /// <summary>
-/// RekordboxBridge — reads Rekordbox 6/7's encrypted master.db for ORBIT. Phase 1: read-only.
+/// RekordboxBridge — reads Rekordbox 6/7's encrypted master.db for ORBIT, and (phase 2, opt-in in
+/// ORBIT) writes cues into it.
 ///
 ///   RekordboxBridge probe          --db &lt;master.db&gt;   can it be opened; row counts
 ///   RekordboxBridge cues           --db &lt;master.db&gt;   every track with cues, as JSON
 ///   RekordboxBridge encoding-stats --db &lt;master.db&gt;   how Kind / colour / positions are encoded
 ///   RekordboxBridge history        --db &lt;master.db&gt;   play-history playlists with their tracks, as JSON
+///   RekordboxBridge schema         --db &lt;master.db&gt;   table layout + samples the write path relies on
+///   RekordboxBridge write-cues     --db &lt;master.db&gt; --plan &lt;plan.json&gt; [--dry-run]
+///                                  write ORBIT's cues (see <see cref="CueWriter"/>); a dry run only reports
 ///
 /// JSON goes to stdout, a one-line reason to stderr. Exit codes: 0 ok, 1 usage, 2 database not
-/// found, 3 couldn't decrypt (wrong key / unsupported Rekordbox), 4 unexpected schema or error.
-/// The connection is read-only: nothing in the Rekordbox library is changed.
+/// found, 3 couldn't decrypt (wrong key / unsupported Rekordbox), 4 unexpected schema or error,
+/// 5 unsupported database version (write-cues), 6 database in use (write-cues).
+/// Every command except a real write-cues opens the database read-only. --plain opens an
+/// unencrypted SQLite file (test fixtures only).
 /// </summary>
 internal static class Program
 {
@@ -30,11 +36,25 @@ internal static class Program
             return 2;
         }
 
+        bool write = command == "write-cues" && !args.Contains("--dry-run");
+        CueWriter.Plan? plan = null;
+        if (command == "write-cues")
+        {
+            string? planPath = Arg(args, "--plan");
+            if (planPath == null || !File.Exists(planPath)) return Usage();
+            try { plan = CueWriter.ReadPlan(planPath); }
+            catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
+            {
+                Console.Error.WriteLine($"Unreadable cue plan: {ex.Message}");
+                return 1;
+            }
+        }
+
         SQLitePCL.Batteries_V2.Init();
         SqliteConnection connection;
         try
         {
-            connection = Open(db);
+            connection = Open(db, write, plain: args.Contains("--plain"));
         }
         catch (SqliteException ex)
         {
@@ -54,6 +74,8 @@ internal static class Program
                     case "cues": Cues(connection, json); break;
                     case "encoding-stats": EncodingStats(connection, json); break;
                     case "history": History(connection, json); break;
+                    case "schema": Schema(connection, json); break;
+                    case "write-cues": return CueWriter.Run(connection, plan!, dryRun: !write, json, Console.Error);
                     default: return Usage();
                 }
             }
@@ -73,7 +95,8 @@ internal static class Program
 
     private static int Usage()
     {
-        Console.Error.WriteLine("usage: RekordboxBridge probe|cues|encoding-stats|history --db <path to master.db>");
+        Console.Error.WriteLine("usage: RekordboxBridge probe|cues|encoding-stats|history|schema --db <path to master.db>");
+        Console.Error.WriteLine("       RekordboxBridge write-cues --db <path to master.db> --plan <plan.json> [--dry-run]");
         return 1;
     }
 
@@ -83,17 +106,19 @@ internal static class Program
         return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
     }
 
-    /// <summary>Read-only, SQLCipher passphrase via PRAGMA key (Microsoft.Data.Sqlite's Password).
-    /// The first query proves the key: a wrong key fails with "file is not a database".</summary>
-    private static SqliteConnection Open(string path)
+    /// <summary>Read-only unless <paramref name="write"/>; SQLCipher passphrase via PRAGMA key
+    /// (Microsoft.Data.Sqlite's Password). The first query proves the key: a wrong key fails with
+    /// "file is not a database". Writable never creates a file (ReadWrite, not ReadWriteCreate).</summary>
+    private static SqliteConnection Open(string path, bool write, bool plain)
     {
         var builder = new SqliteConnectionStringBuilder
         {
             DataSource = path,
-            Mode = SqliteOpenMode.ReadOnly,
-            Password = RekordboxKey.Get(),
+            Mode = write ? SqliteOpenMode.ReadWrite : SqliteOpenMode.ReadOnly,
             Pooling = false,
+            DefaultTimeout = 5,
         };
+        if (!plain) builder.Password = RekordboxKey.Get();
         var connection = new SqliteConnection(builder.ToString());
         connection.Open();
         using var check = connection.CreateCommand();
@@ -284,6 +309,55 @@ internal static class Program
 
         json.WriteNumber("maxHotCuesOnOneTrack", Scalar(c, "SELECT coalesce(max(n), 0) FROM (SELECT count(*) n FROM djmdCue WHERE rb_local_deleted = 0 AND Kind > 0 GROUP BY ContentID)"));
         json.WriteEndObject();
+    }
+
+    /// <summary>
+    /// Diagnostics for the write path: the CREATE statements of the tables a cue write touches,
+    /// a few sample cue rows, the change-counter registry and the database version property.
+    /// </summary>
+    private static void Schema(SqliteConnection c, Utf8JsonWriter json)
+    {
+        json.WriteStartObject();
+        json.WriteStartObject("tables");
+        foreach (var table in new[] { "djmdCue", "agentRegistry", "djmdProperty", "djmdContent" })
+        {
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = $n";
+            cmd.Parameters.AddWithValue("$n", table);
+            json.WriteString(table, cmd.ExecuteScalar()?.ToString());
+        }
+        json.WriteEndObject();
+        json.WriteStartArray("triggersAndIndexes");
+        using (var cmd = c.CreateCommand())
+        {
+            cmd.CommandText = "SELECT type, name, sql FROM sqlite_master WHERE tbl_name IN ('djmdCue', 'agentRegistry') AND type IN ('trigger', 'index')";
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) json.WriteStringValue($"{Str(r, 0)} {Str(r, 1)}: {Str(r, 2)}");
+        }
+        json.WriteEndArray();
+        Rows(c, json, "sampleCues", "SELECT * FROM djmdCue WHERE rb_local_deleted = 0 ORDER BY rb_local_usn DESC LIMIT 4");
+        Rows(c, json, "agentRegistry", "SELECT * FROM agentRegistry");
+        Rows(c, json, "djmdProperty", "SELECT * FROM djmdProperty");
+        Rows(c, json, "contentWithCues", "SELECT ID, UUID, CueUpdated, AnalysisUpdated, TrackInfoUpdated, rb_local_usn, updated_at FROM djmdContent WHERE ID IN (SELECT ContentID FROM djmdCue) LIMIT 4");
+        Rows(c, json, "contentWithoutCues", "SELECT ID, UUID, CueUpdated, AnalysisUpdated, TrackInfoUpdated, rb_local_usn, updated_at FROM djmdContent WHERE ID NOT IN (SELECT ContentID FROM djmdCue) AND rb_local_deleted = 0 LIMIT 4");
+        Rows(c, json, "cueUpdatedValues", "SELECT CueUpdated, count(*) AS n FROM djmdContent GROUP BY CueUpdated ORDER BY n DESC LIMIT 8");
+        Rows(c, json, "usnStats", "SELECT (SELECT max(rb_local_usn) FROM djmdCue) AS maxCueUsn, (SELECT max(rb_local_usn) FROM djmdContent) AS maxContentUsn, (SELECT count(*) FROM djmdCue WHERE rb_local_deleted = 1) AS deletedCues");
+        json.WriteEndObject();
+    }
+
+    private static void Rows(SqliteConnection c, Utf8JsonWriter json, string name, string sql)
+    {
+        json.WriteStartArray(name);
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = sql;
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            json.WriteStartObject();
+            for (int i = 0; i < r.FieldCount; i++) json.WriteString(r.GetName(i), Str(r, i));
+            json.WriteEndObject();
+        }
+        json.WriteEndArray();
     }
 
     private static void Histogram(SqliteConnection c, Utf8JsonWriter json, string name, string sql)

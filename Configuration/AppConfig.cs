@@ -63,6 +63,10 @@ public class AppConfig
     // Background knowledge agents (KnowledgeSwarmHost: transition-candidate scan after each analysis).
     // Only runs when LabsEnabled is also true (#536).
     public bool EnableKnowledgeAgents { get; set; } = true;
+
+    /// <summary>Opt-in: write ORBIT's cues straight into Rekordbox's library (master.db). Off by
+    /// default; Pioneer doesn't support third-party writes. See RekordboxDbWriteService.</summary>
+    public bool EnableRekordboxDbWrite { get; set; } = false;
     public int SearchResponseLimit { get; set; } = 200; // was 100 — at Critical (65%) this gives ~130, enough for meaningful ranking
     public int SearchFileLimit { get; set; } = 200; // was 100
     public int SearchHardResultCap { get; set; } = 10000; // Absolute per-search circuit breaker for accepted candidates

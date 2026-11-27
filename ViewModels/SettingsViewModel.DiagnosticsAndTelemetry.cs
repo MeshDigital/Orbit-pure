@@ -421,9 +421,11 @@ public partial class SettingsViewModel
         Services.Library.Maintenance.MaintenanceUndoService? maintenanceUndo = null,
         Services.KnowledgeLifecycle.RekordboxHistoryImportService? historyImport = null,
         Settings.PersonalGenreSettingsViewModel? personalGenre = null,
-        Services.Platform.FfmpegInstallerService? ffmpegInstaller = null)
+        Services.Platform.FfmpegInstallerService? ffmpegInstaller = null,
+        Services.Rekordbox.RekordboxDbWriteService? rekordboxWriter = null)
     {
         _logger = logger;
+        _rekordboxWriter = rekordboxWriter;
         PersonalGenre = personalGenre;
         _ffmpegInstaller = ffmpegInstaller;
         _config = config;

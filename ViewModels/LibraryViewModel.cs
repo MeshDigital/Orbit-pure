@@ -783,6 +783,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
 
         
         _disposables.Add(_eventBus.GetEvent<ProjectAddedEvent>().Subscribe(OnProjectAdded));
+        _disposables.Add(_eventBus.GetEvent<RekordboxDbWriteSettingChangedEvent>().Subscribe(_ => OnRekordboxDbWriteSettingChanged()));
         _disposables.Add(_eventBus.GetEvent<SearchRequestedEvent>().Subscribe(OnSearchRequested));
         _disposables.Add(_eventBus.GetEvent<FileIngestionQueuedEvent>().Subscribe(OnFileIngestionQueued));
         _disposables.Add(_eventBus.GetEvent<FileIngestionStartedEvent>().Subscribe(OnFileIngestionStarted));

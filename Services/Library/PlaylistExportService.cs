@@ -637,126 +637,31 @@ public class PlaylistExportService
             ));
         }
 
-        // Merge DB cue points + user cues from CuePointsJson
-        var allCues = BuildCueList(dbCues, src?.CuePointsJson, t.Name);
-
-        // Separate loops from point cues — loops get Type=4 with End attribute, point cues get Type=0
-        var pointCues = allCues.Where(c => !c.IsLoop).ToList();
-        var loopCues  = allCues.Where(c => c.IsLoop).ToList();
-
-        // Reserve every pad explicitly claimed by a loop OR a point cue first, so auto-assignment
-        // (below) can never clobber a pad another cue/loop deliberately set via its own SlotIndex.
-        var reservedPads = new HashSet<int>(
-            allCues.Where(c => c.SlotIndex is >= 0 and <= 7).Select(c => c.SlotIndex));
-
-        // Assign Rekordbox pad numbers for point cues: use SlotIndex when set (0-7), else next
-        // free pad, else -1 (memory cue only, once all 8 pads are taken).
-        int nextFreePad = 0;
-        int NextAvailablePad()
+        // Same cue layout as the opt-in direct Rekordbox database write (RekordboxCueLayout).
+        var allCues = RekordboxCueLayout.MergeCueSources(dbCues, src?.CuePointsJson, t.Name, _logger);
+        foreach (var mark in RekordboxCueLayout.Build(allCues, bpm))
         {
-            while (nextFreePad < 8 && reservedPads.Contains(nextFreePad))
-                nextFreePad++;
-            return nextFreePad < 8 ? nextFreePad++ : -1;
-        }
-
-        // Section markers (Intro end / Outro) are memory cues with a fixed name, so they show on the
-        // CDJ's memory strip the same way everywhere. One that was also put on a pad keeps that pad.
-        foreach (var marker in pointCues.Where(c => c.IsSectionMarker))
-        {
-            var (r, g, b) = HexToRgb(marker.Color, t.Name);
-            trackElem.Add(new XElement("POSITION_MARK",
-                new XAttribute("Name", Engine.Cueing.SectionMarkers.ExportName(marker.Role)!),
-                new XAttribute("Type", "0"),
-                new XAttribute("Start", marker.Timestamp.ToString("F3", CultureInfo.InvariantCulture)),
-                new XAttribute("Num", "-1"),
-                new XAttribute("Red", r),
-                new XAttribute("Green", g),
-                new XAttribute("Blue", b)
-            ));
-        }
-        pointCues = pointCues.Where(c => !c.IsSectionMarker || c.SlotIndex is >= 0 and <= 7).ToList();
-
-        // Rekordbox supports memory cues beyond the eight hot pads. Never truncate saved work.
-        foreach (var cue in pointCues)
-        {
-            var (r, g, b) = HexToRgb(cue.Color, t.Name);
-            int num = cue.SlotIndex is >= 0 and <= 7 ? cue.SlotIndex : NextAvailablePad();
-
-            trackElem.Add(new XElement("POSITION_MARK",
-                new XAttribute("Name", cue.Name),
-                new XAttribute("Type", "0"),
-                new XAttribute("Start", cue.Timestamp.ToString("F3", CultureInfo.InvariantCulture)),
-                new XAttribute("Num", num),
-                new XAttribute("Red", r),
-                new XAttribute("Green", g),
-                new XAttribute("Blue", b)
-            ));
-
-            // A cue occupying a hot-cue pad also gets a memory-cue duplicate at the same
-            // position, so it stays visible on Rekordbox's memory-cue strip even if the pad
-            // is later overwritten on the hardware.
-            if (num >= 0 && !cue.IsSectionMarker) // a section marker already has its memory cue
-            {
-                trackElem.Add(new XElement("POSITION_MARK",
-                    new XAttribute("Name", cue.Name),
-                    new XAttribute("Type", "0"),
-                    new XAttribute("Start", cue.Timestamp.ToString("F3", CultureInfo.InvariantCulture)),
-                    new XAttribute("Num", "-1"),
+            var (r, g, b) = HexToRgb(mark.ColorHex, t.Name);
+            var start = mark.StartSeconds.ToString("F3", CultureInfo.InvariantCulture);
+            trackElem.Add(mark.IsLoop
+                // Loop: Type=4 with an End attribute (Rekordbox format).
+                ? new XElement("POSITION_MARK",
+                    new XAttribute("Name", mark.Name),
+                    new XAttribute("Type", "4"),
+                    new XAttribute("Start", start),
+                    new XAttribute("End", mark.EndSeconds.ToString("F3", CultureInfo.InvariantCulture)),
+                    new XAttribute("Num", mark.Num),
                     new XAttribute("Red", r),
                     new XAttribute("Green", g),
-                    new XAttribute("Blue", b)
-                ));
-            }
-        }
-
-        // Phrase-countdown memory cues: a memory-cue-only marker 16 bars before each Drop, purely
-        // so Rekordbox/CDJs show an on-screen "bars remaining" countdown heading into the drop —
-        // the same pattern the open-source "djcues" project uses (memory cues at phrase markers,
-        // separate from the hot cue at the trigger point itself, so they don't consume a hot-cue
-        // pad). Skipped if it would land before the track start or within 2 bars of another cue —
-        // early drops are common (short radio edits, DnB tracks with Drop 1 around bar 9-17), and
-        // a countdown marker jammed right next to the cue it's counting down to (or the Intro/
-        // First-Beat cue) is worse than no countdown marker at all.
-        if (bpm > 0)
-        {
-            double barSeconds = 60.0 / bpm * 4;
-            foreach (var cue in pointCues.Where(c => c.Role == CueRole.Drop))
-            {
-                double countdownAt = cue.Timestamp - barSeconds * 16;
-                if (countdownAt < 0) continue;
-                bool tooClose = allCues.Any(c => Math.Abs(c.Timestamp - countdownAt) < barSeconds * 2);
-                if (tooClose) continue;
-
-                var (cr, cg, cb) = HexToRgb(cue.Color, t.Name);
-                trackElem.Add(new XElement("POSITION_MARK",
-                    new XAttribute("Name", $"16 bars to {cue.Name}"),
+                    new XAttribute("Blue", b))
+                : new XElement("POSITION_MARK",
+                    new XAttribute("Name", mark.Name),
                     new XAttribute("Type", "0"),
-                    new XAttribute("Start", countdownAt.ToString("F3", CultureInfo.InvariantCulture)),
-                    new XAttribute("Num", "-1"),
-                    new XAttribute("Red", cr),
-                    new XAttribute("Green", cg),
-                    new XAttribute("Blue", cb)
-                ));
-            }
-        }
-
-        // Loop cues: Type=4, Start + End attributes (Rekordbox format). Num honors an explicit
-        // SlotIndex (0-7) as a hot loop; otherwise -1 (memory loop). No auto-assignment for
-        // un-slotted loops — only an explicitly-set slot is honored.
-        foreach (var loop in loopCues)
-        {
-            var (r, g, b) = HexToRgb(loop.Color, t.Name);
-            int loopNum = loop.SlotIndex is >= 0 and <= 7 ? loop.SlotIndex : -1;
-            trackElem.Add(new XElement("POSITION_MARK",
-                new XAttribute("Name", loop.Name),
-                new XAttribute("Type", "4"),
-                new XAttribute("Start", loop.Timestamp.ToString("F3", CultureInfo.InvariantCulture)),
-                new XAttribute("End", loop.LoopEndSeconds.ToString("F3", CultureInfo.InvariantCulture)),
-                new XAttribute("Num", loopNum),
-                new XAttribute("Red", r),
-                new XAttribute("Green", g),
-                new XAttribute("Blue", b)
-            ));
+                    new XAttribute("Start", start),
+                    new XAttribute("Num", mark.Num),
+                    new XAttribute("Red", r),
+                    new XAttribute("Green", g),
+                    new XAttribute("Blue", b)));
         }
 
         return trackElem;
@@ -780,59 +685,6 @@ public class PlaylistExportService
             _logger.LogWarning(ex, "Rekordbox export: malformed BeatGridJson for '{Track}' — falling back to a single TEMPO anchor.", trackName);
             return new List<double>();
         }
-    }
-
-    /// <summary>
-    /// Merges DB-stored <see cref="CuePointEntity"/> rows with user-placed
-    /// <see cref="OrbitCue"/> objects serialised in <paramref name="cuePointsJson"/>.
-    /// DB cues come first (auto-generated structural cues); user cues follow.
-    /// Deduplicates by timestamp within a 50 ms window.
-    /// </summary>
-    private List<OrbitCue> BuildCueList(List<CuePointEntity> dbCues, string? cuePointsJson, string trackName)
-    {
-        var result = new List<OrbitCue>();
-
-        // 1. Auto-generated structural cues from DB
-        foreach (var c in dbCues.OrderBy(c => c.TimestampInSeconds))
-        {
-            result.Add(new OrbitCue
-            {
-                Timestamp      = c.TimestampInSeconds,
-                Name           = c.Label,
-                Color          = c.Color,
-                Source         = CueSource.Auto,
-                IsLoop         = c.IsLoop,
-                LoopEndSeconds = c.LoopEndSeconds,
-                SlotIndex      = c.SlotIndex,
-                // Only the section markers carry their role into the export (see BuildTrackElement);
-                // other types keep the previous behaviour.
-                Role           = c.Type is CuePointType.IntroEnd or CuePointType.OutroStart ? OrbitCue.RoleFromType(c.Type) : CueRole.Custom,
-            });
-        }
-
-        // 2. User-placed cues from JSON field
-        if (!string.IsNullOrWhiteSpace(cuePointsJson))
-        {
-            try
-            {
-                var userCues = JsonSerializer.Deserialize<List<OrbitCue>>(cuePointsJson);
-                if (userCues != null)
-                {
-                    foreach (var uc in userCues.OrderBy(u => u.Timestamp))
-                    {
-                        // Dedup: skip if a cue within 50 ms already exists
-                        bool duplicate = result.Any(e => Math.Abs(e.Timestamp - uc.Timestamp) < 0.05);
-                        if (!duplicate) result.Add(uc);
-                    }
-                }
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogWarning(ex, "Rekordbox export: malformed CuePointsJson for '{Track}' — user-placed cues for this track were dropped (auto-generated cues are unaffected).", trackName);
-            }
-        }
-
-        return result.OrderBy(c => c.Timestamp).ToList();
     }
 
     // ──────────────────────────────────────────────────────────────────────
