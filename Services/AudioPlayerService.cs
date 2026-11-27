@@ -29,6 +29,7 @@ namespace SLSKDONET.Services
             public AudioFileReader? AudioFile;
             public IWavePlayer? Output;
             public MeteringSampleProvider? Metering;
+            public MixBusDeck? BusDeck;
             public VariSpeedSampleProvider? VariSpeed;
             public ThreeBandGainProvider? Eq;
             /// <summary>Optional metronome click mixed in before the gain stage (Cue Forge audition).
@@ -159,7 +160,7 @@ namespace SLSKDONET.Services
         /// different during real queue playback. Gains default to 1.0 (a no-op fast path) outside
         /// a transition window.
         /// </summary>
-        private sealed class ThreeBandGainProvider : ISampleProvider
+        internal sealed class ThreeBandGainProvider : ISampleProvider, IThreeBandEq
         {
             private readonly ISampleProvider _source;
             private readonly float _lowCrossoverHz;
@@ -167,8 +168,11 @@ namespace SLSKDONET.Services
             private float[] _lowState = Array.Empty<float>();
             private float[] _midHighSplitState = Array.Empty<float>();
 
-            public volatile bool Active;
-            public float LowGain = 1f, MidGain = 1f, HighGain = 1f;
+            private volatile bool _active;
+            public bool Active { get => _active; set => _active = value; }
+            public float LowGain { get; set; } = 1f;
+            public float MidGain { get; set; } = 1f;
+            public float HighGain { get; set; } = 1f;
 
             public WaveFormat WaveFormat => _source.WaveFormat;
 
@@ -215,9 +219,12 @@ namespace SLSKDONET.Services
         private Deck? _next;
         private string? _nextFilePath;
         private bool _isCrossfading;
-        private double _crossfadeElapsedSeconds;
         private double _crossfadeProgress;
         private float _masterVolumeFraction = 1f;
+
+        /// <summary>MX1 (#600): Unified single-output stereo mix graph owning the one audio device.</summary>
+        private readonly AutoMixBusSampleProvider _mixBus = new();
+        private IWavePlayer? _sharedOutput;
 
         /// <summary>Guards <see cref="_current"/>, <see cref="_next"/>, <see cref="_nextFilePath"/>,
         /// <see cref="_stopping"/> and <see cref="_liveDecks"/>: the deck fields are touched by the
@@ -285,44 +292,208 @@ namespace SLSKDONET.Services
                 _pitch = value;
                 if (_current?.VariSpeed != null) _current.VariSpeed.Speed = value;
                 if (_next?.VariSpeed != null) _next.VariSpeed.Speed = value;
+                RefreshScheduledBusTransition();
             }
         }
 
+        private bool _crossfadeEnabled;
         /// <summary>When enabled, the preloaded next track fades in while the current track
         /// fades out over <see cref="CrossfadeSeconds"/>, instead of a hard gapless cut.</summary>
-        public bool CrossfadeEnabled { get; set; } = false;
+        public bool CrossfadeEnabled
+        {
+            get => _crossfadeEnabled;
+            set
+            {
+                _crossfadeEnabled = value;
+                RefreshScheduledBusTransition();
+            }
+        }
 
+        private double _crossfadeSeconds = 3.0;
         /// <summary>Length of the crossfade overlap, in seconds. Only used when
         /// <see cref="CrossfadeEnabled"/> is true.</summary>
-        public double CrossfadeSeconds { get; set; } = 3.0;
+        public double CrossfadeSeconds
+        {
+            get => _crossfadeSeconds;
+            set
+            {
+                _crossfadeSeconds = value;
+                RefreshScheduledBusTransition();
+            }
+        }
 
         public AudioPlayerService(AppConfig config)
         {
             _config = config;
             _isInitialized = true;
+            _mixBus.TransitionStarted += OnBusTransitionStarted;
+            _mixBus.TransitionCompleted += OnBusTransitionCompleted;
+            _mixBus.ActiveDeckEnded += OnBusActiveDeckEnded;
             _timer = new System.Timers.Timer(TimerIntervalSeconds * 1000);
             _timer.Elapsed += OnTimerElapsed;
             _timer.Start();
         }
 
-        private void OnTimerElapsed(object? sender, ElapsedEventArgs e)
+        private void OnBusTransitionStarted(ScheduledMixTransition plan)
         {
-            Deck? current;
-            Deck? next;
+            lock (_deckLock)
+            {
+                _isCrossfading = true;
+                _crossfadeProgress = 0;
+            }
+            System.Threading.Tasks.Task.Run(() => CrossfadeStarted?.Invoke(this, new CrossfadeStartedEventArgs
+            {
+                PresetName = plan.PresetName,
+                DurationSeconds = plan.DurationSeconds,
+            }));
+        }
+
+        private void OnBusTransitionCompleted(MixBusDeck outgoingBus, MixBusDeck incomingBus)
+        {
+            var outgoing = outgoingBus.Tag as Deck;
+            var incoming = incomingBus.Tag as Deck;
+            if (outgoing == null || incoming == null) return;
+
+            lock (_deckLock)
+            {
+                if (!ReferenceEquals(_current, outgoing)) return;
+                _isCrossfading = false;
+                _crossfadeProgress = 0;
+                _current = incoming;
+                if (ReferenceEquals(_next, incoming))
+                {
+                    _next = null;
+                    _nextFilePath = null;
+                }
+            }
+
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                LengthChanged?.Invoke(this, (long)(incoming.AudioFile?.TotalTime.TotalMilliseconds ?? 0));
+                try { outgoing.Dispose(); }
+                catch (Exception ex) { Serilog.Log.Warning(ex, "[AudioPlayerService] Deferred disposal of finished deck failed"); }
+                CrossfadeEnded?.Invoke(this, EventArgs.Empty);
+                TrackAdvanced?.Invoke(this, EventArgs.Empty);
+            });
+        }
+
+        private void OnBusActiveDeckEnded(MixBusDeck endedBus)
+        {
+            var ended = endedBus.Tag as Deck;
+            if (ended == null) return;
+
+            Deck? nextToPromote = null;
+            lock (_deckLock)
+            {
+                if (_stopping || !ReferenceEquals(_current, ended) || ended.IsDisposed) return;
+                if (_next?.BusDeck != null)
+                {
+                    nextToPromote = _next;
+                    _next = null;
+                    _nextFilePath = null;
+                    _current = nextToPromote;
+                }
+            }
+
+            if (nextToPromote != null)
+            {
+                nextToPromote.WaitForSeek();
+                double speed = Math.Max(0.01, nextToPromote.VariSpeed?.Speed ?? 1.0);
+                long offsetFrames = (long)Math.Round(((nextToPromote.AudioFile?.CurrentTime.TotalSeconds ?? 0) / speed) * _mixBus.WaveFormat.SampleRate);
+                _mixBus.SetActiveDeck(nextToPromote.BusDeck, offsetFrames);
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    LengthChanged?.Invoke(this, (long)(nextToPromote.AudioFile?.TotalTime.TotalMilliseconds ?? 0));
+                    try { ended.Dispose(); }
+                    catch (Exception ex) { Serilog.Log.Warning(ex, "[AudioPlayerService] Deferred disposal of ended deck failed"); }
+                    TrackAdvanced?.Invoke(this, EventArgs.Empty);
+                });
+            }
+            else
+            {
+                System.Threading.Tasks.Task.Run(() => EndReached?.Invoke(this, EventArgs.Empty));
+            }
+        }
+
+        private void RefreshScheduledBusTransition()
+        {
+            Deck? current, next;
             lock (_deckLock)
             {
                 current = _current;
                 next = _next;
+                if (_isCrossfading) return;
+            }
+
+            if (current?.AudioFile == null || next?.BusDeck == null)
+            {
+                _mixBus.CancelScheduledTransition();
+                return;
+            }
+
+            var pendingTransition = next.PendingTransition;
+            if (!CrossfadeEnabled && pendingTransition == null)
+            {
+                _mixBus.CancelScheduledTransition();
+                return;
+            }
+
+            double effectiveSeconds = TransitionSeconds(current, next);
+            double totalSeconds = current.AudioFile.TotalTime.TotalSeconds;
+            double plannedStartSeconds = next.PendingSourceTriggerSeconds is double sourceTrigger
+                ? LatestMixStart(sourceTrigger, totalSeconds, effectiveSeconds)
+                : Math.Max(0, totalSeconds - effectiveSeconds);
+
+            double speed = Math.Max(0.01, current.VariSpeed?.Speed ?? 1.0);
+            long startFrame = (long)Math.Round((plannedStartSeconds / speed) * _mixBus.WaveFormat.SampleRate);
+            long durationFrames = Math.Max(1, (long)Math.Round(effectiveSeconds * _mixBus.WaveFormat.SampleRate));
+
+            var region = pendingTransition != null
+                ? AutoMixBusSampleProvider.BuildRegion(pendingTransition, durationFrames)
+                : null;
+
+            _mixBus.ScheduleTransition(new ScheduledMixTransition
+            {
+                Incoming = next.BusDeck,
+                StartFrame = startFrame,
+                DurationFrames = durationFrames,
+                Region = region,
+                PresetName = next.PendingTransitionPresetName,
+                DurationSeconds = effectiveSeconds,
+            });
+        }
+
+        private void OnTimerElapsed(object? sender, ElapsedEventArgs e)
+        {
+            Deck? current;
+            lock (_deckLock)
+            {
+                current = _current;
             }
             if (current?.AudioFile == null) return;
 
-            // The outgoing track ran out mid-crossfade. This used to stall for good: this timer
-            // bailed out as soon as the outgoing deck wasn't Playing, and the deck's own
-            // PlaybackStopped handler deliberately defers to the crossfade — so nothing ever
-            // finished it. The incoming track kept playing at a partial fade level while the UI
-            // sat on the old track past the end of its waveform, and the hand-over came late or
-            // never. Auto-generated Outro cues sit only seconds before the end, so this hit
-            // almost every transition. Finish the hand-over now instead.
+            // Unified mix-bus mode (#600 MX1): _mixBus.Read() owns sample-exact transition
+            // scheduling and per-block (<= 5.8 ms) gain/EQ automation. The timer only emits
+            // UI progress ticks.
+            if (current.BusDeck != null)
+            {
+                if (_sharedOutput?.PlaybackState != PlaybackState.Playing || _mixBus.IsPaused)
+                    return;
+
+                TimeChanged?.Invoke(this, (long)current.AudioFile.CurrentTime.TotalMilliseconds);
+                PositionChanged?.Invoke(this, Position);
+
+                if (_isCrossfading)
+                {
+                    var progress = _mixBus.TransitionProgress;
+                    _crossfadeProgress = progress;
+                    CrossfadeProgressChanged?.Invoke(this, progress);
+                }
+                return;
+            }
+
+            // Legacy per-deck fallback (retained only for reflection-based unit tests that
+            // construct a Deck directly with a mock IWavePlayer).
             if (_isCrossfading && current.Output?.PlaybackState == PlaybackState.Stopped)
             {
                 CompleteCrossfade(current);
@@ -334,157 +505,9 @@ namespace SLSKDONET.Services
 
             TimeChanged?.Invoke(this, (long)current.AudioFile.CurrentTime.TotalMilliseconds);
             PositionChanged?.Invoke(this, Position);
-
-            if (_isCrossfading)
-            {
-                AdvanceCrossfade(current);
-                return;
-            }
-
-            // A saved Mix transition (see PlayerViewModel.SchedulePreloadNext) overrides the
-            // legacy fixed-duration global crossfade — it applies regardless of the
-            // CrossfadeEnabled toggle, since choosing a transition for this specific pair is a
-            // more specific instruction than the app-wide default.
-            var pendingTransition = next?.PendingTransition;
-            var effectiveCrossfadeSeconds = TransitionSeconds(current, next);
-
-            if ((CrossfadeEnabled || pendingTransition != null) && next?.Output != null)
-            {
-                bool shouldStart;
-                double plannedStart = double.NaN;
-                if (next.PendingSourceTriggerSeconds is double sourceTrigger)
-                {
-                    // Analysis-suggested/saved mix-out point: an absolute position in THIS track,
-                    // not "however many seconds are left" — a mix-out near a phrase boundary well
-                    // before the literal end of a track with a long fade-out tail, for instance.
-                    // …but never so late that the transition can't play out before the track ends
-                    // (auto Outro cues sit 0–10 s from the end; transitions are 8–16 bars).
-                    plannedStart = LatestMixStart(sourceTrigger, current.AudioFile.TotalTime.TotalSeconds, effectiveCrossfadeSeconds);
-                    shouldStart = current.AudioFile.CurrentTime.TotalSeconds >= plannedStart;
-                }
-                else
-                {
-                    var remaining = current.AudioFile.TotalTime - current.AudioFile.CurrentTime;
-                    shouldStart = remaining.TotalSeconds <= effectiveCrossfadeSeconds;
-                }
-
-                if (shouldStart)
-                {
-                    // The pair must still be the pair this tick planned for: a user track change
-                    // can replace both decks between the reads above and this point.
-                    lock (_deckLock)
-                    {
-                        if (!ReferenceEquals(_current, current) || !ReferenceEquals(_next, next))
-                            return;
-                        _isCrossfading = true;
-                        _crossfadeElapsedSeconds = 0;
-                        _crossfadeProgress = 0;
-                    }
-                    if (next.Gain != null) next.Gain.Volume = 0f;
-                    if (next.Eq != null) next.Eq.Active = pendingTransition != null;
-                    if (current.Eq != null) current.Eq.Active = pendingTransition != null;
-                    next.WaitForSeek();
-                    double speedRatio = ApplyTempoSync(current, next);
-                    // The timer ticks every 50 ms, so the mix starts up to that late. For a planned
-                    // alignment (incoming target point on a bar), skip the incoming deck forward by
-                    // the same musical amount so both downbeats stay together.
-                    if (!double.IsNaN(plannedStart) && next.PendingTargetTriggerSeconds is > 0)
-                    {
-                        double late = current.AudioFile.CurrentTime.TotalSeconds - plannedStart;
-                        if (late > 0.002 && late < 0.5) SkipForward(next, late * speedRatio);
-                    }
-                    next.Output!.Play();
-
-                    CrossfadeStarted?.Invoke(this, new CrossfadeStartedEventArgs
-                    {
-                        PresetName = next.PendingTransitionPresetName,
-                        DurationSeconds = effectiveCrossfadeSeconds,
-                    });
-                }
-            }
         }
 
-        private static readonly TransitionEngine _liveTransitionEngine = new();
-
-        private void AdvanceCrossfade(Deck current)
-        {
-            Deck? next;
-            lock (_deckLock)
-            {
-                // The outgoing deck this tick is fading must still be the live one.
-                if (!ReferenceEquals(_current, current)) return;
-                next = _next;
-            }
-
-            if (next?.Output == null)
-            {
-                var wasCrossfading = _isCrossfading;
-                _isCrossfading = false;
-                _crossfadeProgress = 0;
-                if (wasCrossfading) CrossfadeEnded?.Invoke(this, EventArgs.Empty);
-                return;
-            }
-
-            var pendingTransition = next.PendingTransition;
-            var durationSeconds = TransitionSeconds(current, next);
-
-            _crossfadeElapsedSeconds += TimerIntervalSeconds;
-            var t = durationSeconds > 0 ? Math.Clamp(_crossfadeElapsedSeconds / durationSeconds, 0.0, 1.0) : 1.0;
-
-            float currentGain, nextGain;
-
-            if (pendingTransition != null)
-            {
-                // Preset-accurate automation — the same TransitionEngine math the Mix editor's
-                // waveform overlay curves are sampled from, so what plays matches what was previewed.
-                const int samplePoints = 1000;
-                var region = new SLSKDONET.Services.Audio.TransitionRegion
-                {
-                    StartSample = 0,
-                    EndSample = samplePoints,
-                    Type = pendingTransition.Type.ToAutomationType(),
-                    Curve = SLSKDONET.Services.Audio.TransitionCurve.SCurve,
-                    WaveDuckDepth = pendingTransition.WaveDuckDepth,
-                    EchoDecayFactor = pendingTransition.EchoDecayFactor,
-                    EqConfig = new SLSKDONET.Services.Audio.EqBandSwapConfig
-                    {
-                        SwapLow = pendingTransition.EqSwapLow,
-                        SwapMid = pendingTransition.EqSwapMid,
-                        SwapHigh = pendingTransition.EqSwapHigh,
-                        LowCrossover = pendingTransition.EqLowCrossoverHz,
-                        HighCrossover = pendingTransition.EqHighCrossoverHz,
-                        HardLowSwap = pendingTransition.EqHardLowSwap,
-                        HardLowSwapAtEnd = pendingTransition.EqHardLowSwapAtEnd,
-                    },
-                };
-                var automation = _liveTransitionEngine.CalculateAutomation(region, (long)(t * samplePoints));
-
-                currentGain = _masterVolumeFraction * current.LoudnessGain * automation.OutgoingGain;
-                nextGain = _masterVolumeFraction * next.LoudnessGain * automation.IncomingGain;
-
-                if (current.Eq != null) { current.Eq.LowGain = automation.OutgoingLowGain; current.Eq.MidGain = automation.OutgoingMidGain; current.Eq.HighGain = automation.OutgoingHighGain; }
-                if (next.Eq != null) { next.Eq.LowGain = automation.IncomingLowGain; next.Eq.MidGain = automation.IncomingMidGain; next.Eq.HighGain = automation.IncomingHighGain; }
-            }
-            else
-            {
-                // Legacy fixed equal-power crossfade curve (constant perceived loudness through
-                // the overlap, unlike a linear fade which dips in the middle) — unchanged
-                // behavior for playlists that haven't saved a Mix transition.
-                currentGain = (float)(_masterVolumeFraction * current.LoudnessGain * Math.Cos(t * Math.PI / 2));
-                nextGain = (float)(_masterVolumeFraction * next.LoudnessGain * Math.Sin(t * Math.PI / 2));
-            }
-
-            if (current.Gain != null) current.Gain.Volume = currentGain;
-            if (next.Gain != null) next.Gain.Volume = nextGain;
-
-            _crossfadeProgress = t;
-            CrossfadeProgressChanged?.Invoke(this, t);
-
-            if (t >= 1.0)
-                CompleteCrossfade(current);
-        }
-
-        /// <summary>Ends the crossfade: incoming deck at full level with its EQ reset, then promoted.</summary>
+        /// <summary>Ends the crossfade (legacy reflection-test path): incoming deck at full level with its EQ reset, then promoted.</summary>
         private void CompleteCrossfade(Deck current)
         {
             Deck? next;
@@ -492,7 +515,6 @@ namespace SLSKDONET.Services
             {
                 if (!ReferenceEquals(_current, current)) return;
                 _isCrossfading = false;
-                _crossfadeElapsedSeconds = 0;
                 _crossfadeProgress = 0;
                 next = _next;
             }
@@ -568,24 +590,10 @@ namespace SLSKDONET.Services
             return (next.VariSpeed?.Speed ?? 1.0) / Math.Max(0.01, currentSpeed);
         }
 
-        /// <summary>Advances a not-yet-playing deck by <paramref name="seconds"/> of its file.</summary>
-        private static void SkipForward(Deck deck, double seconds)
-        {
-            var file = deck.AudioFile;
-            if (file == null) return;
-            long remaining = (long)Math.Round(seconds * file.WaveFormat.SampleRate) * file.WaveFormat.Channels;
-            var buffer = new float[Math.Min(remaining, 16384)];
-            while (remaining > 0)
-            {
-                int read = file.Read(buffer, 0, (int)Math.Min(buffer.Length, remaining));
-                if (read <= 0) break;
-                remaining -= read;
-            }
-            deck.VariSpeed?.Reset();
-        }
-
         public bool IsInitialized => _isInitialized;
-        public bool IsPlaying => _current?.Output?.PlaybackState == PlaybackState.Playing;
+        public bool IsPlaying =>
+            (_current != null && _sharedOutput?.PlaybackState == PlaybackState.Playing && !_mixBus.IsPaused)
+            || (_current?.Output?.PlaybackState == PlaybackState.Playing);
         public long Length => (long)(_current?.AudioFile?.TotalTime.TotalMilliseconds ?? 0);
         public double Duration => _current?.AudioFile?.TotalTime.TotalSeconds ?? 0;
         public long Time => (long)(_current?.AudioFile?.CurrentTime.TotalMilliseconds ?? 0);
@@ -604,11 +612,14 @@ namespace SLSKDONET.Services
                 {
                     deck.AudioFile.Position = (long)(value * deck.AudioFile.Length);
                     deck.VariSpeed?.Reset(); // discard stale buffered samples from before the seek
+                    deck.Metronome?.Seek(deck.AudioFile.CurrentTime.TotalSeconds);
+                    SyncBusFramesToDeck(deck);
+                    RefreshScheduledBusTransition();
                     return;
                 }
 
                 // FLAC/M4A: Media Foundation lands up to ~0.9 s off target, so seek exactly by
-                // decoding forward — off the UI thread, with the output paused meanwhile. Rapid
+                // decoding forward — off the UI thread, with the bus paused meanwhile. Rapid
                 // seeks (dragging a seek bar) collapse into the latest target.
                 lock (deck.SeekLock)
                 {
@@ -616,12 +627,12 @@ namespace SLSKDONET.Services
                     if (deck.SeekWorkerRunning) return; // the running worker picks up the new target
                     deck.SeekWorkerRunning = true;
                 }
-                bool wasPlaying = deck.Output?.PlaybackState == PlaybackState.Playing;
+                bool wasPlaying = IsPlaying;
                 deck.SeekTask = System.Threading.Tasks.Task.Run(() =>
                 {
                     try
                     {
-                        if (wasPlaying) deck.Output?.Pause();
+                        if (wasPlaying) _mixBus.IsPaused = true;
                         while (true)
                         {
                             double seconds;
@@ -640,6 +651,8 @@ namespace SLSKDONET.Services
                                 SLSKDONET.Services.Audio.ExactSeek.Seek(deck.AudioFile, deck.FilePath, seconds);
                                 deck.VariSpeed?.Reset();
                                 deck.Metronome?.Seek(seconds);
+                                SyncBusFramesToDeck(deck);
+                                RefreshScheduledBusTransition();
                             }
                             catch (Exception ex)
                             {
@@ -650,10 +663,18 @@ namespace SLSKDONET.Services
                     finally
                     {
                         lock (deck.SeekLock) deck.SeekWorkerRunning = false;
-                        if (wasPlaying && ReferenceEquals(_current, deck)) deck.Output?.Play();
+                        if (wasPlaying && ReferenceEquals(_current, deck)) _mixBus.IsPaused = false;
                     }
                 });
             }
+        }
+
+        private void SyncBusFramesToDeck(Deck deck)
+        {
+            if (deck.AudioFile == null) return;
+            double speed = Math.Max(0.01, deck.VariSpeed?.Speed ?? 1.0);
+            long frames = (long)Math.Round((deck.AudioFile.CurrentTime.TotalSeconds / speed) * _mixBus.WaveFormat.SampleRate);
+            _mixBus.SetRenderedFrames(frames);
         }
 
         public int Volume
@@ -662,8 +683,7 @@ namespace SLSKDONET.Services
             set
             {
                 _masterVolumeFraction = Math.Clamp(value / 100f, 0f, 1f);
-                // While crossfading, the fade envelope owns each deck's volume; the new
-                // master level takes effect once the crossfade finishes (see AdvanceCrossfade).
+                _mixBus.MasterVolume = _masterVolumeFraction;
                 if (_current?.Gain != null && !_isCrossfading)
                 {
                     _current.Gain.Volume = _masterVolumeFraction * _current.LoudnessGain;
@@ -771,6 +791,7 @@ namespace SLSKDONET.Services
                     _next = deck;
                     _nextFilePath = filePath;
                 }
+                RefreshScheduledBusTransition();
             }
             catch (Exception ex)
             {
@@ -824,11 +845,12 @@ namespace SLSKDONET.Services
             if (!crossfading && targetTriggerSeconds is > 0 && next.AudioFile != null)
             {
                 var total = next.AudioFile.TotalTime.TotalSeconds;
-                if (targetTriggerSeconds.Value < total && next.Output?.PlaybackState != PlaybackState.Playing)
+                if (targetTriggerSeconds.Value < total)
                 {
                     next.SeekInBackground(targetTriggerSeconds.Value);
                 }
             }
+            RefreshScheduledBusTransition();
         }
 
         /// <summary>Discards any preloaded next track (e.g. the queue changed before it was needed).</summary>
@@ -841,10 +863,8 @@ namespace SLSKDONET.Services
                 _next = null;
                 _nextFilePath = null;
                 _isCrossfading = false;
-                _crossfadeElapsedSeconds = 0;
             }
-            // Outside the lock: disposing stops the output, which can raise PlaybackStopped on
-            // this very thread (WASAPI does) and re-enter the service's event handler.
+            _mixBus.CancelScheduledTransition();
             next?.Dispose();
         }
 
@@ -856,11 +876,15 @@ namespace SLSKDONET.Services
             {
                 var deck = CreateDeck(filePath, trackLoudnessLufs);
                 deck.Gain!.Volume = _masterVolumeFraction * deck.LoudnessGain;
+                _mixBus.MasterVolume = _masterVolumeFraction;
+                _mixBus.SetActiveDeck(deck.BusDeck, 0);
+                _mixBus.IsPaused = !autoPlay;
                 lock (_deckLock)
                 {
                     _current = deck;
                 }
-                if (autoPlay) deck.Output!.Play();
+                var output = EnsureSharedOutput();
+                if (autoPlay) output.Play();
                 LengthChanged?.Invoke(this, (long)deck.AudioFile!.TotalTime.TotalMilliseconds);
                 PausableChanged?.Invoke(this, EventArgs.Empty);
             }
@@ -953,75 +977,37 @@ namespace SLSKDONET.Services
             throw new InvalidOperationException("No audio output device could be opened.", last);
         }
 
-        /// <summary>Opens <paramref name="deck"/>'s output on the configured device and wires its end-of-track handling.</summary>
-        private IWavePlayer OpenDeckOutput(Deck deck)
+        /// <summary>Opens the single shared audio output device feeding <see cref="_mixBus"/> (#600 MX1).</summary>
+        private IWavePlayer EnsureSharedOutput()
         {
-            var output = OutputFactory?.Invoke(deck.Metering!) ?? CreateConfiguredOutputDevice(deck.Metering!);
+            if (_sharedOutput != null) return _sharedOutput;
             // Never touch output.Volume. On NAudio's WasapiOut that property is the DEVICE's Windows
-            // master volume (AudioEndpointVolume), not a per-stream level: "pinning" it to 1.0 here
-            // set the user's system volume to 100% on every track change (reported 2026-09-29).
-            // All real gain — master volume, crossfades, loudness — goes through deck.Gain.
-            output.PlaybackStopped += (s, e) =>
-            {
-                if (!ReferenceEquals(s, deck.Output)) return; // an output replaced by a device switch
-                // A deck being torn down on purpose is not "the track ended". WASAPI raises
-                // PlaybackStopped synchronously from Stop(), i.e. from inside Deck.Dispose() while
-                // this deck may still be _current — promoting here would start the preloaded deck
-                // on a track change and then leak it (Stop() clears _current right afterwards), so
-                // it kept playing with nothing left to stop it.
-                if (deck.IsDisposed) return;
-
-                bool promote;
-                lock (_deckLock)
-                {
-                    if (_stopping) return;
-                    if (!ReferenceEquals(_current, deck)) return; // stale event from a deck we've already advanced past
-                    if (_isCrossfading) return; // the crossfade timer owns this transition
-                    promote = _next != null;
-                }
-
-                if (promote)
-                {
-                    PromoteNextDeck(deck);
-                }
-                else
-                {
-                    EndReached?.Invoke(this, EventArgs.Empty);
-                }
-            };
-            return output;
+            // master volume (AudioEndpointVolume), not a per-stream level. All real gain — master
+            // volume, crossfades, loudness — goes through deck.Gain / _mixBus.MasterVolume.
+            _sharedOutput = OutputFactory?.Invoke(_mixBus) ?? CreateConfiguredOutputDevice(_mixBus);
+            return _sharedOutput;
         }
 
         /// <summary>
-        /// Moves the playing (and preloaded) decks onto the output device now selected in Settings,
-        /// keeping position and play/pause state. Before, a new device only applied to the next
-        /// track that was opened — so changing it mid-song appeared to do nothing.
+        /// Moves the single shared mix-bus output onto the output device now selected in Settings,
+        /// keeping position and play/pause state.
         /// </summary>
         public void ApplyOutputSettings()
         {
-            Deck? current, next;
-            lock (_deckLock)
+            var old = _sharedOutput;
+            if (old == null) return;
+            try
             {
-                current = _current;
-                next = _next;
+                bool wasPlaying = old.PlaybackState == PlaybackState.Playing && !_mixBus.IsPaused;
+                var fresh = OutputFactory?.Invoke(_mixBus) ?? CreateConfiguredOutputDevice(_mixBus);
+                _sharedOutput = fresh;
+                try { old.Stop(); } catch { /* already stopped */ }
+                old.Dispose();
+                if (wasPlaying) fresh.Play();
             }
-            foreach (var deck in new[] { current, next })
+            catch (Exception ex)
             {
-                if (deck?.Output == null || deck.Metering == null) continue;
-                try
-                {
-                    var old = deck.Output;
-                    bool wasPlaying = old.PlaybackState == PlaybackState.Playing;
-                    var fresh = OpenDeckOutput(deck);
-                    deck.Output = fresh;           // old output's PlaybackStopped is now ignored
-                    try { old.Stop(); } catch { /* already stopped */ }
-                    old.Dispose();
-                    if (wasPlaying) fresh.Play();
-                }
-                catch (Exception ex)
-                {
-                    Serilog.Log.Warning(ex, "[AudioPlayerService] Switching output device failed for {File}", deck.FilePath);
-                }
+                Serilog.Log.Warning(ex, "[AudioPlayerService] Switching output device failed");
             }
         }
 
@@ -1125,7 +1111,25 @@ namespace SLSKDONET.Services
                 }
             };
 
-            deck.Output = OpenDeckOutput(deck);
+            deck.BusDeck = new MixBusDeck
+            {
+                Source = _mixBus.AdaptToBusFormat(deck.Metering),
+                Gain = deck.Gain,
+                Eq = deck.Eq,
+                LoudnessGain = deck.LoudnessGain,
+                PrepareBeforeStart = () =>
+                {
+                    deck.WaitForSeek();
+                    Deck? cur;
+                    lock (_deckLock) cur = _current;
+                    if (cur != null && !ReferenceEquals(cur, deck))
+                        ApplyTempoSync(cur, deck);
+                    double inSpeed = Math.Max(0.01, deck.VariSpeed?.Speed ?? 1.0);
+                    double inSec = deck.AudioFile?.CurrentTime.TotalSeconds ?? 0;
+                    deck.BusDeck!.InitialFrameOffset = (long)Math.Round((inSec / inSpeed) * _mixBus.WaveFormat.SampleRate);
+                },
+                Tag = deck,
+            };
             deck.OnDisposed = ForgetDeck;
             lock (_deckLock)
             {
@@ -1416,47 +1420,51 @@ namespace SLSKDONET.Services
                 current = _current;
                 next = _next;
             }
-            if (current?.Output == null) return;
+            if (current == null) return;
 
-            bool wasPlaying = current.Output.PlaybackState == PlaybackState.Playing;
-            // This method is the toggle behind PlayerViewModel.TogglePlayPause. A deck opened with
-            // LoadWithoutPlaying (Cue Forge's "borrow the player" path) is Stopped, not Paused, so
-            // the old `else if (Paused)` left it silent — clicking a cue in Cue Forge did nothing
-            // unless the track was already playing elsewhere. Stopped must start playback too.
-            if (wasPlaying)
+            if (_sharedOutput != null && current.BusDeck != null)
+            {
+                bool wasPlaying = _sharedOutput.PlaybackState == PlaybackState.Playing && !_mixBus.IsPaused;
+                if (wasPlaying)
+                {
+                    _mixBus.IsPaused = true;
+                    _sharedOutput.Pause();
+                }
+                else
+                {
+                    current.WaitForSeek();
+                    _mixBus.IsPaused = false;
+                    _sharedOutput.Play();
+                }
+                PausableChanged?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+
+            if (current.Output == null) return;
+
+            bool legacyPlaying = current.Output.PlaybackState == PlaybackState.Playing;
+            if (legacyPlaying)
             {
                 current.Output.Pause();
             }
             else
             {
-                // Clicking a cue seeks and then starts playback. For FLAC/M4A the seek is a
-                // decode-forward running on a background thread (ExactSeek), and starting the output
-                // before it lands lets the reader deliver samples from wherever it still was — heard
-                // as "playback starts before the cue". Waiting here costs only the decode-forward
-                // time (~1 ms per second of audio, ~70 ms at a one-minute cue); a full-track seek is
-                // still bounded by Deck.WaitForSeek's 3-second timeout.
                 current.WaitForSeek();
                 current.Output.Play();
             }
 
-            // Keep a preloaded/crossfading deck in lockstep so it doesn't keep playing silently
-            // (or fail to resume) independently of the current one.
             if (next?.Output != null)
             {
-                if (wasPlaying && next.Output.PlaybackState == PlaybackState.Playing) next.Output.Pause();
-                else if (!wasPlaying && next.Output.PlaybackState == PlaybackState.Paused) next.Output.Play();
+                if (legacyPlaying && next.Output.PlaybackState == PlaybackState.Playing) next.Output.Pause();
+                else if (!legacyPlaying && next.Output.PlaybackState == PlaybackState.Paused) next.Output.Play();
             }
 
             PausableChanged?.Invoke(this, EventArgs.Empty);
         }
 
         /// <summary>
-        /// Stops playback and releases every deck. Detaching the fields <em>before</em> disposing
-        /// matters: disposing an output stops it, and WASAPI reports that stop synchronously
-        /// through PlaybackStopped while this deck is still <c>_current</c>. With the deck already
-        /// detached the handler can't mistake a deliberate stop for an end-of-track, so it no
-        /// longer starts (and then loses track of) the preloaded deck — which used to keep playing
-        /// after a track change with nothing left able to stop it.
+        /// Stops playback and releases every deck. Detaches the active/scheduled decks from the
+        /// unified mix bus first so no further samples are pulled while disposing readers.
         /// </summary>
         public void Stop()
         {
@@ -1471,7 +1479,6 @@ namespace SLSKDONET.Services
                 _next = null;
                 _nextFilePath = null;
                 _isCrossfading = false;
-                _crossfadeElapsedSeconds = 0;
                 _crossfadeProgress = 0;
 
                 // Safety net for the whole bug class: anything this service created and hasn't
@@ -1479,12 +1486,16 @@ namespace SLSKDONET.Services
                 strays = _liveDecks.Where(d => !ReferenceEquals(d, current) && !ReferenceEquals(d, next)).ToList();
             }
 
+            _mixBus.IsPaused = true;
+            _mixBus.CancelScheduledTransition();
+            _mixBus.SetActiveDeck(null, 0);
+            try { _sharedOutput?.Stop(); }
+            catch (Exception ex) { Serilog.Log.Debug(ex, "[AudioPlayerService] Shared output stop during Stop()"); }
+
             try
             {
                 current?.Dispose();
                 next?.Dispose();
-                // Deck.Dispose is idempotent, so a deck already disposed above (or by a racing
-                // path) is a no-op here.
                 foreach (var stray in strays)
                 {
                     stray.Dispose();
@@ -1510,6 +1521,9 @@ namespace SLSKDONET.Services
         public void Dispose()
         {
             Stop();
+            try { _sharedOutput?.Dispose(); }
+            catch (Exception ex) { Serilog.Log.Debug(ex, "[AudioPlayerService] Shared output dispose during Dispose()"); }
+            _sharedOutput = null;
             _timer?.Stop();
             _timer?.Dispose();
         }

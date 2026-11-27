@@ -46,18 +46,22 @@ public class AudioPlayerServiceDeckLifecycleTests : IDisposable
     {
         using var sut = NewService(stopRaisesEventSynchronously);
 
-        sut.Play(NewWav());
-        sut.PreloadNext(NewWav());
-        var preloaded = _outputs.Last();
-        Assert.False(preloaded.WasEverPlayed, "preloading must not make sound");
+        var trackA = NewWav();
+        var trackB = NewWav();
+        var trackC = NewWav();
 
-        sut.Play(NewWav()); // the user picks a different track while one is playing
+        sut.Play(trackA);
+        sut.PreloadNext(trackB);
+        // MX1 (#600): Unified mix bus opens exactly ONE shared audio output device across decks.
+        Assert.Single(_outputs);
+
+        sut.Play(trackC); // the user picks a different track while one is playing
 
         // Give an asynchronous PlaybackStopped (WaveOutEvent) time to arrive and be ignored.
         Thread.Sleep(100);
 
-        Assert.False(preloaded.WasEverPlayed, "the preloaded deck was started by the track change");
-        Assert.Equal(1, _outputs.Count(o => o.IsPlaying)); // exactly the requested track
+        Assert.Single(_outputs);
+        Assert.Equal(trackC, sut.LoadedFilePath);
         Assert.True(sut.IsPlaying);
 
         sut.Stop();
@@ -74,13 +78,14 @@ public class AudioPlayerServiceDeckLifecycleTests : IDisposable
 
         sut.Play(NewWav());
         sut.PreloadNext(NewWav());
-        var preloaded = _outputs.Last();
+        Assert.Single(_outputs);
 
         sut.Stop();
         Thread.Sleep(100);
 
-        Assert.False(preloaded.WasEverPlayed, "Stop() started the preloaded deck instead of stopping");
+        Assert.Null(sut.LoadedFilePath);
         Assert.DoesNotContain(_outputs, o => o.IsPlaying);
+        Assert.False(sut.IsPlaying);
     }
 
     [Fact]
@@ -88,20 +93,64 @@ public class AudioPlayerServiceDeckLifecycleTests : IDisposable
     {
         using var sut = NewService(stopRaisesEventSynchronously: true);
 
-        bool advanced = false;
-        sut.TrackAdvanced += (_, _) => advanced = true;
+        var advanced = new ManualResetEventSlim(false);
+        sut.TrackAdvanced += (_, _) => advanced.Set();
 
-        sut.Play(NewWav());
-        sut.PreloadNext(NewWav());
-        var outgoing = _outputs[0];
-        var preloaded = _outputs[1];
+        var trackA = NewWav(seconds: 0.15);
+        var trackB = NewWav(seconds: 0.5);
+        sut.Play(trackA);
+        sut.PreloadNext(trackB);
+        Assert.Single(_outputs);
 
-        outgoing.RaiseEndOfStream(); // what NAudio reports when the file runs out
+        // Drain the single shared mix bus until Track A runs out and Track B is promoted.
+        var buf = new float[2048];
+        var source = _outputs[0].Source!;
+        for (int i = 0; i < 60 && !advanced.IsSet; i++)
+            source.Read(buf, 0, buf.Length);
 
-        Assert.True(advanced, "a natural end of track must still hand over to the next track");
-        Assert.True(preloaded.IsPlaying);
+        Assert.True(advanced.Wait(TimeSpan.FromSeconds(2)), "a natural end of track must still hand over to the next track");
+        Assert.Single(_outputs);
+        Assert.Equal(trackB, sut.LoadedFilePath);
         Assert.True(sut.IsPlaying);
-        Assert.False(outgoing.IsPlaying);
+    }
+
+    [Fact]
+    public void UnifiedBus_CrossfadeUsesSingleOutput_AndPromotesOnExactSampleClock()
+    {
+        using var sut = NewService(stopRaisesEventSynchronously: true);
+
+        var started = new ManualResetEventSlim(false);
+        var ended = new ManualResetEventSlim(false);
+        var advanced = new ManualResetEventSlim(false);
+        sut.CrossfadeStarted += (_, _) => started.Set();
+        sut.CrossfadeEnded += (_, _) => ended.Set();
+        sut.TrackAdvanced += (_, _) => advanced.Set();
+
+        var trackA = NewWav(seconds: 1.0, amplitude: 0.25f);
+        var trackB = NewWav(seconds: 1.0, amplitude: 0.75f);
+        var transition = new SLSKDONET.Models.Timeline.TransitionModel
+        {
+            Type = SLSKDONET.Models.Timeline.TransitionType.EqSwap,
+            DurationBeats = 1, // 0.5 s at 120 BPM
+            EqSwapLow = true,
+            EqHardLowSwap = true,
+        };
+
+        sut.Play(trackA);
+        sut.PreloadNext(trackB, transition: transition, transitionBpm: 120.0, sourceTriggerSeconds: 0.25, presetName: "Blend");
+        Assert.Single(_outputs);
+
+        var source = _outputs[0].Source!;
+        var buf = new float[2048];
+        for (int i = 0; i < 120 && !advanced.IsSet; i++)
+            source.Read(buf, 0, buf.Length);
+
+        Assert.True(started.Wait(TimeSpan.FromSeconds(2)), "CrossfadeStarted should fire on the scheduled sample");
+        Assert.True(ended.Wait(TimeSpan.FromSeconds(2)), "CrossfadeEnded should fire when transition finishes");
+        Assert.True(advanced.Wait(TimeSpan.FromSeconds(2)), "TrackAdvanced should fire after promotion");
+        Assert.Single(_outputs);
+        Assert.Equal(trackB, sut.LoadedFilePath);
+        Assert.True(sut.IsPlaying);
     }
 
     [Fact]
@@ -125,21 +174,23 @@ public class AudioPlayerServiceDeckLifecycleTests : IDisposable
         var sut = new AudioPlayerService(new AppConfig());
         // Drive nothing by timer: these tests are about the explicit play/stop calls.
         Get<System.Timers.Timer>(sut, "_timer")!.Stop();
-        sut.OutputFactory = _ =>
+        sut.OutputFactory = source =>
         {
             var output = new FakeOutput(stopRaisesEventSynchronously);
+            output.Init(source);
             _outputs.Add(output);
             return output;
         };
         return sut;
     }
 
-    private string NewWav()
+    private string NewWav(double seconds = 4.0, float amplitude = 0f)
     {
         var path = Path.Combine(Path.GetTempPath(), $"orbit-deck-{Guid.NewGuid():N}.wav");
         using (var writer = new WaveFileWriter(path, WaveFormat.CreateIeeeFloatWaveFormat(8000, 1)))
         {
-            for (int i = 0; i < 8000 * 4; i++) writer.WriteSample(0f);
+            int samples = (int)Math.Round(8000 * seconds);
+            for (int i = 0; i < samples; i++) writer.WriteSample(amplitude);
         }
         _files.Add(path);
         return path;
@@ -170,7 +221,8 @@ public class AudioPlayerServiceDeckLifecycleTests : IDisposable
 
         public event EventHandler<StoppedEventArgs>? PlaybackStopped;
 
-        public void Init(ISampleProvider sampleProvider) { }
+        public ISampleProvider? Source { get; private set; }
+        public void Init(ISampleProvider sampleProvider) => Source = sampleProvider;
 
         public void Init(IWaveProvider waveProvider) { }
 
