@@ -187,6 +187,13 @@ public class AppDbContext : DbContext
             .HasIndex(j => j.CreatedAt)
             .HasDatabaseName("IX_PlaylistJob_CreatedAt");
 
+        // PF1 (#607): Default "All Tracks" sort is AddedAt DESC; without this index every
+        // GetPagedAllTracksAsync call performs a full table scan + temp B-tree sort.
+        modelBuilder.Entity<LibraryEntryEntity>()
+            .HasIndex(e => e.AddedAt)
+            .IsDescending()
+            .HasDatabaseName("IX_LibraryEntries_AddedAt");
+
         modelBuilder.Entity<Entities.MetadataLookupCacheEntity>()
             .HasKey(e => new { e.Provider, e.CacheKey });
         modelBuilder.Entity<Entities.MetadataProvenanceEntity>()

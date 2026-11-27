@@ -105,34 +105,98 @@ public sealed class LibraryGenreIndex : IDisposable
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-            var hashes = await db.LibraryEntries.AsNoTracking()
+            const string genreField = Enrichment.MetadataMerger.Fields.Genre;
+
+            // PF1 (#607): Single-pass scalar projections instead of 60x 500-row IN(...) batches
+            // that materialized full AudioFeaturesEntity blobs (waveforms, beat grids, embeddings).
+            var libraryRows = await db.LibraryEntries.AsNoTracking()
                 .Where(e => !string.IsNullOrEmpty(e.UniqueHash))
-                .Select(e => e.UniqueHash)
-                .Distinct()
+                .Select(e => new { e.UniqueHash, e.Genres })
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
 
-            var next = new Dictionary<string, GenreKey>(hashes.Count, StringComparer.Ordinal);
-            const int batchSize = 500;
+            var sourceRows = await db.MetadataProvenance.AsNoTracking()
+                .Where(p => p.Field == genreField)
+                .Select(p => new { p.TrackUniqueHash, p.Source })
+                .ToListAsync(ct)
+                .ConfigureAwait(false);
+            var sourceByHash = new Dictionary<string, string?>(sourceRows.Count, StringComparer.Ordinal);
+            foreach (var s in sourceRows)
+                sourceByHash.TryAdd(s.TrackUniqueHash, s.Source);
 
-            for (int i = 0; i < hashes.Count; i += batchSize)
-            {
-                ct.ThrowIfCancellationRequested();
-                var chunk = hashes.GetRange(i, Math.Min(batchSize, hashes.Count - i));
-                var contexts = await TrackGenreContextQuery.LoadManyAsync(db, chunk, ct).ConfigureAwait(false);
-                var features = await db.AudioFeatures.AsNoTracking()
-                    .Where(f => chunk.Contains(f.TrackUniqueHash))
-                    .ToDictionaryAsync(f => f.TrackUniqueHash, StringComparer.Ordinal, ct)
-                    .ConfigureAwait(false);
-
-                foreach (var hash in chunk)
+            var featureRows = await db.AudioFeatures.AsNoTracking()
+                .Select(f => new
                 {
-                    contexts.TryGetValue(hash, out var ctx);
-                    AudioGenreOpinion? opinion = features.TryGetValue(hash, out var feat)
-                        ? AudioGenreOpinion.FromFeatures(feat)
-                        : null;
-                    next[hash] = ResolveKey(ctx, opinion);
+                    f.TrackUniqueHash,
+                    f.DetectedSubGenre,
+                    f.ElectronicSubgenre,
+                    f.SubGenreConfidence,
+                    f.ElectronicSubgenreConfidence,
+                    f.GenreEvidenceJson,
+                    f.RhythmSignatureJson,
+                    f.GenreDistributionJson
+                })
+                .ToListAsync(ct)
+                .ConfigureAwait(false);
+
+            var opinionByHash = new Dictionary<string, AudioGenreOpinion>(featureRows.Count, StringComparer.Ordinal);
+            foreach (var f in featureRows)
+            {
+                if (string.IsNullOrEmpty(f.TrackUniqueHash) || opinionByHash.ContainsKey(f.TrackUniqueHash))
+                    continue;
+                var label = !string.IsNullOrWhiteSpace(f.DetectedSubGenre) ? f.DetectedSubGenre : f.ElectronicSubgenre;
+                var confidence = f.SubGenreConfidence > 0 ? f.SubGenreConfidence : f.ElectronicSubgenreConfidence;
+                var previous = GenreEvidenceRecord.TryParse(f.GenreEvidenceJson);
+                opinionByHash[f.TrackUniqueHash] = new AudioGenreOpinion(
+                    string.IsNullOrWhiteSpace(label) ? null : label,
+                    confidence,
+                    AudioGenreOpinion.TryDeserialize<RhythmSignature>(f.RhythmSignatureJson),
+                    AudioGenreOpinion.TryDeserialize<Dictionary<string, double>>(f.GenreDistributionJson),
+                    previous?.Gate,
+                    previous?.FusionVersion ?? 0,
+                    previous?.Personal,
+                    previous?.PersonalHead);
+            }
+
+            // Build contexts from library rows; fall back to PlaylistTracks only for hashes without a library genre.
+            var missingGenreHashes = new HashSet<string>(StringComparer.Ordinal);
+            var contexts = new Dictionary<string, TrackGenreContext>(libraryRows.Count, StringComparer.Ordinal);
+            foreach (var row in libraryRows)
+            {
+                if (!string.IsNullOrWhiteSpace(row.Genres))
+                {
+                    contexts.TryAdd(row.UniqueHash, new TrackGenreContext(row.Genres, sourceByHash.GetValueOrDefault(row.UniqueHash)));
                 }
+                else
+                {
+                    missingGenreHashes.Add(row.UniqueHash);
+                }
+            }
+
+            if (missingGenreHashes.Count > 0)
+            {
+                var playlistRows = await db.PlaylistTracks.AsNoTracking()
+                    .Where(t => t.Genres != null && t.Genres != "")
+                    .OrderBy(t => t.Id)
+                    .Select(t => new { t.TrackUniqueHash, t.Genres })
+                    .ToListAsync(ct)
+                    .ConfigureAwait(false);
+                foreach (var p in playlistRows)
+                {
+                    if (!missingGenreHashes.Contains(p.TrackUniqueHash) || contexts.ContainsKey(p.TrackUniqueHash))
+                        continue;
+                    if (!string.IsNullOrWhiteSpace(p.Genres))
+                        contexts[p.TrackUniqueHash] = new TrackGenreContext(p.Genres, sourceByHash.GetValueOrDefault(p.TrackUniqueHash));
+                }
+            }
+
+            var next = new Dictionary<string, GenreKey>(libraryRows.Count, StringComparer.Ordinal);
+            foreach (var row in libraryRows)
+            {
+                if (next.ContainsKey(row.UniqueHash)) continue;
+                contexts.TryGetValue(row.UniqueHash, out var ctx);
+                opinionByHash.TryGetValue(row.UniqueHash, out var opinion);
+                next[row.UniqueHash] = ResolveKey(ctx, opinion);
             }
 
             lock (_gate)
