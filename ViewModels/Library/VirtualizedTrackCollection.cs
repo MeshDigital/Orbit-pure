@@ -708,6 +708,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             // Store in pages for cache management
             var pageInfo = new PageInfo { Items = viewModels, LastAccess = DateTime.Now };
             _pages[pageIndex] = pageInfo;
+            SLSKDONET.Services.Diagnostics.StartupTelemetry.MarkOnce("First Library page rendered", $"{viewModels.Count} rows");
 
             // Defer the notification so it never fires mid-layout.
             // Avalonia's ItemsRepeater calls get_Item during its layout pass, which
@@ -814,6 +815,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             // Store in pages for cache management
             var pageInfo = new PageInfo { Items = viewModels, LastAccess = DateTime.Now };
             _pages[pageIndex] = pageInfo;
+            SLSKDONET.Services.Diagnostics.StartupTelemetry.MarkOnce("First Library page rendered", $"{viewModels.Count} rows");
 
             var changeArgs = new NotifyCollectionChangedEventArgs(
                 NotifyCollectionChangedAction.Add, viewModels, startIndex);

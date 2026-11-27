@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Synthetic 5k / 30k library SQLite generator for PF0 (#606).
+    Lives under Tools/ (outside Services/ and Tests/, per repo hygiene rules).
+    Not part of the app build (Tools\** is excluded from SLSKDONET.csproj).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\SLSKDONET.csproj" />
+  </ItemGroup>
+
+</Project>

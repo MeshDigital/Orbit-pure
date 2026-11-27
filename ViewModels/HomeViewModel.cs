@@ -316,6 +316,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
             Dispatcher.UIThread.Post(() =>
             {
                 CurrentSnapshot = snapshot;
+                SLSKDONET.Services.Diagnostics.StartupTelemetry.MarkOnce("Dashboard snapshot shown");
                 
                 // Update UI Collections
                 UpdateResilienceLog(snapshot.ResilienceLog);

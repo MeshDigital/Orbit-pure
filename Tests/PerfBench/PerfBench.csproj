@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Performance benchmark harness (Epic #598 / PF0 #606).
+    Measures 30k-track Library query, scrolling, search, genre filter, LibraryGenreIndex build,
+    Play-current-view list build, and memory working set against a synthetic or real SQLite DB.
+    Not part of the app build (Tests\** is excluded from SLSKDONET.csproj) or the unit test run.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\SLSKDONET.csproj" />
+  </ItemGroup>
+
+</Project>
