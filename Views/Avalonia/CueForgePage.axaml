@@ -306,7 +306,7 @@
 
                 <!-- Grid + view -->
                 <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <ToggleButton Classes="chip" IsChecked="{Binding Session.SnapToGrid}" ToolTip.Tip="Snap new and dragged cues to the beat grid (hold Shift while dragging to place freely)">
+                    <ToggleButton Classes="chip" IsChecked="{Binding Session.SnapToGrid}" ToolTip.Tip="Quantise: snap new and dragged cues to the beat grid (Q; hold Shift while dragging to place freely)">
                         <StackPanel Orientation="Horizontal" Spacing="4">
                             <PathIcon Data="{StaticResource cf_magnet}" Width="12" Height="12"/>
                             <TextBlock Text="Snap"/>
@@ -885,7 +885,7 @@
                                         </ItemsControl>
                                     </StackPanel>
 
-                                    <Grid ColumnDefinitions="*,8,*" IsVisible="{Binding Session.IsSelectedCuePoint}">
+                                    <Grid ColumnDefinitions="*,8,*">
                                         <StackPanel Grid.Column="0" Spacing="4">
                                             <TextBlock Classes="section" Text="PAD"/>
                                             <ComboBox Classes="small" HorizontalAlignment="Stretch" ItemsSource="{x:Static vm:CueEditorSession.CueSlotOptions}"
@@ -897,7 +897,7 @@
                                                 </ComboBox.ItemTemplate>
                                             </ComboBox>
                                         </StackPanel>
-                                        <StackPanel Grid.Column="2" Spacing="4">
+                                        <StackPanel Grid.Column="2" Spacing="4" IsVisible="{Binding Session.IsSelectedCuePoint}">
                                             <TextBlock Classes="section" Text="ROLE"/>
                                             <ComboBox Classes="small" HorizontalAlignment="Stretch" ItemsSource="{x:Static vm:CueEditorSession.CueRoleOptions}"
                                                       SelectedItem="{Binding Session.SelectedCueRole}"
