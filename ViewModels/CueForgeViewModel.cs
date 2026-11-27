@@ -319,6 +319,53 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
     /// <summary>True while the shared player is playing THIS track.</summary>
     public bool IsPlaying => IsAttachedToPlayer && _transport.IsPlaying;
 
+    // ── Live incoming crossfade visibility ─────────────────────────────────
+
+    private bool _isMixingIncoming;
+    public bool IsMixingIncoming
+    {
+        get => _isMixingIncoming;
+        private set
+        {
+            if (this.RaiseAndSetIfChanged(ref _isMixingIncoming, value) == value)
+                this.RaisePropertyChanged(nameof(CanOpenIncomingMixTrack));
+        }
+    }
+
+    private double _incomingMixProgressPercent;
+    public double IncomingMixProgressPercent
+    {
+        get => _incomingMixProgressPercent;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _incomingMixProgressPercent, value);
+            this.RaisePropertyChanged(nameof(IncomingMixSummary));
+        }
+    }
+
+    private string? _incomingMixPresetName;
+    private CueForgeTrackRef? _incomingMixTrack;
+
+    public bool CanOpenIncomingMixTrack =>
+        IsMixingIncoming
+        && _incomingMixTrack?.Hash is { Length: > 0 } h
+        && !string.Equals(h, TrackHash, StringComparison.OrdinalIgnoreCase);
+
+    public string IncomingMixSummary
+    {
+        get
+        {
+            if (!IsMixingIncoming) return string.Empty;
+            var trackLabel = _incomingMixTrack is { } t
+                ? (!string.IsNullOrWhiteSpace(t.Artist) ? $"{t.Artist} — {t.Title}" : t.Title ?? "Next track")
+                : "Next track";
+            var preset = !string.IsNullOrWhiteSpace(_incomingMixPresetName) ? $" · {_incomingMixPresetName}" : string.Empty;
+            return $"Mixing in: {trackLabel}{preset} · {Math.Round(IncomingMixProgressPercent):F0}%";
+        }
+    }
+
+    public ReactiveCommand<Unit, Unit> OpenIncomingMixTrackCommand { get; }
+
     // ── Waveform Data ──────────────────────────────────────────────────────
 
     private byte[]? _waveformLow;
@@ -1100,10 +1147,20 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
         ToggleBrowserCommand = ReactiveCommand.Create(() => { IsBrowserOpen = !IsBrowserOpen; });
         PreviousTrackCommand = ReactiveCommand.CreateFromTask(() => StepTrackAsync(-1), hasTrack);
         NextTrackCommand = ReactiveCommand.CreateFromTask(() => StepTrackAsync(1), hasTrack);
+        OpenIncomingMixTrackCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            if (_incomingMixTrack is { Hash.Length: > 0 } incoming)
+                await LoadTrackAsync(incoming.Hash, incoming.Title, incoming.Artist);
+        }, this.WhenAnyValue(x => x.CanOpenIncomingMixTrack));
 
         _transport.CurrentTrackChanged
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(track => _ = OnPlayerTrackChangedAsync(track))
+            .DisposeWith(_disposables);
+
+        (_transport.IncomingMixChanged ?? Observable.Never<CueForgeIncomingMixInfo>())
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(ApplyIncomingMixState)
             .DisposeWith(_disposables);
 
         _transport.IsPlayingChanged
@@ -1268,6 +1325,16 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
 
     /// <summary>The player's queue moved to another track (natural advance or the user playing
     /// something). Cue Forge follows it, auto-saving the previous draft first so work is never lost.</summary>
+    private void ApplyIncomingMixState(CueForgeIncomingMixInfo info)
+    {
+        _incomingMixPresetName = info.PresetName;
+        _incomingMixTrack = info.IncomingTrack;
+        IsMixingIncoming = info.IsActive;
+        IncomingMixProgressPercent = info.IsActive ? Math.Clamp(info.ProgressPercent, 0, 100) : 0;
+        this.RaisePropertyChanged(nameof(IncomingMixSummary));
+        this.RaisePropertyChanged(nameof(CanOpenIncomingMixTrack));
+    }
+
     private async Task OnPlayerTrackChangedAsync(CueForgeTrackRef? track)
     {
         // Whoever changed tracks owns the player now; never "hand back" over their choice.

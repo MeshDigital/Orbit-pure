@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Reactive.Linq;
 using System.Threading.Tasks;
 using ReactiveUI;
@@ -8,6 +9,13 @@ namespace SLSKDONET.ViewModels;
 
 /// <summary>Identity of the track the shared player's queue is on.</summary>
 public sealed record CueForgeTrackRef(string Hash, string? Title, string? Artist);
+
+/// <summary>Live state of an incoming track actively mixing on top of the current track during Auto-Mix.</summary>
+public sealed record CueForgeIncomingMixInfo(
+    bool IsActive,
+    double ProgressPercent,
+    string? PresetName,
+    CueForgeTrackRef? IncomingTrack);
 
 /// <summary>
 /// What Cue Forge needs from the app's shared player. Kept narrow so the editor's transport logic
@@ -33,6 +41,8 @@ public interface ICueForgeTransport
     IObservable<(double Fraction, double LengthSeconds)> PositionChanged { get; }
     /// <summary>The queue's current track changed (no initial value).</summary>
     IObservable<CueForgeTrackRef?> CurrentTrackChanged { get; }
+    /// <summary>Live Auto-Mix crossfade state when a 2nd track starts playing on top of the 1st.</summary>
+    IObservable<CueForgeIncomingMixInfo> IncomingMixChanged => Observable.Never<CueForgeIncomingMixInfo>();
 
     void LoadPaused(string filePath, string title, string artist);
     void Play();
@@ -67,6 +77,21 @@ public sealed class PlayerViewModelCueForgeTransport : ICueForgeTransport
             .Skip(1)
             .Select(t => t?.GlobalId is { Length: > 0 } hash ? new CueForgeTrackRef(hash, t.Title, t.Artist) : null)
             .DistinctUntilChanged(r => r?.Hash);
+        IncomingMixChanged = player.WhenAnyValue(
+                p => p.IsCrossfading,
+                p => p.CrossfadeProgressPercent,
+                p => p.ActiveCrossfadePresetName,
+                (active, pct, preset) =>
+                {
+                    CueForgeTrackRef? incoming = null;
+                    if (active)
+                    {
+                        var next = player.UpNextQueue.FirstOrDefault();
+                        if (next?.GlobalId is { Length: > 0 } nextHash)
+                            incoming = new CueForgeTrackRef(nextHash, next.Title, next.Artist);
+                    }
+                    return new CueForgeIncomingMixInfo(active, Math.Clamp(pct, 0, 100), preset, incoming);
+                });
     }
 
     public bool IsPlaying => _player.IsPlaying;
@@ -81,6 +106,7 @@ public sealed class PlayerViewModelCueForgeTransport : ICueForgeTransport
     public IObservable<bool> IsPlayingChanged { get; }
     public IObservable<(double Fraction, double LengthSeconds)> PositionChanged { get; }
     public IObservable<CueForgeTrackRef?> CurrentTrackChanged { get; }
+    public IObservable<CueForgeIncomingMixInfo> IncomingMixChanged { get; }
 
     public void LoadPaused(string filePath, string title, string artist) => _player.LoadTrackPaused(filePath, title, artist);
 
