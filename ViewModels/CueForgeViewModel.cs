@@ -2130,6 +2130,12 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
 
     private void TogglePlayPause()
     {
+        if (_isMomentaryCuePreview)
+        {
+            // CDJ/Rekordbox handoff: pressing Play while holding CUE latches continuous playback.
+            _isMomentaryCuePreview = false;
+            return;
+        }
         if (IsPlaying)
         {
             _transport.Pause();
@@ -2144,6 +2150,72 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
     }
 
     private double _transportCue;
+    private bool _isMomentaryCuePreview;
+    private double _momentaryReturnSeconds;
+
+    /// <summary>True while holding CUE or a hot-cue pad in momentary preview mode (#617).</summary>
+    public bool IsMomentaryCuePreview => _isMomentaryCuePreview;
+
+    /// <summary>
+    /// CDJ/Rekordbox momentary CUE press (#617):
+    /// - Playing: pauses and returns to the transport cue.
+    /// - Paused away from cue: moves the transport cue to the snapped playhead.
+    /// - Paused at cue: starts momentary preview playback until <see cref="EndMomentaryCuePreview"/>.
+    /// </summary>
+    public void BeginMomentaryCuePreview()
+    {
+        if (!HasTrackLoaded || _isMomentaryCuePreview) return;
+
+        if (IsPlaying)
+        {
+            _transport.Pause();
+            SeekPlayer(_transportCue);
+            this.RaisePropertyChanged(nameof(IsPlaying));
+            return;
+        }
+
+        if (Math.Abs(CurrentPlayPosition - _transportCue) > 0.05)
+        {
+            _transportCue = Session.SnapTime(CurrentPlayPosition);
+            SetPlayhead(_transportCue);
+            return;
+        }
+
+        _isMomentaryCuePreview = true;
+        _momentaryReturnSeconds = _transportCue;
+        PlayFrom(_transportCue);
+    }
+
+    /// <summary>
+    /// CDJ/Rekordbox momentary hot-cue pad press (#617):
+    /// - Paused on an assigned pad: previews from the cue until <see cref="EndMomentaryCuePreview"/>.
+    /// - Playing or empty pad: delegates to normal <see cref="CueEditorSession.TriggerPadCommand"/>.
+    /// </summary>
+    public void BeginMomentaryPadPreview(HotCuePadInfo pad)
+    {
+        if (!HasTrackLoaded || pad == null || _isMomentaryCuePreview) return;
+
+        if (!IsPlaying && pad.Cue is { } cue && Session.Cues.Contains(cue))
+        {
+            Session.SelectedCue = cue;
+            _isMomentaryCuePreview = true;
+            _momentaryReturnSeconds = cue.Timestamp;
+            PlayFrom(cue.Timestamp);
+            return;
+        }
+
+        Session.TriggerPadCommand.Execute(pad).Subscribe();
+    }
+
+    /// <summary>Ends an active momentary cue/pad preview, pausing and snapping back to the cue (#617).</summary>
+    public void EndMomentaryCuePreview()
+    {
+        if (!_isMomentaryCuePreview) return;
+        _isMomentaryCuePreview = false;
+        _transport.Pause();
+        SeekPlayer(_momentaryReturnSeconds);
+        this.RaisePropertyChanged(nameof(IsPlaying));
+    }
 
     private void CueButton()
     {

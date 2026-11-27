@@ -111,7 +111,8 @@ public partial class CueForgePage : UserControl
         _cueSelectionSubscription = null;
         _dockSubscription?.Dispose();
         _dockSubscription = null;
-        // Leaving Cue Forge: stop loop audition and hand the shared player back.
+        // Leaving Cue Forge: stop loop audition, momentary preview, and hand the shared player back.
+        _vm?.EndMomentaryCuePreview();
         _vm?.OnViewDeactivated();
     }
 
@@ -224,7 +225,7 @@ public partial class CueForgePage : UserControl
         int pad = PadIndex(e.Key);
         if (pad >= 0 && none)
         {
-            vm.Session.TriggerPadCommand.Execute(vm.Session.HotCuePads[pad]).Subscribe();
+            vm.BeginMomentaryPadPreview(vm.Session.HotCuePads[pad]);
         }
         else if ((e.Key is Key.D1 or Key.NumPad1 or Key.D2 or Key.NumPad2) && shift)
         {
@@ -252,7 +253,7 @@ public partial class CueForgePage : UserControl
                 vm.Session.SetOutroStartAtPlayheadCommand.Execute().Subscribe();
                 break;
             case Key.C when none:
-                vm.CueButtonCommand.Execute().Subscribe();
+                vm.BeginMomentaryCuePreview();
                 break;
             case Key.A when none:
                 vm.Session.AddCueAtPlayheadCommand.Execute().Subscribe();
@@ -342,6 +343,17 @@ public partial class CueForgePage : UserControl
                 break;
         }
         if (handled) e.Handled = true;
+    }
+
+    protected override void OnKeyUp(KeyEventArgs e)
+    {
+        base.OnKeyUp(e);
+        if (_vm is not { } vm || !vm.IsMomentaryCuePreview) return;
+        if (e.Key == Key.C || PadIndex(e.Key) >= 0)
+        {
+            vm.EndMomentaryCuePreview();
+            e.Handled = true;
+        }
     }
 
     private static int PadIndex(Key key) => key switch
