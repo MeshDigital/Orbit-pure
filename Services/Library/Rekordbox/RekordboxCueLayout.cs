@@ -72,21 +72,29 @@ public static class RekordboxCueLayout
     /// <summary>
     /// The Rekordbox cues for a track, in export order:
     ///   1. section markers (Intro end / Outro) as named memory cues;
-    ///   2. point cues — on their own pad when SlotIndex is 0–7, else the next free pad, else a
-    ///      memory cue once all eight pads are taken (nothing is ever dropped); every pad cue also
-    ///      gets a memory-cue copy so it stays on the memory strip if the pad is overwritten;
-    ///   3. "16 bars to …" memory cues before each Drop (when there's a BPM and room);
-    ///   4. loops — a hot loop on an explicit pad, else a memory loop.
+    ///   2. countdown cues ([IN -16], [IN2 -8], …) as memory cues so hot-cue pads stay clean for
+    ///      jump points (Intro, Drop 1, Drop 2, Out);
+    ///   3. point cues — on their own pad when SlotIndex is 0–7, else the next free pad, else a
+    ///      memory cue once all eight pads are taken (nothing is ever dropped). When
+    ///      <paramref name="duplicateHotCuesAsMemory"/> is true (opt-in), pad cues also get a
+    ///      memory-cue copy;
+    ///   4. "16 bars to …" memory cues before each Drop (when there's a BPM and room);
+    ///   5. loops — a hot loop on an explicit pad, else a memory loop.
     /// </summary>
-    public static List<RekordboxMark> Build(IReadOnlyList<OrbitCue> allCues, double bpm)
+    public static List<RekordboxMark> Build(IReadOnlyList<OrbitCue> allCues, double bpm, bool duplicateHotCuesAsMemory = false)
     {
         var marks = new List<RekordboxMark>();
         var pointCues = allCues.Where(c => !c.IsLoop).ToList();
         var loopCues  = allCues.Where(c => c.IsLoop).ToList();
 
-        // Reserve every pad explicitly claimed by a loop OR a point cue first, so auto-assignment
-        // can never clobber a pad another cue/loop deliberately set via its own SlotIndex.
-        var reservedPads = new HashSet<int>(allCues.Where(c => c.SlotIndex is >= 0 and <= 7).Select(c => c.SlotIndex));
+        static bool IsCountdownCue(OrbitCue c) =>
+            Engine.Cueing.DropCountdownCues.CountdownBars(c.Name) != null;
+
+        // Reserve every pad explicitly claimed by a loop OR a non-countdown point cue first, so
+        // auto-assignment can never clobber a pad another cue/loop deliberately set via SlotIndex.
+        var reservedPads = new HashSet<int>(allCues
+            .Where(c => (c.IsLoop || !IsCountdownCue(c)) && c.SlotIndex is >= 0 and <= 7)
+            .Select(c => c.SlotIndex));
         int nextFreePad = 0;
         int NextAvailablePad()
         {
@@ -103,9 +111,17 @@ public static class RekordboxCueLayout
 
         foreach (var cue in pointCues)
         {
+            // Countdowns ([IN -16], [IN2 -8], ...) belong on the memory strip so hot-cue pads stay
+            // clean for points you actually jump to (Intro, Drop 1, Drop 2, Out).
+            if (IsCountdownCue(cue))
+            {
+                marks.Add(new RekordboxMark(cue.Name, false, cue.Timestamp, 0, -1, cue.Color));
+                continue;
+            }
+
             int num = cue.SlotIndex is >= 0 and <= 7 ? cue.SlotIndex : NextAvailablePad();
             marks.Add(new RekordboxMark(cue.Name, false, cue.Timestamp, 0, num, cue.Color));
-            if (num >= 0 && !cue.IsSectionMarker) // a section marker already has its memory cue
+            if (duplicateHotCuesAsMemory && num >= 0 && !cue.IsSectionMarker) // opt-in memory copy
                 marks.Add(new RekordboxMark(cue.Name, false, cue.Timestamp, 0, -1, cue.Color));
         }
 

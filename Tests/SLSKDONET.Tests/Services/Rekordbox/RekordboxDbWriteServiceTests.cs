@@ -234,23 +234,75 @@ public sealed class RekordboxDbWriteServiceTests : IDisposable
     }
 
     [Fact]
-    public void Layout_IsTheXmlExportLayout_PadPlusMemoryCopy_SectionMarker_Countdown_Loop()
+    public void Layout_Default_CountdownsOnMemoryOnly_NoMemoryDuplicates_OptInDuplicatesWork()
     {
         var cues = new List<OrbitCue>
         {
             new() { Name = "Intro end", Timestamp = 10, SlotIndex = -1, Role = CueRole.IntroEnd, Color = "#00FFFF" },
-            new() { Name = "Drop 1", Timestamp = 60, SlotIndex = -1, Role = CueRole.Drop, Color = "#FF0000" },
+            new() { Name = "[IN -16]", Timestamp = 38, SlotIndex = 0, Role = CueRole.Build, Color = "#FFA500" },
+            new() { Name = "[DROP 1]", Timestamp = 60, SlotIndex = 2, Role = CueRole.Drop, Color = "#FF4500" },
             new() { Name = "Loop", Timestamp = 90, IsLoop = true, LoopEndSeconds = 94, SlotIndex = 5, Color = "#FFFF00" },
         };
 
-        var marks = RekordboxCueLayout.Build(cues, bpm: 174);
+        var defaultMarks = RekordboxCueLayout.Build(cues, bpm: 174);
 
-        Assert.Equal(-1, marks[0].Num);                                // section marker → memory cue
-        Assert.Equal(("Drop 1", 0), (marks[1].Name, marks[1].Num));     // first free pad (5 is the loop's)
-        Assert.Equal(("Drop 1", -1), (marks[2].Name, marks[2].Num));    // its memory copy
-        Assert.Equal("16 bars to Drop 1", marks[3].Name);
-        Assert.Equal(60 - 60.0 / 174 * 4 * 16, marks[3].StartSeconds, 6);
-        Assert.Equal((true, 5, 94.0), (marks[4].IsLoop, marks[4].Num, marks[4].EndSeconds));
+        Assert.Equal(-1, defaultMarks[0].Num);                                   // section marker -> memory cue
+        Assert.Equal(("[IN -16]", -1), (defaultMarks[1].Name, defaultMarks[1].Num)); // countdown -> memory only!
+        Assert.Equal(("[DROP 1]", 2), (defaultMarks[2].Name, defaultMarks[2].Num));  // drop keeps pad C, NO memory duplicate
+        Assert.DoesNotContain(defaultMarks, m => m.Name == "[DROP 1]" && m.Num == -1);
+        Assert.Equal((true, 5, 94.0), (defaultMarks[^1].IsLoop, defaultMarks[^1].Num, defaultMarks[^1].EndSeconds));
+
+        // Opt-in duplicateHotCuesAsMemory = true still emits the memory copy of pad cues.
+        var dupMarks = RekordboxCueLayout.Build(cues, bpm: 174, duplicateHotCuesAsMemory: true);
+        Assert.Contains(dupMarks, m => m.Name == "[DROP 1]" && m.Num == 2);
+        Assert.Contains(dupMarks, m => m.Name == "[DROP 1]" && m.Num == -1);
+    }
+
+    [Fact]
+    public async Task Write_CreatesPlaylistInRekordbox_WhenItDoesNotExist()
+    {
+        var playlist = new RekordboxPlannedPlaylist("Neuro the funk up", new[] { TrackA, TrackB, TrackC });
+
+        var report = await _writer.WriteAsync(Plan(TrackA), RekordboxWriteMode.FillEmpty, playlist: playlist);
+
+        Assert.True(report.Success, report.Message);
+        Assert.Equal("Neuro the funk up", report.PlaylistName);
+        Assert.True(report.PlaylistCreated);
+        Assert.Equal(2, report.PlaylistTracksAdded); // TrackA + TrackB are in djmdContent; TrackC is not
+        Assert.Contains("created playlist 'Neuro the funk up' (+2 track(s))", report.Message);
+
+        using var c = Open();
+        Assert.Equal(1L, Scalar(c, "SELECT count(*) FROM djmdPlaylist WHERE Name = 'Neuro the funk up' AND rb_local_deleted = 0"));
+        Assert.Equal(2L, Scalar(c, "SELECT count(*) FROM djmdSongPlaylist WHERE rb_local_deleted = 0"));
+    }
+
+    [Fact]
+    public async Task Write_UpdatesExistingPlaylistInRekordbox_WithMissingTracksOnly()
+    {
+        // Seed an existing playlist containing only TrackA (ContentID = '100')
+        using (var c = Open())
+        using (var cmd = c.CreateCommand())
+        {
+            cmd.CommandText = """
+                INSERT INTO djmdPlaylist (ID, Seq, Name, Attribute, ParentID, UUID, created_at, updated_at)
+                    VALUES ('pl-1', 1, 'Neuro the funk up', 0, 'root', 'uuid-pl1', '2025-01-01', '2025-01-01');
+                INSERT INTO djmdSongPlaylist (ID, PlaylistID, ContentID, TrackNo, UUID, created_at, updated_at)
+                    VALUES ('sp-1', 'pl-1', '100', 1, 'uuid-sp1', '2025-01-01', '2025-01-01');
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        var playlist = new RekordboxPlannedPlaylist("Neuro the funk up", new[] { TrackA, TrackB });
+        var report = await _writer.WriteAsync(Plan(TrackA), RekordboxWriteMode.FillEmpty, playlist: playlist);
+
+        Assert.True(report.Success, report.Message);
+        Assert.False(report.PlaylistCreated);
+        Assert.Equal(1, report.PlaylistTracksAdded); // only TrackB was missing!
+        Assert.Contains("added 1 missing track(s) to playlist 'Neuro the funk up'", report.Message);
+
+        using var verify = Open();
+        Assert.Equal(2L, Scalar(verify, "SELECT count(*) FROM djmdSongPlaylist WHERE PlaylistID = 'pl-1' AND rb_local_deleted = 0"));
+        Assert.Equal(2L, Scalar(verify, "SELECT TrackNo FROM djmdSongPlaylist WHERE PlaylistID = 'pl-1' AND ContentID = '200'"));
     }
 
     // ─── fixture ────────────────────────────────────────────────────────────
@@ -293,6 +345,8 @@ public sealed class RekordboxDbWriteServiceTests : IDisposable
             CREATE TABLE `djmdProperty` (`DBID` VARCHAR(255) PRIMARY KEY, `DBVersion` VARCHAR(255) DEFAULT NULL, `BaseDBDrive` VARCHAR(255) DEFAULT NULL, `CurrentDBDrive` VARCHAR(255) DEFAULT NULL, `DeviceID` VARCHAR(255) DEFAULT NULL, `Reserved1` TEXT DEFAULT NULL, `Reserved2` TEXT DEFAULT NULL, `Reserved3` TEXT DEFAULT NULL, `Reserved4` TEXT DEFAULT NULL, `Reserved5` TEXT DEFAULT NULL, `created_at` DATETIME NOT NULL, `updated_at` DATETIME NOT NULL);
             CREATE TABLE `djmdContent` (`ID` VARCHAR(255) PRIMARY KEY, `FolderPath` VARCHAR(255) DEFAULT NULL, `Title` VARCHAR(255) DEFAULT NULL, `ArtistID` VARCHAR(255) DEFAULT NULL, `BPM` INTEGER DEFAULT NULL, `CueUpdated` VARCHAR(255) DEFAULT NULL, `UUID` VARCHAR(255) DEFAULT NULL, `rb_local_deleted` TINYINT(1) DEFAULT 0, `rb_local_usn` BIGINT DEFAULT NULL, `created_at` DATETIME NOT NULL, `updated_at` DATETIME NOT NULL);
             CREATE TABLE `djmdArtist` (`ID` VARCHAR(255) PRIMARY KEY, `Name` VARCHAR(255) DEFAULT NULL);
+            CREATE TABLE `djmdPlaylist` (`ID` VARCHAR(255) PRIMARY KEY, `Seq` INTEGER DEFAULT NULL, `Name` VARCHAR(255) DEFAULT NULL, `ImagePath` VARCHAR(255) DEFAULT NULL, `Attribute` INTEGER DEFAULT 0, `ParentID` VARCHAR(255) DEFAULT NULL, `SmartList` TEXT DEFAULT NULL, `UUID` VARCHAR(255) DEFAULT NULL, `rb_data_status` INTEGER DEFAULT 0, `rb_local_data_status` INTEGER DEFAULT 0, `rb_local_deleted` TINYINT(1) DEFAULT 0, `rb_local_synced` TINYINT(1) DEFAULT 0, `usn` BIGINT DEFAULT NULL, `rb_local_usn` BIGINT DEFAULT NULL, `created_at` DATETIME NOT NULL, `updated_at` DATETIME NOT NULL);
+            CREATE TABLE `djmdSongPlaylist` (`ID` VARCHAR(255) PRIMARY KEY, `PlaylistID` VARCHAR(255) DEFAULT NULL, `ContentID` VARCHAR(255) DEFAULT NULL, `TrackNo` INTEGER DEFAULT NULL, `UUID` VARCHAR(255) DEFAULT NULL, `rb_data_status` INTEGER DEFAULT 0, `rb_local_data_status` INTEGER DEFAULT 0, `rb_local_deleted` TINYINT(1) DEFAULT 0, `rb_local_synced` TINYINT(1) DEFAULT 0, `usn` BIGINT DEFAULT NULL, `rb_local_usn` BIGINT DEFAULT NULL, `created_at` DATETIME NOT NULL, `updated_at` DATETIME NOT NULL);
             CREATE INDEX `djmd_cue__content_i_d_rb_local_deleted` ON `djmdCue` (`ContentID`, `rb_local_deleted`);
 
             INSERT INTO djmdProperty VALUES ('1', '{dbVersion}', '', '', 'dev', NULL, NULL, NULL, NULL, NULL, '2025-01-01', '2025-01-01');

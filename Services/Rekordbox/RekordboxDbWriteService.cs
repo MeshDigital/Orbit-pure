@@ -33,6 +33,9 @@ public sealed record RekordboxPlannedCue(int Kind, long InMsec, long OutMsec, in
 /// <summary>One file and the cues ORBIT would give it in Rekordbox.</summary>
 public sealed record RekordboxPlannedTrack(string Path, string Label, IReadOnlyList<RekordboxPlannedCue> Cues);
 
+/// <summary>Optional playlist to create or top up with missing tracks in Rekordbox's library.</summary>
+public sealed record RekordboxPlannedPlaylist(string Name, IReadOnlyList<string> TrackPaths);
+
 /// <summary>One ORBIT-made copy of Rekordbox's library, taken before a write.</summary>
 public sealed record RekordboxBackup(string Folder, DateTime CreatedLocal, string? SourcePath, long Bytes);
 
@@ -49,7 +52,10 @@ public sealed record RekordboxWriteReport(
     IReadOnlyList<string> Invalid,
     string? BackupFolder,
     int Verified,
-    IReadOnlyList<string> VerifyMismatches)
+    IReadOnlyList<string> VerifyMismatches,
+    string? PlaylistName = null,
+    bool PlaylistCreated = false,
+    int PlaylistTracksAdded = 0)
 {
     public static RekordboxWriteReport Fail(string message, bool dryRun, string? backupFolder = null) =>
         new(false, message, dryRun, 0, 0, 0, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(),
@@ -140,7 +146,7 @@ public sealed class RekordboxDbWriteService
             string label = $"{track.Artist} - {track.Title}";
             var dbCues = cuesByHash.TryGetValue(track.TrackUniqueHash ?? "", out var list) ? list : new List<CuePointEntity>();
             var all = RekordboxCueLayout.MergeCueSources(dbCues, track.CuePointsJson, label, _logger);
-            var planned = ToPlannedCues(RekordboxCueLayout.Build(all, track.BPM ?? 0));
+            var planned = ToPlannedCues(RekordboxCueLayout.Build(all, track.BPM ?? 0, _config.RekordboxDuplicateHotCuesAsMemory));
             if (planned.Count > 0)
                 plan.Add(new RekordboxPlannedTrack(track.ResolvedFilePath, label, planned));
         }
@@ -184,15 +190,15 @@ public sealed class RekordboxDbWriteService
     // ─── Preview / write ─────────────────────────────────────────────────────
 
     /// <summary>What a write would do, without changing anything (the bridge opens the file read-only).</summary>
-    public Task<RekordboxWriteReport> PreviewAsync(IReadOnlyList<RekordboxPlannedTrack> plan, RekordboxWriteMode mode, CancellationToken ct = default) =>
-        RunAsync(plan, mode, dryRun: true, backupFolder: null, ct);
+    public Task<RekordboxWriteReport> PreviewAsync(IReadOnlyList<RekordboxPlannedTrack> plan, RekordboxWriteMode mode, CancellationToken ct = default, RekordboxPlannedPlaylist? playlist = null) =>
+        RunAsync(plan, mode, dryRun: true, backupFolder: null, ct, playlist);
 
-    /// <summary>Backs Rekordbox's library up, writes the plan, and verifies it by reading it back.</summary>
-    public async Task<RekordboxWriteReport> WriteAsync(IReadOnlyList<RekordboxPlannedTrack> plan, RekordboxWriteMode mode, CancellationToken ct = default)
+    /// <summary>Backs Rekordbox's library up, writes the plan (and optional playlist sync), and verifies it by reading it back.</summary>
+    public async Task<RekordboxWriteReport> WriteAsync(IReadOnlyList<RekordboxPlannedTrack> plan, RekordboxWriteMode mode, CancellationToken ct = default, RekordboxPlannedPlaylist? playlist = null)
     {
         if (!IsEnabled)
             return RekordboxWriteReport.Fail("Writing to Rekordbox's library is turned off. Turn it on in Settings → Advanced first.", dryRun: false);
-        if (plan.Count == 0)
+        if (plan.Count == 0 && playlist == null)
             return RekordboxWriteReport.Fail("None of these tracks have ORBIT cues to write.", dryRun: false);
 
         var blockers = RunningBlockers();
@@ -213,7 +219,7 @@ public sealed class RekordboxDbWriteService
             return RekordboxWriteReport.Fail($"Couldn't back up Rekordbox's library, so nothing was written: {ex.Message}", dryRun: false);
         }
 
-        var report = await RunAsync(plan, mode, dryRun: false, backup, ct).ConfigureAwait(false);
+        var report = await RunAsync(plan, mode, dryRun: false, backup, ct, playlist).ConfigureAwait(false);
         if (!report.Success) return report;
 
         // Independent check: read Rekordbox's cues back and compare every written track with the plan.
@@ -259,7 +265,7 @@ public sealed class RekordboxDbWriteService
         };
     }
 
-    private async Task<RekordboxWriteReport> RunAsync(IReadOnlyList<RekordboxPlannedTrack> plan, RekordboxWriteMode mode, bool dryRun, string? backupFolder, CancellationToken ct)
+    private async Task<RekordboxWriteReport> RunAsync(IReadOnlyList<RekordboxPlannedTrack> plan, RekordboxWriteMode mode, bool dryRun, string? backupFolder, CancellationToken ct, RekordboxPlannedPlaylist? playlist = null)
     {
         var db = DatabasePath;
         if (db == null) return RekordboxWriteReport.Fail("No Rekordbox 6/7 library found on this computer.", dryRun, backupFolder);
@@ -268,7 +274,7 @@ public sealed class RekordboxDbWriteService
         string planFile = Path.Combine(Path.GetTempPath(), $"orbit-rekordbox-plan-{Guid.NewGuid():N}.json");
         try
         {
-            await File.WriteAllTextAsync(planFile, SerializePlan(plan, mode), ct).ConfigureAwait(false);
+            await File.WriteAllTextAsync(planFile, SerializePlan(plan, mode, playlist), ct).ConfigureAwait(false);
             var args = new List<string> { "write-cues", "--db", db, "--plan", planFile };
             if (dryRun) args.Add("--dry-run");
 
@@ -301,7 +307,7 @@ public sealed class RekordboxDbWriteService
         }
     }
 
-    internal static string SerializePlan(IReadOnlyList<RekordboxPlannedTrack> plan, RekordboxWriteMode mode) =>
+    internal static string SerializePlan(IReadOnlyList<RekordboxPlannedTrack> plan, RekordboxWriteMode mode, RekordboxPlannedPlaylist? playlist = null) =>
         JsonSerializer.Serialize(new
         {
             mode = mode == RekordboxWriteMode.Replace ? "replace" : "fillEmpty",
@@ -310,6 +316,11 @@ public sealed class RekordboxDbWriteService
                 path = t.Path,
                 cues = t.Cues.Select(c => new { kind = c.Kind, inMsec = c.InMsec, outMsec = c.OutMsec, colorTableIndex = c.ColorTableIndex, comment = c.Comment }),
             }),
+            playlist = playlist == null ? null : new
+            {
+                name = playlist.Name,
+                trackPaths = playlist.TrackPaths,
+            },
         });
 
     internal static RekordboxWriteReport ParseReport(string json, bool dryRun, string? backupFolder)
@@ -324,19 +335,37 @@ public sealed class RekordboxDbWriteService
         var skipped = Strings(r, "skippedHasCues");
         var missing = Strings(r, "notInRekordbox");
         var invalid = Strings(r, "invalid");
+        string? playlistName = r.TryGetProperty("playlistName", out var pn) && pn.ValueKind == JsonValueKind.String ? pn.GetString() : null;
+        bool playlistCreated = r.TryGetProperty("playlistCreated", out var pc) && pc.ValueKind == JsonValueKind.True;
+        int playlistAdded = r.TryGetProperty("playlistTracksAdded", out var pa) && pa.ValueKind == JsonValueKind.Number ? pa.GetInt32() : 0;
         string? quick = r.TryGetProperty("quickCheck", out var q) ? q.GetString() : null;
         if (!dryRun && quick != null && quick != "ok")
             return RekordboxWriteReport.Fail($"Rekordbox's library failed SQLite's integrity check after the write ({quick}). Restore the backup from Settings → Advanced.", dryRun, backupFolder);
 
         string verb = dryRun ? "Would write" : "Wrote";
-        string message = $"{verb} {cues} cue(s) to {written.Count} track(s)"
-            + (removed > 0 ? $", replacing {removed} Rekordbox cue(s)" : "")
+        string playlistNote = "";
+        if (!string.IsNullOrWhiteSpace(playlistName))
+        {
+            if (playlistCreated)
+                playlistNote = dryRun
+                    ? $"; would create playlist '{playlistName}' (+{playlistAdded} track(s))"
+                    : $"; created playlist '{playlistName}' (+{playlistAdded} track(s))";
+            else if (playlistAdded > 0)
+                playlistNote = dryRun
+                    ? $"; would add {playlistAdded} missing track(s) to playlist '{playlistName}'"
+                    : $"; added {playlistAdded} missing track(s) to playlist '{playlistName}'";
+            else
+                playlistNote = $"; playlist '{playlistName}' is already up to date";
+        }
+        string message = $"{verb} {SLSKDONET.Utils.CountFormat.N(cues)} cue(s) to {written.Count} track(s)"
+            + (removed > 0 ? $", replacing {SLSKDONET.Utils.CountFormat.N(removed)} Rekordbox cue(s)" : "")
+            + playlistNote
             + (skipped.Count > 0 ? $"; {skipped.Count} track(s) skipped (they already have cues in Rekordbox)" : "")
             + (missing.Count > 0 ? $"; {missing.Count} track(s) aren't in your Rekordbox collection" : "")
             + (invalid.Count > 0 ? $"; {invalid.Count} track(s) had cues Rekordbox can't take" : "")
             + ".";
         return new RekordboxWriteReport(true, message, dryRun, written.Count, cues, removed, written, skipped, missing, invalid,
-            backupFolder, 0, Array.Empty<string>());
+            backupFolder, 0, Array.Empty<string>(), playlistName, playlistCreated, playlistAdded);
     }
 
     // ─── Backups ─────────────────────────────────────────────────────────────
