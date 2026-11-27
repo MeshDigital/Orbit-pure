@@ -3059,6 +3059,14 @@ public partial class SchemaMigratorService
                 }
             }
 
+            // 44. PF1 (#607): Index LibraryEntries(AddedAt DESC) so default "All Tracks" paging
+            // uses an index seek instead of a full 30k-row scan + temp B-tree sort on every page.
+            if (TableExists("LibraryEntries"))
+            {
+                command.CommandText = @"CREATE INDEX IF NOT EXISTS ""IX_LibraryEntries_AddedAt"" ON ""LibraryEntries"" (""AddedAt"" DESC);";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)
