@@ -2997,6 +2997,68 @@ public partial class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // Patch #43 (Epic #517 / FO1f #523): drop legacy PlaylistTrackTransitions and SetTrackTransitions
+            // after confirming every non-orphaned row was backfilled into Transitions above.
+            if (TableExists("Transitions") && TableExists("PlaylistTrackTransitions"))
+            {
+                long missingPlaylist = 0;
+                if (TableExists("PlaylistTracks"))
+                {
+                    command.CommandText = @"
+                        SELECT COUNT(*) FROM ""PlaylistTrackTransitions"" src
+                        INNER JOIN ""PlaylistTracks"" outPt ON outPt.""Id"" = src.""OutgoingPlaylistTrackId""
+                        INNER JOIN ""PlaylistTracks"" inPt  ON inPt.""Id""  = src.""IncomingPlaylistTrackId""
+                        LEFT JOIN ""Transitions"" t
+                            ON t.""ScopeKind"" = 0
+                           AND t.""ScopeId"" = src.""PlaylistId""
+                           AND t.""OutgoingItemId"" = src.""OutgoingPlaylistTrackId""
+                           AND t.""IncomingItemId"" = src.""IncomingPlaylistTrackId""
+                        WHERE t.""Id"" IS NULL;";
+                    missingPlaylist = Convert.ToInt64(await command.ExecuteScalarAsync() ?? 0L);
+                }
+
+                if (missingPlaylist == 0)
+                {
+                    _logger.LogInformation("FO1f (#523): Dropping legacy PlaylistTrackTransitions table after verifying backfill.");
+                    command.CommandText = @"DROP TABLE IF EXISTS ""PlaylistTrackTransitions"";";
+                    await command.ExecuteNonQueryAsync();
+                }
+                else
+                {
+                    _logger.LogWarning("FO1f (#523): Skipping drop of PlaylistTrackTransitions — {Missing} non-orphaned row(s) not found in Transitions.", missingPlaylist);
+                }
+            }
+
+            if (TableExists("Transitions") && TableExists("SetTrackTransitions"))
+            {
+                long missingSet = 0;
+                if (TableExists("SetTracks"))
+                {
+                    command.CommandText = @"
+                        SELECT COUNT(*) FROM ""SetTrackTransitions"" src
+                        INNER JOIN ""SetTracks"" outSt ON outSt.""Id"" = src.""OutgoingSlotId""
+                        INNER JOIN ""SetTracks"" inSt  ON inSt.""Id""  = src.""IncomingSlotId""
+                        LEFT JOIN ""Transitions"" t
+                            ON t.""ScopeKind"" = 1
+                           AND t.""ScopeId"" = src.""SetId""
+                           AND t.""OutgoingItemId"" = src.""OutgoingSlotId""
+                           AND t.""IncomingItemId"" = src.""IncomingSlotId""
+                        WHERE t.""Id"" IS NULL;";
+                    missingSet = Convert.ToInt64(await command.ExecuteScalarAsync() ?? 0L);
+                }
+
+                if (missingSet == 0)
+                {
+                    _logger.LogInformation("FO1f (#523): Dropping legacy SetTrackTransitions table after verifying backfill.");
+                    command.CommandText = @"DROP TABLE IF EXISTS ""SetTrackTransitions"";";
+                    await command.ExecuteNonQueryAsync();
+                }
+                else
+                {
+                    _logger.LogWarning("FO1f (#523): Skipping drop of SetTrackTransitions — {Missing} non-orphaned row(s) not found in Transitions.", missingSet);
+                }
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

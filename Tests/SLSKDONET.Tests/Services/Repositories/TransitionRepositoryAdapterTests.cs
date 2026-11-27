@@ -86,9 +86,6 @@ public sealed class TransitionRepositoryAdapterTests
         Assert.Equal("Melt", (await repo.GetTransitionAsync(pt3.Id, pt4.Id))!.PresetName);
 
         await using var verify = new AppDbContext();
-        // Verify nothing wrote the legacy table
-        Assert.Equal(0, await verify.PlaylistTrackTransitions.CountAsync());
-
         var stored = await verify.Transitions.AsNoTracking().ToListAsync();
         Assert.Equal(4, stored.Count);
 

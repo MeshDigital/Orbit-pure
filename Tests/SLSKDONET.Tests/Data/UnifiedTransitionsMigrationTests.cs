@@ -47,69 +47,85 @@ public sealed class UnifiedTransitionsMigrationTests
             var st2 = new SetTrackEntity { Id = Guid.NewGuid(), SetListId = setId, TrackUniqueHash = "hash-y", Position = 1 };
             initCtx.SetTracks.AddRange(st1, st2);
 
-            // Playlist transitions: valid pair #1, valid reprise #2, null-hash pair, and orphaned pair
-            initCtx.PlaylistTrackTransitions.AddRange(
-                new PlaylistTrackTransitionEntity
-                {
-                    Id = Guid.NewGuid(),
-                    PlaylistId = playlistId,
-                    OutgoingPlaylistTrackId = pt1.Id,
-                    IncomingPlaylistTrackId = pt2.Id,
-                    PresetName = "Blend",
-                    TransitionType = "Crossfade",
-                    DurationBars = 16,
-                    EqSwapLow = true,
-                    UpdatedAtUtc = new DateTime(2026, 11, 20, 12, 0, 0, DateTimeKind.Utc)
-                },
-                new PlaylistTrackTransitionEntity
-                {
-                    Id = Guid.NewGuid(),
-                    PlaylistId = playlistId,
-                    OutgoingPlaylistTrackId = pt3.Id,
-                    IncomingPlaylistTrackId = pt4.Id,
-                    PresetName = "Melt",
-                    TransitionType = "EchoOut",
-                    DurationBars = 8,
-                    UpdatedAtUtc = new DateTime(2026, 11, 21, 12, 0, 0, DateTimeKind.Utc)
-                },
-                new PlaylistTrackTransitionEntity
-                {
-                    Id = Guid.NewGuid(),
-                    PlaylistId = playlistId,
-                    OutgoingPlaylistTrackId = pt2.Id,
-                    IncomingPlaylistTrackId = ptNoHash.Id,
-                    PresetName = "Fade",
-                    TransitionType = "Crossfade",
-                    DurationBars = 8,
-                    UpdatedAtUtc = new DateTime(2026, 11, 22, 12, 0, 0, DateTimeKind.Utc)
-                },
-                new PlaylistTrackTransitionEntity
-                {
-                    Id = Guid.NewGuid(),
-                    PlaylistId = playlistId,
-                    OutgoingPlaylistTrackId = Guid.NewGuid(), // orphaned!
-                    IncomingPlaylistTrackId = pt2.Id,
-                    PresetName = "Rise",
-                    TransitionType = "FilterSweep",
-                    DurationBars = 8,
-                    UpdatedAtUtc = new DateTime(2026, 11, 23, 12, 0, 0, DateTimeKind.Utc)
-                });
-
-            // Set transition: valid pair
-            initCtx.SetTrackTransitions.Add(new SetTrackTransitionEntity
-            {
-                Id = Guid.NewGuid(),
-                SetId = setId,
-                OutgoingSlotId = st1.Id,
-                IncomingSlotId = st2.Id,
-                PresetName = "Rise",
-                TransitionType = "FilterSweep",
-                DurationBars = 16,
-                FilterSweepRising = true,
-                UpdatedAtUtc = new DateTime(2026, 11, 24, 12, 0, 0, DateTimeKind.Utc)
-            });
+            // Recreate the legacy tables to simulate upgrading from v0.4.0 / v0.5.1 (FO1a + FO1f #523).
+            await initCtx.Database.ExecuteSqlRawAsync(@"
+                CREATE TABLE IF NOT EXISTS ""PlaylistTrackTransitions"" (
+                    ""Id"" TEXT NOT NULL PRIMARY KEY,
+                    ""PlaylistId"" TEXT NOT NULL,
+                    ""OutgoingPlaylistTrackId"" TEXT NOT NULL,
+                    ""IncomingPlaylistTrackId"" TEXT NOT NULL,
+                    ""PresetName"" TEXT NOT NULL DEFAULT 'Auto',
+                    ""TransitionType"" TEXT NOT NULL DEFAULT 'Crossfade',
+                    ""DurationBars"" INTEGER NOT NULL DEFAULT 16,
+                    ""SourceTriggerSeconds"" REAL NULL,
+                    ""TargetTriggerSeconds"" REAL NULL,
+                    ""EchoDecayFactor"" REAL NULL,
+                    ""FilterStartFrequency"" REAL NULL,
+                    ""FilterEndFrequency"" REAL NULL,
+                    ""EqLowGain"" REAL NULL,
+                    ""EqMidGain"" REAL NULL,
+                    ""EqHighGain"" REAL NULL,
+                    ""WaveDuckDepth"" REAL NULL,
+                    ""FilterSweepRising"" INTEGER NULL,
+                    ""EqSwapLow"" INTEGER NULL,
+                    ""EqSwapMid"" INTEGER NULL,
+                    ""EqSwapHigh"" INTEGER NULL,
+                    ""EqLowCrossoverHz"" REAL NULL,
+                    ""EqHighCrossoverHz"" REAL NULL,
+                    ""LoopBars"" INTEGER NULL,
+                    ""LoopRepeats"" INTEGER NULL,
+                    ""UpdatedAtUtc"" TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS ""SetTrackTransitions"" (
+                    ""Id"" TEXT NOT NULL PRIMARY KEY,
+                    ""SetId"" TEXT NOT NULL,
+                    ""OutgoingSlotId"" TEXT NOT NULL,
+                    ""IncomingSlotId"" TEXT NOT NULL,
+                    ""PresetName"" TEXT NOT NULL DEFAULT 'Auto',
+                    ""TransitionType"" TEXT NOT NULL DEFAULT 'Crossfade',
+                    ""DurationBars"" INTEGER NOT NULL DEFAULT 16,
+                    ""SourceTriggerSeconds"" REAL NULL,
+                    ""TargetTriggerSeconds"" REAL NULL,
+                    ""EchoDecayFactor"" REAL NULL,
+                    ""FilterStartFrequency"" REAL NULL,
+                    ""FilterEndFrequency"" REAL NULL,
+                    ""WaveDuckDepth"" REAL NULL,
+                    ""FilterSweepRising"" INTEGER NULL,
+                    ""EqSwapLow"" INTEGER NULL,
+                    ""EqSwapMid"" INTEGER NULL,
+                    ""EqSwapHigh"" INTEGER NULL,
+                    ""EqLowCrossoverHz"" REAL NULL,
+                    ""EqHighCrossoverHz"" REAL NULL,
+                    ""LoopBars"" INTEGER NULL,
+                    ""LoopRepeats"" INTEGER NULL,
+                    ""UpdatedAtUtc"" TEXT NOT NULL
+                );");
 
             await initCtx.SaveChangesAsync();
+
+            // Playlist transitions: valid pair #1, valid reprise #2, null-hash pair, and orphaned pair
+            await initCtx.Database.ExecuteSqlRawAsync(
+                @"INSERT INTO ""PlaylistTrackTransitions"" (""Id"", ""PlaylistId"", ""OutgoingPlaylistTrackId"", ""IncomingPlaylistTrackId"", ""PresetName"", ""TransitionType"", ""DurationBars"", ""EqSwapLow"", ""UpdatedAtUtc"")
+                  VALUES ({0}, {1}, {2}, {3}, 'Blend', 'Crossfade', 16, 1, '2026-11-20T12:00:00Z');",
+                Guid.NewGuid(), playlistId, pt1.Id, pt2.Id);
+            await initCtx.Database.ExecuteSqlRawAsync(
+                @"INSERT INTO ""PlaylistTrackTransitions"" (""Id"", ""PlaylistId"", ""OutgoingPlaylistTrackId"", ""IncomingPlaylistTrackId"", ""PresetName"", ""TransitionType"", ""DurationBars"", ""UpdatedAtUtc"")
+                  VALUES ({0}, {1}, {2}, {3}, 'Melt', 'EchoOut', 8, '2026-11-21T12:00:00Z');",
+                Guid.NewGuid(), playlistId, pt3.Id, pt4.Id);
+            await initCtx.Database.ExecuteSqlRawAsync(
+                @"INSERT INTO ""PlaylistTrackTransitions"" (""Id"", ""PlaylistId"", ""OutgoingPlaylistTrackId"", ""IncomingPlaylistTrackId"", ""PresetName"", ""TransitionType"", ""DurationBars"", ""UpdatedAtUtc"")
+                  VALUES ({0}, {1}, {2}, {3}, 'Fade', 'Crossfade', 8, '2026-11-22T12:00:00Z');",
+                Guid.NewGuid(), playlistId, pt2.Id, ptNoHash.Id);
+            await initCtx.Database.ExecuteSqlRawAsync(
+                @"INSERT INTO ""PlaylistTrackTransitions"" (""Id"", ""PlaylistId"", ""OutgoingPlaylistTrackId"", ""IncomingPlaylistTrackId"", ""PresetName"", ""TransitionType"", ""DurationBars"", ""UpdatedAtUtc"")
+                  VALUES ({0}, {1}, {2}, {3}, 'Rise', 'FilterSweep', 8, '2026-11-23T12:00:00Z');",
+                Guid.NewGuid(), playlistId, Guid.NewGuid(), pt2.Id);
+
+            // Set transition: valid pair
+            await initCtx.Database.ExecuteSqlRawAsync(
+                @"INSERT INTO ""SetTrackTransitions"" (""Id"", ""SetId"", ""OutgoingSlotId"", ""IncomingSlotId"", ""PresetName"", ""TransitionType"", ""DurationBars"", ""FilterSweepRising"", ""UpdatedAtUtc"")
+                  VALUES ({0}, {1}, {2}, {3}, 'Rise', 'FilterSweep', 16, 1, '2026-11-24T12:00:00Z');",
+                Guid.NewGuid(), setId, st1.Id, st2.Id);
         }
 
         // 2. Run SchemaMigratorService.InitializeDatabaseAsync twice to prove idempotency.
@@ -138,5 +154,13 @@ public sealed class UnifiedTransitionsMigrationTests
         Assert.True(setRow.UseAsPairDefault);
         Assert.Equal("FilterSweep", setRow.Technique);
         Assert.True(setRow.FilterSweepRising);
+
+        // 4. FO1f (#523): both legacy tables must be dropped after backfill verification.
+        var conn = verifyCtx.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open) await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('PlaylistTrackTransitions', 'SetTrackTransitions');";
+        var legacyTableCount = Convert.ToInt64(await cmd.ExecuteScalarAsync() ?? 0L);
+        Assert.Equal(0L, legacyTableCount);
     }
 }
