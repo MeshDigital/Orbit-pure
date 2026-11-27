@@ -439,12 +439,6 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             Dispatcher.UIThread.Post(() =>
             {
-                if (ShouldRemapToWorkstationDestination(evt.PageName))
-                {
-                    NavigateToWorkstation();
-                    return;
-                }
-
                 _navigationService.NavigateTo(evt.PageName);
             });
         }));
@@ -1205,11 +1199,11 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         return fallback;
     }
 
-    public static bool ShouldRemapToWorkstationDestination(string? pageName)
-    {
-        return string.Equals(pageName, "Player", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(pageName, "NowPlaying", StringComparison.OrdinalIgnoreCase);
-    }
+    /// <summary>
+    /// Now Playing and Player routes open the real <see cref="Avalonia.NowPlayingPage"/> and must
+    /// never redirect to Workstation (Workstation is an opt-in Labs tool).
+    /// </summary>
+    public static bool ShouldRemapToWorkstationDestination(string? pageName) => false;
 
     public static string NormalizeInspectorOpenSource(string? source)
     {
@@ -1577,10 +1571,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void NavigateToPlayer()
     {
         PlayerViewModel.IsExpandedPlayerOpen = false;
-        PlayerViewModel.IsQueueOpen = false;
         IsGlobalSidebarOpen = false;
-        _navigationService.NavigateTo("Workstation");
-        _logger.LogInformation("Player navigation was remapped to Workstation.");
+        _navigationService.NavigateTo("NowPlaying");
     }
 
     private void NavigateToImport()
