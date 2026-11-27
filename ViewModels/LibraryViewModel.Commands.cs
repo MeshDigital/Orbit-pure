@@ -76,6 +76,9 @@ public partial class LibraryViewModel
     public ICommand OpenSourceUrlCommand { get; set; } = null!;
     public ICommand ExportPlaylistCommand { get; set; } = null!;
     public ICommand ExportPlaylistM3uCommand { get; set; } = null!;
+    public ICommand CopyPlaylistTracklistCommand { get; set; } = null!;
+    public ICommand ExportPlaylistCsvCommand { get; set; } = null!;
+    public ICommand ComparePlaylistsCommand { get; set; } = null!;
     public ICommand InitiateMp3SearchCommand { get; set; } = null!;
 
     public ICommand SwitchWorkspaceCommand { get; set; } = null!;
@@ -179,6 +182,9 @@ public partial class LibraryViewModel
         ExportPlaylistM3uCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistM3uAsync);
         SaveGenreAsPlaylistCommand = new AsyncRelayCommand<object>(ExecuteSaveGenreAsPlaylistParamAsync);
         SaveGenreAsSmartCrateCommand = new AsyncRelayCommand<object>(ExecuteSaveGenreAsSmartCrateParamAsync);
+        CopyPlaylistTracklistCommand = new AsyncRelayCommand<object>(ExecuteCopyPlaylistTracklistAsync);
+        ExportPlaylistCsvCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistCsvAsync);
+        ComparePlaylistsCommand = new AsyncRelayCommand<object>(ExecuteComparePlaylistsAsync);
 
 
         // Fluidity
@@ -481,6 +487,89 @@ public partial class LibraryViewModel
 
     private Task ExecuteMixPlaylistAsync(object? param) =>
         ExecutePlayPlaylistCoreAsync(param, mixModeEnabled: true);
+
+    private async Task ExecuteCopyPlaylistTracklistAsync(object? param)
+    {
+        if (param is not PlaylistJob project) return;
+        try
+        {
+            var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
+            if (tracks.Count == 0)
+            {
+                _notificationService.Show("Nothing to Copy", $"{project.SourceTitle} has no tracks.", NotificationType.Warning);
+                return;
+            }
+
+            var text = PlaylistToolsService.FormatTracklist(tracks, includeBpmAndKey: true);
+            var mainWindow = (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+            if (mainWindow?.Clipboard != null)
+            {
+                await mainWindow.Clipboard.SetTextAsync(text);
+                _notificationService.Show("Tracklist Copied", $"Copied {tracks.Count} tracks from \"{project.SourceTitle}\".", NotificationType.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to copy tracklist for {Playlist}", project.SourceTitle);
+            _notificationService.Show("Copy Failed", ex.Message, NotificationType.Error);
+        }
+    }
+
+    private async Task ExecuteExportPlaylistCsvAsync(object? param)
+    {
+        if (param is not PlaylistJob project) return;
+        try
+        {
+            var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
+            if (tracks.Count == 0)
+            {
+                _notificationService.Show("Nothing to Export", $"{project.SourceTitle} has no tracks.", NotificationType.Warning);
+                return;
+            }
+
+            var safeName = string.Concat(project.SourceTitle.Split(Path.GetInvalidFileNameChars()));
+            var path = await _dialogService.SaveFileAsync("Export playlist as CSV", string.IsNullOrWhiteSpace(safeName) ? "playlist" : safeName, "csv");
+            if (string.IsNullOrWhiteSpace(path)) return;
+
+            var csv = PlaylistToolsService.FormatCsv(tracks);
+            await File.WriteAllTextAsync(path, csv, System.Text.Encoding.UTF8);
+            _notificationService.Show("CSV Exported", $"Exported {tracks.Count} tracks to {Path.GetFileName(path)}.", NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to export CSV for {Playlist}", project.SourceTitle);
+            _notificationService.Show("Export Failed", ex.Message, NotificationType.Error);
+        }
+    }
+
+    private async Task ExecuteComparePlaylistsAsync(object? param)
+    {
+        if (param is not PlaylistJob playlistA) return;
+        try
+        {
+            var others = Projects.AllProjects.Where(p => p.Id != Guid.Empty && p.Id != playlistA.Id).ToList();
+            if (others.Count == 0)
+            {
+                _notificationService.Show("Compare Playlists", "You need at least two playlists to compare.", NotificationType.Information);
+                return;
+            }
+
+            var playlistB = await _dialogService.ShowProjectPickerAsync(others);
+            if (playlistB == null) return;
+
+            var tracksA = await _libraryService.LoadPlaylistTracksAsync(playlistA.Id);
+            var tracksB = await _libraryService.LoadPlaylistTracksAsync(playlistB.Id);
+            var result = PlaylistToolsService.Compare(playlistA.SourceTitle, tracksA, playlistB.SourceTitle, tracksB);
+
+            var summary = $"In both: {result.InBoth.Count} · Only in \"{playlistA.SourceTitle}\": {result.OnlyInA.Count} · Only in \"{playlistB.SourceTitle}\": {result.OnlyInB.Count}";
+            _notificationService.Show("Playlist Comparison", summary, NotificationType.Information);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to compare playlists");
+            _notificationService.Show("Compare Failed", ex.Message, NotificationType.Error);
+        }
+    }
 
     private async Task ExecutePlayPlaylistCoreAsync(object? param, bool mixModeEnabled)
     {

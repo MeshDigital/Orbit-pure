@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Input;
@@ -9,6 +10,9 @@ using SLSKDONET.Services.Library.Maintenance;
 using SLSKDONET.Views;
 
 namespace SLSKDONET.ViewModels;
+
+/// <summary>One playlist containing the inspected track (LP3 #554 "In playlists").</summary>
+public sealed record TrackPlaylistMembership(Guid PlaylistId, string Title);
 
 /// <summary>
 /// Track Inspector surface of <see cref="PlaylistTrackViewModel"/> — everything the library
@@ -535,6 +539,28 @@ public partial class PlaylistTrackViewModel
         OnPropertyChanged(nameof(FileOriginTooltip));
         OnPropertyChanged(nameof(PathLockStatusText));
         OnPropertyChanged(nameof(PathLockButtonText));
+    }
+
+    // ── In playlists (LP3 #554) ───────────────────────────────────────────────
+
+    private Action<Guid>? _openMemberPlaylistCallback;
+    public ObservableCollection<TrackPlaylistMembership> MemberPlaylists { get; } = new();
+    public bool HasMemberPlaylists => MemberPlaylists.Count > 0;
+
+    private ICommand? _openMemberPlaylistCommand;
+    public ICommand OpenMemberPlaylistCommand => _openMemberPlaylistCommand ??= new RelayCommand<Guid>(id =>
+    {
+        if (id != Guid.Empty)
+            _openMemberPlaylistCallback?.Invoke(id);
+    });
+
+    internal void ApplyMemberPlaylists(IReadOnlyList<TrackPlaylistMembership> memberships, Action<Guid>? onOpen)
+    {
+        _openMemberPlaylistCallback = onOpen;
+        MemberPlaylists.Clear();
+        foreach (var m in memberships)
+            MemberPlaylists.Add(m);
+        OnPropertyChanged(nameof(HasMemberPlaylists));
     }
 
     private async Task TogglePathLockAsync()

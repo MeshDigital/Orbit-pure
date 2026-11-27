@@ -727,7 +727,13 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         TrackInspector = new LibraryTrackInspectorViewModel(
             _logger,
             _serviceProvider?.GetService(typeof(ICuePointService)) as ICuePointService,
-            _serviceProvider?.GetService(typeof(Services.Library.Files.PathProtectionService)) as Services.Library.Files.PathProtectionService);
+            _serviceProvider?.GetService(typeof(Services.Library.Files.PathProtectionService)) as Services.Library.Files.PathProtectionService,
+            _libraryService,
+            onOpenPlaylist: id =>
+            {
+                var match = Projects.AllProjects.FirstOrDefault(p => p.Id == id);
+                if (match != null) SelectedProject = match;
+            });
         MultiSelection = new LibraryMultiSelectionInspectorViewModel(this);
         var optimizer = _serviceProvider?.GetService(typeof(Services.Playlist.PlaylistOptimizer)) as Services.Playlist.PlaylistOptimizer;
         Intelligence = new PlaylistIntelligenceViewModel(this, _trackSimilarityService, optimizer);
