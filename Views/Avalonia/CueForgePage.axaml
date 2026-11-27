@@ -284,18 +284,20 @@
                         </StackPanel>
                     </Button>
                     <Button Classes="ghost small"
-                            ToolTip.Tip="Section markers: where the intro ends and the outro starts (Shift+I / Shift+O at the playhead). Drawn as tinted regions; exported to Rekordbox as memory cues 'Intro end' / 'Outro'.">
+                            ToolTip.Tip="Optional Auto-Mix boundary overrides (Shift+I / Shift+O). Auto-Mix already uses your normal Intro, Drop, and Outro cues — only set these to manually override where a track's intro ends or outro begins.">
                         <StackPanel Orientation="Horizontal" Spacing="4">
                             <PathIcon Data="{StaticResource icon_sections}" Width="12" Height="12"/>
-                            <TextBlock Text="Sections"/>
+                            <TextBlock Text="Mix bounds"/>
                             <PathIcon Data="{StaticResource icon_chevron_down}" Width="12" Height="12"/>
                         </StackPanel>
                         <Button.Flyout>
                             <MenuFlyout Placement="BottomEdgeAlignedLeft">
-                                <MenuItem Header="Intro ends here (Shift+I)" Command="{Binding Session.SetIntroEndAtPlayheadCommand}"/>
-                                <MenuItem Header="Outro starts here (Shift+O)" Command="{Binding Session.SetOutroStartAtPlayheadCommand}"/>
+                                <MenuItem Header="Override intro end here (Shift+I)" Command="{Binding Session.SetIntroEndAtPlayheadCommand}"
+                                          ToolTip.Tip="Optional — Auto-Mix already uses your Intro/Drop/Outro cues."/>
+                                <MenuItem Header="Override outro start here (Shift+O)" Command="{Binding Session.SetOutroStartAtPlayheadCommand}"
+                                          ToolTip.Tip="Optional — Auto-Mix already uses your Intro/Drop/Outro cues."/>
                                 <Separator/>
-                                <MenuItem Header="Use suggested sections" Command="{Binding Session.UseSectionSuggestionCommand}"
+                                <MenuItem Header="Use suggested boundaries" Command="{Binding Session.UseSectionSuggestionCommand}"
                                           ToolTip.Tip="{Binding Session.SectionSuggestionText}"/>
                             </MenuFlyout>
                         </Button.Flyout>
@@ -614,7 +616,51 @@
                 </Panel>
             </Border>
 
-            <Border Grid.Row="3" Margin="24,0,24,8" Padding="12,6" Classes="inset" IsVisible="{Binding IsGridModeOpen}">
+            <StackPanel Grid.Row="3" Margin="24,0,24,8" Spacing="6">
+                <!-- Always-visible Auto-Cue & Drop Countdown Rules bar right below the waveform -->
+                <Border Padding="12,6" Classes="inset">
+                    <WrapPanel Orientation="Horizontal">
+                        <TextBlock Classes="section" Text="DROP &amp; AUTO-CUE" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <ComboBox Classes="small" MinWidth="132" Margin="0,0,6,0"
+                                  ItemsSource="{Binding AvailableCueGenerationProfiles}"
+                                  SelectedItem="{Binding SelectedCueGenerationProfile}"
+                                  ToolTip.Tip="Cue generation profile (sticky across tracks).">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="cueing:CueGenerationProfile">
+                                    <TextBlock Text="{Binding Name}"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <TextBlock Classes="caption muted" Text="Drop bars:" VerticalAlignment="Center" Margin="4,0,6,0"/>
+                        <ComboBox Classes="small" MinWidth="150" Margin="0,0,6,0"
+                                  ItemsSource="{x:Static vm:CueEditorSession.DropCountdownModes}"
+                                  SelectedItem="{Binding Session.DropCountdownMode}"
+                                  ToolTip.Tip="Countdown cues placed before each drop (Auto picks by genre, or choose Custom to set your own bars)."/>
+                        <TextBox Classes="small" Width="136" Margin="0,0,8,0"
+                                 Text="{Binding Session.CustomCountdownBars}"
+                                 IsVisible="{Binding Session.IsCustomTemplate}"
+                                 Watermark="e.g. 32,16,8"
+                                 ToolTip.Tip="Comma-separated bars before each drop (e.g. 32,16,8). Saved as your default drop template."/>
+                        <CheckBox Margin="0,0,10,0" VerticalAlignment="Center"
+                                  IsChecked="{Binding Session.CountdownsAsMemoryCues}"
+                                  Content="Memory countdowns"
+                                  ToolTip.Tip="Place drop countdowns as memory cues so hot-cue pads stay free; drops stay on pads C and F."/>
+                        <Button Classes="secondary small" Margin="0,0,4,0"
+                                Command="{Binding AutoGenerateCuesCommand}"
+                                ToolTip.Tip="Generate cues using the selected profile and drop bar template. Your own cues are kept; Ctrl+Z undoes.">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <PathIcon Data="{StaticResource sparkles_regular}" Width="12" Height="12"/>
+                                <TextBlock Text="Generate" IsVisible="{Binding !IsGenerating}"/>
+                                <TextBlock Text="Generating…" IsVisible="{Binding IsGenerating}"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Classes="ghost small" Content="Clear"
+                                Command="{Binding ClearCuesCommand}"
+                                ToolTip.Tip="Clear all cues and reset the waveform view (Ctrl+Z undoes)."/>
+                    </WrapPanel>
+                </Border>
+
+                <Border Padding="12,6" Classes="inset" IsVisible="{Binding IsGridModeOpen}">
                 <StackPanel>
                 <WrapPanel Orientation="Horizontal">
                     <TextBlock Classes="section" Text="GRID REPAIR" VerticalAlignment="Center" Margin="0,0,12,0"/>
@@ -646,7 +692,8 @@
                             ToolTip.Tip="Confirm this grid is right — re-analysis and Rekordbox will keep it"/>
                 </WrapPanel>
                 </StackPanel>
-            </Border>
+                </Border>
+            </StackPanel>
 
             <GridSplitter Grid.Row="4" x:Name="PreparationSplitter" Height="6" HorizontalAlignment="Stretch"
                           Background="Transparent" ResizeDirection="Rows" IsVisible="{Binding IsPreparationDockOpen}"
@@ -792,59 +839,16 @@
                 <!-- Inspector -->
                 <Border x:Name="InspectorPanel" Grid.Column="2" Classes="panel" BorderThickness="0,1,0,0">
                     <DockPanel>
-                        <Border DockPanel.Dock="Top" Padding="8,6" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
-                            <StackPanel Spacing="4">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <ComboBox ItemsSource="{Binding AvailableCueGenerationProfiles}" SelectedItem="{Binding SelectedCueGenerationProfile}"
-                                              HorizontalAlignment="Stretch" ToolTip.Tip="Generation profile. Sticky for every track until you change it.">
-                                        <ComboBox.ItemTemplate>
-                                            <DataTemplate x:DataType="cueing:CueGenerationProfile">
-                                                <TextBlock Text="{Binding Name}"/>
-                                            </DataTemplate>
-                                        </ComboBox.ItemTemplate>
-                                    </ComboBox>
-                                    <Button Grid.Column="1" Classes="secondary small" Margin="4,0,0,0"
-                                            Command="{Binding AutoGenerateCuesCommand}" ToolTip.Tip="Generate cues with the selected profile.">
-                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <PathIcon Data="{StaticResource sparkles_regular}" Width="12" Height="12"/>
-                                            <TextBlock Text="Generate"/>
-                                        </StackPanel>
-                                    </Button>
-                                </Grid>
-                                <TextBlock Classes="caption muted" Text="Sticky for every track until changed."/>
-                            </StackPanel>
-                        </Border>
                         <Border DockPanel.Dock="Top" Classes="panel-header">
                             <TextBlock Classes="section" Text="SELECTED CUE" VerticalAlignment="Center"/>
                         </Border>
                         <Panel>
-                            <!-- Nothing selected: the auto-generate settings instead of an empty panel -->
-                            <ScrollViewer IsVisible="{Binding !Session.HasSelectedCue}" VerticalScrollBarVisibility="Auto">
-                                <StackPanel Margin="12,8,12,12" Spacing="8">
-                                    <TextBlock Classes="section" Text="AUTO-GENERATE"/>
-                                    <TextBlock Classes="caption" TextWrapping="Wrap"
-                                               Text="Countdown cues before each drop (pads A B / D E, or memory cues), the drops on C and F, [OUT] on G."/>
-                                    <ComboBox ItemsSource="{x:Static vm:CueEditorSession.DropCountdownModes}" SelectedItem="{Binding Session.DropCountdownMode}"
-                                              HorizontalAlignment="Stretch" ToolTip.Tip="Countdown template. Auto picks one from the genre."/>
-                                    <TextBox Text="{Binding Session.CustomCountdownBars}" IsVisible="{Binding Session.IsCustomTemplate}"
-                                             Watermark="Bars before the drop, e.g. 32,16,8"/>
-                                    <CheckBox IsChecked="{Binding Session.CountdownsAsMemoryCues}" Content="Countdowns as memory cues"
-                                              ToolTip.Tip="Countdown cues ([IN -16], [IN2 -8] …) become memory cues, leaving pads A B D E free; CDJs show a bar countdown to the next memory cue. The drops stay on C and F. Applies to drops you place or generate from now on."/>
-                                    <StackPanel Spacing="6">
-                                        <Button Classes="secondary small" Command="{Binding AutoGenerateCuesCommand}" HorizontalAlignment="Stretch"
-                                                ToolTip.Tip="Generate structural cues from the analysis. Your own cues are kept; Ctrl+Z undoes.">
-                                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                                <PathIcon Data="{StaticResource sparkles_regular}" Width="12" Height="12"/>
-                                                <TextBlock Text="Auto-generate"/>
-                                            </StackPanel>
-                                        </Button>
-                                        <Button Classes="ghost small" Command="{Binding ClearCuesCommand}" Content="Clear cues &amp; reset view" HorizontalAlignment="Stretch"
-                                                ToolTip.Tip="One click: remove every cue and reset the waveform to the whole-track view. Ctrl+Z undoes."/>
-                                    </StackPanel>
-                                    <TextBlock Classes="caption muted" TextWrapping="Wrap" Margin="0,8,0,0"
-                                               Text="Select a cue on the waveform, in the list or on a pad to rename, recolour, move or delete it."/>
-                                </StackPanel>
-                            </ScrollViewer>
+                            <StackPanel Margin="12,16,12,12" Spacing="8" IsVisible="{Binding !Session.HasSelectedCue}">
+                                <TextBlock Classes="caption muted" TextWrapping="Wrap"
+                                           Text="Select a cue on the waveform, in the list, or on a pad to rename, recolour, assign a pad, nudge, or delete it."/>
+                                <TextBlock Classes="caption muted" TextWrapping="Wrap"
+                                           Text="Tip: press D at the playhead to place a Drop with your active countdown bars from the bar above (Shift+1 / Shift+2 for Drop 1 / Drop 2)."/>
+                            </StackPanel>
                             <ScrollViewer IsVisible="{Binding Session.HasSelectedCue}" VerticalScrollBarVisibility="Auto">
                                 <StackPanel Margin="12,8,12,12" Spacing="12">
                                     <StackPanel Spacing="4">
