@@ -16,6 +16,8 @@ namespace SLSKDONET
         [STAThread]
         public static void Main(string[] args)
         {
+            SLSKDONET.Services.Diagnostics.StartupTelemetry.Start();
+
             // --profile <dir> / --setup-preview: must run before anything resolves a data path.
             var startupArgs = SLSKDONET.Configuration.StartupArguments.Parse(args);
             startupArgs.Apply();

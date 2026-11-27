@@ -169,6 +169,7 @@ public partial class App
         var mainWindow = new Views.Avalonia.MainWindow { DataContext = mainVm };
         desktop.MainWindow = mainWindow;
         mainWindow.Show();
+        SLSKDONET.Services.Diagnostics.StartupTelemetry.MarkOnce("Main window shown");
         splashScreen.Close();
 
         Services.GetRequiredService<GlobalHotkeyService>().AttachToCurrentMainWindow();

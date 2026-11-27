@@ -38,6 +38,7 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             Services = ConfigureServices();
+            SLSKDONET.Services.Diagnostics.StartupTelemetry.MarkOnce("DI built");
             ActivateEarlyEventListeners(Services);
             desktop.Exit += async (_, __) => await ShutdownServicesAsync();
             await BootstrapDesktopAsync(desktop);
