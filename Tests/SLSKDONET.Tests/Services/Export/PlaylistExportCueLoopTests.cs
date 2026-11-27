@@ -116,7 +116,7 @@ public class PlaylistExportCueLoopTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportToRekordboxXmlAsync_HotCue_AlsoWritesMemoryCueDuplicate()
+    public async Task ExportToRekordboxXmlAsync_HotCue_DoesNotDuplicateAsMemoryCueByDefault()
     {
         var cues = new List<OrbitCue>
         {
@@ -126,10 +126,9 @@ public class PlaylistExportCueLoopTests : IDisposable
         var element = await ExportTrackWithCuesAndGetElementAsync(cues);
         var marks = element.Elements("POSITION_MARK").Where(m => m.Attribute("Type")?.Value == "0").ToList();
 
-        Assert.Equal(2, marks.Count);
-        Assert.Contains(marks, m => m.Attribute("Num")?.Value == "2");
-        Assert.Contains(marks, m => m.Attribute("Num")?.Value == "-1");
-        Assert.All(marks, m => Assert.Equal("15.000", m.Attribute("Start")?.Value));
+        Assert.Single(marks);
+        Assert.Equal("2", marks[0].Attribute("Num")?.Value);
+        Assert.Equal("15.000", marks[0].Attribute("Start")?.Value);
     }
 
     [Fact]

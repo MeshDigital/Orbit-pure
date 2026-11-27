@@ -71,6 +71,10 @@ public class AppConfig
     /// <summary>CF1 (#603): Run CUE-DETR AI cue verification during Prep for Mix for tracks without
     /// cached CueDetrJson (~10 s/track on CPU). Switchable in Settings → Library → Analysis.</summary>
     public bool PrepForMixRunCueDetr { get; set; } = false;
+
+    /// <summary>Opt-in: also create a memory-cue copy of every hot-cue pad when exporting/writing
+    /// to Rekordbox. Off by default so hot-cue pads and memory cues don't clutter each other.</summary>
+    public bool RekordboxDuplicateHotCuesAsMemory { get; set; } = false;
     public int SearchResponseLimit { get; set; } = 200; // was 100 — at Critical (65%) this gives ~130, enough for meaningful ranking
     public int SearchFileLimit { get; set; } = 200; // was 100
     public int SearchHardResultCap { get; set; } = 10000; // Absolute per-search circuit breaker for accepted candidates

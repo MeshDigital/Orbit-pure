@@ -28,19 +28,24 @@ public partial class LibraryViewModel
     {
         if (param is not PlaylistJob project) return;
         var tracks = (await _libraryService.LoadPlaylistTracksAsync(project.Id)).ToList();
-        await WriteCuesToRekordboxAsync(tracks, $"'{project.SourceTitle}'");
+        var playlistSync = string.IsNullOrWhiteSpace(project.SourceTitle)
+            ? null
+            : new RekordboxPlannedPlaylist(
+                project.SourceTitle.Trim(),
+                tracks.Where(t => !string.IsNullOrWhiteSpace(t.ResolvedFilePath)).Select(t => t.ResolvedFilePath).ToList());
+        await WriteCuesToRekordboxAsync(tracks, $"'{project.SourceTitle}'", playlistSync);
     });
 
     public ICommand BatchWriteCuesToRekordboxCommand => _batchWriteCuesToRekordboxCommand ??= new AsyncRelayCommand(async () =>
     {
         var tracks = Tracks.SelectedTracks.Select(t => t.Model).ToList();
-        if (tracks.Count > 0) await WriteCuesToRekordboxAsync(tracks, $"{tracks.Count} selected track(s)");
+        if (tracks.Count > 0) await WriteCuesToRekordboxAsync(tracks, $"{tracks.Count} selected track(s)", playlist: null);
     });
 
     private void OnRekordboxDbWriteSettingChanged() =>
         Avalonia.Threading.Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(IsRekordboxDbWriteEnabled)));
 
-    private async Task WriteCuesToRekordboxAsync(IReadOnlyList<PlaylistTrack> tracks, string what)
+    private async Task WriteCuesToRekordboxAsync(IReadOnlyList<PlaylistTrack> tracks, string what, RekordboxPlannedPlaylist? playlist)
     {
         var writer = _serviceProvider?.GetService<RekordboxDbWriteService>();
         if (writer is null || !writer.IsEnabled || _isWritingToRekordbox) return;
@@ -49,14 +54,14 @@ public partial class LibraryViewModel
         {
             IsLoading = true;
             var plan = await writer.BuildPlanAsync(tracks);
-            if (plan.Count == 0)
+            if (plan.Count == 0 && playlist == null)
             {
                 _notificationService.Show("Nothing to write", $"None of {what} have ORBIT cues yet.", NotificationType.Information);
                 return;
             }
 
             var mode = RekordboxWriteMode.FillEmpty;
-            var preview = await writer.PreviewAsync(plan, mode);
+            var preview = await writer.PreviewAsync(plan, mode, playlist: playlist);
             if (!preview.Success)
             {
                 _notificationService.Show("Rekordbox write unavailable", preview.Message, NotificationType.Error);
@@ -74,7 +79,7 @@ public partial class LibraryViewModel
                 if (replace)
                 {
                     mode = RekordboxWriteMode.Replace;
-                    preview = await writer.PreviewAsync(plan, mode);
+                    preview = await writer.PreviewAsync(plan, mode, playlist: playlist);
                     if (!preview.Success)
                     {
                         _notificationService.Show("Rekordbox write unavailable", preview.Message, NotificationType.Error);
@@ -86,7 +91,8 @@ public partial class LibraryViewModel
             string notInCollection = preview.NotInRekordbox.Count > 0
                 ? $"\n\n{preview.NotInRekordbox.Count} track(s) aren't in your Rekordbox collection, so they're skipped. Add them in Rekordbox first, or use the XML export for them.\n{Sample(preview.NotInRekordbox)}"
                 : "";
-            if (preview.TracksWritten == 0)
+            bool hasPlaylistWork = preview.PlaylistCreated || preview.PlaylistTracksAdded > 0;
+            if (preview.TracksWritten == 0 && !hasPlaylistWork)
             {
                 await _dialogService.ShowAlertAsync("Nothing to write", preview.Message + notInCollection);
                 return;
@@ -102,7 +108,7 @@ public partial class LibraryViewModel
                 "Back up and write", "Cancel");
             if (!go) return;
 
-            var result = await writer.WriteAsync(plan, mode);
+            var result = await writer.WriteAsync(plan, mode, playlist: playlist);
             _notificationService.Show(
                 result.Success ? "Cues written to Rekordbox" : "Rekordbox write failed",
                 result.Success

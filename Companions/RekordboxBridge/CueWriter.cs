@@ -27,7 +27,8 @@ internal static class CueWriter
 
     internal sealed record PlanCue(int Kind, long InMsec, long OutMsec, int ColorTableIndex, string? Comment);
     internal sealed record PlanTrack(string Path, List<PlanCue> Cues);
-    internal sealed record Plan(bool Replace, List<PlanTrack> Tracks);
+    internal sealed record PlanPlaylist(string Name, List<string> TrackPaths);
+    internal sealed record Plan(bool Replace, List<PlanTrack> Tracks, PlanPlaylist? Playlist = null);
 
     private sealed record ContentRow(string Id, string? Uuid, string? CueUpdated, int ExistingCues, bool Ambiguous = false);
 
@@ -47,7 +48,17 @@ internal static class CueWriter
                 c.TryGetProperty("comment", out var cm) ? cm.GetString() : null)).ToList();
             tracks.Add(new PlanTrack(t.GetProperty("path").GetString() ?? "", cues));
         }
-        return new Plan(replace, tracks);
+        PlanPlaylist? playlist = null;
+        if (root.TryGetProperty("playlist", out var pl) && pl.ValueKind == JsonValueKind.Object)
+        {
+            string plName = pl.TryGetProperty("name", out var pn) ? pn.GetString() ?? "" : "";
+            var plPaths = pl.TryGetProperty("trackPaths", out var tp) && tp.ValueKind == JsonValueKind.Array
+                ? tp.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => !string.IsNullOrWhiteSpace(x)).ToList()
+                : new List<string>();
+            if (!string.IsNullOrWhiteSpace(plName))
+                playlist = new PlanPlaylist(plName.Trim(), plPaths);
+        }
+        return new Plan(replace, tracks, playlist);
     }
 
     /// <summary>
@@ -119,6 +130,15 @@ internal static class CueWriter
                 cuesRemoved += removed;
             }
 
+            string? playlistName = null;
+            bool playlistCreated = false;
+            int playlistTracksAdded = 0;
+            if (plan.Playlist is { Name.Length: > 0 } pl && HasPlaylistTables(c, tx))
+            {
+                playlistName = pl.Name;
+                SyncPlaylist(c, tx, pl, content, dryRun, now, ref usn, out playlistCreated, out playlistTracksAdded);
+            }
+
             string? quickCheck = null;
             if (!dryRun)
             {
@@ -158,6 +178,12 @@ internal static class CueWriter
             WriteStrings(json, "invalid", invalid);
             json.WriteNumber("cuesWritten", cuesWritten);
             json.WriteNumber("cuesRemoved", cuesRemoved);
+            if (playlistName != null)
+            {
+                json.WriteString("playlistName", playlistName);
+                json.WriteBoolean("playlistCreated", playlistCreated);
+                json.WriteNumber("playlistTracksAdded", playlistTracksAdded);
+            }
             json.WriteNumber("localUpdateCountBefore", usnBefore);
             json.WriteNumber("localUpdateCountAfter", usn);
             json.WriteString("quickCheck", quickCheck);
@@ -260,6 +286,123 @@ internal static class CueWriter
         using var cmd = c.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = "SELECT ID FROM djmdCue";
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) ids.Add(Convert.ToString(r.GetValue(0), CultureInfo.InvariantCulture)!);
+        return ids;
+    }
+
+    private static bool HasPlaylistTables(SqliteConnection c, SqliteTransaction? tx)
+    {
+        long count = ScalarLong(c, tx, "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('djmdPlaylist', 'djmdSongPlaylist')") ?? 0;
+        return count == 2;
+    }
+
+    private static void SyncPlaylist(
+        SqliteConnection c,
+        SqliteTransaction? tx,
+        PlanPlaylist pl,
+        Dictionary<string, ContentRow> content,
+        bool dryRun,
+        string now,
+        ref long usn,
+        out bool created,
+        out int tracksAdded)
+    {
+        created = false;
+        tracksAdded = 0;
+
+        string? playlistId = null;
+        using (var find = c.CreateCommand())
+        {
+            find.Transaction = tx;
+            find.CommandText = "SELECT ID FROM djmdPlaylist WHERE rb_local_deleted = 0 AND coalesce(Attribute, 0) = 0 AND lower(Name) = lower($name) LIMIT 1";
+            find.Parameters.AddWithValue("$name", pl.Name);
+            var found = find.ExecuteScalar();
+            if (found is not null and not DBNull)
+                playlistId = Convert.ToString(found, CultureInfo.InvariantCulture);
+        }
+
+        var existingContentIds = new HashSet<string>(StringComparer.Ordinal);
+        long nextTrackNo = 1;
+
+        if (playlistId == null)
+        {
+            created = true;
+            if (!dryRun)
+            {
+                var takenPlIds = LoadTableIds(c, tx, "djmdPlaylist");
+                playlistId = NewCueId(takenPlIds);
+                long nextSeq = (ScalarLong(c, tx, "SELECT coalesce(max(Seq), 0) FROM djmdPlaylist WHERE ParentID = 'root' AND rb_local_deleted = 0") ?? 0) + 1;
+                usn++;
+                Exec(c, tx, """
+                    INSERT INTO djmdPlaylist (ID, Seq, Name, ImagePath, Attribute, ParentID, SmartList, UUID,
+                                              rb_data_status, rb_local_data_status, rb_local_deleted, rb_local_synced,
+                                              usn, rb_local_usn, created_at, updated_at)
+                    VALUES ($id, $seq, $name, NULL, 0, 'root', NULL, $uuid,
+                            0, 0, 0, 0,
+                            NULL, $usn, $now, $now)
+                    """,
+                    ("$id", playlistId),
+                    ("$seq", nextSeq),
+                    ("$name", pl.Name),
+                    ("$uuid", Guid.NewGuid().ToString("D")),
+                    ("$usn", usn),
+                    ("$now", now));
+            }
+        }
+        else
+        {
+            using (var existing = c.CreateCommand())
+            {
+                existing.Transaction = tx;
+                existing.CommandText = "SELECT ContentID, coalesce(TrackNo, 0) FROM djmdSongPlaylist WHERE PlaylistID = $pid AND rb_local_deleted = 0";
+                existing.Parameters.AddWithValue("$pid", playlistId);
+                using var r = existing.ExecuteReader();
+                while (r.Read())
+                {
+                    if (!r.IsDBNull(0)) existingContentIds.Add(Convert.ToString(r.GetValue(0), CultureInfo.InvariantCulture)!);
+                    long tno = r.IsDBNull(1) ? 0 : Convert.ToInt64(r.GetValue(1), CultureInfo.InvariantCulture);
+                    if (tno >= nextTrackNo) nextTrackNo = tno + 1;
+                }
+            }
+        }
+
+        var takenSongIds = dryRun ? new HashSet<string>() : LoadTableIds(c, tx, "djmdSongPlaylist");
+        foreach (var path in pl.TrackPaths)
+        {
+            if (!content.TryGetValue(Normalize(path), out var row) || row.Ambiguous) continue;
+            if (!existingContentIds.Add(row.Id)) continue;
+
+            tracksAdded++;
+            if (!dryRun && playlistId != null)
+            {
+                usn++;
+                Exec(c, tx, """
+                    INSERT INTO djmdSongPlaylist (ID, PlaylistID, ContentID, TrackNo, UUID,
+                                                  rb_data_status, rb_local_data_status, rb_local_deleted, rb_local_synced,
+                                                  usn, rb_local_usn, created_at, updated_at)
+                    VALUES ($id, $pid, $cid, $tno, $uuid,
+                            0, 0, 0, 0,
+                            NULL, $usn, $now, $now)
+                    """,
+                    ("$id", NewCueId(takenSongIds)),
+                    ("$pid", playlistId),
+                    ("$cid", row.Id),
+                    ("$tno", nextTrackNo),
+                    ("$uuid", Guid.NewGuid().ToString("D")),
+                    ("$usn", usn),
+                    ("$now", now));
+            }
+            nextTrackNo++;
+        }
+    }
+
+    private static HashSet<string> LoadTableIds(SqliteConnection c, SqliteTransaction? tx, string table)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        using var cmd = c.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = $"SELECT ID FROM {table}";
         using var r = cmd.ExecuteReader();
         while (r.Read()) ids.Add(Convert.ToString(r.GetValue(0), CultureInfo.InvariantCulture)!);
         return ids;
