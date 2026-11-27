@@ -357,8 +357,8 @@ public sealed class RekordboxDbWriteService
             else
                 playlistNote = $"; playlist '{playlistName}' is already up to date";
         }
-        string message = $"{verb} {cues:N0} cue(s) to {written.Count} track(s)"
-            + (removed > 0 ? $", replacing {removed:N0} Rekordbox cue(s)" : "")
+        string message = $"{verb} {SLSKDONET.Utils.CountFormat.N(cues)} cue(s) to {written.Count} track(s)"
+            + (removed > 0 ? $", replacing {SLSKDONET.Utils.CountFormat.N(removed)} Rekordbox cue(s)" : "")
             + playlistNote
             + (skipped.Count > 0 ? $"; {skipped.Count} track(s) skipped (they already have cues in Rekordbox)" : "")
             + (missing.Count > 0 ? $"; {missing.Count} track(s) aren't in your Rekordbox collection" : "")
