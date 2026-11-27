@@ -93,11 +93,9 @@ public static class TransitionPresetLibrary
 
         double outBpm = outgoing.Bpm > 0 ? outgoing.Bpm : (fallbackOutgoingBpm ?? 0);
         double inBpm = incoming.Bpm > 0 ? incoming.Bpm : (fallbackIncomingBpm ?? 0);
-        if (outBpm > 0 && inBpm > 0)
-        {
-            double diffPct = System.Math.Abs(outBpm - inBpm) / outBpm;
-            if (diffPct > TempoJumpThreshold) return true;
-        }
+        // Folded like the player's tempo sync: 87 vs 174 BPM beat-matches, it isn't a tempo jump (#610).
+        if (outBpm > 0 && inBpm > 0 && Engine.Transitions.TempoFold.RelativeDifference(outBpm, inBpm) > TempoJumpThreshold)
+            return true;
 
         return false;
     }

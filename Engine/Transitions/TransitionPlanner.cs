@@ -207,7 +207,8 @@ public static class TransitionPlanner
     private static bool TempoLocked(TrackStructure a, TrackStructure b)
     {
         double outBpm = MixOutBpm(a), inBpm = MixInBpm(b);
-        return outBpm > 0 && inBpm > 0 && Math.Abs(outBpm - inBpm) / outBpm <= 0.04;
+        // Half/double time folded, as the player's tempo sync does (#610).
+        return outBpm > 0 && inBpm > 0 && TempoFold.RelativeDifference(outBpm, inBpm) <= 0.04;
     }
 
     /// <summary>The outgoing track's tempo where it is mixed out (Mix-Out marker, Outro, or its last 15 %).</summary>
@@ -260,7 +261,9 @@ public static class TransitionPlanner
     private static TransitionPlan Relaxed(TrackStructure out_, TrackStructure in_, TrackSections o, TrackSections i, bool shortOnly)
     {
         double bar = o.BarSeconds;
-        int bars = shortOnly ? 8 : QuantiseDown(Math.Min(o.OutroBars, i.IntroBars));
+        // The overlap plays in the outgoing track's bars, so the incoming intro is measured in them too:
+        // next to an 87 BPM track, a 174 BPM intro has half as many of them (#610).
+        int bars = shortOnly ? 8 : QuantiseDown(Math.Min(o.OutroBars, (i.IntroEnd - i.IntroStart) / bar));
         double source = o.OutroStart;
         // Finish the mix by the end of the outgoing track.
         if (source + bars * bar > o.OutroEnd) source = Math.Max(0, o.OutroEnd - bars * bar);
@@ -376,7 +379,7 @@ public static class TransitionPlanner
     }
 
     private static string PctText(TrackStructure a, TrackStructure b) =>
-        MixOutBpm(a) is var o && o > 0 ? SLSKDONET.Utils.NumFormat.F(Math.Abs(o - MixInBpm(b)) / o * 100, 0) + "%" : "?";
+        MixOutBpm(a) is var o && o > 0 ? SLSKDONET.Utils.NumFormat.F(TempoFold.RelativeDifference(o, MixInBpm(b)) * 100, 0) + "%" : "?";
 
     private static void AddIfNotNull<T>(this List<T> list, T? item) where T : class
     {

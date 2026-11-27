@@ -545,9 +545,8 @@ namespace SLSKDONET.Services
         public static double TempoSyncRatio(double? outgoingBpm, double incomingBpm)
         {
             if (outgoingBpm is not > 0 || incomingBpm <= 0) return 1.0;
-            double ratio = outgoingBpm.Value / incomingBpm;
             // Half/double-time readings (87 vs 174) are the same tempo for mixing.
-            if (ratio > 1.8) ratio /= 2; else if (ratio < 0.55) ratio *= 2;
+            double ratio = SLSKDONET.Engine.Transitions.TempoFold.Ratio(outgoingBpm.Value, incomingBpm);
             return Math.Abs(ratio - 1) <= MaxTempoSyncRatio ? ratio : 1.0;
         }
 

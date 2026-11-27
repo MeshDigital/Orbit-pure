@@ -181,11 +181,17 @@ static class PairScorer
                 entryErr = Grid.NearestTickErrorMs(inGrid, entry);
                 double inBeats = Grid.BeatPosition(inGrid, entry) - Grid.BeatPosition(inGrid, ins.FirstDownbeat);
                 entryBar = Grid.OnMultiple(inBeats, 4);
-                // Kick-against-kick at the moment the incoming deck starts (both decks tempo-synced, so
-                // one beat is the outgoing beat): the fractional-beat offset between the two decks.
-                double diff = Grid.Wrap(Grid.Frac(beatsFromDownbeat) - Grid.Frac(inBeats));
-                phaseErr = Math.Abs(diff) * 60000.0 / Math.Max(1, os.LocalBpmAt(start));
-                barsAligned = Grid.Mod(Math.Round(beatsFromDownbeat), 4) == Grid.Mod(Math.Round(inBeats), 4);
+                // A half/double-time pair (87 vs 174) is compared on the faster track's beats: one tick
+                // of the half-time grid spans two of them.
+                double raw = os.Bpm > 0 && ins.Bpm > 0 ? os.Bpm / ins.Bpm : 1;
+                double outScale = raw < 0.55 ? 2 : 1, inScale = raw > 1.8 ? 2 : 1;
+                double outBeats = beatsFromDownbeat * outScale, inBeatsScaled = inBeats * inScale;
+                double beatMs = 60000.0 / Math.Max(1, os.LocalBpmAt(start) * outScale);
+                // Kick-against-kick at the moment the incoming deck starts (both decks tempo-synced):
+                // the fractional-beat offset between the two decks.
+                double diff = Grid.Wrap(Grid.Frac(outBeats) - Grid.Frac(inBeatsScaled));
+                phaseErr = Math.Abs(diff) * beatMs;
+                barsAligned = Grid.Mod(Math.Round(outBeats), 4) == Grid.Mod(Math.Round(inBeatsScaled), 4);
             }
         }
 
@@ -209,15 +215,15 @@ static class PairScorer
 
     static string? ToCamelot(string? key) => string.IsNullOrEmpty(key) ? null : SLSKDONET.Utils.KeyConverter.ToCamelot(key);
 
-    /// <summary>How the player's tempo sync treats the pair (AudioPlayerService.TempoSyncRatio, ±6 %).</summary>
+    /// <summary>How the player's tempo sync treats the pair (AudioPlayerService.TempoSyncRatio / TempoFold, ±6 %).</summary>
     static string TempoClass(double? outBpm, double inBpm)
     {
         if (outBpm is not > 0 || inBpm <= 0) return "unknown";
         double raw = outBpm.Value / inBpm;
         if (Math.Abs(raw - 1) < 0.0005) return "same";
         if (Math.Abs(raw - 1) <= 0.06) return "synced";
-        double ratio = SLSKDONET.Services.AudioPlayerService.TempoSyncRatio(outBpm, inBpm);
-        return ratio != 1.0 ? "synced half/double" : "out of range";
+        // TempoSyncRatio returns 1 both for "no change needed" and "out of range", so classify on the fold itself.
+        return TempoFold.RelativeDifference(outBpm.Value, inBpm) <= 0.06 ? "synced half/double" : "out of range";
     }
 
     /// <summary>Camelot relation: same, adjacent (±1), relative (A↔B), or other. Reported, never shown in the app.</summary>
@@ -316,6 +322,14 @@ static class Report
             s["phase_error.median_ms"] = Quantile(phase, 0.5);
             s["phase_error.p95_ms"] = Quantile(phase, 0.95);
             s["phase_error.over_20ms.pct"] = Pct(graded, x => x.PhaseErrorMs > 20);
+            foreach (var t in graded.GroupBy(x => x.Tempo))
+            {
+                var g = t.ToList();
+                string k = t.Key.Replace(' ', '_').Replace('/', '_');
+                s[$"by_tempo.{k}.pairs"] = g.Count;
+                s[$"by_tempo.{k}.phase_over_20ms.pct"] = Pct(g, x => x.PhaseErrorMs > 20);
+                s[$"by_tempo.{k}.bars_aligned.pct"] = Pct(g, x => x.BarsAligned == true);
+            }
         }
         foreach (var t in r.GroupBy(x => x.Tempo)) s[$"tempo.{t.Key.Replace(' ', '_').Replace('/', '_')}.pct"] = Pct(r, x => x.Tempo == t.Key);
         foreach (var k in r.GroupBy(x => x.Key)) s[$"key.{k.Key}.pct"] = Pct(r, x => x.Key == k.Key);
