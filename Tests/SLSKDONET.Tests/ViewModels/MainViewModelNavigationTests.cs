@@ -46,18 +46,16 @@ public class MainViewModelNavigationTests
     }
 
     [Theory]
-    [InlineData("Player", true)]
-    [InlineData("player", true)]
-    [InlineData("NowPlaying", true)]
-    [InlineData("nowplaying", true)]
-    [InlineData("Workstation", false)]
-    [InlineData("Library", false)]
-    [InlineData(null, false)]
-    public void ShouldRemapToWorkstationDestination_MatchesExpectedAliases(string? pageName, bool expected)
+    [InlineData("Player")]
+    [InlineData("player")]
+    [InlineData("NowPlaying")]
+    [InlineData("nowplaying")]
+    [InlineData("Workstation")]
+    [InlineData("Library")]
+    [InlineData(null)]
+    public void ShouldRemapToWorkstationDestination_NeverRedirectsNowPlayingOrPlayerToWorkstation(string? pageName)
     {
-        var shouldRemap = MainViewModel.ShouldRemapToWorkstationDestination(pageName);
-
-        Assert.Equal(expected, shouldRemap);
+        Assert.False(MainViewModel.ShouldRemapToWorkstationDestination(pageName));
     }
 
     [Theory]
