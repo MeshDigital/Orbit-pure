@@ -538,6 +538,22 @@
                             Command="{Binding Session.UseSectionSuggestionCommand}"
                             ToolTip.Tip="Place the suggested Intro end / Outro markers (snapped to the bar). Drag them to adjust; Ctrl+Z undoes."/>
                 </Grid>
+                <!-- Live Auto-Mix incoming track banner: visible while a 2nd track is actively mixing on top of the 1st -->
+                <Border Margin="24,8,24,0" Padding="12,6" Classes="inset"
+                        IsVisible="{Binding IsMixingIncoming}">
+                    <Grid ColumnDefinitions="Auto,*,120,Auto">
+                        <PathIcon Grid.Column="0" Data="{StaticResource icon_waves}" Width="14" Height="14"
+                                  Foreground="{StaticResource BrushAccent}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Classes="caption" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                   Text="{Binding IncomingMixSummary}" ToolTip.Tip="{Binding IncomingMixSummary}"/>
+                        <ProgressBar Grid.Column="2" Classes="meter" Minimum="0" Maximum="100"
+                                     Value="{Binding IncomingMixProgressPercent}" VerticalAlignment="Center" Margin="12,0"/>
+                        <Button Grid.Column="3" Classes="secondary small" Content="Open incoming"
+                                Command="{Binding OpenIncomingMixTrackCommand}"
+                                IsVisible="{Binding CanOpenIncomingMixTrack}"
+                                ToolTip.Tip="Switch Cue Forge to the incoming track currently mixing in"/>
+                    </Grid>
+                </Border>
             </StackPanel>
 
             <!-- Overview: whole track, visible window, playhead. Click/drag to jump. -->
