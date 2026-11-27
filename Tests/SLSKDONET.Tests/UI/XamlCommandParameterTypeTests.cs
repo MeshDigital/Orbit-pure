@@ -52,7 +52,7 @@ public class XamlCommandParameterTypeTests
         // Waveform gain (double), beat jump (int), and quick-loop lengths (int) must never fall
         // back to XAML string literals: ReactiveCommand's explicit ICommand.Execute rejects them.
         Assert.DoesNotMatch(new Regex(@"CommandParameter=""-?\d+(?:\.\d+)?"""), xaml);
-        Assert.Equal(14, Regex.Matches(xaml, @"<x:Int32>-?\d+</x:Int32>").Count);
+        Assert.Equal(19, Regex.Matches(xaml, @"<x:Int32>-?\d+</x:Int32>").Count);
         Assert.Equal(3, Regex.Matches(xaml, @"<x:Double>\d+(?:\.\d+)?</x:Double>").Count);
     }
 

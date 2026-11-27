@@ -619,45 +619,79 @@
             <StackPanel Grid.Row="3" Margin="24,0,24,8" Spacing="6">
                 <!-- Always-visible Auto-Cue & Drop Countdown Rules bar right below the waveform -->
                 <Border Padding="12,6" Classes="inset">
-                    <WrapPanel Orientation="Horizontal">
-                        <TextBlock Classes="section" Text="DROP &amp; AUTO-CUE" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                        <ComboBox Classes="small" MinWidth="132" Margin="0,0,6,0"
-                                  ItemsSource="{Binding AvailableCueGenerationProfiles}"
-                                  SelectedItem="{Binding SelectedCueGenerationProfile}"
-                                  ToolTip.Tip="Cue generation profile (sticky across tracks).">
-                            <ComboBox.ItemTemplate>
-                                <DataTemplate x:DataType="cueing:CueGenerationProfile">
-                                    <TextBlock Text="{Binding Name}"/>
-                                </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                        </ComboBox>
-                        <TextBlock Classes="caption muted" Text="Drop bars:" VerticalAlignment="Center" Margin="4,0,6,0"/>
-                        <ComboBox Classes="small" MinWidth="150" Margin="0,0,6,0"
-                                  ItemsSource="{x:Static vm:CueEditorSession.DropCountdownModes}"
-                                  SelectedItem="{Binding Session.DropCountdownMode}"
-                                  ToolTip.Tip="Countdown cues placed before each drop (Auto picks by genre, or choose Custom to set your own bars)."/>
-                        <TextBox Classes="small" Width="136" Margin="0,0,8,0"
-                                 Text="{Binding Session.CustomCountdownBars}"
-                                 IsVisible="{Binding Session.IsCustomTemplate}"
-                                 Watermark="e.g. 32,16,8"
-                                 ToolTip.Tip="Comma-separated bars before each drop (e.g. 32,16,8). Saved as your default drop template."/>
-                        <CheckBox Margin="0,0,10,0" VerticalAlignment="Center"
-                                  IsChecked="{Binding Session.CountdownsAsMemoryCues}"
-                                  Content="Memory countdowns"
-                                  ToolTip.Tip="Place drop countdowns as memory cues so hot-cue pads stay free; drops stay on pads C and F."/>
-                        <Button Classes="secondary small" Margin="0,0,4,0"
-                                Command="{Binding AutoGenerateCuesCommand}"
-                                ToolTip.Tip="Generate cues using the selected profile and drop bar template. Your own cues are kept; Ctrl+Z undoes.">
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <PathIcon Data="{StaticResource sparkles_regular}" Width="12" Height="12"/>
-                                <TextBlock Text="Generate" IsVisible="{Binding !IsGenerating}"/>
-                                <TextBlock Text="Generating…" IsVisible="{Binding IsGenerating}"/>
-                            </StackPanel>
-                        </Button>
-                        <Button Classes="ghost small" Content="Clear"
-                                Command="{Binding ClearCuesCommand}"
-                                ToolTip.Tip="Clear all cues and reset the waveform view (Ctrl+Z undoes)."/>
-                    </WrapPanel>
+                    <StackPanel Spacing="6">
+                        <WrapPanel Orientation="Horizontal">
+                            <TextBlock Classes="section" Text="DROP RULES" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <ComboBox Classes="small" MinWidth="156" Margin="0,0,6,0"
+                                      ItemsSource="{x:Static vm:CueEditorSession.DropCountdownModes}"
+                                      SelectedItem="{Binding Session.DropCountdownMode}"
+                                      ToolTip.Tip="Drop countdown preset (Auto picks by genre, or click any bar chip to customize)."/>
+                            <ToggleButton Classes="chip small" Content="−64" Margin="0,0,3,0"
+                                          IsChecked="{Binding Session.HasBar64, Mode=OneWay}"
+                                          Command="{Binding Session.ToggleCountdownBarCommand}"
+                                          ToolTip.Tip="Toggle a countdown cue 64 bars before each drop">
+                                <ToggleButton.CommandParameter><x:Int32>64</x:Int32></ToggleButton.CommandParameter>
+                            </ToggleButton>
+                            <ToggleButton Classes="chip small" Content="−32" Margin="0,0,3,0"
+                                          IsChecked="{Binding Session.HasBar32, Mode=OneWay}"
+                                          Command="{Binding Session.ToggleCountdownBarCommand}"
+                                          ToolTip.Tip="Toggle a countdown cue 32 bars before each drop">
+                                <ToggleButton.CommandParameter><x:Int32>32</x:Int32></ToggleButton.CommandParameter>
+                            </ToggleButton>
+                            <ToggleButton Classes="chip small" Content="−16" Margin="0,0,3,0"
+                                          IsChecked="{Binding Session.HasBar16, Mode=OneWay}"
+                                          Command="{Binding Session.ToggleCountdownBarCommand}"
+                                          ToolTip.Tip="Toggle a countdown cue 16 bars before each drop">
+                                <ToggleButton.CommandParameter><x:Int32>16</x:Int32></ToggleButton.CommandParameter>
+                            </ToggleButton>
+                            <ToggleButton Classes="chip small" Content="−8" Margin="0,0,3,0"
+                                          IsChecked="{Binding Session.HasBar8, Mode=OneWay}"
+                                          Command="{Binding Session.ToggleCountdownBarCommand}"
+                                          ToolTip.Tip="Toggle a countdown cue 8 bars before each drop">
+                                <ToggleButton.CommandParameter><x:Int32>8</x:Int32></ToggleButton.CommandParameter>
+                            </ToggleButton>
+                            <ToggleButton Classes="chip small" Content="−4" Margin="0,0,8,0"
+                                          IsChecked="{Binding Session.HasBar4, Mode=OneWay}"
+                                          Command="{Binding Session.ToggleCountdownBarCommand}"
+                                          ToolTip.Tip="Toggle a countdown cue 4 bars before each drop">
+                                <ToggleButton.CommandParameter><x:Int32>4</x:Int32></ToggleButton.CommandParameter>
+                            </ToggleButton>
+                            <TextBox Classes="small" Width="116" Margin="0,0,8,0"
+                                     Text="{Binding Session.CustomCountdownBars}"
+                                     IsVisible="{Binding Session.IsCustomTemplate}"
+                                     Watermark="e.g. 32,16,8"
+                                     ToolTip.Tip="Or type any custom bar offsets before each drop (comma-separated)."/>
+                            <CheckBox Margin="0,0,10,0" VerticalAlignment="Center"
+                                      IsChecked="{Binding Session.CountdownsAsMemoryCues}"
+                                      Content="Memory cues"
+                                      ToolTip.Tip="Place drop countdowns as memory cues so hot-cue pads stay free; drops stay on pads C and F."/>
+                            <Border Classes="divider vertical" Height="18" Margin="2,0,10,0"/>
+                            <TextBlock Classes="section" Text="AUTO-CUE" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <ComboBox Classes="small" MinWidth="126" Margin="0,0,6,0"
+                                      ItemsSource="{Binding AvailableCueGenerationProfiles}"
+                                      SelectedItem="{Binding SelectedCueGenerationProfile}"
+                                      ToolTip.Tip="Auto-cue detection profile (sticky across tracks).">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="cueing:CueGenerationProfile">
+                                        <TextBlock Text="{Binding Name}"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <Button Classes="secondary small" Margin="0,0,4,0"
+                                    Command="{Binding AutoGenerateCuesCommand}"
+                                    ToolTip.Tip="Auto-generate cues with the selected profile and drop bar rules. Your own cues are kept; Ctrl+Z undoes.">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <PathIcon Data="{StaticResource sparkles_regular}" Width="12" Height="12"/>
+                                    <TextBlock Text="Generate" IsVisible="{Binding !IsGenerating}"/>
+                                    <TextBlock Text="Generating…" IsVisible="{Binding IsGenerating}"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Classes="ghost small" Content="Clear"
+                                    Command="{Binding ClearCuesCommand}"
+                                    ToolTip.Tip="Clear all cues and reset the waveform view (Ctrl+Z undoes)."/>
+                        </WrapPanel>
+                        <TextBlock Classes="caption muted" Text="{Binding Session.DropRulesSummary}" Margin="0,0,0,0"/>
+                    </StackPanel>
                 </Border>
 
                 <Border Padding="12,6" Classes="inset" IsVisible="{Binding IsGridModeOpen}">

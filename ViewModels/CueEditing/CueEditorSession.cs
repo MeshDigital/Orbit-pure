@@ -125,6 +125,11 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         SetDropAtPlayheadCommand = ReactiveCommand.Create(() => SetDropAt(_audition.PositionSeconds, null), canAct);
         SetNumberedDropAtPlayheadCommand = ReactiveCommand.Create<int>(n => SetDropAt(_audition.PositionSeconds, n), canAct);
         SetDropAtCommand = ReactiveCommand.Create<double>(t => SetDropAt(t, null), canAct);
+        ToggleCountdownBarCommand = ReactiveCommand.Create<object>(param =>
+        {
+            if (param is int i) ToggleCountdownBar(i);
+            else if (int.TryParse(param?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int bars)) ToggleCountdownBar(bars);
+        });
 
         // Section markers: Intro end / Outro (see SectionMarkers).
         SetIntroEndAtPlayheadCommand = ReactiveCommand.Create(() => { SetSectionMarker(CueRole.IntroEnd, _audition.PositionSeconds); }, canAct);
@@ -271,6 +276,12 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(GridOffset));
         this.RaisePropertyChanged(nameof(Duration));
         this.RaisePropertyChanged(nameof(TemplateHint));
+        this.RaisePropertyChanged(nameof(HasBar64));
+        this.RaisePropertyChanged(nameof(HasBar32));
+        this.RaisePropertyChanged(nameof(HasBar16));
+        this.RaisePropertyChanged(nameof(HasBar8));
+        this.RaisePropertyChanged(nameof(HasBar4));
+        this.RaisePropertyChanged(nameof(DropRulesSummary));
         this.RaisePropertyChanged(nameof(SelectedCuePositionDisplay));
         RefreshSections();
     }
@@ -663,6 +674,53 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
 
     private IReadOnlyList<int> CountdownBars => _registry.Templates.ResolveBars(_genre, Bpm);
 
+    /// <summary>True when the active drop-countdown template includes this bar offset before a drop.</summary>
+    public bool HasBar64 => CountdownBars.Contains(64);
+    public bool HasBar32 => CountdownBars.Contains(32);
+    public bool HasBar16 => CountdownBars.Contains(16);
+    public bool HasBar8 => CountdownBars.Contains(8);
+    public bool HasBar4 => CountdownBars.Contains(4);
+
+    /// <summary>Plain-English preview of what pressing D (Drop) places with the active template.</summary>
+    public string DropRulesSummary
+    {
+        get
+        {
+            var bars = CountdownBars;
+            string where = CountdownsAsMemoryCues ? "memory" : "pads";
+            if (bars.Count == 0) return "On D: [DROP] only";
+            return $"On D: {string.Join(" ", bars.Select(b => $"−{b}"))} ({where}) → [DROP]";
+        }
+    }
+
+    public ReactiveCommand<object, Unit> ToggleCountdownBarCommand { get; }
+
+    private void ToggleCountdownBar(int bar)
+    {
+        if (bar is <= 0 or > 128) return;
+        var current = CountdownBars.ToHashSet();
+        if (!current.Add(bar)) current.Remove(bar);
+
+        if (current.Count == 0)
+        {
+            _registry.Templates.SetMode(DropCountdownCues.Off);
+        }
+        else
+        {
+            var sorted = string.Join(",", current.OrderByDescending(x => x));
+            _registry.Templates.SetCustomBars(sorted);
+            _registry.Templates.SetMode(DropCountdownCues.Custom);
+        }
+
+        // If the open track already has drops, refresh their countdowns live (undoable).
+        if (TrackHash != null && Cues.Any(c => !c.IsLoop && c.Role == CueRole.Drop))
+        {
+            PushSnapshot();
+            ReplaceCues(DropCountdownCues.Refresh(Cues, CountdownBars, Bpm, GridOffset, Duration, OutBefore(), MemoryCountdowns));
+            Changed($"Updated drop countdowns ({DropRulesSummary})");
+        }
+    }
+
     internal void OnTemplateChanged()
     {
         this.RaisePropertyChanged(nameof(DropCountdownMode));
@@ -670,6 +728,12 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(IsCustomTemplate));
         this.RaisePropertyChanged(nameof(CountdownsAsMemoryCues));
         this.RaisePropertyChanged(nameof(TemplateHint));
+        this.RaisePropertyChanged(nameof(HasBar64));
+        this.RaisePropertyChanged(nameof(HasBar32));
+        this.RaisePropertyChanged(nameof(HasBar16));
+        this.RaisePropertyChanged(nameof(HasBar8));
+        this.RaisePropertyChanged(nameof(HasBar4));
+        this.RaisePropertyChanged(nameof(DropRulesSummary));
     }
 
     // ── Commands ───────────────────────────────────────────────────────────
