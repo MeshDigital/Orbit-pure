@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Auto-mix benchmark (#599, epic #596). Scores the transitions real playback would play for every
+    consecutive pair in your playlists, from a COPY of the library database.
+    Not part of the app build (Tests\** is excluded from SLSKDONET.csproj) or the unit test run.
+    Usage: see README.md next to this file.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\SLSKDONET.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -326,7 +326,12 @@ public static class TransitionPlanner
         double source, double target, int bars, double bar, string reason)
     {
         source = SnapToGrid(source, out_.FirstDownbeat, bar);
-        target = Math.Max(0, SnapToGrid(target, in_.FirstDownbeat, BarSeconds(in_.Bpm)));
+        // The first bar line at or after 0, never a clamp to 0: an Intro cue at 0:00 on a track whose
+        // first downbeat is at 2.41 s snaps to the bar line at -0.35 s, and clamping that to 0 entered
+        // the incoming track half a beat off its grid (MixBenchmark #599: 340–390 ms flams).
+        double inBar = BarSeconds(in_.Bpm);
+        target = SnapToGrid(target, in_.FirstDownbeat, inBar);
+        if (target < 0) target += Math.Ceiling(-target / inBar - 1e-9) * inBar;
         // A shared mix cue is an explicit DJ decision, not another structural hint. It wins over
         // the planner's estimate while the pair-specific saved transition can still override it.
         if (out_.MixOutMarker is { } mixOut)

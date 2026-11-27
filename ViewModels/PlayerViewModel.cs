@@ -47,8 +47,6 @@ namespace SLSKDONET.ViewModels
         private readonly AppConfig? _config;
         private readonly ConfigManager? _configManager;
         private readonly SLSKDONET.Services.Repositories.ITransitionRepository? _transitionRepository;
-        private readonly SLSKDONET.Services.Repositories.ITrackRepository? _trackRepository;
-        private readonly ICuePointService? _cuePointService;
         private readonly IDialogService? _dialogService;
         private readonly SLSKDONET.Services.AnalysisQueueService? _analysisQueueService;
         // Singletons — stopped whenever real queue/playlist playback starts (see LoadTrackCore),
@@ -58,7 +56,6 @@ namespace SLSKDONET.ViewModels
         // they'd just audibly mix together, which is the actual problem this prevents.
         private readonly SLSKDONET.Services.Audio.ILibraryPreviewPlayer? _libraryPreviewPlayer;
         private readonly SLSKDONET.Services.Audio.ITransitionPreviewPlayer? _transitionPreviewPlayer;
-        private static readonly SLSKDONET.Engine.Transitions.TransitionEngine _pointSuggestionEngine = new();
 
         /// <summary>The same singleton instance the CONTEXT sidepanel's "Mix" tab uses (see
         /// SidebarViewModel) — shared so loading a pair here and loading one via a badge click
@@ -962,7 +959,7 @@ namespace SLSKDONET.ViewModels
             return true;
         }
 
-        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IRightPanelService rightPanelService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null, AppConfig? config = null, ConfigManager? configManager = null, SLSKDONET.Services.Repositories.ITransitionRepository? transitionRepository = null, MixTransitionViewModel? mixTransitionViewModel = null, SLSKDONET.Services.Repositories.ITrackRepository? trackRepository = null, ICuePointService? cuePointService = null, IDialogService? dialogService = null, SLSKDONET.Services.AnalysisQueueService? analysisQueueService = null, SLSKDONET.Services.Audio.ILibraryPreviewPlayer? libraryPreviewPlayer = null, SLSKDONET.Services.Audio.ITransitionPreviewPlayer? transitionPreviewPlayer = null, SLSKDONET.Services.Transitions.TransitionPlanService? transitionPlanService = null, SLSKDONET.Services.Transitions.ITransitionResolver? transitionResolver = null, SLSKDONET.Services.Transitions.ITransitionPlayLogService? transitionPlayLog = null, INotificationService? notificationService = null)
+        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IRightPanelService rightPanelService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null, AppConfig? config = null, ConfigManager? configManager = null, SLSKDONET.Services.Repositories.ITransitionRepository? transitionRepository = null, MixTransitionViewModel? mixTransitionViewModel = null, IDialogService? dialogService = null, SLSKDONET.Services.AnalysisQueueService? analysisQueueService = null, SLSKDONET.Services.Audio.ILibraryPreviewPlayer? libraryPreviewPlayer = null, SLSKDONET.Services.Audio.ITransitionPreviewPlayer? transitionPreviewPlayer = null, SLSKDONET.Services.Transitions.TransitionPlanService? transitionPlanService = null, SLSKDONET.Services.Transitions.ITransitionResolver? transitionResolver = null, SLSKDONET.Services.Transitions.ITransitionPlayLogService? transitionPlayLog = null, INotificationService? notificationService = null)
         {
             _transitionPlayLog = transitionPlayLog;
             _notificationService = notificationService;
@@ -978,8 +975,6 @@ namespace SLSKDONET.ViewModels
             _configManager = configManager;
             _transitionRepository = transitionRepository;
             MixTransitionVm = mixTransitionViewModel;
-            _trackRepository = trackRepository;
-            _cuePointService = cuePointService;
             _transitionPlanService = transitionPlanService;
             _transitionResolver = transitionResolver;
             _dialogService = dialogService;
