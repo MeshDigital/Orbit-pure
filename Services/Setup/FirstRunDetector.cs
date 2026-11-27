@@ -56,7 +56,8 @@ public static class FirstRunDetector
     // 16 = Focus & Optimisation (Epic #517): unified transition store, Prep for Mix on playlists,
     // visible Auto-Mix + Technique dropdown, regrouped sidebar, and Labs toggle (Sets/Workstation/Edit Lab).
     // 18 = Epic #543 Search & quality truth pass (placebo controls removed, shared version gate, Unicode-safe matching).
-    public const int CurrentSetupVersion = 18;
+    // 19 = Epics #561 (Genre view), #550 (Library polish), and #551 (DJ ecosystem exports).
+    public const int CurrentSetupVersion = 19;
 
     /// <param name="fallbackDownloadDirectory">
     /// The folder ORBIT fills in when config.ini has none (<see cref="Configuration.AppConfig.FallbackDownloadDirectory"/>).
