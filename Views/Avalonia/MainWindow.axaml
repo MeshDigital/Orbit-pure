@@ -434,6 +434,15 @@
                                         <TextBlock Text="Cue Forge" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
+
+                                <Button x:Name="NavAnalysis" Classes="nav" Command="{Binding NavigateAnalysisCommand}"
+                                        ToolTip.Tip="Analysis Pipeline — Track analysis queue, integrity scan, and coverage"
+                                        Classes.selected="{Binding IsAnalysisOverlayActive}">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_brain}"/>
+                                        <TextBlock Text="Analysis" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
                             </StackPanel>
                         </StackPanel>
 

@@ -20,12 +20,12 @@ public class AnalysisAndRightSidebarGuardTests
     }
 
     [Fact]
-    public void Analysis_LeftSidebarEntryRemoved_ReachableViaTopBarPillAndLibrary()
+    public void Analysis_InLeftSidebar_AndReachableViaTopBarPillAndLibrary()
     {
         var mainWindow = ReadRepoFile("Views/Avalonia/MainWindow.axaml");
         var libraryPage = ReadRepoFile("Views/Avalonia/LibraryPage.axaml");
 
-        Assert.DoesNotContain("x:Name=\"NavAnalysis\"", mainWindow, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"NavAnalysis\"", mainWindow, StringComparison.Ordinal);
         Assert.Contains("Command=\"{Binding NavigateAnalysisCommand}\"", mainWindow, StringComparison.Ordinal);
         Assert.Contains("NavigateAnalysisCommand", libraryPage, StringComparison.Ordinal);
     }
