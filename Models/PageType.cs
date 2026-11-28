@@ -20,5 +20,6 @@ public enum PageType
     Users,
     FlowBuilder,
     Sets,
-    Intake
+    Intake,
+    Vault
 }

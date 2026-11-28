@@ -503,6 +503,8 @@ public partial class App
         services.AddSingleton<ViewModels.AnalysisPageViewModel>();
         services.AddTransient<Views.Avalonia.IntakePage>();
         services.AddSingleton<ViewModels.Intake.IntakeViewModel>();
+        services.AddTransient<Views.Avalonia.VaultPage>();
+        services.AddSingleton<ViewModels.Vault.VaultViewModel>();
         services.AddTransient<Views.Avalonia.EditLabPage>();
         services.AddTransient<Views.Avalonia.WorkstationPage>();
         services.AddTransient<Views.Avalonia.UsersPage>();
@@ -620,6 +622,9 @@ public partial class App
             () => sp.GetService<DownloadManager>(),
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Intake.IntakeLibraryWriter>>()));
         services.AddSingleton<Services.Intake.IntakeApplyService>();
+        // Vault (#632): back the library up to a drive the user owns.
+        services.AddSingleton<Services.Vault.VaultLocalState>();
+        services.AddSingleton<Services.Vault.VaultService>();
         // Exact-duplicate review (#238): merge via DuplicateTrackCleanupService, opt-in Recycle Bin.
         services.AddSingleton<Services.Library.Maintenance.IFileRecycler, Services.Library.Maintenance.ShellFileRecycler>();
         services.AddSingleton<Services.Library.Maintenance.ExactDuplicateResolver>();

@@ -277,6 +277,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateImportCommand = new RelayCommand(NavigateToImport); // Phase 6D
         NavigateAnalysisCommand = new RelayCommand(NavigateToAnalysis);
         NavigateIntakeCommand = new RelayCommand(() => _navigationService.NavigateTo("Intake"));
+        NavigateVaultCommand = new RelayCommand(() => _navigationService.NavigateTo("Vault"));
         NavigateWorkstationCommand = new RelayCommand(NavigateToWorkstation);
         NavigateDecksCommand = new RelayCommand(NavigateToDecks);
         NavigateTimelineCommand = new RelayCommand(NavigateToTimeline);
@@ -495,6 +496,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.RegisterPage("ImportPreview", typeof(Avalonia.ImportPreviewPage));
         _navigationService.RegisterPage("Analysis", typeof(Avalonia.AnalysisPage));
         _navigationService.RegisterPage("Intake", typeof(Avalonia.IntakePage));
+        _navigationService.RegisterPage("Vault", typeof(Avalonia.VaultPage));
         _navigationService.RegisterPage("NowPlaying", typeof(Avalonia.NowPlayingPage));
         _navigationService.RegisterPage("Workstation", typeof(Avalonia.WorkstationPage));
         _navigationService.RegisterPage("EditLab", typeof(Avalonia.EditLabPage));
@@ -1145,6 +1147,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsLibraryOverlayActive => CurrentPageType == PageType.Library;
     public bool IsAnalysisOverlayActive => CurrentPageType == PageType.Analysis;
     public bool IsIntakeOverlayActive => CurrentPageType == PageType.Intake;
+    public bool IsVaultOverlayActive => CurrentPageType == PageType.Vault;
     public bool IsPlayerOverlayActive => CurrentPageType == PageType.NowPlaying;
     public bool IsSettingsOverlayActive => CurrentPageType == PageType.Settings;
     public bool IsWorkstationOverlayActive => IsCreativeOverlayPage(CurrentPageType);
@@ -1168,6 +1171,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         nameof(IsLibraryOverlayActive),
         nameof(IsAnalysisOverlayActive),
         nameof(IsIntakeOverlayActive),
+        nameof(IsVaultOverlayActive),
         nameof(IsPlayerOverlayActive),
         nameof(IsSettingsOverlayActive),
         nameof(IsWorkstationOverlayActive),
@@ -1193,6 +1197,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         if (typeof(Avalonia.ImportPage).IsAssignableFrom(pageType) || typeof(Avalonia.ImportPreviewPage).IsAssignableFrom(pageType)) return PageType.Import;
         if (typeof(Avalonia.AnalysisPage).IsAssignableFrom(pageType)) return PageType.Analysis;
         if (typeof(Avalonia.IntakePage).IsAssignableFrom(pageType)) return PageType.Intake;
+        if (typeof(Avalonia.VaultPage).IsAssignableFrom(pageType)) return PageType.Vault;
         if (typeof(Avalonia.NowPlayingPage).IsAssignableFrom(pageType)) return PageType.NowPlaying;
         if (typeof(Avalonia.SettingsPage).IsAssignableFrom(pageType)) return PageType.Settings;
         if (typeof(Avalonia.WorkstationPage).IsAssignableFrom(pageType)) return PageType.Workstation;
@@ -1275,7 +1280,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     }
 
     public static bool IsAcquireOverlayPage(PageType pageType) => pageType is PageType.Search or PageType.Projects or PageType.Import;
-    public static bool IsSystemOverlayPage(PageType pageType) => pageType is PageType.Home or PageType.Library or PageType.Analysis or PageType.Intake or PageType.NowPlaying or PageType.Settings;
+    public static bool IsSystemOverlayPage(PageType pageType) => pageType is PageType.Home or PageType.Library or PageType.Analysis or PageType.Intake or PageType.Vault or PageType.NowPlaying or PageType.Settings;
     public static bool IsCreativeOverlayPage(PageType pageType) => pageType is PageType.Workstation or PageType.Decks or PageType.Timeline;
 
     private void EnsureNavigationGroupExpanded(PageType pageType)
@@ -1413,6 +1418,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateImportCommand { get; } // Phase 6D
     public ICommand NavigateAnalysisCommand { get; }
     public ICommand NavigateIntakeCommand { get; }
+    public ICommand NavigateVaultCommand { get; }
     public ICommand NavigateWorkstationCommand { get; }
     public ICommand NavigateDecksCommand { get; }
     public ICommand NavigateTimelineCommand { get; }
@@ -1482,6 +1488,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
             PageType.Import => "Import",
             PageType.Analysis => "Analysis",
             PageType.Intake => "Intake",
+            PageType.Vault => "Backup",
             PageType.Workstation => "Workstation",
             PageType.EditLab => "Edit Lab",
             PageType.Users => "Users",
