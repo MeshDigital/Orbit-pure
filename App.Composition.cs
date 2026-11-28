@@ -501,6 +501,8 @@ public partial class App
         services.AddTransient<Views.Avalonia.ImportPreviewPage>();
         services.AddTransient<Views.Avalonia.AnalysisPage>();
         services.AddSingleton<ViewModels.AnalysisPageViewModel>();
+        services.AddTransient<Views.Avalonia.IntakePage>();
+        services.AddSingleton<ViewModels.Intake.IntakeViewModel>();
         services.AddTransient<Views.Avalonia.EditLabPage>();
         services.AddTransient<Views.Avalonia.WorkstationPage>();
         services.AddTransient<Views.Avalonia.UsersPage>();
