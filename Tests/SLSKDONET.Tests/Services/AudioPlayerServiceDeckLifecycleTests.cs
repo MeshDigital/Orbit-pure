@@ -154,6 +154,51 @@ public class AudioPlayerServiceDeckLifecycleTests : IDisposable
     }
 
     [Fact]
+    public void SessionRunsAtDeviceNativeRate_DoesNotRestartDeviceAcrossDifferentTrackSampleRates()
+    {
+        using var sut = NewService(stopRaisesEventSynchronously: true);
+        sut.PreferredSampleRateOverride = () => 48000;
+
+        var wav48a = NewWav(seconds: 1.0, sampleRate: 48000);
+        var wav44 = NewWav(seconds: 1.0, sampleRate: 44100);
+        var wav48b = NewWav(seconds: 1.0, sampleRate: 48000);
+
+        sut.Play(wav48a);
+        Assert.Single(_outputs);
+        Assert.Equal(48000, _outputs[0].Source!.WaveFormat.SampleRate);
+
+        // Switching to a 44.1 kHz track and back to 48 kHz MUST NOT restart the audio device.
+        sut.Play(wav44);
+        Assert.Single(_outputs);
+        Assert.Equal(48000, _outputs[0].Source!.WaveFormat.SampleRate);
+
+        sut.PreloadNext(wav48b);
+        Assert.Single(_outputs);
+        Assert.Equal(48000, _outputs[0].Source!.WaveFormat.SampleRate);
+    }
+
+    [Fact]
+    public void ApplyOutputSettings_RestartsDeviceAndUpdatesBusRate_WhenDeviceChangesInSettings()
+    {
+        using var sut = NewService(stopRaisesEventSynchronously: true);
+        int currentRate = 48000;
+        sut.PreferredSampleRateOverride = () => currentRate;
+
+        sut.Play(NewWav(seconds: 2.0, sampleRate: 48000));
+        Assert.Single(_outputs);
+        Assert.Equal(48000, _outputs[0].Source!.WaveFormat.SampleRate);
+
+        // User changes output device in Settings to a 44.1 kHz device.
+        currentRate = 44100;
+        sut.ApplyOutputSettings();
+
+        Assert.Equal(2, _outputs.Count);
+        Assert.False(_outputs[0].IsPlaying);
+        Assert.True(_outputs[1].IsPlaying);
+        Assert.Equal(44100, _outputs[1].Source!.WaveFormat.SampleRate);
+    }
+
+    [Fact]
     public void Stop_AlsoStopsADeckThatLostItsReference()
     {
         using var sut = NewService(stopRaisesEventSynchronously: true);
@@ -184,12 +229,12 @@ public class AudioPlayerServiceDeckLifecycleTests : IDisposable
         return sut;
     }
 
-    private string NewWav(double seconds = 4.0, float amplitude = 0f)
+    private string NewWav(double seconds = 4.0, float amplitude = 0f, int sampleRate = 8000)
     {
         var path = Path.Combine(Path.GetTempPath(), $"orbit-deck-{Guid.NewGuid():N}.wav");
-        using (var writer = new WaveFileWriter(path, WaveFormat.CreateIeeeFloatWaveFormat(8000, 1)))
+        using (var writer = new WaveFileWriter(path, WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1)))
         {
-            int samples = (int)Math.Round(8000 * seconds);
+            int samples = (int)Math.Round(sampleRate * seconds);
             for (int i = 0; i < samples; i++) writer.WriteSample(amplitude);
         }
         _files.Add(path);
