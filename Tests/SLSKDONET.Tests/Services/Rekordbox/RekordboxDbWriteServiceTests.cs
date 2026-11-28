@@ -305,6 +305,138 @@ public sealed class RekordboxDbWriteServiceTests : IDisposable
         Assert.Equal(2L, Scalar(verify, "SELECT TrackNo FROM djmdSongPlaylist WHERE PlaylistID = 'pl-1' AND ContentID = '200'"));
     }
 
+    private string WriteSampleMasterPlaylistsXml(string extraNodes = "")
+    {
+        string xmlPath = Path.Combine(_dir, RekordboxMasterPlaylistsXml.FileName);
+        string content =
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n" +
+            "<MASTER_PLAYLIST Version=\"3.0.0\" AutomaticSync=\"0\">\r\n" +
+            "  <PRODUCT Name=\"rekordbox\" Version=\"6.7.4\" Company=\"Pioneer DJ\"/>\r\n" +
+            "  <PLAYLISTS>\r\n" +
+            "    <NODE Id=\"9ECD5FD1\" ParentId=\"0\" Attribute=\"1\" Timestamp=\"1781912504345\" Lib_Type=\"0\" CheckType=\"0\"/>\r\n" +
+            extraNodes +
+            "  </PLAYLISTS>\r\n" +
+            "</MASTER_PLAYLIST>\r\n";
+        File.WriteAllText(xmlPath, content, new System.Text.UTF8Encoding(false));
+        return xmlPath;
+    }
+
+    [Fact]
+    public async Task Write_CreatingPlaylist_SyncsMasterPlaylistsXml_AndPreservesExistingNodes()
+    {
+        string xmlPath = WriteSampleMasterPlaylistsXml();
+        var playlist = new RekordboxPlannedPlaylist("Neuro the funk up", new[] { TrackA, TrackB });
+
+        var report = await _writer.WriteAsync(Plan(TrackA), RekordboxWriteMode.FillEmpty, playlist: playlist);
+
+        Assert.True(report.Success, report.Message);
+        Assert.True(report.MasterPlaylistsXmlUpdated);
+        Assert.NotNull(report.PlaylistId);
+        string expectedHex = RekordboxMasterPlaylistsXml.DecimalIdToHex(report.PlaylistId);
+
+        string raw = File.ReadAllText(xmlPath);
+        Assert.StartsWith("<?xml version=\"1.0\" encoding=\"utf-8\"?>", raw, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Id=\"9ECD5FD1\"", raw);
+
+        var doc = System.Xml.Linq.XDocument.Load(xmlPath);
+        var nodes = doc.Root!.Element("PLAYLISTS")!.Elements("NODE").ToList();
+        Assert.Equal(2, nodes.Count);
+        var added = nodes.Single(n => (string?)n.Attribute("Id") == expectedHex);
+        Assert.Equal("0", (string?)added.Attribute("ParentId"));
+        Assert.Equal("0", (string?)added.Attribute("Attribute"));
+        Assert.Equal("0", (string?)added.Attribute("Lib_Type"));
+        Assert.Equal("0", (string?)added.Attribute("CheckType"));
+        Assert.True(long.TryParse((string?)added.Attribute("Timestamp"), out long ts) && ts > 0);
+    }
+
+    [Fact]
+    public async Task Write_UpdatingExistingPlaylist_UpdatesTimestampInMasterPlaylistsXml_KeepingParentFolder()
+    {
+        // Decimal 1085223 = hex 108F27; parent folder 2664259537 = hex 9ECD5FD1
+        string xmlPath = WriteSampleMasterPlaylistsXml(
+            "    <NODE Id=\"108F27\" ParentId=\"9ECD5FD1\" Attribute=\"0\" Timestamp=\"1000000000000\" Lib_Type=\"0\" CheckType=\"0\"/>\r\n");
+
+        using (var c = Open())
+        using (var cmd = c.CreateCommand())
+        {
+            cmd.CommandText = """
+                INSERT INTO djmdPlaylist (ID, Seq, Name, Attribute, ParentID, UUID, created_at, updated_at)
+                    VALUES ('1085223', 1, 'Neuro the funk up', 0, '2664259537', 'uuid-pl2', '2025-01-01', '2025-01-01');
+                INSERT INTO djmdSongPlaylist (ID, PlaylistID, ContentID, TrackNo, UUID, created_at, updated_at)
+                    VALUES ('sp-1', '1085223', '100', 1, 'uuid-sp1', '2025-01-01', '2025-01-01');
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        var playlist = new RekordboxPlannedPlaylist("Neuro the funk up", new[] { TrackA, TrackB });
+        var report = await _writer.WriteAsync(Plan(TrackA), RekordboxWriteMode.FillEmpty, playlist: playlist);
+
+        Assert.True(report.Success, report.Message);
+        Assert.True(report.MasterPlaylistsXmlUpdated);
+
+        var doc = System.Xml.Linq.XDocument.Load(xmlPath);
+        var nodes = doc.Root!.Element("PLAYLISTS")!.Elements("NODE").ToList();
+        Assert.Equal(2, nodes.Count);
+        var updated = nodes.Single(n => (string?)n.Attribute("Id") == "108F27");
+        Assert.Equal("9ECD5FD1", (string?)updated.Attribute("ParentId")); // folder parent preserved
+        Assert.True(long.Parse((string)updated.Attribute("Timestamp")!) > 1000000000000L);
+    }
+
+    [Fact]
+    public async Task Preview_ReportsMasterPlaylistsXmlUpdate_WithoutModifyingFile()
+    {
+        string xmlPath = WriteSampleMasterPlaylistsXml();
+        string beforeXml = File.ReadAllText(xmlPath);
+        var playlist = new RekordboxPlannedPlaylist("Neuro the funk up", new[] { TrackA, TrackB });
+
+        var preview = await _writer.PreviewAsync(Plan(TrackA), RekordboxWriteMode.FillEmpty, playlist: playlist);
+
+        Assert.True(preview.Success, preview.Message);
+        Assert.Contains("masterPlaylists6.xml", preview.Message);
+        Assert.Equal(beforeXml, File.ReadAllText(xmlPath));
+    }
+
+    [Fact]
+    public async Task Write_MalformedMasterPlaylistsXml_ReturnsWarningWithBackupFolder_NotSilentSuccess()
+    {
+        string xmlPath = Path.Combine(_dir, RekordboxMasterPlaylistsXml.FileName);
+        File.WriteAllText(xmlPath, "<BROKEN XML");
+        var playlist = new RekordboxPlannedPlaylist("Neuro the funk up", new[] { TrackA });
+
+        var report = await _writer.WriteAsync(Plan(TrackA), RekordboxWriteMode.FillEmpty, playlist: playlist);
+
+        Assert.False(report.Success);
+        Assert.Contains("masterPlaylists6.xml", report.Message);
+        Assert.Contains(report.BackupFolder!, report.Message);
+    }
+
+    [Fact]
+    public async Task BackupAndRestore_RoundTripsMasterPlaylistsXml_AndHandlesOlderBackupsWithoutXml()
+    {
+        string xmlPath = WriteSampleMasterPlaylistsXml();
+        string beforeXml = File.ReadAllText(xmlPath);
+        string beforeDb = Hash(_db);
+
+        var playlist = new RekordboxPlannedPlaylist("Neuro the funk up", new[] { TrackA });
+        var report = await _writer.WriteAsync(Plan(TrackA), RekordboxWriteMode.FillEmpty, playlist: playlist);
+        Assert.True(report.Success, report.Message);
+        Assert.True(File.Exists(Path.Combine(report.BackupFolder!, RekordboxMasterPlaylistsXml.FileName)));
+        Assert.NotEqual(beforeXml, File.ReadAllText(xmlPath));
+
+        // Restore brings back both master.db and masterPlaylists6.xml.
+        var backup = _writer.ListBackups().First(b => b.Folder == report.BackupFolder);
+        var (ok, msg) = await _writer.RestoreAsync(backup);
+        Assert.True(ok, msg);
+        Assert.Equal(beforeDb, Hash(_db));
+        Assert.Equal(beforeXml, File.ReadAllText(xmlPath));
+
+        // Simulate an older backup that didn't include masterPlaylists6.xml: restores DB and notes XML wasn't included.
+        File.Delete(Path.Combine(backup.Folder, RekordboxMasterPlaylistsXml.FileName));
+        var (okOld, msgOld) = await _writer.RestoreAsync(backup);
+        Assert.True(okOld, msgOld);
+        Assert.Contains("masterPlaylists6.xml", msgOld);
+    }
+
     // ─── fixture ────────────────────────────────────────────────────────────
 
     private SqliteConnection Open()
