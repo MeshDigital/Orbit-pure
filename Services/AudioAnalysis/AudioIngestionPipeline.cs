@@ -325,7 +325,7 @@ public sealed class AudioIngestionPipeline
             else if (samples.WaveFormat.Channels != TargetChannels)
                 throw new NotSupportedException($"{samples.WaveFormat.Channels}-channel audio needs FFmpeg");
             if (samples.WaveFormat.SampleRate != TargetSampleRate)
-                samples = new NAudio.Wave.SampleProviders.WdlResamplingSampleProvider(samples, TargetSampleRate);
+                samples = SLSKDONET.Services.Audio.OffsetSafeResampler.Create(samples, TargetSampleRate);
 
             NAudio.Wave.WaveFileWriter.CreateWaveFile(tempFile, new NAudio.Wave.SampleProviders.SampleToWaveProvider(samples));
             if (!File.Exists(tempFile) || new FileInfo(tempFile).Length <= 44)

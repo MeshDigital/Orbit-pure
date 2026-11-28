@@ -97,7 +97,7 @@ internal sealed class RateSampleProvider : ISampleProvider, IDisposable
 
         // Normalise to 44100 Hz
         if (src.WaveFormat.SampleRate != 44100)
-            src = new WdlResamplingSampleProvider(src, 44100);
+            src = SLSKDONET.Services.Audio.OffsetSafeResampler.Create(src, 44100);
 
         _source = src;
     }

@@ -312,7 +312,7 @@ namespace SLSKDONET.Services.Audio
             if (playbackRate is not > 0 || double.IsNaN(playbackRate) || double.IsInfinity(playbackRate) || Math.Abs(playbackRate - 1.0) < 0.000001)
                 return source;
             int resampledRate = (int)Math.Clamp(Math.Round(source.WaveFormat.SampleRate / playbackRate), 1000, 384000);
-            var resampled = new NAudio.Wave.SampleProviders.WdlResamplingSampleProvider(source, resampledRate);
+            var resampled = SLSKDONET.Services.Audio.OffsetSafeResampler.Create(source, resampledRate);
             return new OriginalFormatSampleProvider(resampled, source.WaveFormat);
         }
 
@@ -334,7 +334,7 @@ namespace SLSKDONET.Services.Audio
 
             if (result.WaveFormat.SampleRate != target.SampleRate)
             {
-                result = new NAudio.Wave.SampleProviders.WdlResamplingSampleProvider(result, target.SampleRate);
+                result = SLSKDONET.Services.Audio.OffsetSafeResampler.Create(result, target.SampleRate);
             }
 
             if (result.WaveFormat.Channels != target.Channels)

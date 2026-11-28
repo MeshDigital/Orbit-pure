@@ -146,7 +146,7 @@ internal sealed class AutoMixBusSampleProvider : ISampleProvider
         if (adapted.WaveFormat.Channels == 1)
             adapted = new MonoToStereoSampleProvider(adapted);
         if (adapted.WaveFormat.SampleRate != WaveFormat.SampleRate)
-            adapted = new WdlResamplingSampleProvider(adapted, WaveFormat.SampleRate);
+            adapted = OffsetSafeResampler.Create(adapted, WaveFormat.SampleRate);
         return adapted;
     }
 
