@@ -604,6 +604,9 @@ public partial class App
             duplicatesFactory: () => sp.GetRequiredService<ViewModels.Maintenance.ExactDuplicatesViewModel>()));
         services.AddSingleton<Services.Library.AudioContentHasher>();
         services.AddSingleton<Services.Library.Maintenance.LibraryContentHashBackfillService>();
+        // Intake (#632): check music from a drive or folder before any of it joins the library.
+        services.AddSingleton<Services.Intake.IIntakeFileInspector, Services.Intake.IntakeFileInspector>();
+        services.AddSingleton<Services.Intake.IntakeScanService>();
         // Exact-duplicate review (#238): merge via DuplicateTrackCleanupService, opt-in Recycle Bin.
         services.AddSingleton<Services.Library.Maintenance.IFileRecycler, Services.Library.Maintenance.ShellFileRecycler>();
         services.AddSingleton<Services.Library.Maintenance.ExactDuplicateResolver>();
