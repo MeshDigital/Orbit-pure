@@ -79,6 +79,24 @@ public sealed class VaultService
         var index = await LoadIndexAsync(vaultRoot, ct).ConfigureAwait(false);
         var byKey = index.ToDictionary(e => Key(e.RootId, e.RelativePath), StringComparer.OrdinalIgnoreCase);
 
+        // Refuse up front rather than fill the drive halfway (the snapshot above is small and kept).
+        long toCopy = 0;
+        foreach (var t in tracks)
+        {
+            if (!File.Exists(t.FilePath)) continue;
+            var (r, rel) = AssignRoot(manifest, device.Id, folders, t.FilePath);
+            long len = new FileInfo(t.FilePath).Length;
+            if (!(byKey.TryGetValue(Key(r.Id, rel), out var k) && k.Size == len
+                  && string.Equals(k.ContentHash ?? "", t.ContentHash ?? "", StringComparison.Ordinal)))
+                toCopy += len;
+        }
+        if (FreeBytes(vaultRoot) is long free && toCopy > free)
+        {
+            await SaveProgressAsync(vaultRoot, manifest, byKey.Values, ct).ConfigureAwait(false);
+            throw new IOException($"The backup drive is too small: this backup needs {SLSKDONET.Utils.NumFormat.Size(toCopy)} more, "
+                + $"{SLSKDONET.Utils.NumFormat.Size(free)} is free. The library database was backed up; the music wasn't.");
+        }
+
         int copied = 0, unchanged = 0, missing = 0, failed = 0, done = 0;
         long bytes = 0;
         var copiedThisRun = new List<VaultFileEntry>();
@@ -162,6 +180,47 @@ public sealed class VaultService
         var result = new VaultBackupResult(copied, unchanged, missing, failed, bytes, verified, mismatches, snapshotTracks, snapshotCheck);
         _logger.LogInformation("Vault backup to {Vault}: {Summary}", vaultRoot, result.Summary);
         return result;
+    }
+
+    /// <summary>
+    /// What the next backup would copy (files new or changed since the last one) and the free space
+    /// on the Vault's drive. Reads file sizes only; nothing is hashed or copied.
+    /// </summary>
+    public async Task<(int Files, long Bytes, long? FreeBytes)> EstimateAsync(string vaultRoot, CancellationToken ct = default)
+    {
+        var manifest = await LoadManifestAsync(vaultRoot, ct).ConfigureAwait(false) ?? new VaultManifest();
+        var index = await LoadIndexAsync(vaultRoot, ct).ConfigureAwait(false);
+        var byKey = index.ToDictionary(e => Key(e.RootId, e.RelativePath), StringComparer.OrdinalIgnoreCase);
+        var (tracks, folders) = await LoadLibraryAsync(ct).ConfigureAwait(false);
+        var deviceId = _local.Device.Id;
+        int files = 0;
+        long bytes = 0;
+        foreach (var t in tracks)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!File.Exists(t.FilePath)) continue;
+            long size = new FileInfo(t.FilePath).Length;
+            var (root, relative) = AssignRoot(manifest, deviceId, folders, t.FilePath);
+            if (byKey.TryGetValue(Key(root.Id, relative), out var known) && known.Size == size
+                && string.Equals(known.ContentHash ?? "", t.ContentHash ?? "", StringComparison.Ordinal))
+                continue;
+            files++;
+            bytes += size;
+        }
+        return (files, bytes, FreeBytes(vaultRoot));
+    }
+
+    internal static long? FreeBytes(string path)
+    {
+        try
+        {
+            var root = Path.GetPathRoot(Path.GetFullPath(path));
+            return string.IsNullOrEmpty(root) ? null : new DriveInfo(root).AvailableFreeSpace;
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     public async Task<VaultStatus?> GetStatusAsync(string vaultRoot, CancellationToken ct = default)

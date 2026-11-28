@@ -14,6 +14,7 @@
          header (title + last backup left; Back up now right) → status callouts
          → Vault card (location, contents, change) → Restore card (preview first, then act). -->
 
+    <Panel>
     <ScrollViewer HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="{StaticResource PaddingPage}" Spacing="16" MaxWidth="880" HorizontalAlignment="Left">
 
@@ -21,7 +22,12 @@
             <Grid ColumnDefinitions="*,Auto">
                 <StackPanel Spacing="4">
                     <TextBlock Classes="h1" Text="Backup"/>
-                    <TextBlock Classes="subtitle" Text="{Binding LastBackupText}" IsVisible="{Binding HasVault}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Classes="subtitle" Text="{Binding LastBackupText}" VerticalAlignment="Center" IsVisible="{Binding HasVault}"/>
+                        <Border Classes="fact warning" IsVisible="{Binding IsBackupOverdue}" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding OverdueText}"/>
+                        </Border>
+                    </StackPanel>
                     <TextBlock Classes="subtitle" IsVisible="{Binding HasNoVault}"
                                Text="Back up your music, cues, grids and playlists to a drive you own."/>
                 </StackPanel>
@@ -51,15 +57,6 @@
                 <TextBlock Classes="body-sm" Text="{Binding ResultText}" TextWrapping="Wrap"/>
             </Border>
 
-            <!-- No Vault yet -->
-            <StackPanel Classes="empty-state" IsVisible="{Binding HasNoVault}" Margin="0,32,0,0">
-                <PathIcon Data="{StaticResource icon_history}"/>
-                <TextBlock Classes="h3" Text="Choose a backup drive"/>
-                <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="520"
-                           Text="ORBIT makes an &quot;ORBIT Vault&quot; folder on it: your music laid out by library folder, plus a snapshot of your library database. Plain files you can open without ORBIT. Nothing in the Vault is ever deleted by a backup."/>
-                <Button Classes="primary" Content="Choose drive or folder…" Command="{Binding ChooseVaultCommand}"/>
-            </StackPanel>
-
             <!-- Vault -->
             <Border Classes="card" Padding="16" IsVisible="{Binding HasVault}">
                 <StackPanel Spacing="8">
@@ -74,6 +71,12 @@
                     <Border Classes="fact warning" HorizontalAlignment="Left" IsVisible="{Binding IsVaultDisconnected}">
                         <TextBlock Text="Drive not connected"/>
                     </Border>
+                    <TextBlock Classes="caption mono" Text="{Binding EstimateText}" IsVisible="{Binding HasEstimate}"/>
+                    <Border Classes="fact warning" HorizontalAlignment="Left" IsVisible="{Binding EstimateTooBig}">
+                        <TextBlock Text="The drive is too small for this backup"/>
+                    </Border>
+                    <TextBlock Classes="caption" TextWrapping="Wrap" Margin="0,4,0,0"
+                               Text="Not backed up: ORBIT's settings and Soulseek login, and the stem and waveform caches (ORBIT rebuilds those)."/>
                 </StackPanel>
             </Border>
 
@@ -106,4 +109,14 @@
             </Border>
         </StackPanel>
     </ScrollViewer>
+
+    <!-- No Vault yet: centred on the page, like Intake's start -->
+    <StackPanel Classes="empty-state" IsVisible="{Binding HasNoVault}" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="560">
+        <PathIcon Data="{StaticResource icon_history}"/>
+        <TextBlock Classes="h3" Text="Choose a backup drive"/>
+        <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center"
+                   Text="ORBIT makes an &quot;ORBIT Vault&quot; folder on it: your music laid out by library folder, plus a snapshot of your library database with every cue, grid, tag and playlist. Plain files you can open without ORBIT. A backup never deletes anything in the Vault."/>
+        <Button Classes="primary" Content="Choose drive or folder…" Command="{Binding ChooseVaultCommand}" HorizontalAlignment="Center"/>
+    </StackPanel>
+    </Panel>
 </UserControl>

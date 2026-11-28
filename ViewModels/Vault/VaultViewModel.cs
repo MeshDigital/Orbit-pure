@@ -45,6 +45,11 @@ public sealed class VaultViewModel : ReactiveObject, IDisposable
     private bool _resultIsWarning;
     private string? _errorText;
     private bool _loaded;
+    private string _estimateText = string.Empty;
+    private bool _estimateTooBig;
+
+    /// <summary>Days without a backup after which the page warns.</summary>
+    public const int OverdueDays = 7;
 
     public VaultViewModel(VaultService vault, VaultLocalState local, IDialogService dialogs, ILogger<VaultViewModel> logger,
         INotificationService? notifications = null)
@@ -94,8 +99,18 @@ public sealed class VaultViewModel : ReactiveObject, IDisposable
         : HasVault ? "This computer hasn't backed up to this Vault yet." : string.Empty;
 
     public string VaultContentsText => _status == null ? string.Empty
-        : $"{CountFormat.N(_status.FilesInVault)} music files · {Size(_status.BytesInVault)}"
+        : $"{Files(_status.FilesInVault)} · {Size(_status.BytesInVault)}"
           + (_status.Devices.Count > 1 ? $" · {_status.Devices.Count} computers back up here" : string.Empty);
+
+    /// <summary>"Next backup copies 1,203 files (41.2 GB) · 812 GB free on the drive".</summary>
+    public string EstimateText { get => _estimateText; private set => this.RaiseAndSetIfChanged(ref _estimateText, value); }
+    public bool EstimateTooBig { get => _estimateTooBig; private set => this.RaiseAndSetIfChanged(ref _estimateTooBig, value); }
+    public bool HasEstimate => !string.IsNullOrEmpty(_estimateText);
+
+    public bool IsBackupOverdue => HasVault && (_status?.LastBackupUtc is not { } t || DateTime.UtcNow - t > TimeSpan.FromDays(OverdueDays));
+    public string OverdueText => _status?.LastBackupUtc == null
+        ? "Not backed up yet"
+        : $"No backup for over {OverdueDays} days";
 
     public bool IsBusy { get => _isBusy; private set { this.RaiseAndSetIfChanged(ref _isBusy, value); RaiseAll(); } }
     public double Progress { get => _progress; private set => this.RaiseAndSetIfChanged(ref _progress, value); }
@@ -114,9 +129,9 @@ public sealed class VaultViewModel : ReactiveObject, IDisposable
         $"Snapshot from {_plan.SnapshotUtc?.ToLocalTime():g}: {CountFormat.N(_plan.SnapshotTracks)} tracks, {CountFormat.N(_plan.SnapshotPlaylists)} playlists, {CountFormat.N(_plan.SnapshotCues)} cues.",
         $"Your library now: {CountFormat.N(_plan.CurrentTracks)} tracks, {CountFormat.N(_plan.CurrentPlaylists)} playlists, {CountFormat.N(_plan.CurrentCues)} cues.",
         _plan.FilesMissingLocally > 0
-            ? $"{CountFormat.N(_plan.FilesMissingLocally)} music files are missing on this computer and can be copied back."
+            ? $"{Files(_plan.FilesMissingLocally)} missing on this computer and can be copied back."
             : "Every backed-up music file is still on this computer.",
-        _plan.FilesMissingInVault > 0 ? $"{CountFormat.N(_plan.FilesMissingInVault)} files listed in the Vault are missing from it." : null,
+        _plan.FilesMissingInVault > 0 ? $"{Files(_plan.FilesMissingInVault)} listed in the Vault missing from it." : null,
         $"Before a library restore, your current library is saved to {_plan.CurrentBackupFolder}.",
     }.Where(l => l != null));
 
@@ -148,6 +163,7 @@ public sealed class VaultViewModel : ReactiveObject, IDisposable
         try
         {
             _status = Directory.Exists(root) ? await _vault.GetStatusAsync(root) : null;
+            await RefreshEstimateAsync(root);
         }
         catch (Exception ex)
         {
@@ -157,6 +173,28 @@ public sealed class VaultViewModel : ReactiveObject, IDisposable
         }
         RaiseAll();
     }
+
+    private async Task RefreshEstimateAsync(string root)
+    {
+        EstimateText = string.Empty;
+        EstimateTooBig = false;
+        if (!Directory.Exists(Path.GetDirectoryName(root) ?? root)) return;
+        try
+        {
+            var (files, bytes, free) = await Task.Run(() => _vault.EstimateAsync(root));
+            EstimateTooBig = free is long f && bytes > f;
+            EstimateText = (files == 0 ? "Everything is backed up" : $"Next backup copies {Files(files)} ({Size(bytes)})")
+                + (free is long fr ? $" · {Size(fr)} free on the drive" : string.Empty)
+                + (EstimateTooBig ? " · not enough space" : string.Empty);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Vault: estimating the next backup failed");
+        }
+        this.RaisePropertyChanged(nameof(HasEstimate));
+    }
+
+    private static string Files(int n) => n == 1 ? "1 music file" : $"{CountFormat.N(n)} music files";
 
     private async Task BackupAsync()
     {
@@ -238,7 +276,7 @@ public sealed class VaultViewModel : ReactiveObject, IDisposable
         {
             var restored = await Task.Run(() => _vault.RestoreMissingFilesAsync(root, progress, _cts.Token));
             _resultIsWarning = false;
-            ResultText = $"{CountFormat.N(restored)} missing music files copied back from the Vault.";
+            ResultText = $"{Files(restored)} copied back from the Vault.";
         }
         catch (OperationCanceledException)
         {
@@ -316,7 +354,7 @@ public sealed class VaultViewModel : ReactiveObject, IDisposable
                  {
                      nameof(HasVault), nameof(HasNoVault), nameof(IsVaultConnected), nameof(IsVaultDisconnected), nameof(HasSnapshot),
                      nameof(VaultPathText), nameof(LastBackupText), nameof(VaultContentsText), nameof(HasPlan), nameof(PlanText),
-                     nameof(IsRestoreScheduled),
+                     nameof(IsRestoreScheduled), nameof(IsBackupOverdue), nameof(OverdueText), nameof(HasEstimate),
                  })
             this.RaisePropertyChanged(name);
         _chooseVaultCommand.RaiseCanExecuteChanged();
