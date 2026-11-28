@@ -33,8 +33,14 @@ if (Environment.GetEnvironmentVariable("SNAP_WIDTH") is { } w) width = int.Parse
 
 try
 {
-    Intake(output, temp, width, height);
-    Vault(output, temp, width, height);
+    var only = Environment.GetEnvironmentVariable("SNAP_ONLY");
+    if (only is null or "intake") Intake(output, temp, width, height);
+    if (only is null or "vault") Vault(output, temp, width, height);
+    if (only is null or "cueforge")
+    {
+        CueForgeSnapshots.Render(output, width, height, (c, t, p, w, h, a, p2) => Snap(c, t, p, w, h, a, p2));
+        CueForgeSnapshots.Render(output, 1920, 1080, (c, t, p, w, h, a, p2) => Snap(c, t, p, w, h, a, p2));
+    }
     Console.WriteLine($"Snapshots written to {output}");
 }
 finally

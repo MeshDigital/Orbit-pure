@@ -44,6 +44,7 @@
     <Compile Remove="External\**" />
     <InternalsVisibleTo Include="SLSKDONET.Tests" />
     <InternalsVisibleTo Include="MixBenchmark" />
+    <InternalsVisibleTo Include="UiSnapshot" />
     <Compile Remove="Tests\**" />
     <Compile Remove="Companions\**" />
     <Compile Remove="Tools\**" />
