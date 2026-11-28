@@ -14,7 +14,7 @@
          InformationalVersion (the updater, About and feedback read it). It was disabled, which left
          every build at version 0.0.0.0. InternalsVisibleTo is an item further down. -->
     <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
-    <Version>0.5.1</Version>
+    <Version>0.5.2</Version>
     <!-- The commit is appended to InformationalVersion ("0.4.0+abc1234", #335) so feedback reports and About
          identify the exact build; the SourceRevisionId target below fills it from git when available. -->
     <IncludeSourceRevisionInInformationalVersion>true</IncludeSourceRevisionInInformationalVersion>

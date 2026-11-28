@@ -59,7 +59,7 @@ public static class FirstRunDetector
     // 19 = Epics #561 (Genre view), #550 (Library polish), and #551 (DJ ecosystem exports).
     // 20 = v0.5.2: Unified Auto-Mix bus (#600), Pro Cue Forge + CUE-DETR Check-these-first (#603) + 2nd-drop auto-detection,
     //      cleaner Rekordbox cue layout + playlist sync, and 30k-track performance budgets (#598).
-    public const int CurrentSetupVersion = 20;
+    public const int CurrentSetupVersion = 21;
 
     /// <param name="fallbackDownloadDirectory">
     /// The folder ORBIT fills in when config.ini has none (<see cref="Configuration.AppConfig.FallbackDownloadDirectory"/>).
