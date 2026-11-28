@@ -432,65 +432,151 @@ public static class DropCountdownCues
         cues.Where(c => !IsCountdownFor(c, dropTime, bpm) && !IsPostDropFor(c, dropTime, bpm)).ToList();
 
     /// <summary>
-    /// Detects a clear 2nd drop from the track's structural phrase segments after the user manually
-    /// places Drop 1 (e.g. DnB arrangement: Drop 1 -> Breakdown -> Drop 2). Prefers the first Drop
-    /// phrase following a Breakdown/Build after <paramref name="firstDropSeconds"/>; falls back to
-    /// any Drop phrase at least 32 bars after Drop 1. Snaps to the bar grid.
+    /// Detects a clear 2nd drop after the user manually places Drop 1 (e.g. DnB arrangement:
+    /// Drop 1 -> Breakdown -> Drop 2). Checks structural phrase segments first; when phrases are
+    /// absent or don't label a 2nd drop, falls back to the stored <paramref name="energyCurve"/>
+    /// looking for a clear breakdown valley followed by a sustained return to Drop 1's energy level.
+    /// Always snaps to the bar grid and returns null rather than guessing on flat tracks.
     /// </summary>
     public static double? DetectSecondDrop(
         double firstDropSeconds,
         IReadOnlyList<PhraseSegment>? phrases,
         double bpm,
         double downbeat,
-        double duration)
+        double duration,
+        IReadOnlyList<float>? energyCurve = null)
     {
-        if (phrases == null || phrases.Count == 0 || bpm <= 0) return null;
+        if (bpm <= 0) return null;
 
         double bar = 240.0 / bpm;
         double minAfterBreakdown = firstDropSeconds + 24.0 * bar;
         double minWithoutBreakdown = firstDropSeconds + 32.0 * bar;
         double maxDropTime = duration > 0 ? duration - 8.0 * bar : double.MaxValue;
 
-        bool sawBreakAfterFirstDrop = false;
-        double? fallbackDrop = null;
-
-        foreach (var p in phrases.OrderBy(seg => seg.Start))
+        if (phrases != null && phrases.Count > 0)
         {
-            if (p.Start <= firstDropSeconds + 4.0 * bar) continue;
-            if (p.Start >= maxDropTime) break;
+            bool sawBreakAfterFirstDrop = false;
+            double? fallbackDrop = null;
 
-            string label = p.Label ?? string.Empty;
-            bool isBreakOrBuild =
-                label.Contains("Breakdown", StringComparison.OrdinalIgnoreCase) ||
-                label.Contains("Bridge", StringComparison.OrdinalIgnoreCase) ||
-                label.Contains("Build", StringComparison.OrdinalIgnoreCase) ||
-                label.Contains("Verse", StringComparison.OrdinalIgnoreCase);
-
-            if (isBreakOrBuild)
+            foreach (var p in phrases.OrderBy(seg => seg.Start))
             {
-                sawBreakAfterFirstDrop = true;
+                if (p.Start <= firstDropSeconds + 4.0 * bar) continue;
+                if (p.Start >= maxDropTime) break;
+
+                string label = p.Label ?? string.Empty;
+                bool isBreakOrBuild =
+                    label.Contains("Breakdown", StringComparison.OrdinalIgnoreCase) ||
+                    label.Contains("Bridge", StringComparison.OrdinalIgnoreCase) ||
+                    label.Contains("Build", StringComparison.OrdinalIgnoreCase) ||
+                    label.Contains("Verse", StringComparison.OrdinalIgnoreCase);
+
+                if (isBreakOrBuild)
+                {
+                    sawBreakAfterFirstDrop = true;
+                    continue;
+                }
+
+                bool isDrop =
+                    label.Contains("Drop", StringComparison.OrdinalIgnoreCase) ||
+                    label.Contains("Chorus", StringComparison.OrdinalIgnoreCase) ||
+                    label.Contains("Climax", StringComparison.OrdinalIgnoreCase);
+
+                if (!isDrop) continue;
+
+                if (sawBreakAfterFirstDrop && p.Start >= minAfterBreakdown)
+                {
+                    return SnapToBar(p.Start, bar, downbeat, duration);
+                }
+
+                if (fallbackDrop == null && p.Start >= minWithoutBreakdown)
+                {
+                    fallbackDrop = SnapToBar(p.Start, bar, downbeat, duration);
+                }
+            }
+
+            if (fallbackDrop != null) return fallbackDrop;
+        }
+
+        if (energyCurve is { Count: >= 32 } && duration > 0)
+            return DetectSecondDropFromEnergyCurve(firstDropSeconds, energyCurve, bar, downbeat, duration);
+
+        return null;
+    }
+
+    private static double? DetectSecondDropFromEnergyCurve(
+        double firstDropSeconds,
+        IReadOnlyList<float> curve,
+        double bar,
+        double downbeat,
+        double duration)
+    {
+        int n = curve.Count;
+        double step = duration / n;
+        if (step <= 0) return null;
+
+        int IndexOf(double seconds) => Math.Clamp((int)Math.Floor(seconds / step), 0, n - 1);
+
+        // Reference Drop 1 energy: mean over the 16 bars following Drop 1.
+        int d1Start = IndexOf(firstDropSeconds);
+        int d1End = IndexOf(Math.Min(duration, firstDropSeconds + 16.0 * bar));
+        if (d1End <= d1Start) return null;
+
+        double drop1Sum = 0;
+        for (int i = d1Start; i <= d1End; i++) drop1Sum += curve[i];
+        double drop1Energy = drop1Sum / (d1End - d1Start + 1);
+        if (drop1Energy < 0.1) return null;
+
+        double valleyThreshold = drop1Energy * 0.60;
+        double deepValleyThreshold = drop1Energy * 0.50;
+        double returnThreshold = drop1Energy * 0.75;
+
+        int minValleySamples = Math.Max(2, (int)Math.Round(4.0 * bar / step));
+        int sustainSamples = Math.Max(2, (int)Math.Round(8.0 * bar / step));
+
+        int searchStart = IndexOf(firstDropSeconds + 16.0 * bar);
+        int minReturnIdx = IndexOf(firstDropSeconds + 24.0 * bar);
+        int searchEnd = IndexOf(duration - 16.0 * bar);
+        if (searchEnd <= minReturnIdx) return null;
+
+        int lowRun = 0;
+        bool sawDeepDip = false;
+        bool sawBreakdown = false;
+
+        for (int i = searchStart; i <= searchEnd; i++)
+        {
+            float e = curve[i];
+            if (e <= valleyThreshold)
+            {
+                lowRun++;
+                if (e <= deepValleyThreshold) sawDeepDip = true;
+                if (lowRun >= minValleySamples && sawDeepDip) sawBreakdown = true;
                 continue;
             }
 
-            bool isDrop =
-                label.Contains("Drop", StringComparison.OrdinalIgnoreCase) ||
-                label.Contains("Chorus", StringComparison.OrdinalIgnoreCase) ||
-                label.Contains("Climax", StringComparison.OrdinalIgnoreCase);
-
-            if (!isDrop) continue;
-
-            if (sawBreakAfterFirstDrop && p.Start >= minAfterBreakdown)
+            if (sawBreakdown && i >= minReturnIdx && e >= returnThreshold)
             {
-                return SnapToBar(p.Start, bar, downbeat, duration);
+                // Confirm sustained high energy over the next 8 bars (not a brief build snare/riser).
+                int sustainEnd = Math.Min(n - 1, i + sustainSamples);
+                double sustainSum = 0;
+                for (int j = i; j <= sustainEnd; j++) sustainSum += curve[j];
+                double sustainMean = sustainSum / (sustainEnd - i + 1);
+
+                if (sustainMean >= returnThreshold)
+                {
+                    double rawTime = i * step;
+                    return SnapToBar(rawTime, bar, downbeat, duration);
+                }
             }
 
-            if (fallbackDrop == null && p.Start >= minWithoutBreakdown)
+            // Reset partial low run if energy bounced back before a real breakdown formed.
+            if (!sawBreakdown)
             {
-                fallbackDrop = SnapToBar(p.Start, bar, downbeat, duration);
+                lowRun = 0;
+                sawDeepDip = false;
             }
         }
 
-        return fallbackDrop;
+        return null;
     }
 
     private static double SnapToBar(double seconds, double bar, double downbeat, double duration)
