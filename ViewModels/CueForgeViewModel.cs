@@ -1544,8 +1544,8 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
             {
                 Session.Load(info, entities);
                 RefreshCueConfidenceAndCheckList();
-                // Phrase analysis (read-only) feeds the Intro end / Outro suggestions.
-                Session.SetStructureHints(PhraseSegments.ToList());
+                // Phrase analysis + energy curve (read-only) feed Intro/Outro suggestions and Drop 2 fallback.
+                Session.SetStructureHints(PhraseSegments.ToList(), EnergyCurveData);
                 if (autoSaved != null && !Session.IsStatusError) Session.SetStatus(autoSaved);
             });
             _logger.LogInformation("CueForge: loaded {Count} cues for {Hash} (BPM={Bpm} Dur={Dur:F0}s)",

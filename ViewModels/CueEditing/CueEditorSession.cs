@@ -250,6 +250,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         TrackTitle = string.Empty;
         FilePath = null;
         _structurePhrases = Array.Empty<PhraseSegment>();
+        _energyCurve = null;
         LoadCuesClean(Array.Empty<OrbitCue>());
         _undoStack.Clear(); _redoStack.Clear();
         UpdateUndoRedoState();
@@ -1043,7 +1044,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         OrbitCue? autoSecondDrop = null;
         if (number != 2 && !hadTwoDropsBefore && list.Count(c => c.Role == CueRole.Drop && !c.IsLoop) == 1)
         {
-            double? secondDropTime = DropCountdownCues.DetectSecondDrop(drop.Timestamp, _structurePhrases, Bpm, GridOffset, Duration);
+            double? secondDropTime = DropCountdownCues.DetectSecondDrop(drop.Timestamp, _structurePhrases, Bpm, GridOffset, Duration, _energyCurve);
             if (secondDropTime is { } d2)
             {
                 list = DropCountdownCues.PlaceDrop(list, d2, number: 2, CountdownBars, Bpm, GridOffset, Duration,
@@ -1225,12 +1226,14 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
     // ── Section markers (Intro end / Outro) ────────────────────────────────
 
     private IReadOnlyList<PhraseSegment> _structurePhrases = Array.Empty<PhraseSegment>();
+    private IReadOnlyList<float>? _energyCurve;
 
-    /// <summary>The host passes the track's phrase segments (analysis, read-only) so missing section
-    /// markers can be suggested. Nothing is written to the analysis.</summary>
-    public void SetStructureHints(IReadOnlyList<PhraseSegment>? phrases)
+    /// <summary>The host passes the track's phrase segments (and optional energy curve, read-only)
+    /// so missing section markers and Drop 2 can be suggested. Nothing is written to the analysis.</summary>
+    public void SetStructureHints(IReadOnlyList<PhraseSegment>? phrases, IReadOnlyList<float>? energyCurve = null)
     {
         _structurePhrases = phrases?.ToList() ?? (IReadOnlyList<PhraseSegment>)Array.Empty<PhraseSegment>();
+        if (energyCurve != null) _energyCurve = energyCurve;
         RefreshSections();
     }
 

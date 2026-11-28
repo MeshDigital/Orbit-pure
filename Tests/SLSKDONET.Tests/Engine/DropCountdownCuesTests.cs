@@ -276,4 +276,53 @@ public class DropCountdownCuesTests
         Assert.DoesNotContain(group, c => c.Name == "[D1 +16]");
         Assert.DoesNotContain(group, c => c.Name == "[D1 +32]");
     }
+
+    [Fact]
+    public void DetectSecondDrop_WithNoPhrases_FallsBackToEnergyCurveBreakdownReturn()
+    {
+        // Build a 300-sample (1 s/sample) DnB energy curve:
+        // Intro (0-32 bars low), Drop 1 (32-64 bars high 0.9), Breakdown (64-96 bars low 0.25), Drop 2 (96-144 bars high 0.9), Outro (low).
+        var curve = new float[300];
+        for (int s = 0; s < curve.Length; s++)
+        {
+            double barPos = (s - Downbeat) / Bar;
+            curve[s] = barPos switch
+            {
+                >= 32 and < 64 => 0.90f,
+                >= 64 and < 96 => 0.25f,
+                >= 96 and < 144 => 0.90f,
+                _ => 0.30f,
+            };
+        }
+
+        double? d2 = DropCountdownCues.DetectSecondDrop(AtBar(32), phrases: null, Bpm, Downbeat, Duration, energyCurve: curve);
+
+        Assert.NotNull(d2);
+        Assert.InRange(d2!.Value, AtBar(95), AtBar(97)); // snapped to bar ~96
+    }
+
+    [Fact]
+    public void DetectSecondDrop_FlatEnergyCurve_ReturnsNullWithoutGuessing()
+    {
+        var flat = Enumerable.Repeat(0.75f, 300).ToArray();
+        double? d2 = DropCountdownCues.DetectSecondDrop(AtBar(32), phrases: null, Bpm, Downbeat, Duration, energyCurve: flat);
+        Assert.Null(d2);
+    }
+
+    [Fact]
+    public void DetectSecondDrop_PhrasesTakePrecedenceOverEnergyCurve()
+    {
+        var phrases = new List<PhraseSegment>
+        {
+            new() { Label = "Drop", Start = (float)AtBar(32), Duration = (float)(32 * Bar) },
+            new() { Label = "Breakdown", Start = (float)AtBar(64), Duration = (float)(24 * Bar) },
+            new() { Label = "Drop", Start = (float)AtBar(88), Duration = (float)(32 * Bar) },
+        };
+        var curve = Enumerable.Repeat(0.75f, 300).ToArray(); // flat curve wouldn't find anything
+
+        double? d2 = DropCountdownCues.DetectSecondDrop(AtBar(32), phrases, Bpm, Downbeat, Duration, energyCurve: curve);
+
+        Assert.NotNull(d2);
+        Assert.Equal(AtBar(88), d2!.Value, 3);
+    }
 }
