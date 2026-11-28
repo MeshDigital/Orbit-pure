@@ -226,11 +226,13 @@ public class SectionMarkerAndPrelistenTests
     [Fact]
     public void Session_OffersTheSuggestion_AndUseSuggestionPlacesBothInOneUndoStep()
     {
-        var (s, _, _) = Create(new[] { Row(64, CuePointType.Drop, "[DROP 1]"), Row(160, CuePointType.Drop, "[DROP 2]") });
-        s.SetStructureHints(Phrases(("Intro", 0, 32.3f), ("Drop", 64, 64)));
+        var (s, _, _) = Create(Array.Empty<CuePointEntity>());
+        s.SetStructureHints(Phrases(("Intro", 0, 32.3f), ("Drop", 64, 64), ("Outro", 224.2f, 75.8f)));
 
         Assert.True(s.HasSectionSuggestion);
         Assert.Equal(32, s.SuggestedIntroEnd!.Value, 6);        // phrase end snapped to the bar
+        Assert.Equal(224, s.SuggestedOutroStart!.Value, 6);
+        Assert.StartsWith("Optional: ", s.SectionSuggestionText);
         Assert.Contains("intro ends 0:32 (bar 17)", s.SectionSuggestionText);
 
         s.UseSectionSuggestionCommand.Execute().Subscribe();
@@ -243,6 +245,35 @@ public class SectionMarkerAndPrelistenTests
         Assert.Null(s.IntroEndCue);
         Assert.Null(s.OutroStartCue);
         Assert.True(s.HasSectionSuggestion);
+    }
+
+    [Fact]
+    public void Session_HidesSectionSuggestion_WhenDrop1AndOutCueArePresent()
+    {
+        var (s, _, _) = Create(new[]
+        {
+            Row(64, CuePointType.Drop, "[DROP 1]"),
+            Row(224, CuePointType.Outro, "[OUT]")
+        });
+        s.SetStructureHints(Phrases(("Intro", 0, 32f), ("Drop", 64, 64), ("Outro", 224, 76)));
+
+        Assert.False(s.HasSectionSuggestion);
+        Assert.Null(s.SuggestedIntroEnd);
+        Assert.Null(s.SuggestedOutroStart);
+        Assert.Equal("", s.SectionSuggestionText);
+    }
+
+    [Fact]
+    public void Session_WithOnlyDrop1_SuggestsOnlyOutro()
+    {
+        var (s, _, _) = Create(new[] { Row(64, CuePointType.Drop, "[DROP 1]") });
+        s.SetStructureHints(Phrases(("Intro", 0, 32f), ("Drop", 64, 64)));
+
+        Assert.True(s.HasSectionSuggestion);
+        Assert.Null(s.SuggestedIntroEnd);
+        Assert.NotNull(s.SuggestedOutroStart);
+        Assert.StartsWith("Optional: outro from ", s.SectionSuggestionText);
+        Assert.DoesNotContain("intro ends", s.SectionSuggestionText);
     }
 
     // ── Click to prelisten ─────────────────────────────────────────────────────────

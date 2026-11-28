@@ -91,9 +91,13 @@ public static class TrackMixReadinessEvaluator
             HasStructure: hasStructure);
     }
 
-    public static bool IsEntryCue(CuePointEntity cue) =>
-        cue.Type is CuePointType.MixIn or CuePointType.Intro or CuePointType.IntroEnd;
+    public static bool IsEntryCue(CuePointEntity cue) => IsEntryCue(cue.Type);
 
-    public static bool IsExitCue(CuePointEntity cue) =>
-        cue.Type is CuePointType.MixOut or CuePointType.Outro or CuePointType.OutroStart;
+    public static bool IsExitCue(CuePointEntity cue) => IsExitCue(cue.Type);
+
+    public static bool IsEntryCue(CuePointType type) =>
+        type is CuePointType.MixIn or CuePointType.Intro or CuePointType.IntroEnd;
+
+    public static bool IsExitCue(CuePointType type) =>
+        type is CuePointType.MixOut or CuePointType.Outro or CuePointType.OutroStart;
 }

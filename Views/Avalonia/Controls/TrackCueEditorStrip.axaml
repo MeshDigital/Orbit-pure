@@ -181,7 +181,7 @@
                 <TextBlock Classes="caption" Text="{Binding Session.SectionSuggestionText}" VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis" MaxWidth="520" Margin="0,0,8,4" ToolTip.Tip="{Binding Session.SectionSuggestionText}"/>
                 <Button Classes="secondary small" Content="Use suggestion" Command="{Binding Session.UseSectionSuggestionCommand}"
-                        ToolTip.Tip="Place the suggested Intro end / Outro markers (snapped to the bar). Drag them to adjust; Undo removes them."/>
+                        ToolTip.Tip="Optional: place the suggested Intro end / Outro markers (snapped to the bar) when no entry or exit cue is set. Drag them to adjust; Undo removes them."/>
             </WrapPanel>
             <TextBlock Classes="caption" Text="{Binding Session.SectionSummary}" Margin="0,0,0,4"
                        IsVisible="{Binding Session.SectionSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
