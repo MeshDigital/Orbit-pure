@@ -55,7 +55,11 @@ public sealed record RekordboxWriteReport(
     IReadOnlyList<string> VerifyMismatches,
     string? PlaylistName = null,
     bool PlaylistCreated = false,
-    int PlaylistTracksAdded = 0)
+    int PlaylistTracksAdded = 0,
+    string? PlaylistId = null,
+    string? PlaylistParentId = null,
+    long PlaylistUpdatedAtMs = 0,
+    bool MasterPlaylistsXmlUpdated = false)
 {
     public static RekordboxWriteReport Fail(string message, bool dryRun, string? backupFolder = null) =>
         new(false, message, dryRun, 0, 0, 0, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(),
@@ -222,6 +226,35 @@ public sealed class RekordboxDbWriteService
         var report = await RunAsync(plan, mode, dryRun: false, backup, ct, playlist).ConfigureAwait(false);
         if (!report.Success) return report;
 
+        // Sync Rekordbox's companion masterPlaylists6.xml after master.db commits cleanly.
+        string? xmlError = null;
+        string xmlNote = "";
+        bool xmlUpdated = false;
+        if (!string.IsNullOrWhiteSpace(report.PlaylistName)
+            && (report.PlaylistCreated || report.PlaylistTracksAdded > 0)
+            && !string.IsNullOrWhiteSpace(report.PlaylistId))
+        {
+            string xmlPath = RekordboxMasterPlaylistsXml.GetXmlPathForDatabase(db);
+            try
+            {
+                var xmlResult = RekordboxMasterPlaylistsXml.UpsertPlaylistNode(
+                    xmlPath, report.PlaylistId, report.PlaylistParentId, report.PlaylistUpdatedAtMs, dryRun: false);
+                if (xmlResult.FileExists && xmlResult.Changed)
+                {
+                    xmlUpdated = true;
+                    xmlNote = xmlResult.CreatedNode
+                        ? " Added playlist entry to masterPlaylists6.xml."
+                        : " Updated masterPlaylists6.xml.";
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException
+                                       or InvalidOperationException or FormatException)
+            {
+                _logger.LogWarning(ex, "Rekordbox master.db was updated, but syncing masterPlaylists6.xml failed. Backup: {Backup}", backup);
+                xmlError = $"master.db was updated, but masterPlaylists6.xml could not be synced ({ex.Message}). Restore the backup in {backup} (Settings → Advanced) if playlists look out of sync in Rekordbox.";
+            }
+        }
+
         // Independent check: read Rekordbox's cues back and compare every written track with the plan.
         var byPath = plan.ToDictionary(p => RekordboxLibraryService.NormalizePath(p.Path), StringComparer.Ordinal);
         var read = await _library.ReadCuesAsync(ct).ConfigureAwait(false);
@@ -254,14 +287,20 @@ public sealed class RekordboxDbWriteService
         else
             _logger.LogInformation("Rekordbox write verified: {Verified} tracks, {Cues} cues. Backup: {Backup}", verified, report.CuesWritten, backup);
 
+        bool allOk = mismatches.Count == 0 && xmlError == null;
+        string finalMessage = report.Message + xmlNote;
+        if (mismatches.Count > 0)
+            finalMessage += $" But {mismatches.Count} track(s) didn't read back as planned — restore the backup from Settings → Advanced if Rekordbox looks wrong.";
+        if (xmlError != null)
+            finalMessage += " Warning: " + xmlError;
+
         return report with
         {
-            Success = mismatches.Count == 0,
-            Message = mismatches.Count == 0
-                ? report.Message
-                : $"{report.Message} But {mismatches.Count} track(s) didn't read back as planned — restore the backup from Settings → Advanced if Rekordbox looks wrong.",
+            Success = allOk,
+            Message = finalMessage,
             Verified = verified,
             VerifyMismatches = mismatches,
+            MasterPlaylistsXmlUpdated = xmlUpdated,
         };
     }
 
@@ -292,7 +331,7 @@ public sealed class RekordboxDbWriteService
                 };
                 return RekordboxWriteReport.Fail(message, dryRun, backupFolder);
             }
-            return ParseReport(stdout, dryRun, backupFolder);
+            return ParseReport(stdout, dryRun, backupFolder, db);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException
                                    or System.ComponentModel.Win32Exception)
@@ -323,7 +362,7 @@ public sealed class RekordboxDbWriteService
             },
         });
 
-    internal static RekordboxWriteReport ParseReport(string json, bool dryRun, string? backupFolder)
+    internal static RekordboxWriteReport ParseReport(string json, bool dryRun, string? backupFolder, string? databasePath = null)
     {
         using var doc = JsonDocument.Parse(json);
         var r = doc.RootElement;
@@ -336,8 +375,13 @@ public sealed class RekordboxDbWriteService
         var missing = Strings(r, "notInRekordbox");
         var invalid = Strings(r, "invalid");
         string? playlistName = r.TryGetProperty("playlistName", out var pn) && pn.ValueKind == JsonValueKind.String ? pn.GetString() : null;
+        string? playlistId = r.TryGetProperty("playlistId", out var pid) && pid.ValueKind == JsonValueKind.String ? pid.GetString() : null;
+        string? playlistParentId = r.TryGetProperty("playlistParentId", out var ppid) && ppid.ValueKind == JsonValueKind.String ? ppid.GetString() : null;
         bool playlistCreated = r.TryGetProperty("playlistCreated", out var pc) && pc.ValueKind == JsonValueKind.True;
         int playlistAdded = r.TryGetProperty("playlistTracksAdded", out var pa) && pa.ValueKind == JsonValueKind.Number ? pa.GetInt32() : 0;
+        long playlistUpdatedAtMs = r.TryGetProperty("playlistUpdatedAtMs", out var pts) && pts.ValueKind == JsonValueKind.Number
+            ? pts.GetInt64()
+            : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         string? quick = r.TryGetProperty("quickCheck", out var q) ? q.GetString() : null;
         if (!dryRun && quick != null && quick != "ok")
             return RekordboxWriteReport.Fail($"Rekordbox's library failed SQLite's integrity check after the write ({quick}). Restore the backup from Settings → Advanced.", dryRun, backupFolder);
@@ -356,6 +400,17 @@ public sealed class RekordboxDbWriteService
                     : $"; added {playlistAdded} missing track(s) to playlist '{playlistName}'";
             else
                 playlistNote = $"; playlist '{playlistName}' is already up to date";
+
+            if (dryRun && (playlistCreated || playlistAdded > 0) && !string.IsNullOrWhiteSpace(databasePath))
+            {
+                string xmlPath = RekordboxMasterPlaylistsXml.GetXmlPathForDatabase(databasePath);
+                if (File.Exists(xmlPath))
+                {
+                    playlistNote += playlistCreated
+                        ? " and add it to masterPlaylists6.xml"
+                        : " and update masterPlaylists6.xml";
+                }
+            }
         }
         string message = $"{verb} {SLSKDONET.Utils.CountFormat.N(cues)} cue(s) to {written.Count} track(s)"
             + (removed > 0 ? $", replacing {SLSKDONET.Utils.CountFormat.N(removed)} Rekordbox cue(s)" : "")
@@ -365,7 +420,8 @@ public sealed class RekordboxDbWriteService
             + (invalid.Count > 0 ? $"; {invalid.Count} track(s) had cues Rekordbox can't take" : "")
             + ".";
         return new RekordboxWriteReport(true, message, dryRun, written.Count, cues, removed, written, skipped, missing, invalid,
-            backupFolder, 0, Array.Empty<string>(), playlistName, playlistCreated, playlistAdded);
+            backupFolder, 0, Array.Empty<string>(), playlistName, playlistCreated, playlistAdded,
+            playlistId, playlistParentId, playlistUpdatedAtMs);
     }
 
     // ─── Backups ─────────────────────────────────────────────────────────────
@@ -388,6 +444,14 @@ public sealed class RekordboxDbWriteService
                 File.Copy(source, target, overwrite: false);
                 if (new FileInfo(target).Length != new FileInfo(source).Length)
                     throw new IOException($"The backup copy of {Path.GetFileName(source)} is incomplete.");
+            }
+            string xmlSource = RekordboxMasterPlaylistsXml.GetXmlPathForDatabase(databasePath);
+            if (File.Exists(xmlSource))
+            {
+                string xmlTarget = Path.Combine(folder, RekordboxMasterPlaylistsXml.FileName);
+                File.Copy(xmlSource, xmlTarget, overwrite: false);
+                if (new FileInfo(xmlTarget).Length != new FileInfo(xmlSource).Length)
+                    throw new IOException($"The backup copy of {RekordboxMasterPlaylistsXml.FileName} is incomplete.");
             }
             File.WriteAllText(Path.Combine(folder, "source.txt"), databasePath);
         }
@@ -451,8 +515,19 @@ public sealed class RekordboxDbWriteService
                 if (File.Exists(saved)) File.Copy(saved, target + suffix, overwrite: true);
                 else if (File.Exists(target + suffix)) File.Delete(target + suffix);
             }
+            string savedXml = Path.Combine(backup.Folder, RekordboxMasterPlaylistsXml.FileName);
+            string targetXml = RekordboxMasterPlaylistsXml.GetXmlPathForDatabase(target);
+            string xmlRestoreNote = "";
+            if (File.Exists(savedXml))
+            {
+                File.Copy(savedXml, targetXml, overwrite: true);
+            }
+            else if (File.Exists(targetXml))
+            {
+                xmlRestoreNote = $" Note: this older backup didn't include {RekordboxMasterPlaylistsXml.FileName}, so that file wasn't changed.";
+            }
             _logger.LogInformation("Rekordbox library restored from {Backup} (previous state saved to {Safety})", backup.Folder, safety);
-            return Task.FromResult((true, $"Restored Rekordbox's library from {Path.GetFileName(backup.Folder)}. The state before the restore was saved too."));
+            return Task.FromResult((true, $"Restored Rekordbox's library from {Path.GetFileName(backup.Folder)}. The state before the restore was saved too.{xmlRestoreNote}"));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

@@ -131,12 +131,16 @@ internal static class CueWriter
             }
 
             string? playlistName = null;
+            string? playlistId = null;
+            string? playlistParentId = null;
             bool playlistCreated = false;
             int playlistTracksAdded = 0;
+            long playlistUpdatedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             if (plan.Playlist is { Name.Length: > 0 } pl && HasPlaylistTables(c, tx))
             {
                 playlistName = pl.Name;
-                SyncPlaylist(c, tx, pl, content, dryRun, now, ref usn, out playlistCreated, out playlistTracksAdded);
+                SyncPlaylist(c, tx, pl, content, dryRun, now, ref usn,
+                    out playlistId, out playlistParentId, out playlistCreated, out playlistTracksAdded);
             }
 
             string? quickCheck = null;
@@ -181,8 +185,13 @@ internal static class CueWriter
             if (playlistName != null)
             {
                 json.WriteString("playlistName", playlistName);
+                if (playlistId != null) json.WriteString("playlistId", playlistId);
+                else json.WriteNull("playlistId");
+                if (playlistParentId != null) json.WriteString("playlistParentId", playlistParentId);
+                else json.WriteNull("playlistParentId");
                 json.WriteBoolean("playlistCreated", playlistCreated);
                 json.WriteNumber("playlistTracksAdded", playlistTracksAdded);
+                json.WriteNumber("playlistUpdatedAtMs", playlistUpdatedAtMs);
             }
             json.WriteNumber("localUpdateCountBefore", usnBefore);
             json.WriteNumber("localUpdateCountAfter", usn);
@@ -305,21 +314,27 @@ internal static class CueWriter
         bool dryRun,
         string now,
         ref long usn,
+        out string? playlistId,
+        out string? parentId,
         out bool created,
         out int tracksAdded)
     {
+        playlistId = null;
+        parentId = "root";
         created = false;
         tracksAdded = 0;
 
-        string? playlistId = null;
         using (var find = c.CreateCommand())
         {
             find.Transaction = tx;
-            find.CommandText = "SELECT ID FROM djmdPlaylist WHERE rb_local_deleted = 0 AND coalesce(Attribute, 0) = 0 AND lower(Name) = lower($name) LIMIT 1";
+            find.CommandText = "SELECT ID, ParentID FROM djmdPlaylist WHERE rb_local_deleted = 0 AND coalesce(Attribute, 0) = 0 AND lower(Name) = lower($name) LIMIT 1";
             find.Parameters.AddWithValue("$name", pl.Name);
-            var found = find.ExecuteScalar();
-            if (found is not null and not DBNull)
-                playlistId = Convert.ToString(found, CultureInfo.InvariantCulture);
+            using var r = find.ExecuteReader();
+            if (r.Read())
+            {
+                if (!r.IsDBNull(0)) playlistId = Convert.ToString(r.GetValue(0), CultureInfo.InvariantCulture);
+                parentId = r.IsDBNull(1) ? "root" : Convert.ToString(r.GetValue(1), CultureInfo.InvariantCulture);
+            }
         }
 
         var existingContentIds = new HashSet<string>(StringComparer.Ordinal);
