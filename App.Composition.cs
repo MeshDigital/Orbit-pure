@@ -607,6 +607,17 @@ public partial class App
         // Intake (#632): check music from a drive or folder before any of it joins the library.
         services.AddSingleton<Services.Intake.IIntakeFileInspector, Services.Intake.IntakeFileInspector>();
         services.AddSingleton<Services.Intake.IntakeScanService>();
+        services.AddSingleton<Services.Intake.IIntakeLibraryWriter>(sp => new Services.Intake.IntakeLibraryWriter(
+            sp.GetRequiredService<Configuration.AppConfig>(),
+            sp.GetRequiredService<PathProviderService>(),
+            sp.GetRequiredService<LibraryFolderScannerService>(),
+            sp.GetRequiredService<Services.Library.Files.QualityUpgradeService>(),
+            sp.GetRequiredService<Services.Library.AudioContentHasher>(),
+            sp.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<Data.AppDbContext>>(),
+            // Resolved lazily: the download manager is heavy and Intake may never queue an upgrade.
+            () => sp.GetService<DownloadManager>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Intake.IntakeLibraryWriter>>()));
+        services.AddSingleton<Services.Intake.IntakeApplyService>();
         // Exact-duplicate review (#238): merge via DuplicateTrackCleanupService, opt-in Recycle Bin.
         services.AddSingleton<Services.Library.Maintenance.IFileRecycler, Services.Library.Maintenance.ShellFileRecycler>();
         services.AddSingleton<Services.Library.Maintenance.ExactDuplicateResolver>();
