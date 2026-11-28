@@ -182,6 +182,41 @@ public sealed class AutoMixBusSampleProviderTests
             $"Hard low swap landed {errorFrames} frames from midpoint (budget <= {AutoMixBusSampleProvider.MaxBlockFrames} frames / ~5.8 ms).");
     }
 
+    [Fact]
+    public void BusLimiter_NeverClipsFullScaleOverlappingDecks_AndPreservesBelowCeilingSignal()
+    {
+        const int sampleRate = 44100;
+        float ceiling = (float)Math.Pow(10.0, AutoMixBusSampleProvider.LimiterCeilingDb / 20.0);
+
+        // 1. Quiet signal below ceiling (-6 dBFS = 0.5) passes through untouched.
+        var quietBus = new AutoMixBusSampleProvider(sampleRate);
+        var quietGain = new VolumeSampleProvider(new ConstantSampleProvider(0.5f, sampleRate)) { Volume = 1f };
+        quietBus.SetActiveDeck(new MixBusDeck { Source = quietGain, Gain = quietGain });
+        var quietBuf = new float[1024 * 2];
+        quietBus.Read(quietBuf, 0, quietBuf.Length);
+        Assert.All(quietBuf, s => Assert.Equal(0.5f, s, 4));
+
+        // 2. Two hot decks (+3 dB each, 1.41f) overlapping on fallback crossfade never exceed -1 dBFS.
+        var hotBus = new AutoMixBusSampleProvider(sampleRate);
+        var outGain = new VolumeSampleProvider(new ConstantSampleProvider(1.41f, sampleRate)) { Volume = 1f };
+        var inGain = new VolumeSampleProvider(new ConstantSampleProvider(1.41f, sampleRate)) { Volume = 1f };
+        hotBus.SetActiveDeck(new MixBusDeck { Source = outGain, Gain = outGain });
+        hotBus.ScheduleTransition(new ScheduledMixTransition
+        {
+            Incoming = new MixBusDeck { Source = inGain, Gain = inGain },
+            StartFrame = 0,
+            DurationFrames = 4096,
+            Region = null,
+            DurationSeconds = 4096.0 / sampleRate,
+        });
+
+        var hotBuf = new float[4096 * 2];
+        hotBus.Read(hotBuf, 0, hotBuf.Length);
+        float maxAbs = 0f;
+        foreach (var s in hotBuf) maxAbs = Math.Max(maxAbs, Math.Abs(s));
+        Assert.True(maxAbs <= ceiling + 1e-5f, $"Output peaked at {maxAbs:F5}, exceeding -1 dBFS ceiling {ceiling:F5}");
+    }
+
     private sealed class ConstantSampleProvider : ISampleProvider
     {
         private readonly float _value;

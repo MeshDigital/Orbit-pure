@@ -40,7 +40,7 @@ public class MasterBus : ISampleProvider, IDisposable
     {
         _source = source;
         _glueCompressor = new Compressor(ratio: 1.5f, thresholdDb: -10f, attackMs: 10f, releaseMs: 100f);
-        _limiter = new Limiter(thresholdDb: -0.1f, lookAheadMs: 5.0f);
+        _limiter = new Limiter(thresholdDb: -0.1f, lookAheadMs: 5.0f, sampleRate: source.WaveFormat.SampleRate);
     }
 
     public int Read(float[] buffer, int offset, int count)
@@ -134,38 +134,65 @@ public class Compressor
 }
 
 /// <summary>
-/// Look-ahead limiter for the master bus.
-/// Prevents any sample from exceeding the threshold.
+/// Allocation-free stereo-linked brickwall peak limiter for master/mix buses.
+/// Uses instantaneous peak-envelope attack (guaranteeing no sample ever exceeds
+/// <c>thresholdDb</c>) with smooth exponential release so overlapping peaks are
+/// attenuated cleanly rather than hard-clipped.
 /// </summary>
 public class Limiter
 {
-    private float _thresholdDb;
-    private float _lookAheadMs;
-    private float[] _lookAheadBuffer;
-    private int _lookAheadSamples;
-    
-    public Limiter(float thresholdDb, float lookAheadMs)
+    private readonly float _threshold;
+    private readonly float _releaseCoeff;
+    private float _currentGain = 1.0f;
+
+    public float ThresholdLinear => _threshold;
+
+    public Limiter(float thresholdDb, float lookAheadMs = 0f, int sampleRate = 44100, float releaseMs = 60f)
     {
-        _thresholdDb = thresholdDb;
-        _lookAheadMs = lookAheadMs;
-        _lookAheadSamples = (int)(44100 * lookAheadMs / 1000.0);
-        _lookAheadBuffer = new float[_lookAheadSamples * 2]; // Stereo
+        _threshold = (float)Math.Pow(10.0, thresholdDb / 20.0);
+        int sr = Math.Max(8000, sampleRate);
+        float relSec = Math.Max(0.005f, releaseMs / 1000f);
+        _releaseCoeff = (float)Math.Exp(-1.0 / (sr * relSec));
+        _ = lookAheadMs; // retained for API compatibility; zero-latency stereo-linked envelope needs no delay line
     }
 
+    public void Reset() => _currentGain = 1.0f;
+
+    /// <summary>Processes interleaved stereo samples in-place with zero heap allocations.</summary>
     public void Process(float[] buffer, int offset, int count)
     {
-        float threshold = (float)Math.Pow(10, _thresholdDb / 20.0);
-        
-        for (int i = 0; i < count; i++)
+        int end = offset + count;
+        float threshold = _threshold;
+        float releaseCoeff = _releaseCoeff;
+        float gain = _currentGain;
+
+        int i = offset;
+        for (; i + 1 < end; i += 2)
         {
-            float sample = buffer[offset + i];
-            float absSample = Math.Abs(sample);
-            
-            // Simple hard limiting (brick-wall)
-            if (absSample > threshold)
-            {
-                buffer[offset + i] = Math.Sign(sample) * threshold;
-            }
+            float l = buffer[i];
+            float r = buffer[i + 1];
+            float peak = Math.Max(Math.Abs(l), Math.Abs(r));
+            float targetGain = peak > threshold ? threshold / peak : 1.0f;
+
+            if (targetGain < gain)
+                gain = targetGain;
+            else
+                gain = releaseCoeff * gain + (1.0f - releaseCoeff) * targetGain;
+
+            buffer[i] = Math.Clamp(l * gain, -threshold, threshold);
+            buffer[i + 1] = Math.Clamp(r * gain, -threshold, threshold);
         }
+
+        // Handle any trailing odd sample safely.
+        if (i < end)
+        {
+            float s = buffer[i];
+            float peak = Math.Abs(s);
+            float targetGain = peak > threshold ? threshold / peak : 1.0f;
+            gain = targetGain < gain ? targetGain : releaseCoeff * gain + (1.0f - releaseCoeff) * targetGain;
+            buffer[i] = Math.Clamp(s * gain, -threshold, threshold);
+        }
+
+        _currentGain = gain;
     }
 }
