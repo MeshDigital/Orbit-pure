@@ -26,7 +26,7 @@ namespace SLSKDONET.Views;
 /// Main window ViewModel - coordinates navigation and global app state.
 /// Delegates responsibilities to specialized child ViewModels.
 /// </summary>
-public class MainViewModel : INotifyPropertyChanged, IDisposable
+public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly CompositeDisposable _disposables = new();
     private bool _isDisposed;
@@ -503,6 +503,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         // Subscribe to navigation events
         _navigationService.Navigated += OnNavigated;
+        _navigationService.HistoryChanged += OnNavigationHistoryChanged;
         _navigationService.IsLabsEnabled = () => _config.LabsEnabled;
         _navigationService.LabsNavigationBlocked += OnLabsNavigationBlocked;
         _isCreativeVisible = _config.LabsEnabled;
@@ -543,6 +544,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             _disposables.Dispose();
             _spotifyAuth.AuthenticationChanged -= OnSpotifyAuthChanged;
             _navigationService.Navigated -= OnNavigated;
+            _navigationService.HistoryChanged -= OnNavigationHistoryChanged;
             
             foreach (var track in AllGlobalTracks.ToList()) // ToList to avoid collection modified exception
             {

@@ -46,6 +46,23 @@ namespace SLSKDONET.Views.Avalonia
         private SLSKDONET.Services.Entertainment.IAmbientModeService? _ambientModeService;
         private DateTime _lastActivityReportUtc = DateTime.MinValue;
 
+        private void OnHistoryMouseButton(object? sender, global::Avalonia.Input.PointerPressedEventArgs e)
+        {
+            if (DataContext is not MainViewModel vm) return;
+            var kind = e.GetCurrentPoint(this).Properties.PointerUpdateKind;
+            var command = kind switch
+            {
+                global::Avalonia.Input.PointerUpdateKind.XButton1Pressed => vm.GoBackCommand,
+                global::Avalonia.Input.PointerUpdateKind.XButton2Pressed => vm.GoForwardCommand,
+                _ => null,
+            };
+            if (command?.CanExecute(null) == true)
+            {
+                command.Execute(null);
+                e.Handled = true;
+            }
+        }
+
         private void ReportUserActivity()
         {
             var now = DateTime.UtcNow;
@@ -79,6 +96,9 @@ namespace SLSKDONET.Views.Avalonia
             AddHandler(global::Avalonia.Input.InputElement.PointerMovedEvent, (_, _) => ReportUserActivity(), global::Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
             AddHandler(global::Avalonia.Input.InputElement.PointerPressedEvent, (_, _) => ReportUserActivity(), global::Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
             AddHandler(global::Avalonia.Input.InputElement.KeyDownEvent, (_, _) => ReportUserActivity(), global::Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+
+            // Mouse back / forward thumb buttons step through page history, like a browser.
+            AddHandler(global::Avalonia.Input.InputElement.PointerPressedEvent, OnHistoryMouseButton, global::Avalonia.Interactivity.RoutingStrategies.Tunnel);
 
             this.DataContextChanged += (_, _) =>
             {
