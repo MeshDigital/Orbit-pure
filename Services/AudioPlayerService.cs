@@ -222,8 +222,9 @@ namespace SLSKDONET.Services
         private double _crossfadeProgress;
         private float _masterVolumeFraction = 1f;
 
-        /// <summary>MX1 (#600): Unified single-output stereo mix graph owning the one audio device.</summary>
-        private readonly AutoMixBusSampleProvider _mixBus = new();
+        /// <summary>MX1 (#600): Unified single-output stereo mix graph owning the one audio device,
+        /// running fixed at the output device's current sample rate for the whole session.</summary>
+        private AutoMixBusSampleProvider _mixBus;
         private IWavePlayer? _sharedOutput;
 
         /// <summary>Guards <see cref="_current"/>, <see cref="_next"/>, <see cref="_nextFilePath"/>,
@@ -244,6 +245,9 @@ namespace SLSKDONET.Services
 
         /// <summary>Test seam: replaces the real output device. Production leaves this null.</summary>
         internal Func<ISampleProvider, IWavePlayer>? OutputFactory { get; set; }
+
+        /// <summary>Test seam: overrides the queried output device sample rate. Production leaves this null.</summary>
+        internal Func<int>? PreferredSampleRateOverride { get; set; }
 
         private bool _isInitialized;
         private System.Timers.Timer? _timer;
@@ -326,12 +330,63 @@ namespace SLSKDONET.Services
         {
             _config = config;
             _isInitialized = true;
-            _mixBus.TransitionStarted += OnBusTransitionStarted;
-            _mixBus.TransitionCompleted += OnBusTransitionCompleted;
-            _mixBus.ActiveDeckEnded += OnBusActiveDeckEnded;
+            _mixBus = CreateMixBus(44100);
             _timer = new System.Timers.Timer(TimerIntervalSeconds * 1000);
             _timer.Elapsed += OnTimerElapsed;
             _timer.Start();
+        }
+
+        private AutoMixBusSampleProvider CreateMixBus(int sampleRate)
+        {
+            var bus = new AutoMixBusSampleProvider(sampleRate)
+            {
+                MasterVolume = _masterVolumeFraction,
+                IsPaused = true,
+            };
+            bus.TransitionStarted += OnBusTransitionStarted;
+            bus.TransitionCompleted += OnBusTransitionCompleted;
+            bus.ActiveDeckEnded += OnBusActiveDeckEnded;
+            return bus;
+        }
+
+        private void DetachMixBusEvents(AutoMixBusSampleProvider bus)
+        {
+            bus.TransitionStarted -= OnBusTransitionStarted;
+            bus.TransitionCompleted -= OnBusTransitionCompleted;
+            bus.ActiveDeckEnded -= OnBusActiveDeckEnded;
+        }
+
+        private int ResolveSessionSampleRate()
+        {
+            if (PreferredSampleRateOverride != null)
+            {
+                int overridden = PreferredSampleRateOverride();
+                return overridden > 0 ? overridden : 44100;
+            }
+            if (OutputFactory != null)
+                return 44100;
+
+            var mode = Enum.TryParse<AudioOutputMode>(_config.AudioOutputMode, out var parsed)
+                ? parsed
+                : AudioOutputMode.WasapiShared;
+            int rate = AudioOutputBackend.Current.GetPreferredSampleRate(mode, _config.AudioOutputDeviceName);
+            return rate > 0 ? rate : 44100;
+        }
+
+        /// <summary>
+        /// Aligns <see cref="_mixBus"/> to the output device's current native sample rate once
+        /// before opening <see cref="_sharedOutput"/>. Never called again between tracks — the
+        /// mixer stays fixed at the device's rate for the whole session.
+        /// </summary>
+        private void EnsureSessionBusRate()
+        {
+            if (_sharedOutput != null) return;
+            int deviceRate = ResolveSessionSampleRate();
+            if (_mixBus.WaveFormat.SampleRate == deviceRate) return;
+
+            DetachMixBusEvents(_mixBus);
+            _mixBus = CreateMixBus(deviceRate);
+            Serilog.Log.Information("[AudioPlayerService] Mix bus aligned to output device rate: {Rate} Hz", deviceRate);
         }
 
         private void OnBusTransitionStarted(ScheduledMixTransition plan)
@@ -874,6 +929,9 @@ namespace SLSKDONET.Services
 
             try
             {
+                // Match the mix bus to the output device's current sample rate once per session
+                // (no-op once _sharedOutput is open, so tracks with different rates never restart the device).
+                EnsureSessionBusRate();
                 var deck = CreateDeck(filePath, trackLoudnessLufs);
                 deck.Gain!.Volume = _masterVolumeFraction * deck.LoudnessGain;
                 _mixBus.MasterVolume = _masterVolumeFraction;
@@ -990,7 +1048,8 @@ namespace SLSKDONET.Services
 
         /// <summary>
         /// Moves the single shared mix-bus output onto the output device now selected in Settings,
-        /// keeping position and play/pause state.
+        /// updating the mixer sample rate if the new device runs at a different rate, and keeping
+        /// position and play/pause state. This is the only path that restarts the audio device.
         /// </summary>
         public void ApplyOutputSettings()
         {
@@ -999,9 +1058,41 @@ namespace SLSKDONET.Services
             try
             {
                 bool wasPlaying = old.PlaybackState == PlaybackState.Playing && !_mixBus.IsPaused;
+                int newRate = ResolveSessionSampleRate();
+                if (newRate != _mixBus.WaveFormat.SampleRate)
+                {
+                    var oldBus = _mixBus;
+                    oldBus.IsPaused = true;
+                    DetachMixBusEvents(oldBus);
+
+                    var newBus = CreateMixBus(newRate);
+                    Deck? current, next;
+                    lock (_deckLock)
+                    {
+                        current = _current;
+                        next = _next;
+                    }
+                    if (current?.Metering != null && current.Gain != null)
+                    {
+                        current.BusDeck = BuildBusDeck(current, newBus);
+                        double speed = Math.Max(0.01, current.VariSpeed?.Speed ?? 1.0);
+                        long frames = (long)Math.Round(((current.AudioFile?.CurrentTime.TotalSeconds ?? 0) / speed) * newRate);
+                        newBus.SetActiveDeck(current.BusDeck, frames);
+                    }
+                    if (next?.Metering != null && next.Gain != null)
+                    {
+                        next.BusDeck = BuildBusDeck(next, newBus);
+                    }
+                    newBus.IsPaused = !wasPlaying;
+                    _mixBus = newBus;
+                    RefreshScheduledBusTransition();
+                    Serilog.Log.Information("[AudioPlayerService] Mix bus updated to new output device rate: {Rate} Hz", newRate);
+                }
+
                 var fresh = OutputFactory?.Invoke(_mixBus) ?? CreateConfiguredOutputDevice(_mixBus);
                 _sharedOutput = fresh;
-                try { old.Stop(); } catch { /* already stopped */ }
+                try { old.Stop(); }
+                catch (Exception ex) { Serilog.Log.Debug(ex, "[AudioPlayerService] Stopping previous output device"); }
                 old.Dispose();
                 if (wasPlaying) fresh.Play();
             }
@@ -1010,6 +1101,26 @@ namespace SLSKDONET.Services
                 Serilog.Log.Warning(ex, "[AudioPlayerService] Switching output device failed");
             }
         }
+
+        private MixBusDeck BuildBusDeck(Deck deck, AutoMixBusSampleProvider bus) => new()
+        {
+            Source = bus.AdaptToBusFormat(deck.Metering!),
+            Gain = deck.Gain!,
+            Eq = deck.Eq,
+            LoudnessGain = deck.LoudnessGain,
+            PrepareBeforeStart = () =>
+            {
+                deck.WaitForSeek();
+                Deck? cur;
+                lock (_deckLock) cur = _current;
+                if (cur != null && !ReferenceEquals(cur, deck))
+                    ApplyTempoSync(cur, deck);
+                double inSpeed = Math.Max(0.01, deck.VariSpeed?.Speed ?? 1.0);
+                double inSec = deck.AudioFile?.CurrentTime.TotalSeconds ?? 0;
+                deck.BusDeck!.InitialFrameOffset = (long)Math.Round((inSec / inSpeed) * bus.WaveFormat.SampleRate);
+            },
+            Tag = deck,
+        };
 
         /// <summary>
         /// Loudness normalization à la ReplayGain, using each track's already-analyzed integrated
@@ -1111,25 +1222,7 @@ namespace SLSKDONET.Services
                 }
             };
 
-            deck.BusDeck = new MixBusDeck
-            {
-                Source = _mixBus.AdaptToBusFormat(deck.Metering),
-                Gain = deck.Gain,
-                Eq = deck.Eq,
-                LoudnessGain = deck.LoudnessGain,
-                PrepareBeforeStart = () =>
-                {
-                    deck.WaitForSeek();
-                    Deck? cur;
-                    lock (_deckLock) cur = _current;
-                    if (cur != null && !ReferenceEquals(cur, deck))
-                        ApplyTempoSync(cur, deck);
-                    double inSpeed = Math.Max(0.01, deck.VariSpeed?.Speed ?? 1.0);
-                    double inSec = deck.AudioFile?.CurrentTime.TotalSeconds ?? 0;
-                    deck.BusDeck!.InitialFrameOffset = (long)Math.Round((inSec / inSpeed) * _mixBus.WaveFormat.SampleRate);
-                },
-                Tag = deck,
-            };
+            deck.BusDeck = BuildBusDeck(deck, _mixBus);
             deck.OnDisposed = ForgetDeck;
             lock (_deckLock)
             {

@@ -40,6 +40,13 @@ public interface IAudioOutputBackend
 
     /// <summary>Lists available ASIO driver names (Windows only; empty on macOS/Linux).</summary>
     IEnumerable<string> GetAsioDriverNames();
+
+    /// <summary>
+    /// Returns the output device's current native sample rate (e.g., WASAPI MixFormat rate or ASIO
+    /// driver rate) so the unified mix bus runs fixed at the device rate for the whole session
+    /// without restarting the device between tracks. Defaults to 44100 Hz if unavailable.
+    /// </summary>
+    int GetPreferredSampleRate(AudioOutputMode mode, string? deviceName) => 44100;
 }
 
 /// <summary>Windows implementation wrapping NAudio WASAPI / WaveOut / ASIO (#455).</summary>
@@ -81,6 +88,36 @@ public sealed class WindowsAudioOutputBackend : IAudioOutputBackend
     {
         try { return AsioOut.GetDriverNames(); }
         catch { return Enumerable.Empty<string>(); }
+    }
+
+    public int GetPreferredSampleRate(AudioOutputMode mode, string? deviceName)
+    {
+        try
+        {
+            if (mode == AudioOutputMode.Asio)
+            {
+                using var asio = (AsioOut)CreateAsioDevice(deviceName);
+                // Prefer 48 kHz if 44.1 kHz isn't supported (e.g. an ASIO interface locked at 48 kHz).
+                if (asio.IsSampleRateSupported(48000) && !asio.IsSampleRateSupported(44100))
+                    return 48000;
+                if (asio.IsSampleRateSupported(44100))
+                    return 44100;
+                if (asio.IsSampleRateSupported(48000))
+                    return 48000;
+                if (asio.IsSampleRateSupported(96000))
+                    return 96000;
+                return 44100;
+            }
+
+            var endpoint = deviceName != null ? GetWasapiDevice(deviceName) : GetDefaultWasapiDevice();
+            int rate = endpoint.AudioClient.MixFormat.SampleRate;
+            return rate > 0 ? rate : 44100;
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Debug(ex, "[AudioOutputBackend] Could not query preferred sample rate for {Mode}/{Device}; using 44100 Hz", mode, deviceName ?? "default");
+            return 44100;
+        }
     }
 
     private static string? TryGetName(MMDevice device)
