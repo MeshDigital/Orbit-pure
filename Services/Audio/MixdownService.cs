@@ -72,7 +72,7 @@ public sealed class MixdownService
                     ct.ThrowIfCancellationRequested();
                     var reader   = PlayableAudio.Open(src.FilePath, out _); // files Windows can't decode go via ffmpeg
                     readers.Add(reader);
-                    var resampled = new WdlResamplingSampleProvider(reader,
+                    var resampled = SLSKDONET.Services.Audio.OffsetSafeResampler.Create(reader,
                         WaveFormat.CreateIeeeFloatWaveFormat(settings.SampleRate, 2).SampleRate);
                     var vol = new VolumeSampleProvider(resampled) { Volume = src.Volume };
                     providers.Add(vol);
