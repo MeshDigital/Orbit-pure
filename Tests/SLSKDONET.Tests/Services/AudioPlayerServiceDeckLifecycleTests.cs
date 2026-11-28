@@ -214,6 +214,76 @@ public class AudioPlayerServiceDeckLifecycleTests : IDisposable
         Assert.False(playing.IsPlaying, "a playing deck with no reference must still be stopped");
     }
 
+    [Fact]
+    public async Task Dispose_DuringSlowBackgroundSeek_DefersFileDisposeWithoutBlockingOrCrashing()
+    {
+        using var sut = NewService(stopRaisesEventSynchronously: true);
+        using var seekEntered = new ManualResetEventSlim(false);
+        using var allowSeekToFinish = new ManualResetEventSlim(false);
+        Exception? readExceptionDuringSeek = null;
+        AudioFileReader? capturedReader = null;
+
+        sut.SeekActionOverride = (file, filePath, seconds) =>
+        {
+            capturedReader = file;
+            seekEntered.Set();
+            Assert.True(allowSeekToFinish.Wait(TimeSpan.FromSeconds(5)), "test should release the slow seek");
+            try
+            {
+                // Must still be readable (not disposed mid-read by Deck.Dispose).
+                var buf = new float[64];
+                int samplesRead = file.Read(buf, 0, buf.Length);
+                Assert.True(samplesRead >= 0);
+            }
+            catch (Exception ex)
+            {
+                readExceptionDuringSeek = ex;
+            }
+        };
+
+        var trackA = NewWav(seconds: 4.0);
+        var trackB = NewWav(seconds: 4.0);
+        sut.Play(trackA);
+        sut.PreloadNext(trackB, targetTriggerSeconds: 1.0);
+
+        Assert.True(seekEntered.Wait(TimeSpan.FromSeconds(3)), "preloaded deck should have started background seek");
+
+        var nextDeck = Get<object>(sut, "_next");
+        Assert.NotNull(nextDeck);
+        var seekTask = (Task?)nextDeck!.GetType().GetField("SeekTask")!.GetValue(nextDeck);
+        Assert.NotNull(seekTask);
+
+        // Dispose the preloaded deck while the slow seek is actively running: must NOT block.
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        sut.Stop();
+        sw.Stop();
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(1), $"Stop() must not block on slow seek (took {sw.Elapsed})");
+
+        // Let the slow seek finish its read — it must NOT fail with ObjectDisposedException / COM crash.
+        allowSeekToFinish.Set();
+        await seekTask!.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Null(readExceptionDuringSeek);
+        Assert.NotNull(capturedReader);
+    }
+
+    [Fact]
+    public async Task BackgroundSeekFailure_IsCaughtAndNeverBecomesUnobservedTaskException()
+    {
+        using var sut = NewService(stopRaisesEventSynchronously: true);
+        sut.SeekActionOverride = (_, _, _) => throw new InvalidCastException("Simulated Media Foundation COM failure");
+
+        sut.Play(NewWav(seconds: 4.0));
+        sut.PreloadNext(NewWav(seconds: 4.0), targetTriggerSeconds: 1.0);
+
+        var nextDeck = Get<object>(sut, "_next");
+        Assert.NotNull(nextDeck);
+        var seekTask = (Task?)nextDeck!.GetType().GetField("SeekTask")!.GetValue(nextDeck);
+        Assert.NotNull(seekTask);
+
+        await seekTask!.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.False(seekTask.IsFaulted, "SeekInBackground must catch and log errors instead of faulting the task");
+    }
+
     private AudioPlayerService NewService(bool stopRaisesEventSynchronously)
     {
         var sut = new AudioPlayerService(new AppConfig());

@@ -103,23 +103,37 @@ namespace SLSKDONET.Services
             /// preload happens minutes before the crossfade). Bounded so playback can never hang.</summary>
             public void WaitForSeek()
             {
-                try { SeekTask?.Wait(TimeSpan.FromSeconds(3)); } catch { /* seek failure: play from wherever it is */ }
+                try
+                {
+                    SeekTask?.Wait(TimeSpan.FromSeconds(3));
+                }
+                catch (Exception ex)
+                {
+                    Serilog.Log.Debug(ex, "[AudioPlayerService] Background seek wait failed for {File}; continuing from current position", FilePath);
+                }
             }
+
+            /// <summary>Test seam: replaces <see cref="SLSKDONET.Services.Audio.ExactSeek.Seek"/> so
+            /// tests can simulate a slow decode-forward seek racing with <see cref="Dispose"/>.</summary>
+            internal Action<AudioFileReader, string, double>? SeekAction;
 
             /// <summary>Seeks this (not yet playing) deck exactly to <paramref name="seconds"/> in the background.</summary>
             public void SeekInBackground(double seconds)
             {
                 var file = AudioFile;
-                if (file == null) return;
-                if (!SLSKDONET.Services.Audio.ExactSeek.NeedsDecodeForward(FilePath))
+                if (IsDisposed || file == null) return;
+                bool useBackground = SeekAction != null || SLSKDONET.Services.Audio.ExactSeek.NeedsDecodeForward(FilePath);
+                if (!useBackground)
                 {
                     WaitForSeek();
+                    if (IsDisposed) return;
                     file.CurrentTime = TimeSpan.FromSeconds(seconds);
                     VariSpeed?.Reset();
                     Metronome?.Seek(seconds);
                     return;
                 }
                 var previous = SeekTask;
+                var seekFn = SeekAction ?? SLSKDONET.Services.Audio.ExactSeek.Seek;
                 SeekTask = System.Threading.Tasks.Task.Run(async () =>
                 {
                     if (previous != null)
@@ -127,9 +141,18 @@ namespace SLSKDONET.Services
                         try { await previous; }
                         catch (Exception ex) { Serilog.Log.Warning(ex, "[AudioPlayerService] Previous seek task failed"); }
                     }
-                    SLSKDONET.Services.Audio.ExactSeek.Seek(file, FilePath, seconds);
-                    VariSpeed?.Reset();
-                    Metronome?.Seek(seconds);
+                    if (IsDisposed) return;
+                    try
+                    {
+                        seekFn(file, FilePath, seconds);
+                        if (IsDisposed) return;
+                        VariSpeed?.Reset();
+                        Metronome?.Seek(seconds);
+                    }
+                    catch (Exception ex)
+                    {
+                        Serilog.Log.Warning(ex, "[AudioPlayerService] Background exact seek failed for {File}", FilePath);
+                    }
                 });
             }
 
@@ -137,13 +160,41 @@ namespace SLSKDONET.Services
             {
                 if (IsDisposed) return;
                 IsDisposed = true;
+                var output = Output;
+                var file = AudioFile;
+                var seekTask = SeekTask;
+                Output = null;
+                AudioFile = null;
                 try
                 {
-                    try { Output?.Stop(); } catch { /* already stopped/disposed */ }
-                    AudioFile?.Dispose();
-                    try { Output?.Dispose(); } catch { /* already disposed */ }
-                    Output = null;
-                    AudioFile = null;
+                    if (output != null)
+                    {
+                        try { output.Stop(); }
+                        catch (Exception ex) { Serilog.Log.Debug(ex, "[AudioPlayerService] Stopping deck output during dispose failed for {File}", FilePath); }
+                        try { output.Dispose(); }
+                        catch (Exception ex) { Serilog.Log.Debug(ex, "[AudioPlayerService] Disposing deck output failed for {File}", FilePath); }
+                    }
+
+                    if (file != null)
+                    {
+                        // Never dispose an NAudio Media Foundation reader while a background exact seek
+                        // is actively decoding on it (that triggers COM InvalidCastException / use-after-free).
+                        // Defer disposal to a continuation on SeekTask without blocking the caller/UI thread.
+                        if (seekTask is { IsCompleted: false })
+                        {
+                            string path = FilePath;
+                            _ = seekTask.ContinueWith(_ =>
+                            {
+                                try { file.Dispose(); }
+                                catch (Exception ex) { Serilog.Log.Debug(ex, "[AudioPlayerService] Deferred AudioFile dispose failed for {File}", path); }
+                            }, System.Threading.Tasks.TaskScheduler.Default);
+                        }
+                        else
+                        {
+                            try { file.Dispose(); }
+                            catch (Exception ex) { Serilog.Log.Debug(ex, "[AudioPlayerService] Disposing AudioFile failed for {File}", FilePath); }
+                        }
+                    }
                 }
                 finally
                 {
@@ -248,6 +299,9 @@ namespace SLSKDONET.Services
 
         /// <summary>Test seam: overrides the queried output device sample rate. Production leaves this null.</summary>
         internal Func<int>? PreferredSampleRateOverride { get; set; }
+
+        /// <summary>Test seam: replaces <see cref="SLSKDONET.Services.Audio.ExactSeek.Seek"/> for background seeks. Production leaves this null.</summary>
+        internal Action<AudioFileReader, string, double>? SeekActionOverride { get; set; }
 
         private bool _isInitialized;
         private System.Timers.Timer? _timer;
@@ -688,12 +742,15 @@ namespace SLSKDONET.Services
                     try
                     {
                         if (wasPlaying) _mixBus.IsPaused = true;
+                        var seekFn = deck.SeekAction ?? SLSKDONET.Services.Audio.ExactSeek.Seek;
                         while (true)
                         {
                             double seconds;
+                            AudioFileReader? file;
                             lock (deck.SeekLock)
                             {
-                                if (deck.RequestedSeekSeconds is not double next || deck.AudioFile == null)
+                                file = deck.AudioFile;
+                                if (deck.IsDisposed || deck.RequestedSeekSeconds is not double next || file == null)
                                 {
                                     deck.SeekWorkerRunning = false;
                                     break;
@@ -703,7 +760,8 @@ namespace SLSKDONET.Services
                             }
                             try
                             {
-                                SLSKDONET.Services.Audio.ExactSeek.Seek(deck.AudioFile, deck.FilePath, seconds);
+                                seekFn(file, deck.FilePath, seconds);
+                                if (deck.IsDisposed) break;
                                 deck.VariSpeed?.Reset();
                                 deck.Metronome?.Seek(seconds);
                                 SyncBusFramesToDeck(deck);
@@ -718,7 +776,7 @@ namespace SLSKDONET.Services
                     finally
                     {
                         lock (deck.SeekLock) deck.SeekWorkerRunning = false;
-                        if (wasPlaying && ReferenceEquals(_current, deck)) _mixBus.IsPaused = false;
+                        if (wasPlaying && !deck.IsDisposed && ReferenceEquals(_current, deck)) _mixBus.IsPaused = false;
                     }
                 });
             }
@@ -1169,7 +1227,8 @@ namespace SLSKDONET.Services
             {
                 FilePath = playablePath,
                 AudioFile = reader,
-                LoudnessGain = ComputeLoudnessGain(effectiveLufs)
+                LoudnessGain = ComputeLoudnessGain(effectiveLufs),
+                SeekAction = SeekActionOverride,
             };
 
             // Set up channel and resampler for pitch (turntable style)
