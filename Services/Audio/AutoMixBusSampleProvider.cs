@@ -392,10 +392,10 @@ internal sealed class AutoMixBusSampleProvider : ISampleProvider
         }
         else
         {
-            // Constant-sum linear crossfade (matching TransitionEngine.CalculateCrossfade) so two
-            // overlapping full-scale tracks stay at unity sum instead of peaking at +3.01 dB.
-            outgoing.Gain.Volume = (float)(_masterVolume * outgoing.LoudnessGain * (1.0 - t));
-            incoming.Gain.Volume = (float)(_masterVolume * incoming.LoudnessGain * t);
+            // Equal-power crossfade keeps perceived loudness constant for uncorrelated tracks;
+            // the -1 dBFS brickwall limiter at the end of Read() catches any coincident peaks.
+            outgoing.Gain.Volume = (float)(_masterVolume * outgoing.LoudnessGain * Math.Cos(t * Math.PI / 2.0));
+            incoming.Gain.Volume = (float)(_masterVolume * incoming.LoudnessGain * Math.Sin(t * Math.PI / 2.0));
         }
     }
 

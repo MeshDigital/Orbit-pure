@@ -40,7 +40,7 @@ public class MasterBus : ISampleProvider, IDisposable
     {
         _source = source;
         _glueCompressor = new Compressor(ratio: 1.5f, thresholdDb: -10f, attackMs: 10f, releaseMs: 100f);
-        _limiter = new Limiter(thresholdDb: -0.1f, lookAheadMs: 5.0f);
+        _limiter = new Limiter(thresholdDb: -0.1f, lookAheadMs: 5.0f, sampleRate: source.WaveFormat.SampleRate);
     }
 
     public int Read(float[] buffer, int offset, int count)
