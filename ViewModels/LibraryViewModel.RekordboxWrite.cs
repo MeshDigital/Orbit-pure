@@ -33,19 +33,19 @@ public partial class LibraryViewModel
             : new RekordboxPlannedPlaylist(
                 project.SourceTitle.Trim(),
                 tracks.Where(t => !string.IsNullOrWhiteSpace(t.ResolvedFilePath)).Select(t => t.ResolvedFilePath).ToList());
-        await WriteCuesToRekordboxAsync(tracks, $"'{project.SourceTitle}'", playlistSync);
+        await WriteCuesToRekordboxAsync(tracks, $"'{project.SourceTitle}'", playlistSync, project.FolderId);
     });
 
     public ICommand BatchWriteCuesToRekordboxCommand => _batchWriteCuesToRekordboxCommand ??= new AsyncRelayCommand(async () =>
     {
         var tracks = Tracks.SelectedTracks.Select(t => t.Model).ToList();
-        if (tracks.Count > 0) await WriteCuesToRekordboxAsync(tracks, $"{tracks.Count} selected track(s)", playlist: null);
+        if (tracks.Count > 0) await WriteCuesToRekordboxAsync(tracks, $"{tracks.Count} selected track(s)", playlist: null, folderId: null);
     });
 
     private void OnRekordboxDbWriteSettingChanged() =>
         Avalonia.Threading.Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(IsRekordboxDbWriteEnabled)));
 
-    private async Task WriteCuesToRekordboxAsync(IReadOnlyList<PlaylistTrack> tracks, string what, RekordboxPlannedPlaylist? playlist)
+    private async Task WriteCuesToRekordboxAsync(IReadOnlyList<PlaylistTrack> tracks, string what, RekordboxPlannedPlaylist? playlist, Guid? folderId)
     {
         var writer = _serviceProvider?.GetService<RekordboxDbWriteService>();
         if (writer is null || !writer.IsEnabled || _isWritingToRekordbox) return;
@@ -89,12 +89,25 @@ public partial class LibraryViewModel
             }
 
             string notInCollection = preview.NotInRekordbox.Count > 0
-                ? $"\n\n{preview.NotInRekordbox.Count} track(s) aren't in your Rekordbox collection, so they're skipped. Add them in Rekordbox first, or use the XML export for them.\n{Sample(preview.NotInRekordbox)}"
+                ? $"\n\n{preview.NotInRekordbox.Count} track(s) aren't in your Rekordbox collection yet, so ORBIT can't write to them directly:\n{Sample(preview.NotInRekordbox)}"
                 : "";
             bool hasPlaylistWork = preview.PlaylistCreated || preview.PlaylistTracksAdded > 0;
             if (preview.TracksWritten == 0 && !hasPlaylistWork)
             {
-                await _dialogService.ShowAlertAsync("Nothing to write", preview.Message + notInCollection);
+                if (preview.NotInRekordbox.Count > 0)
+                {
+                    bool exportMissing = await _dialogService.ConfirmAsync(
+                        "Tracks aren't in Rekordbox yet",
+                        preview.Message + notInCollection + "\n\n" +
+                        "Export these missing tracks as a rekordbox.xml file so you can import them into Rekordbox (File → Import → rekordbox xml)?",
+                        "Export these as rekordbox.xml", "Close");
+                    if (exportMissing)
+                        await ExportMissingTracksToRekordboxXmlAsync(tracks, preview.NotInRekordbox, playlist?.Name ?? "ORBIT Missing Tracks", folderId);
+                }
+                else
+                {
+                    await _dialogService.ShowAlertAsync("Nothing to write", preview.Message);
+                }
                 return;
             }
 
@@ -115,6 +128,18 @@ public partial class LibraryViewModel
                     ? $"{result.Message} Verified {result.Verified} track(s). Open Rekordbox to see them."
                     : result.Message,
                 result.Success ? NotificationType.Success : NotificationType.Error);
+
+            if (result.NotInRekordbox.Count > 0)
+            {
+                bool exportMissing = await _dialogService.ConfirmAsync(
+                    "Export missing tracks as rekordbox.xml?",
+                    $"{result.NotInRekordbox.Count} track(s) aren't in your Rekordbox collection yet, so they were skipped:\n\n" +
+                    Sample(result.NotInRekordbox) + "\n\n" +
+                    "Export just these tracks as rekordbox.xml (merge-safe) so you can import them into Rekordbox?",
+                    "Export these as rekordbox.xml", "Skip");
+                if (exportMissing)
+                    await ExportMissingTracksToRekordboxXmlAsync(tracks, result.NotInRekordbox, playlist?.Name ?? "ORBIT Missing Tracks", folderId);
+            }
         }
         catch (Exception ex)
         {
@@ -126,6 +151,56 @@ public partial class LibraryViewModel
             IsLoading = false;
             _isWritingToRekordbox = false;
         }
+    }
+
+    private async Task ExportMissingTracksToRekordboxXmlAsync(
+        IReadOnlyList<PlaylistTrack> allTracks,
+        IReadOnlyList<string> notInRekordboxPaths,
+        string playlistName,
+        Guid? folderId)
+    {
+        var missingTracks = FilterMissingRekordboxTracks(allTracks, notInRekordboxPaths);
+        if (missingTracks.Count == 0)
+        {
+            _notificationService.Show("Nothing to export", "None of the missing tracks have local files on disk.", NotificationType.Warning);
+            return;
+        }
+
+        string? outputPath = await _dialogService.SaveFileAsync("Export missing tracks to Rekordbox XML", "rekordbox.xml", "xml");
+        if (string.IsNullOrWhiteSpace(outputPath)) return;
+
+        try
+        {
+            await _exportService.ExportToRekordboxXmlAsync(playlistName, missingTracks, outputPath, folderId: folderId);
+            _notificationService.Show(
+                "Rekordbox XML exported",
+                $"Exported {SLSKDONET.Utils.CountFormat.N(missingTracks.Count)} missing track(s) to {outputPath}. Import it in Rekordbox (File → Import → rekordbox xml).",
+                NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exporting missing Rekordbox tracks to XML failed");
+            _notificationService.Show("Rekordbox XML export failed", ex.Message, NotificationType.Error);
+        }
+    }
+
+    /// <summary>Returns the subset of <paramref name="tracks"/> whose local file path appears in
+    /// <paramref name="notInRekordboxPaths"/> (case/separator-insensitive via <see cref="RekordboxLibraryService.NormalizePath"/>).</summary>
+    internal static List<PlaylistTrack> FilterMissingRekordboxTracks(
+        IReadOnlyList<PlaylistTrack> tracks,
+        IReadOnlyList<string> notInRekordboxPaths)
+    {
+        if (tracks.Count == 0 || notInRekordboxPaths.Count == 0)
+            return new List<PlaylistTrack>();
+
+        var missingSet = new HashSet<string>(
+            notInRekordboxPaths.Where(p => !string.IsNullOrWhiteSpace(p)).Select(RekordboxLibraryService.NormalizePath),
+            StringComparer.Ordinal);
+
+        return tracks
+            .Where(t => !string.IsNullOrWhiteSpace(t.ResolvedFilePath)
+                        && missingSet.Contains(RekordboxLibraryService.NormalizePath(t.ResolvedFilePath)))
+            .ToList();
     }
 
     private static string Sample(IReadOnlyList<string> paths) =>

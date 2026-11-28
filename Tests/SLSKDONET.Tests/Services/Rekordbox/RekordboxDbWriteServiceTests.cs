@@ -437,6 +437,24 @@ public sealed class RekordboxDbWriteServiceTests : IDisposable
         Assert.Contains("masterPlaylists6.xml", msgOld);
     }
 
+    [Fact]
+    public void FilterMissingRekordboxTracks_MatchesCaseAndSeparatorInsensitively_AndPreservesOrder()
+    {
+        var tracks = new List<PlaylistTrack>
+        {
+            new() { Artist = "A", Title = "In RB", ResolvedFilePath = @"D:\Music\A.flac" },
+            new() { Artist = "B", Title = "Missing 1", ResolvedFilePath = @"D:\Music\Sub\Missing1.flac" },
+            new() { Artist = "C", Title = "No file", ResolvedFilePath = "" },
+            new() { Artist = "D", Title = "Missing 2", ResolvedFilePath = @"d:/music/Missing2.mp3" },
+        };
+
+        var missing = SLSKDONET.ViewModels.LibraryViewModel.FilterMissingRekordboxTracks(
+            tracks,
+            new[] { "d:/music/sub/missing1.flac", @"D:\MUSIC\MISSING2.MP3" });
+
+        Assert.Equal(new[] { "Missing 1", "Missing 2" }, missing.Select(t => t.Title));
+    }
+
     // ─── fixture ────────────────────────────────────────────────────────────
 
     private SqliteConnection Open()
