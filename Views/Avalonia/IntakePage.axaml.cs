@@ -23,5 +23,13 @@ namespace SLSKDONET.Views.Avalonia
             if (DataContext is IntakeViewModel vm)
                 _ = vm.LoadAsync();
         }
+
+        protected override void OnUnloaded(RoutedEventArgs e)
+        {
+            // Leaving the page stops a preview that would otherwise keep playing unseen.
+            if (DataContext is IntakeViewModel vm)
+                vm.StopPreview();
+            base.OnUnloaded(e);
+        }
     }
 }

@@ -61,10 +61,13 @@ public sealed class IntakeRowViewModel : ReactiveObject
     private readonly Func<IntakeRowViewModel, IntakeAction, Task> _setAction;
     private IntakeActionOption? _selectedAction;
     private bool _suppress;
+    private bool _isPreviewing;
 
-    public IntakeRowViewModel(IntakeItemEntity item, Func<IntakeRowViewModel, IntakeAction, Task> setAction)
+    public IntakeRowViewModel(IntakeItemEntity item, Func<IntakeRowViewModel, IntakeAction, Task> setAction,
+        Action<IntakeRowViewModel>? togglePreview = null)
     {
         _setAction = setAction;
+        if (togglePreview != null) PreviewCommand = new RelayCommand(() => togglePreview(this));
         Item = item;
         ActionOptions = IntakeApplyService.AllowedActions(item)
             .Select(a => new IntakeActionOption(a, IntakeActionOption.LabelFor(a)))
@@ -74,6 +77,12 @@ public sealed class IntakeRowViewModel : ReactiveObject
 
     public IntakeItemEntity Item { get; }
     public string Id => Item.Id;
+
+    /// <summary>Play / stop a preview of this file from the drive (null when no preview player).</summary>
+    public RelayCommand? PreviewCommand { get; }
+    public bool CanPreview => PreviewCommand != null && Item.Status != IntakeItemStatus.Failed;
+    public bool IsPreviewing { get => _isPreviewing; set { this.RaiseAndSetIfChanged(ref _isPreviewing, value); this.RaisePropertyChanged(nameof(IsNotPreviewing)); } }
+    public bool IsNotPreviewing => !_isPreviewing;
     public IntakeLane Lane => Item.Lane;
 
     public string TitleText => Item.Artist != null && Item.Title != null
@@ -144,6 +153,8 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
     private readonly INotificationService? _notifications;
     private readonly ILogger<IntakeViewModel> _logger;
     private readonly INavigationService? _navigation;
+    private readonly SLSKDONET.Services.Audio.ILibraryPreviewPlayer? _preview;
+    private IntakeRowViewModel? _previewRow;
     private readonly AsyncRelayCommand _chooseSourceCommand;
     private readonly AsyncRelayCommand _resumeScanCommand;
     private readonly RelayCommand _cancelCommand;
@@ -178,7 +189,8 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
         IDialogService dialogs,
         ILogger<IntakeViewModel> logger,
         INotificationService? notifications = null,
-        INavigationService? navigation = null)
+        INavigationService? navigation = null,
+        SLSKDONET.Services.Audio.ILibraryPreviewPlayer? preview = null)
     {
         _scan = scan;
         _apply = apply;
@@ -187,6 +199,8 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
         _logger = logger;
         _notifications = notifications;
         _navigation = navigation;
+        _preview = preview;
+        if (_preview != null) _preview.PreviewStopped += OnPreviewStopped;
 
         _chooseSourceCommand = new AsyncRelayCommand(ChooseSourceAsync, () => !IsBusy);
         _resumeScanCommand = new AsyncRelayCommand(() => RunScanAsync(_session!.Id), () => !IsBusy && HasUnfinishedScan);
@@ -417,7 +431,8 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
         try
         {
             var result = await Task.Run(() => _apply.ApplyAsync(sessionId, progress, _workCts.Token));
-            ResultText = result.Summary + ".";
+            ResultText = result.Summary + "."
+                + (result.Kept > 0 ? " The added tracks are queued for analysis; follow it on the Analysis page." : string.Empty);
             ShowBackupLink = result.Kept + result.Replaced > 0;
             _notifications?.Show("Intake applied", result.Summary,
                 result.Failed > 0 ? NotificationType.Warning : NotificationType.Success);
@@ -504,6 +519,49 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
                 : _allRows;
     }
 
+    /// <summary>Plays a file from about a third in (past most intros), or stops it.</summary>
+    private void TogglePreview(IntakeRowViewModel row)
+    {
+        if (_preview == null) return;
+        if (ReferenceEquals(_previewRow, row) && row.IsPreviewing)
+        {
+            StopPreview();
+            return;
+        }
+        if (_previewRow != null) _previewRow.IsPreviewing = false;
+        _previewRow = row;
+        row.IsPreviewing = true;
+        try
+        {
+            _preview.RequestPreview(row.Item.SourcePath, null, row.Item.DurationSeconds > 0 ? row.Item.DurationSeconds * 0.35 : 0);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Intake: preview of {Path} failed", row.Item.SourcePath);
+            row.IsPreviewing = false;
+            ErrorText = "Couldn't play that file: " + ex.Message;
+        }
+    }
+
+    /// <summary>Stops any preview (the page calls this when it is left).</summary>
+    public void StopPreview()
+    {
+        if (_previewRow != null) _previewRow.IsPreviewing = false;
+        _previewRow = null;
+        try { _preview?.StopPreview(); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Intake: stopping the preview failed"); }
+    }
+
+    private void OnPreviewStopped(object? sender, EventArgs e) =>
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (_previewRow != null && !string.Equals(_preview?.CurrentPreviewPath, _previewRow.Item.SourcePath, StringComparison.OrdinalIgnoreCase))
+            {
+                _previewRow.IsPreviewing = false;
+                _previewRow = null;
+            }
+        });
+
     private async Task SetShownAsync(IntakeAction action)
     {
         var rows = _rows.Where(r => r.CanChoose && r.ActionOptions.Any(o => o.Action == action)).ToList();
@@ -589,7 +647,7 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
             ErrorText = "Couldn't load the files: " + ex.Message;
             return;
         }
-        var rows = items.Select(i => new IntakeRowViewModel(i, SetActionAsync)).ToList();
+        var rows = items.Select(i => new IntakeRowViewModel(i, SetActionAsync, _preview != null ? TogglePreview : null)).ToList();
         _allRows = rows;
         foreach (var f in LaneFilters)
             f.Count = f.IsFailedFilter
@@ -636,6 +694,7 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        if (_preview != null) _preview.PreviewStopped -= OnPreviewStopped;
         _workCts?.Cancel();
         _workCts?.Dispose();
     }

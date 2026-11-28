@@ -21,12 +21,12 @@ public sealed class IntakeViewModelTests
     private readonly DbContextOptions<AppDbContext> _options =
         new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase($"intake-vm-{Guid.NewGuid():N}").Options;
 
-    private IntakeViewModel Create()
+    private IntakeViewModel Create(SLSKDONET.Services.Audio.ILibraryPreviewPlayer? preview = null)
     {
         var factory = new Factory(_options);
         var scan = new IntakeScanService(factory, Mock.Of<IIntakeFileInspector>(), NullLogger<IntakeScanService>.Instance);
         var apply = new IntakeApplyService(factory, Mock.Of<IIntakeLibraryWriter>(), NullLogger<IntakeApplyService>.Instance);
-        return new IntakeViewModel(scan, apply, factory, Mock.Of<IDialogService>(), NullLogger<IntakeViewModel>.Instance);
+        return new IntakeViewModel(scan, apply, factory, Mock.Of<IDialogService>(), NullLogger<IntakeViewModel>.Instance, preview: preview);
     }
 
     private void Seed(IntakeSessionStatus status, params (string Name, IntakeLane Lane, IntakeAction Action, IntakeItemStatus Status)[] items)
@@ -124,6 +124,29 @@ public sealed class IntakeViewModelTests
         Assert.Equal(IntakeAction.Skip, actions["b.mp3"]);
         Assert.Equal(IntakeAction.Keep, actions["c.flac"]);
         Assert.All(vm.Rows, r => Assert.Equal(IntakeAction.Skip, r.SelectedAction!.Action));
+    }
+
+    [Fact]
+    public async Task Listen_PlaysFromAThirdIn_AndTogglesOff()
+    {
+        Seed(IntakeSessionStatus.Ready, ("a.flac", IntakeLane.Good, IntakeAction.Keep, IntakeItemStatus.Scanned));
+        using (var db = new AppDbContext(_options))
+        {
+            (await db.IntakeItems.SingleAsync()).DurationSeconds = 300;
+            await db.SaveChangesAsync();
+        }
+        var player = new Mock<SLSKDONET.Services.Audio.ILibraryPreviewPlayer>();
+        var vm = Create(player.Object);
+        await vm.LoadAsync();
+        var row = vm.Rows.Single();
+
+        row.PreviewCommand!.Execute(null);
+        player.Verify(p => p.RequestPreview(@"E:\a.flac", null, 105), Times.Once);
+        Assert.True(row.IsPreviewing);
+
+        row.PreviewCommand.Execute(null);
+        player.Verify(p => p.StopPreview(), Times.Once);
+        Assert.False(row.IsPreviewing);
     }
 
     [Fact]
