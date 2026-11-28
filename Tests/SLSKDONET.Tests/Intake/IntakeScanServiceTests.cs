@@ -30,8 +30,8 @@ public sealed class IntakeScanServiceTests : IDisposable
         _factory = new Factory(_options);
     }
 
-    private IntakeScanService Service() =>
-        new(_factory, _inspector, NullLogger<IntakeScanService>.Instance, _ => Task.FromResult(_library)) { MaxParallelism = 2 };
+    private IntakeScanService Service(int parallelism = 2) =>
+        new(_factory, _inspector, NullLogger<IntakeScanService>.Instance, _ => Task.FromResult(_library)) { MaxParallelism = parallelism };
 
     private string File(string relative, string? artist = "Artist", string? title = "Title", int seconds = 300, int kbps = 900)
     {
@@ -127,7 +127,8 @@ public sealed class IntakeScanServiceTests : IDisposable
     public async Task Scan_CancelledHalfway_ResumesWithOnlyTheUncheckedFiles()
     {
         for (int i = 0; i < 6; i++) File($"t{i}.flac", "Artist", $"Track {i}");
-        var service = Service();
+        // One worker: with two, both could finish all six files before the cancel lands (flaky on CI).
+        var service = Service(parallelism: 1);
         var session = await service.CreateSessionAsync(_source, deepDecodeCheck: true);
 
         using var cts = new CancellationTokenSource();
@@ -137,7 +138,7 @@ public sealed class IntakeScanServiceTests : IDisposable
         int checkedFirst;
         await using (var db = new AppDbContext(_options))
             checkedFirst = await db.IntakeItems.CountAsync(i => i.Status == IntakeItemStatus.Scanned);
-        Assert.InRange(checkedFirst, 1, 5);
+        Assert.InRange(checkedFirst, 1, 3);
 
         _inspector.OnInspect = null;
         int callsBefore = _inspector.Calls;

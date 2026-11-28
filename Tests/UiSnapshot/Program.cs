@@ -178,6 +178,15 @@ static void Vault(string output, string temp, int width, int height)
     var page = new VaultPage(vm);
     Snap(page, vm.LoadAsync(), null, width, height, after: () => Wait(vm.PlanRestoreCommand.ExecuteAsync(null)),
         path2: Path.Combine(output, "vault-3-restore-preview.png"));
+
+    // The same Vault opened on another computer: its music folder has no place here yet.
+    var otherComputer = new VaultLocalState(Path.Combine(temp, "other-computer", "vault-device.json"), NullLogger<VaultLocalState>.Instance);
+    otherComputer.RememberVault(vaultRoot);
+    var otherVault = new VaultService(factory, otherComputer, NullLogger<VaultService>.Instance);
+    vm = new VaultViewModel(otherVault, otherComputer, Null<IDialogService>(), NullLogger<VaultViewModel>.Instance);
+    page = new VaultPage(vm);
+    Snap(page, vm.LoadAsync(), null, width, height, after: () => Wait(vm.PlanRestoreCommand.ExecuteAsync(null)),
+        path2: Path.Combine(output, "vault-4-other-computer.png"));
 }
 
 static void Snap(Control content, Task load, string? path, int width, int height, Action? after = null, string? path2 = null)

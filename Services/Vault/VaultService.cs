@@ -18,9 +18,12 @@ namespace SLSKDONET.Services.Vault;
 /// they can open in a file browser. One backup = a consistent snapshot of the library database
 /// (SQLite online backup, never a file copy of the live database) plus every music file the library
 /// points at, laid out as <c>Music/&lt;root&gt;/&lt;path inside that Library Source&gt;</c>. Incremental:
-/// a file whose copy in the Vault already has the same size and content hash is not copied again.
-/// Verified: a sample of copies is compared byte for byte, and the snapshot is opened and checked.
-/// Nothing in the Vault is deleted: a track removed from the library keeps its copy.
+/// a file whose copy in the Vault already has the same size, audio hash and last-write time is not
+/// copied again (the time catches tag edits, which change neither the audio nor, often, the size).
+/// Verified: every copy's SHA-256 is computed while copying and stored in the index; each backup
+/// re-checks a sample, and "Verify vault" re-reads them all to catch copies that rot on the drive.
+/// Restores resolve each root to a folder on THIS computer (remappable: another drive letter, a Mac)
+/// and re-point the library at it. Nothing in the Vault is deleted: a removed track keeps its copy.
 /// </summary>
 public sealed class VaultService
 {
@@ -39,16 +42,20 @@ public sealed class VaultService
     private readonly VaultLocalState _local;
     private readonly ILogger<VaultService> _logger;
     private readonly Func<string> _libraryDbPath;
+    private readonly SLSKDONET.Services.Library.Files.FileRelocationService? _relocation;
 
-    public VaultService(IDbContextFactory<AppDbContext> dbFactory, VaultLocalState local, ILogger<VaultService> logger)
-        : this(dbFactory, local, logger, () => OrbitPaths.LibraryDbPath) { }
+    public VaultService(IDbContextFactory<AppDbContext> dbFactory, VaultLocalState local, ILogger<VaultService> logger,
+        SLSKDONET.Services.Library.Files.FileRelocationService? relocation = null)
+        : this(dbFactory, local, logger, () => OrbitPaths.LibraryDbPath, relocation) { }
 
-    internal VaultService(IDbContextFactory<AppDbContext> dbFactory, VaultLocalState local, ILogger<VaultService> logger, Func<string> libraryDbPath)
+    internal VaultService(IDbContextFactory<AppDbContext> dbFactory, VaultLocalState local, ILogger<VaultService> logger, Func<string> libraryDbPath,
+        SLSKDONET.Services.Library.Files.FileRelocationService? relocation = null)
     {
         _dbFactory = dbFactory;
         _local = local;
         _logger = logger;
         _libraryDbPath = libraryDbPath;
+        _relocation = relocation;
     }
 
     /// <summary>
@@ -85,10 +92,9 @@ public sealed class VaultService
         {
             if (!File.Exists(t.FilePath)) continue;
             var (r, rel) = AssignRoot(manifest, device.Id, folders, t.FilePath);
-            long len = new FileInfo(t.FilePath).Length;
-            if (!(byKey.TryGetValue(Key(r.Id, rel), out var k) && k.Size == len
-                  && string.Equals(k.ContentHash ?? "", t.ContentHash ?? "", StringComparison.Ordinal)))
-                toCopy += len;
+            var info = new FileInfo(t.FilePath);
+            if (!IsUpToDate(byKey.GetValueOrDefault(Key(r.Id, rel)), info.Length, t.ContentHash, info.LastWriteTimeUtc))
+                toCopy += info.Length;
         }
         if (FreeBytes(vaultRoot) is long free && toCopy > free)
         {
@@ -109,16 +115,18 @@ public sealed class VaultService
             if (!File.Exists(t.FilePath)) { missing++; continue; }
 
             var (root, relative) = AssignRoot(manifest, device.Id, folders, t.FilePath);
-            var target = Path.Combine(vaultRoot, "Music", root.Folder, relative.Replace('/', Path.DirectorySeparatorChar));
-            long size = new FileInfo(t.FilePath).Length;
+            var target = VaultCopyPath(vaultRoot, root, relative);
+            var source = new FileInfo(t.FilePath);
+            long size = source.Length;
+            var modified = source.LastWriteTimeUtc;
             var key = Key(root.Id, relative);
 
-            if (byKey.TryGetValue(key, out var known) && known.Size == size
-                && string.Equals(known.ContentHash ?? "", t.ContentHash ?? "", StringComparison.Ordinal)
+            if (byKey.TryGetValue(key, out var known) && IsUpToDate(known, size, t.ContentHash, modified)
                 && File.Exists(target) && new FileInfo(target).Length == size)
             {
                 known.TrackHash = t.TrackHash;
                 known.OriginalPath = t.FilePath;
+                known.SourceModifiedUtc ??= modified; // entries from before the time was recorded
                 unchanged++;
                 continue;
             }
@@ -126,11 +134,12 @@ public sealed class VaultService
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                await CopyVerifiedAsync(t.FilePath, target, size, ct).ConfigureAwait(false);
+                var sha = await CopyHashedAsync(t.FilePath, target, size, ct).ConfigureAwait(false);
                 var entry = new VaultFileEntry
                 {
                     RootId = root.Id, RelativePath = relative, Size = size, ContentHash = t.ContentHash,
                     TrackHash = t.TrackHash, OriginalPath = t.FilePath, CopiedUtc = DateTime.UtcNow,
+                    FileSha256 = sha, SourceModifiedUtc = modified,
                 };
                 byKey[key] = entry;
                 copiedThisRun.Add(entry);
@@ -148,21 +157,32 @@ public sealed class VaultService
                 await SaveProgressAsync(vaultRoot, manifest, byKey.Values, ct).ConfigureAwait(false);
         }
 
-        // 3. Verify a sample of this run's copies (or of the Vault when nothing new was copied).
+        // 3. Re-check a sample against the checksums taken while copying: half from this run, half
+        //    from older copies (those have left the OS cache, so this also catches a drive going bad).
         progress?.Report(new VaultProgress("Checking the copies", 0, 1, null));
-        var sample = Sample(copiedThisRun.Count > 0 ? copiedThisRun : byKey.Values.ToList(), VerifySampleSize);
+        var thisRun = new HashSet<VaultFileEntry>(copiedThisRun);
+        var older = byKey.Values.Where(e => !thisRun.Contains(e)).ToList();
+        var fromThisRun = Sample(copiedThisRun, VerifySampleSize / 2 + 1);
+        var sample = fromThisRun.Concat(Sample(older, VerifySampleSize - fromThisRun.Count)).ToList();
         int verified = 0, mismatches = 0;
         foreach (var e in sample)
         {
             ct.ThrowIfCancellationRequested();
             var root = manifest.Roots.FirstOrDefault(r => r.Id == e.RootId);
-            if (root == null || !File.Exists(e.OriginalPath)) continue;
-            var copy = Path.Combine(vaultRoot, "Music", root.Folder, e.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+            if (root == null) continue;
+            var copy = VaultCopyPath(vaultRoot, root, e.RelativePath);
+            bool ok;
+            if (e.FileSha256 != null)
+                ok = File.Exists(copy) && string.Equals(await HashHexAsync(copy, ct).ConfigureAwait(false), e.FileSha256, StringComparison.OrdinalIgnoreCase);
+            else if (File.Exists(e.OriginalPath))
+                ok = File.Exists(copy) && await SameBytesAsync(e.OriginalPath, copy, ct).ConfigureAwait(false);
+            else
+                continue;
             verified++;
-            if (!File.Exists(copy) || !await SameBytesAsync(e.OriginalPath, copy, ct).ConfigureAwait(false))
+            if (!ok)
             {
                 mismatches++;
-                _logger.LogWarning("Vault: the copy of {Path} differs from the original", e.OriginalPath);
+                _logger.LogWarning("Vault: the copy of {Path} doesn't match its checksum", e.OriginalPath);
             }
         }
         var (snapshotCheck, snapshotTracks) = CheckSnapshot(Path.Combine(vaultRoot, SnapshotFile));
@@ -199,13 +219,12 @@ public sealed class VaultService
         {
             ct.ThrowIfCancellationRequested();
             if (!File.Exists(t.FilePath)) continue;
-            long size = new FileInfo(t.FilePath).Length;
+            var info = new FileInfo(t.FilePath);
             var (root, relative) = AssignRoot(manifest, deviceId, folders, t.FilePath);
-            if (byKey.TryGetValue(Key(root.Id, relative), out var known) && known.Size == size
-                && string.Equals(known.ContentHash ?? "", t.ContentHash ?? "", StringComparison.Ordinal))
+            if (IsUpToDate(byKey.GetValueOrDefault(Key(root.Id, relative)), info.Length, t.ContentHash, info.LastWriteTimeUtc))
                 continue;
             files++;
-            bytes += size;
+            bytes += info.Length;
         }
         return (files, bytes, FreeBytes(vaultRoot));
     }
@@ -234,7 +253,7 @@ public sealed class VaultService
             manifest.Devices.FirstOrDefault(d => d.Id == _local.Device.Id)?.LastBackupUtc,
             index.Count, index.Sum(e => e.Size),
             File.Exists(snapshot) ? File.GetLastWriteTimeUtc(snapshot) : null,
-            manifest.Devices);
+            manifest.Devices, manifest.LastVerifiedUtc);
     }
 
     /// <summary>What a restore would change. Reads only.</summary>
@@ -254,49 +273,219 @@ public sealed class VaultService
 
         var manifest = await LoadManifestAsync(vaultRoot, ct).ConfigureAwait(false) ?? new VaultManifest();
         var index = await LoadIndexAsync(vaultRoot, ct).ConfigureAwait(false);
-        int missingLocally = 0, missingInVault = 0;
-        foreach (var e in index)
-        {
-            if (!File.Exists(e.OriginalPath)) missingLocally++;
-            var root = manifest.Roots.FirstOrDefault(r => r.Id == e.RootId);
-            if (root == null || !File.Exists(Path.Combine(vaultRoot, "Music", root.Folder, e.RelativePath.Replace('/', Path.DirectorySeparatorChar))))
-                missingInVault++;
-        }
-        return new VaultRestorePlan(sTracks, cTracks, sPlaylists, cPlaylists, sCues, cCues, missingLocally, missingInVault,
-            File.GetLastWriteTimeUtc(snapshot), LibraryDatabaseMaintenance.GetBackupDirectory(_libraryDbPath()));
+        var roots = PlanRoots(vaultRoot, manifest, index, _local.Device.Id, remap: null);
+        int missingInVault = index.Count(e => manifest.Roots.FirstOrDefault(r => r.Id == e.RootId) is not { } root
+                                              || !File.Exists(VaultCopyPath(vaultRoot, root, e.RelativePath)));
+        return new VaultRestorePlan(sTracks, cTracks, sPlaylists, cPlaylists, sCues, cCues,
+            roots.Sum(r => r.MissingHere), missingInVault,
+            File.GetLastWriteTimeUtc(snapshot), LibraryDatabaseMaintenance.GetBackupDirectory(_libraryDbPath()), roots);
+    }
+
+    /// <summary>The Vault's music folders as seen from this computer, with any folders the user chose.</summary>
+    public async Task<IReadOnlyList<VaultRootPlan>> PlanRootsAsync(string vaultRoot, IReadOnlyDictionary<string, string>? remap, CancellationToken ct = default)
+    {
+        var manifest = await LoadManifestAsync(vaultRoot, ct).ConfigureAwait(false) ?? new VaultManifest();
+        var index = await LoadIndexAsync(vaultRoot, ct).ConfigureAwait(false);
+        return PlanRoots(vaultRoot, manifest, index, _local.Device.Id, remap);
     }
 
     /// <summary>
-    /// Copies back every file the Vault has that is missing from its original place on this
-    /// computer. Never overwrites a file that exists. Returns how many were restored.
+    /// Each Vault root as seen from this computer: where it lives here (its recorded folder for this
+    /// device, or a folder the user chose in <paramref name="remap"/>), whether that folder can be used,
+    /// and how many of its files are missing there.
     /// </summary>
-    public async Task<int> RestoreMissingFilesAsync(string vaultRoot, IProgress<VaultProgress>? progress = null, CancellationToken ct = default)
+    internal static List<VaultRootPlan> PlanRoots(string vaultRoot, VaultManifest manifest, IReadOnlyList<VaultFileEntry> index,
+        string deviceId, IReadOnlyDictionary<string, string>? remap)
+    {
+        var plans = new List<VaultRootPlan>();
+        foreach (var root in manifest.Roots)
+        {
+            var entries = index.Where(e => e.RootId == root.Id).ToList();
+            if (entries.Count == 0) continue;
+            var (local, usable) = ResolveLocalRoot(root, deviceId, remap);
+            int missing = usable
+                ? entries.Count(e => File.Exists(VaultCopyPath(vaultRoot, root, e.RelativePath)) && !File.Exists(LocalFilePath(local!, e.RelativePath)))
+                : entries.Count;
+            var others = root.LocalPaths.Where(kv => kv.Key != deviceId).Select(kv => kv.Value)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            plans.Add(new VaultRootPlan(root.Id, root.Name, entries.Count, missing, local, usable, others));
+        }
+        return plans;
+    }
+
+    /// <summary>
+    /// Where a root lives on this device: a folder chosen for it now, else the folder this device
+    /// recorded for it. Usable when it's an absolute path for this OS and the folder, or the folder that
+    /// holds it, exists: a deleted Music folder can be recreated, but a Windows "D:\Music" on a Mac, a
+    /// drive letter that's gone, or an unplugged /Volumes/Drive is not (on macOS/Linux every path's
+    /// "volume" is "/", so checking the volume alone would accept a drive that isn't mounted).
+    /// </summary>
+    internal static (string? Path, bool Usable) ResolveLocalRoot(VaultRoot root, string deviceId, IReadOnlyDictionary<string, string>? remap)
+    {
+        string? path = remap != null && remap.TryGetValue(root.Id, out var chosen) && !string.IsNullOrWhiteSpace(chosen)
+            ? chosen
+            : root.LocalPaths.TryGetValue(deviceId, out var mine) ? mine : null;
+        if (string.IsNullOrWhiteSpace(path) || !System.IO.Path.IsPathFullyQualified(path)) return (path, false);
+        var trimmed = System.IO.Path.TrimEndingDirectorySeparator(path);
+        var parent = System.IO.Path.GetDirectoryName(trimmed);
+        return (path, Directory.Exists(trimmed) || (!string.IsNullOrEmpty(parent) && Directory.Exists(parent)));
+    }
+
+    /// <summary>
+    /// Copies back every file the Vault has that is missing from its root's folder on this computer
+    /// (see <see cref="ResolveLocalRoot"/>; <paramref name="remap"/> points roots at new folders, and is
+    /// remembered for this device). Never overwrites a file that exists, and checks each restored copy
+    /// against the checksum taken at backup. Then re-points library tracks that still point at a
+    /// root's old folder (another drive letter, another machine's paths after a database restore).
+    /// </summary>
+    public async Task<VaultRestoreFilesResult> RestoreMissingFilesAsync(string vaultRoot, IReadOnlyDictionary<string, string>? remap = null,
+        IProgress<VaultProgress>? progress = null, CancellationToken ct = default)
     {
         var manifest = await LoadManifestAsync(vaultRoot, ct).ConfigureAwait(false)
             ?? throw new InvalidOperationException("This folder isn't an ORBIT Vault.");
-        var index = (await LoadIndexAsync(vaultRoot, ct).ConfigureAwait(false)).Where(e => !File.Exists(e.OriginalPath)).ToList();
-        int restored = 0, done = 0;
+        var index = await LoadIndexAsync(vaultRoot, ct).ConfigureAwait(false);
+        var deviceId = _local.Device.Id;
+        int restored = 0, failed = 0, skippedRoots = 0, repointed = 0;
+
+        foreach (var root in manifest.Roots)
+        {
+            var entries = index.Where(e => e.RootId == root.Id).ToList();
+            if (entries.Count == 0) continue;
+            var (local, usable) = ResolveLocalRoot(root, deviceId, remap);
+            if (!usable)
+            {
+                skippedRoots++;
+                _logger.LogInformation("Vault: {Root} has no usable folder on this computer ({Path}); skipped", root.Name, local ?? "none");
+                continue;
+            }
+
+            root.LocalPaths.TryGetValue(deviceId, out var previousHere);
+            root.LocalPaths[deviceId] = local!; // remember the choice: later backups from here use it too
+
+            var todo = entries.Where(e => !File.Exists(LocalFilePath(local!, e.RelativePath))).ToList();
+            int done = 0;
+            foreach (var e in todo)
+            {
+                ct.ThrowIfCancellationRequested();
+                var target = LocalFilePath(local!, e.RelativePath);
+                progress?.Report(new VaultProgress("Restoring missing files", done++, todo.Count, target));
+                var copy = VaultCopyPath(vaultRoot, root, e.RelativePath);
+                if (!File.Exists(copy)) continue;
+                try
+                {
+                    Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target)!);
+                    var sha = await CopyHashedAsync(copy, target, e.Size, ct).ConfigureAwait(false);
+                    if (e.FileSha256 != null && !string.Equals(sha, e.FileSha256, StringComparison.OrdinalIgnoreCase))
+                    {
+                        File.Delete(target);
+                        throw new IOException("the Vault's copy is damaged (it doesn't match its checksum)");
+                    }
+                    restored++;
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    failed++;
+                    _logger.LogWarning(ex, "Vault: restoring {Path} failed", target);
+                }
+            }
+
+            // Library rows may still point at where this root used to be: this device's old folder,
+            // or another machine's (a database restored from it). Re-point the ones now found here.
+            if (_relocation != null)
+            {
+                var oldFolders = root.LocalPaths.Where(kv => kv.Key != deviceId).Select(kv => kv.Value)
+                    .Append(previousHere)
+                    .Where(p => !string.IsNullOrWhiteSpace(p) && !SamePath(p!, local!))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                foreach (var old in oldFolders)
+                {
+                    var preview = await _relocation.PlanRepointFolderAsync(old!, local!, ct: ct).ConfigureAwait(false);
+                    if (preview.Plan.Moves.Count == 0) continue;
+                    var outcome = await _relocation.ExecuteRepointAsync(preview.Plan, ct).ConfigureAwait(false);
+                    repointed += outcome.Moved;
+                    _logger.LogInformation("Vault: re-pointed {Count} library tracks from {Old} to {New}", outcome.Moved, old, local);
+                }
+            }
+        }
+
+        await WriteJsonAtomicAsync(System.IO.Path.Combine(vaultRoot, ManifestFile), manifest, ct).ConfigureAwait(false);
+        var result = new VaultRestoreFilesResult(restored, failed, skippedRoots, repointed);
+        _logger.LogInformation("Vault: restore from {Vault}: {Summary}", vaultRoot, result.Summary);
+        return result;
+    }
+
+    /// <summary>
+    /// Re-reads every copy in the Vault and checks it against the checksum taken while copying, to
+    /// catch copies that went missing or rotted on the backup drive. Copies from before checksums
+    /// existed are compared with their original instead and get a checksum when they match.
+    /// </summary>
+    public async Task<VaultVerifyResult> VerifyVaultAsync(string vaultRoot, IProgress<VaultProgress>? progress = null, CancellationToken ct = default)
+    {
+        var manifest = await LoadManifestAsync(vaultRoot, ct).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("This folder isn't an ORBIT Vault.");
+        var index = await LoadIndexAsync(vaultRoot, ct).ConfigureAwait(false);
+        int ok = 0, missing = 0, damaged = 0, added = 0, unknown = 0, done = 0;
+        var problems = new List<string>();
+
         foreach (var e in index)
         {
             ct.ThrowIfCancellationRequested();
-            progress?.Report(new VaultProgress("Restoring missing files", done++, index.Count, e.OriginalPath));
+            progress?.Report(new VaultProgress("Verifying the Vault", done++, index.Count, e.RelativePath));
             var root = manifest.Roots.FirstOrDefault(r => r.Id == e.RootId);
-            if (root == null) continue;
-            var copy = Path.Combine(vaultRoot, "Music", root.Folder, e.RelativePath.Replace('/', Path.DirectorySeparatorChar));
-            if (!File.Exists(copy)) continue;
-            try
+            var copy = root == null ? null : VaultCopyPath(vaultRoot, root, e.RelativePath);
+            if (copy == null || !File.Exists(copy))
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(e.OriginalPath)!);
-                await CopyVerifiedAsync(copy, e.OriginalPath, e.Size, ct).ConfigureAwait(false);
-                restored++;
+                missing++;
+                if (problems.Count < 50) problems.Add($"Missing: {e.RelativePath}");
+                continue;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+
+            var hash = await HashHexAsync(copy, ct).ConfigureAwait(false);
+            if (e.FileSha256 != null)
             {
-                _logger.LogWarning(ex, "Vault: restoring {Path} failed", e.OriginalPath);
+                if (string.Equals(hash, e.FileSha256, StringComparison.OrdinalIgnoreCase)) ok++;
+                else
+                {
+                    damaged++;
+                    if (problems.Count < 50) problems.Add($"Damaged: {e.RelativePath}");
+                }
+                continue;
+            }
+
+            // No checksum yet: the original is the reference, if it hasn't changed since the copy.
+            var original = File.Exists(e.OriginalPath) ? new FileInfo(e.OriginalPath) : null;
+            bool originalUnchanged = original != null && original.Length == e.Size
+                && (e.SourceModifiedUtc is not DateTime m || Math.Abs((original.LastWriteTimeUtc - m).TotalSeconds) < 2);
+            if (!originalUnchanged)
+            {
+                unknown++;
+                continue;
+            }
+            if (string.Equals(hash, await HashHexAsync(original!.FullName, ct).ConfigureAwait(false), StringComparison.OrdinalIgnoreCase))
+            {
+                e.FileSha256 = hash;
+                e.SourceModifiedUtc ??= original.LastWriteTimeUtc;
+                added++;
+                ok++;
+            }
+            else if (e.SourceModifiedUtc != null)
+            {
+                damaged++; // same file, same time, different bytes: the copy changed
+                if (problems.Count < 50) problems.Add($"Damaged: {e.RelativePath}");
+            }
+            else
+            {
+                unknown++; // can't tell an in-place tag edit from a damaged copy
             }
         }
-        _logger.LogInformation("Vault: restored {Count} missing files from {Vault}", restored, vaultRoot);
-        return restored;
+
+        manifest.LastVerifiedUtc = DateTime.UtcNow;
+        await SaveProgressAsync(vaultRoot, manifest, index, ct).ConfigureAwait(false);
+        var result = new VaultVerifyResult(index.Count, ok, missing, damaged, added, unknown, problems);
+        _logger.LogInformation("Vault verify {Vault}: {Summary}", vaultRoot, result.Summary);
+        return result;
     }
 
     /// <summary>
@@ -388,6 +577,28 @@ public sealed class VaultService
 
     private static string Key(string rootId, string relative) => rootId + "|" + relative;
 
+    /// <summary>
+    /// Whether the Vault's copy is still the file on disk: same size and audio hash, and the source
+    /// hasn't been rewritten since (a tag edit). Entries from before the time was recorded count as
+    /// current rather than re-copying the whole library once after an upgrade.
+    /// </summary>
+    internal static bool IsUpToDate(VaultFileEntry? known, long size, string? contentHash, DateTime sourceModifiedUtc) =>
+        known != null
+        && known.Size == size
+        && string.Equals(known.ContentHash ?? "", contentHash ?? "", StringComparison.Ordinal)
+        && (known.SourceModifiedUtc is not DateTime m || Math.Abs((sourceModifiedUtc - m).TotalSeconds) < 2);
+
+    private static string VaultCopyPath(string vaultRoot, VaultRoot root, string relative) =>
+        System.IO.Path.Combine(vaultRoot, "Music", root.Folder, relative.Replace('/', System.IO.Path.DirectorySeparatorChar));
+
+    private static string LocalFilePath(string localRoot, string relative) =>
+        System.IO.Path.Combine(localRoot, relative.Replace('/', System.IO.Path.DirectorySeparatorChar));
+
+    private static bool SamePath(string a, string b) =>
+        string.Equals(System.IO.Path.TrimEndingDirectorySeparator(a.Replace('\\', '/')),
+                      System.IO.Path.TrimEndingDirectorySeparator(b.Replace('\\', '/')), StringComparison.OrdinalIgnoreCase);
+
+
     private async Task SnapshotDatabaseAsync(string vaultRoot, CancellationToken ct)
     {
         var target = Path.Combine(vaultRoot, SnapshotFile);
@@ -442,17 +653,38 @@ public sealed class VaultService
         return (Count("LibraryEntries"), Count("Projects"), Count("CuePoints"));
     }
 
-    private async Task CopyVerifiedAsync(string source, string target, long expectedSize, CancellationToken ct)
+    /// <summary>
+    /// Copies <paramref name="source"/> to <paramref name="target"/> via a temporary file, hashing the
+    /// bytes as they pass (no second read) and flushing to the drive before the rename. Returns the
+    /// SHA-256 in hex.
+    /// </summary>
+    private async Task<string> CopyHashedAsync(string source, string target, long expectedSize, CancellationToken ct)
     {
         var part = target + PartSuffix;
         try
         {
-            await using (var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20, FileOptions.Asynchronous | FileOptions.SequentialScan))
-            await using (var output = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, FileOptions.Asynchronous))
-                await input.CopyToAsync(output, 1 << 20, ct).ConfigureAwait(false);
+            string hex;
+            using (var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
+            {
+                await using (var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20, FileOptions.Asynchronous | FileOptions.SequentialScan))
+                await using (var output = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, FileOptions.Asynchronous))
+                {
+                    var buffer = new byte[1 << 20];
+                    int read;
+                    while ((read = await input.ReadAsync(buffer.AsMemory(0, buffer.Length), ct).ConfigureAwait(false)) > 0)
+                    {
+                        sha.AppendData(buffer, 0, read);
+                        await output.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                    }
+                    await output.FlushAsync(ct).ConfigureAwait(false);
+                    output.Flush(flushToDisk: true);
+                }
+                hex = Convert.ToHexString(sha.GetHashAndReset());
+            }
             long copied = new FileInfo(part).Length;
             if (copied != expectedSize) throw new IOException($"The copy is incomplete ({copied} of {expectedSize} bytes).");
             File.Move(part, target, overwrite: true);
+            return hex;
         }
         catch
         {
@@ -464,6 +696,9 @@ public sealed class VaultService
             throw;
         }
     }
+
+    private static async Task<string> HashHexAsync(string path, CancellationToken ct) =>
+        Convert.ToHexString(await HashAsync(path, ct).ConfigureAwait(false));
 
     private static async Task<bool> SameBytesAsync(string a, string b, CancellationToken ct)
     {

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -12,6 +14,41 @@ using SLSKDONET.Services.Vault;
 using SLSKDONET.Views;
 
 namespace SLSKDONET.ViewModels.Vault;
+
+/// <summary>One music folder in the Vault, as seen from this computer, on the restore card.</summary>
+public sealed class VaultRootRowViewModel : ReactiveObject
+{
+    public VaultRootRowViewModel(VaultRootPlan plan, bool chosenHere, AsyncRelayCommand<VaultRootRowViewModel> chooseFolder)
+    {
+        Plan = plan;
+        ChosenHere = chosenHere;
+        ChooseFolderCommand = chooseFolder;
+    }
+
+    public VaultRootPlan Plan { get; }
+    public string RootId => Plan.RootId;
+    public string Name => Plan.Name;
+
+    /// <summary>True when the folder shown was picked on this screen (not yet saved for this computer).</summary>
+    public bool ChosenHere { get; }
+
+    public bool IsUsable => Plan.LocalPathUsable;
+    public bool NeedsFolder => !Plan.LocalPathUsable;
+
+    public string FilesText =>
+        $"{CountFormat.N(Plan.FilesInVault)} in the Vault"
+        + (Plan.LocalPathUsable ? $" · {CountFormat.N(Plan.MissingHere)} missing here" : string.Empty);
+
+    public string FolderText => Plan.LocalPathUsable
+        ? (ChosenHere ? "Restore to: " : "On this computer: ") + Plan.LocalPath
+        : Plan.LocalPath is { Length: > 0 } p
+            ? $"Was {p}, which isn't on this computer. Choose where it goes here."
+            : Plan.PathsOnOtherDevices.Count > 0
+                ? $"Backed up from {Plan.PathsOnOtherDevices[0]} on another computer. Choose where it goes here."
+                : "Choose where it goes on this computer.";
+
+    public AsyncRelayCommand<VaultRootRowViewModel> ChooseFolderCommand { get; }
+}
 
 /// <summary>
 /// The Backup page (epic #632, Vault phase 1): pick the backup drive once, back up with one button,
@@ -33,6 +70,9 @@ public sealed class VaultViewModel : ReactiveObject, IDisposable
     private readonly AsyncRelayCommand _restoreFilesCommand;
     private readonly AsyncRelayCommand _restoreDatabaseCommand;
     private readonly RelayCommand _cancelScheduledRestoreCommand;
+    private readonly AsyncRelayCommand _verifyCommand;
+    private readonly AsyncRelayCommand<VaultRootRowViewModel> _chooseRootFolderCommand;
+    private readonly Dictionary<string, string> _remap = new(StringComparer.Ordinal);
     private CancellationTokenSource? _cts;
     private string? _vaultRoot;
     private VaultStatus? _status;
@@ -68,7 +108,9 @@ public sealed class VaultViewModel : ReactiveObject, IDisposable
         _backupCommand = new AsyncRelayCommand(BackupAsync, () => !IsBusy && HasVault);
         _pauseCommand = new RelayCommand(() => _cts?.Cancel(), () => IsBusy);
         _planRestoreCommand = new AsyncRelayCommand(PlanRestoreAsync, () => !IsBusy && HasSnapshot);
-        _restoreFilesCommand = new AsyncRelayCommand(RestoreFilesAsync, () => !IsBusy && _plan is { FilesMissingLocally: > 0 });
+        _restoreFilesCommand = new AsyncRelayCommand(RestoreFilesAsync, () => !IsBusy && RootRows.Any(r => r.IsUsable && r.Plan.MissingHere > 0));
+        _verifyCommand = new AsyncRelayCommand(VerifyAsync, () => !IsBusy && IsVaultConnected && _status is { FilesInVault: > 0 });
+        _chooseRootFolderCommand = new AsyncRelayCommand<VaultRootRowViewModel>(ChooseRootFolderAsync, _ => !IsBusy);
         _restoreDatabaseCommand = new AsyncRelayCommand(RestoreDatabaseAsync, () => !IsBusy && _plan != null && !IsRestoreScheduled);
         _cancelScheduledRestoreCommand = new RelayCommand(CancelScheduledRestore, () => IsRestoreScheduled);
 
@@ -86,6 +128,14 @@ public sealed class VaultViewModel : ReactiveObject, IDisposable
     public AsyncRelayCommand RestoreFilesCommand => _restoreFilesCommand;
     public AsyncRelayCommand RestoreDatabaseCommand => _restoreDatabaseCommand;
     public RelayCommand CancelScheduledRestoreCommand => _cancelScheduledRestoreCommand;
+    public AsyncRelayCommand VerifyCommand => _verifyCommand;
+
+    /// <summary>The Vault's music folders and where each goes on this computer (filled by the restore check).</summary>
+    public ObservableCollection<VaultRootRowViewModel> RootRows { get; } = new();
+    public bool HasRootRows => RootRows.Count > 0;
+
+    public string LastVerifiedText => _status == null ? string.Empty
+        : _status.LastVerifiedUtc is { } v ? $"Every copy last checked {Ago(v)}" : "Copies not fully checked yet";
 
     public bool HasVault => _vaultRoot != null;
     public bool HasNoVault => _vaultRoot == null && !IsBusy;
@@ -128,9 +178,11 @@ public sealed class VaultViewModel : ReactiveObject, IDisposable
     {
         $"Snapshot from {_plan.SnapshotUtc?.ToLocalTime():g}: {CountFormat.N(_plan.SnapshotTracks)} tracks, {CountFormat.N(_plan.SnapshotPlaylists)} playlists, {CountFormat.N(_plan.SnapshotCues)} cues.",
         $"Your library now: {CountFormat.N(_plan.CurrentTracks)} tracks, {CountFormat.N(_plan.CurrentPlaylists)} playlists, {CountFormat.N(_plan.CurrentCues)} cues.",
-        _plan.FilesMissingLocally > 0
-            ? $"{Files(_plan.FilesMissingLocally)} missing on this computer and can be copied back."
-            : "Every backed-up music file is still on this computer.",
+        _plan.Roots.Any(r => !r.LocalPathUsable)
+            ? "Some music folders aren't on this computer yet: choose where each goes below, then copy the music back."
+            : _plan.FilesMissingLocally > 0
+                ? $"{Files(_plan.FilesMissingLocally)} missing on this computer and can be copied back."
+                : "Every backed-up music file is still on this computer.",
         _plan.FilesMissingInVault > 0 ? $"{Files(_plan.FilesMissingInVault)} listed in the Vault missing from it." : null,
         $"Before a library restore, your current library is saved to {_plan.CurrentBackupFolder}.",
     }.Where(l => l != null));
@@ -248,15 +300,90 @@ public sealed class VaultViewModel : ReactiveObject, IDisposable
         ErrorText = null;
         try
         {
-            _plan = await Task.Run(() => _vault.PlanRestoreAsync(_vaultRoot));
+            var root = _vaultRoot;
+            _plan = await Task.Run(() => _vault.PlanRestoreAsync(root));
+            await RefreshRootRowsAsync();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Vault: planning a restore from {Vault} failed", _vaultRoot);
             ErrorText = ex.Message;
             _plan = null;
+            RootRows.Clear();
         }
         RaiseAll();
+    }
+
+    private async Task RefreshRootRowsAsync()
+    {
+        if (_vaultRoot == null) return;
+        var root = _vaultRoot;
+        var remap = new Dictionary<string, string>(_remap, StringComparer.Ordinal);
+        var plans = await Task.Run(() => _vault.PlanRootsAsync(root, remap));
+        RootRows.Clear();
+        foreach (var plan in plans)
+            RootRows.Add(new VaultRootRowViewModel(plan, _remap.ContainsKey(plan.RootId), _chooseRootFolderCommand));
+        this.RaisePropertyChanged(nameof(HasRootRows));
+        _restoreFilesCommand.RaiseCanExecuteChanged();
+    }
+
+    /// <summary>Points a Vault music folder at a folder on this computer (another drive letter, a Mac).</summary>
+    private async Task ChooseRootFolderAsync(VaultRootRowViewModel? row)
+    {
+        if (row == null) return;
+        var folder = await _dialogs.OpenFolderDialogAsync($"Where should \"{row.Name}\" go on this computer?");
+        if (string.IsNullOrWhiteSpace(folder)) return;
+        _remap[row.RootId] = folder;
+        try
+        {
+            await RefreshRootRowsAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Vault: re-checking folders failed");
+            ErrorText = ex.Message;
+        }
+    }
+
+    private async Task VerifyAsync()
+    {
+        if (_vaultRoot == null) return;
+        ErrorText = null;
+        ResultText = null;
+        _cts = new CancellationTokenSource();
+        IsBusy = true;
+        var root = _vaultRoot;
+        var progress = new Progress<VaultProgress>(p =>
+        {
+            Progress = p.Total == 0 ? 0 : (double)p.Done / p.Total;
+            ProgressText = $"{p.Phase}: {CountFormat.N(p.Done)} of {CountFormat.N(p.Total)}";
+            CurrentFile = p.Current ?? string.Empty;
+        });
+        try
+        {
+            var result = await Task.Run(() => _vault.VerifyVaultAsync(root, progress, _cts.Token));
+            _resultIsWarning = !result.IsHealthy;
+            ResultText = result.Summary;
+            _notifications?.Show(result.IsHealthy ? "Vault verified" : "Vault has damaged or missing copies", result.Summary,
+                result.IsHealthy ? NotificationType.Success : NotificationType.Warning);
+        }
+        catch (OperationCanceledException)
+        {
+            _resultIsWarning = true;
+            ResultText = "Verify stopped. Nothing was changed.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Vault: verifying {Vault} failed", root);
+            ErrorText = "Verify failed: " + ex.Message;
+        }
+        finally
+        {
+            _cts.Dispose();
+            _cts = null;
+            IsBusy = false;
+            await OpenVaultAsync(root);
+        }
     }
 
     private async Task RestoreFilesAsync()
@@ -274,9 +401,11 @@ public sealed class VaultViewModel : ReactiveObject, IDisposable
         });
         try
         {
-            var restored = await Task.Run(() => _vault.RestoreMissingFilesAsync(root, progress, _cts.Token));
-            _resultIsWarning = false;
-            ResultText = $"{Files(restored)} copied back from the Vault.";
+            var remap = new Dictionary<string, string>(_remap, StringComparer.Ordinal);
+            var result = await Task.Run(() => _vault.RestoreMissingFilesAsync(root, remap, progress, _cts.Token));
+            _resultIsWarning = result.Failed > 0 || result.RootsSkipped > 0;
+            ResultText = result.Summary;
+            _remap.Clear(); // the choices are now saved for this computer in the Vault
         }
         catch (OperationCanceledException)
         {
@@ -355,6 +484,7 @@ public sealed class VaultViewModel : ReactiveObject, IDisposable
                      nameof(HasVault), nameof(HasNoVault), nameof(IsVaultConnected), nameof(IsVaultDisconnected), nameof(HasSnapshot),
                      nameof(VaultPathText), nameof(LastBackupText), nameof(VaultContentsText), nameof(HasPlan), nameof(PlanText),
                      nameof(IsRestoreScheduled), nameof(IsBackupOverdue), nameof(OverdueText), nameof(HasEstimate),
+                     nameof(LastVerifiedText), nameof(HasRootRows),
                  })
             this.RaisePropertyChanged(name);
         _chooseVaultCommand.RaiseCanExecuteChanged();
@@ -364,6 +494,8 @@ public sealed class VaultViewModel : ReactiveObject, IDisposable
         _restoreFilesCommand.RaiseCanExecuteChanged();
         _restoreDatabaseCommand.RaiseCanExecuteChanged();
         _cancelScheduledRestoreCommand.RaiseCanExecuteChanged();
+        _verifyCommand.RaiseCanExecuteChanged();
+        _chooseRootFolderCommand.RaiseCanExecuteChanged();
     }
 
     public void Dispose()
