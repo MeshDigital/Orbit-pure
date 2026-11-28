@@ -1,0 +1,234 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vmIntake="clr-namespace:SLSKDONET.ViewModels.Intake"
+             mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="800"
+             x:Class="SLSKDONET.Views.Avalonia.IntakePage"
+             x:DataType="vmIntake:IntakeViewModel"
+             x:CompileBindings="True"
+             Background="{StaticResource BrushBg1}"
+             Foreground="{StaticResource BrushText0}">
+
+    <!-- Intake (#632). Layout contract (DOCS/UI_DESIGN_SYSTEM.md):
+         header (title + source left; Apply + overflow right)
+         → status callouts (progress / paused scan / error / result)
+         → lane filter strip + decision summary
+         → file list (40px rows) or the start / empty states. -->
+
+    <UserControl.Styles>
+        <Style Selector="Border.intake-row">
+            <Setter Property="MinHeight" Value="40"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}"/>
+        </Style>
+        <Style Selector="ListBox.intake-list ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="MinHeight" Value="0"/>
+        </Style>
+        <Style Selector="Border.intake-row:pointerover">
+            <Setter Property="Background" Value="{StaticResource BrushHover}"/>
+        </Style>
+    </UserControl.Styles>
+
+    <DockPanel Margin="{StaticResource PaddingPage}">
+
+        <!-- Header: title left, one primary action right -->
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,16">
+            <StackPanel Spacing="4">
+                <TextBlock Classes="h1" Text="{Binding SessionTitle}" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Classes="subtitle" Text="{Binding SessionSubtitle}" TextTrimming="CharacterEllipsis"
+                           ToolTip.Tip="{Binding SessionSubtitle}"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+                <Button Classes="primary" Content="{Binding ApplyText}" Command="{Binding ApplyCommand}"
+                        IsVisible="{Binding IsReviewing}"
+                        ToolTip.Tip="Carry out every decision below. Nothing on the drive is changed or deleted."/>
+                <Button Classes="icon" IsVisible="{Binding HasSession}"
+                        ToolTip.Tip="Intake actions" AutomationProperties.Name="Intake actions">
+                    <PathIcon Data="{StaticResource icon_more}"/>
+                    <Button.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                            <MenuItem Header="Close this session" Command="{Binding CloseSessionCommand}"
+                                      ToolTip.Tip="Finish with this drive. Files already added stay in your library."/>
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <!-- Status -->
+        <StackPanel DockPanel.Dock="Top" Spacing="8">
+            <Border Classes="callout info" IsVisible="{Binding IsBusy}" Margin="0,0,0,12">
+                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto">
+                    <TextBlock Classes="body-sm mono" Text="{Binding ProgressText}" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Classes="secondary small" Content="Pause" Command="{Binding CancelCommand}"
+                            ToolTip.Tip="Stop for now. Everything already done is kept; carry on any time."/>
+                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Classes="caption mono" Text="{Binding CurrentFile}"
+                               TextTrimming="PrefixCharacterEllipsis" Margin="0,4,0,0"/>
+                    <ProgressBar Grid.Row="2" Grid.ColumnSpan="2" Margin="0,8,0,0" Minimum="0" Maximum="1" Value="{Binding Progress}"/>
+                </Grid>
+            </Border>
+            <Border Classes="callout warning" IsVisible="{Binding HasUnfinishedScan}" Margin="0,0,0,12">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="body-sm" VerticalAlignment="Center" TextWrapping="Wrap"
+                               Text="{Binding PausedText}"/>
+                    <Button Grid.Column="1" Classes="secondary small" Content="Resume check" Command="{Binding ResumeScanCommand}"/>
+                </Grid>
+            </Border>
+            <Border Classes="callout error" IsVisible="{Binding HasError}" Margin="0,0,0,12">
+                <TextBlock Classes="body-sm" Text="{Binding ErrorText}" TextWrapping="Wrap"/>
+            </Border>
+            <Border Classes="callout" IsVisible="{Binding HasResult}" Margin="0,0,0,12">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="body-sm" Text="{Binding ResultText}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Classes="secondary small" Content="Back up now" Command="{Binding OpenBackupCommand}"
+                            IsVisible="{Binding ShowBackupLink}"
+                            ToolTip.Tip="Open Backup to copy the new tracks to your backup drive"/>
+                </Grid>
+            </Border>
+        </StackPanel>
+
+        <!-- Lane filter strip + what Apply will do -->
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*" Margin="0,0,0,8" IsVisible="{Binding IsReviewing}">
+            <Border Classes="segmented" HorizontalAlignment="Left">
+                <ItemsControl ItemsSource="{Binding LaneFilters}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="2"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vmIntake:IntakeLaneFilter">
+                            <ToggleButton Classes="chip" Content="{Binding Text}"
+                                          IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                          Command="{Binding SelectCommand}"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Border>
+            <TextBlock Grid.Column="1" Classes="caption mono" Text="{Binding DecisionsSummary}"
+                       HorizontalAlignment="Right" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+        </Grid>
+
+        <!-- Where added files go, the space they need, and bulk actions for the shown lane -->
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,8" IsVisible="{Binding IsReviewing}">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Classes="caption" Text="{Binding DestinationText}" TextTrimming="CharacterEllipsis"
+                           ToolTip.Tip="{Binding DestinationText}" VerticalAlignment="Center"/>
+                <TextBlock Classes="caption mono" Text="{Binding SpaceText}" VerticalAlignment="Center"
+                           IsVisible="{Binding !HasSpaceProblem}"/>
+                <Border Classes="fact warning" IsVisible="{Binding HasSpaceProblem}" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding SpaceText}"/>
+                </Border>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                <Button Classes="secondary small" Content="{Binding RetryFailedText}" Command="{Binding RetryFailedCommand}"
+                        IsVisible="{Binding HasFailed}"
+                        ToolTip.Tip="Check failed files again, or apply them again if the apply step failed"/>
+                <Button Classes="secondary small" Content="{Binding SetShownText}"
+                        ToolTip.Tip="Change the action of every file in the lane shown below">
+                    <Button.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                            <MenuItem Header="Add to library" Command="{Binding SetShownKeepCommand}"/>
+                            <MenuItem Header="Leave on drive" Command="{Binding SetShownSkipCommand}"/>
+                            <MenuItem Header="Find a better copy" Command="{Binding SetShownUpgradeCommand}"
+                                      ToolTip.Tip="Files without artist and title can't be searched and keep their action"/>
+                            <MenuItem Header="Replace my copy" Command="{Binding SetShownReplaceCommand}"
+                                      ToolTip.Tip="Only files matched to a track in your library"/>
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <!-- Column captions -->
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="32,3*,88,56,96,3*,184" Margin="8,4,8,4" IsVisible="{Binding HasRows}">
+            <TextBlock Grid.Column="1" Classes="caption" Text="TRACK · PATH ON DRIVE"/>
+            <TextBlock Grid.Column="2" Classes="caption" Text="FORMAT"/>
+            <TextBlock Grid.Column="3" Classes="caption" Text="TIME" HorizontalAlignment="Right" Margin="0,0,12,0"/>
+            <TextBlock Grid.Column="4" Classes="caption" Text="LANE"/>
+            <TextBlock Grid.Column="5" Classes="caption" Text="WHY"/>
+            <TextBlock Grid.Column="6" Classes="caption" Text="ACTION"/>
+        </Grid>
+
+        <!-- Body -->
+        <Panel>
+            <!-- Start: no session yet -->
+            <StackPanel Classes="empty-state" IsVisible="{Binding IsStart}" VerticalAlignment="Center" MaxWidth="560">
+                <PathIcon Data="{StaticResource icon_inbox}"/>
+                <TextBlock Classes="h3" Text="Take in a drive or folder"/>
+                <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center"
+                           Text="ORBIT checks every track on it: does it play, is the quality real, do you already have it. You review the result and pick what joins your library. The drive is only read; nothing on it is changed or deleted."/>
+                <CheckBox IsChecked="{Binding DeepDecodeCheck}" HorizontalAlignment="Center" Margin="0,8,0,0"
+                          Content="Decode every file in full to find corrupt ones (slower)"
+                          ToolTip.Tip="Off: a quick check of tags, quality and duplicates only."/>
+                <Button Classes="primary" Content="Choose drive or folder…" Command="{Binding ChooseSourceCommand}"
+                        HorizontalAlignment="Center" Margin="0,8,0,0"/>
+            </StackPanel>
+
+            <StackPanel IsVisible="{Binding IsLoading}" Spacing="8" VerticalAlignment="Center" HorizontalAlignment="Center">
+                <ProgressBar IsIndeterminate="True" Width="240"/>
+                <TextBlock Classes="caption" Text="Loading…" HorizontalAlignment="Center"/>
+            </StackPanel>
+
+            <StackPanel Classes="empty-state" IsVisible="{Binding IsFilterEmpty}" VerticalAlignment="Center">
+                <PathIcon Data="{StaticResource icon_check}"/>
+                <TextBlock Classes="h3" Text="Nothing in this lane"/>
+                <TextBlock Classes="caption" Text="Pick another lane above to see its files."/>
+            </StackPanel>
+
+            <ListBox Classes="intake-list" IsVisible="{Binding HasRows}" ItemsSource="{Binding Rows}"
+                     Background="Transparent" SelectionMode="Single"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <VirtualizingStackPanel/>
+                    </ItemsPanelTemplate>
+                </ListBox.ItemsPanel>
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vmIntake:IntakeRowViewModel">
+                        <Border Classes="intake-row">
+                            <Grid ColumnDefinitions="32,3*,88,56,96,3*,184">
+                                <Button Classes="icon" Command="{Binding PreviewCommand}" IsVisible="{Binding CanPreview}"
+                                        VerticalAlignment="Center" ToolTip.Tip="Listen (plays from about a third in)"
+                                        AutomationProperties.Name="Listen">
+                                    <Panel>
+                                        <PathIcon Data="{StaticResource icon_play}" Width="12" Height="12" IsVisible="{Binding IsNotPreviewing}"/>
+                                        <PathIcon Data="{StaticResource icon_stop}" Width="12" Height="12" IsVisible="{Binding IsPreviewing}"/>
+                                    </Panel>
+                                </Button>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,8,0">
+                                    <TextBlock Classes="body-sm" Text="{Binding TitleText}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Classes="caption mono" Text="{Binding PathText}" TextTrimming="PrefixCharacterEllipsis"
+                                               ToolTip.Tip="{Binding PathText}"/>
+                                </StackPanel>
+                                <TextBlock Grid.Column="2" Classes="body-sm mono" Text="{Binding QualityText}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="3" Classes="body-sm mono" Text="{Binding DurationText}" VerticalAlignment="Center"
+                                           HorizontalAlignment="Right" Margin="0,0,12,0"/>
+                                <Border Grid.Column="4" Classes="fact" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding LaneText}"/>
+                                </Border>
+                                <TextBlock Grid.Column="5" Classes="caption" Text="{Binding ReasonText}" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ReasonText}" Margin="0,0,8,0"/>
+                                <ComboBox Grid.Column="6" ItemsSource="{Binding ActionOptions}" SelectedItem="{Binding SelectedAction}"
+                                          IsVisible="{Binding CanChoose}" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                                          MinHeight="28" Height="32" Padding="8,0" FontSize="{StaticResource TextSizeBodySm}"
+                                          ToolTip.Tip="What Apply does with this file">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vmIntake:IntakeActionOption">
+                                            <TextBlock Text="{Binding Label}"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <TextBlock Grid.Column="6" Classes="caption" Text="{Binding DoneText}" IsVisible="{Binding IsDecided}"
+                                           VerticalAlignment="Center" TextTrimming="PrefixCharacterEllipsis" ToolTip.Tip="{Binding DoneText}"/>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Panel>
+    </DockPanel>
+</UserControl>

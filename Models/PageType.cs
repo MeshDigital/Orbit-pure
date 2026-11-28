@@ -19,5 +19,6 @@ public enum PageType
     CueForge,
     Users,
     FlowBuilder,
-    Sets
+    Sets,
+    Intake
 }

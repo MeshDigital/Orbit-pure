@@ -477,6 +477,15 @@
                                         <TextBlock Text="Analysis" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
+
+                                <Button x:Name="NavIntake" Classes="nav" Command="{Binding NavigateIntakeCommand}"
+                                        ToolTip.Tip="Intake — Check music from a drive or folder before it joins your library"
+                                        Classes.selected="{Binding IsIntakeOverlayActive}">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_inbox}"/>
+                                        <TextBlock Text="Intake" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
                             </StackPanel>
                         </StackPanel>
 

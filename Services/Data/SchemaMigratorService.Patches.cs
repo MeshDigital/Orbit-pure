@@ -3067,6 +3067,68 @@ public partial class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // 45. Intake (#632): a quarantine for music arriving from a drive or folder. One row per
+            // session (the source being taken in) and one per audio file with its checks, review
+            // lane and the action Apply will take. SessionId is enforced in code (foreign_keys=OFF).
+            if (!TableExists("IntakeSessions"))
+            {
+                _logger.LogInformation("Patching Schema: Creating IntakeSessions table...");
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS ""IntakeSessions"" (
+                        ""Id""              TEXT NOT NULL PRIMARY KEY,
+                        ""SourceRoot""      TEXT NOT NULL,
+                        ""Label""           TEXT NOT NULL,
+                        ""CreatedAt""       TEXT NOT NULL,
+                        ""ScannedAt""       TEXT NULL,
+                        ""ClosedAt""        TEXT NULL,
+                        ""Status""          TEXT NOT NULL,
+                        ""DeepDecodeCheck"" INTEGER NOT NULL DEFAULT 1,
+                        ""JunkCount""       INTEGER NOT NULL DEFAULT 0
+                    );";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!TableExists("IntakeItems"))
+            {
+                _logger.LogInformation("Patching Schema: Creating IntakeItems table...");
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS ""IntakeItems"" (
+                        ""Id""                 TEXT NOT NULL PRIMARY KEY,
+                        ""SessionId""          TEXT NOT NULL,
+                        ""SourcePath""         TEXT NOT NULL,
+                        ""RelativePath""       TEXT NOT NULL,
+                        ""SizeBytes""          INTEGER NOT NULL DEFAULT 0,
+                        ""Extension""          TEXT NOT NULL,
+                        ""Status""             TEXT NOT NULL,
+                        ""Lane""               TEXT NOT NULL,
+                        ""Action""             TEXT NOT NULL,
+                        ""Reason""             TEXT NULL,
+                        ""Artist""             TEXT NULL,
+                        ""Title""              TEXT NULL,
+                        ""Album""              TEXT NULL,
+                        ""DurationSeconds""    INTEGER NOT NULL DEFAULT 0,
+                        ""BitrateKbps""        INTEGER NOT NULL DEFAULT 0,
+                        ""SampleRate""         INTEGER NOT NULL DEFAULT 0,
+                        ""BitsPerSample""      INTEGER NOT NULL DEFAULT 0,
+                        ""ContentHash""        TEXT NULL,
+                        ""SpectralVerdict""    TEXT NULL,
+                        ""SpectralCutoffHz""   REAL NULL,
+                        ""SpectralConfidence"" REAL NULL,
+                        ""DecodeErrorCount""   INTEGER NOT NULL DEFAULT 0,
+                        ""DecodeErrorPreview"" TEXT NULL,
+                        ""MatchKind""          TEXT NOT NULL,
+                        ""MatchedTrackHash""   TEXT NULL,
+                        ""MatchedFilePath""    TEXT NULL,
+                        ""MatchedFormat""      TEXT NULL,
+                        ""MatchedBitrate""     INTEGER NULL,
+                        ""AppliedPath""        TEXT NULL,
+                        ""Error""              TEXT NULL,
+                        ""ScannedAt""          TEXT NULL,
+                        ""AppliedAt""          TEXT NULL
+                    );
+                    CREATE UNIQUE INDEX IF NOT EXISTS ""IX_IntakeItems_SessionId_SourcePath"" ON ""IntakeItems"" (""SessionId"", ""SourcePath"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

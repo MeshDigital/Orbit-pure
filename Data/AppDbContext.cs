@@ -54,6 +54,8 @@ public class AppDbContext : DbContext
     public DbSet<Entities.MaintenanceRunEntity> MaintenanceRuns { get; set; } // Library Maintenance: one undoable run
     public DbSet<Entities.TagChangeLogEntity> TagChangeLog { get; set; } // Library Maintenance: per-field change journal
     public DbSet<Entities.MaintenancePlaylistLogEntity> MaintenancePlaylistLog { get; set; } // Library Maintenance: per-run playlist changes
+    public DbSet<Entities.IntakeSessionEntity> IntakeSessions { get; set; } // Intake (#632): one drive/folder being checked before it joins the library
+    public DbSet<Entities.IntakeItemEntity> IntakeItems { get; set; } // Intake (#632): one file's checks, lane and action
     public DbSet<Entities.TransitionKnowledgeEntity> TransitionKnowledge { get; set; } // Phase 2: knowledge lifecycle edge (aggregate)
     public DbSet<Entities.TransitionCandidateEntity> TransitionCandidates { get; set; } // Phase 2: auto-discovered transition hypotheses
     public DbSet<Entities.TransitionEvidenceEntity> TransitionEvidence { get; set; } // Phase 2: atomic evidence behind each knowledge edge
@@ -203,6 +205,17 @@ public class AppDbContext : DbContext
             .HasIndex(e => new { e.TargetPath, e.TrackUniqueHash })
             .IsUnique()
             .HasDatabaseName("IX_RekordboxExportCueSync_TargetPath_Hash");
+
+        // Intake (#632): enums stored as text so the raw-SQL patch and the model agree.
+        modelBuilder.Entity<Entities.IntakeSessionEntity>().Property(e => e.Status).HasConversion<string>();
+        modelBuilder.Entity<Entities.IntakeItemEntity>().Property(e => e.Status).HasConversion<string>();
+        modelBuilder.Entity<Entities.IntakeItemEntity>().Property(e => e.Lane).HasConversion<string>();
+        modelBuilder.Entity<Entities.IntakeItemEntity>().Property(e => e.Action).HasConversion<string>();
+        modelBuilder.Entity<Entities.IntakeItemEntity>().Property(e => e.MatchKind).HasConversion<string>();
+        modelBuilder.Entity<Entities.IntakeItemEntity>()
+            .HasIndex(e => new { e.SessionId, e.SourcePath })
+            .IsUnique()
+            .HasDatabaseName("IX_IntakeItems_SessionId_SourcePath");
 
         // Playlist Folders: nested tree, self-referencing parent
         modelBuilder.Entity<PlaylistFolderEntity>()
