@@ -73,6 +73,7 @@ var playlists = rows.GroupBy(r => r.PlaylistId)
 
 var results = new List<PairResult>();
 var labelled = new List<(PairResult Result, string Text)>();
+var audioScores = new List<MixBenchmark.AudioMixEvaluator.AudioPairScore>();
 foreach (var list in playlists)
 {
     for (int i = 0; i + 1 < list.Count; i++)
@@ -81,10 +82,18 @@ foreach (var list in playlists)
         var n = list[i + 1];
         if (o.TrackUniqueHash == n.TrackUniqueHash) continue;
         var decision = await decider.DecideAsync(ToPair(o), ToPair(n));
-        results.Add(PairScorer.Score(o, n, decision, features.GetValueOrDefault(o.TrackUniqueHash)));
+        var outFeat = features.GetValueOrDefault(o.TrackUniqueHash);
+        var inFeat = features.GetValueOrDefault(n.TrackUniqueHash);
+        results.Add(PairScorer.Score(o, n, decision, outFeat));
         labelled.Add((results[^1], results[^1].Describe(o, n)));
         if (opts.Trace is { } trace && ($"{o.Artist} {o.Title}".Contains(trace, StringComparison.OrdinalIgnoreCase)))
             Console.WriteLine(results[^1].Describe(o, n));
+
+        if (opts.Audio && audioScores.Count < opts.AudioPairs)
+        {
+            var score = MixBenchmark.AudioMixEvaluator.EvaluatePair(o, n, decision, outFeat, inFeat);
+            if (score != null) audioScores.Add(score);
+        }
     }
 }
 
@@ -94,8 +103,8 @@ if (results.Count == 0)
     return 1;
 }
 
-var summary = Report.Build(results, playlists.Count);
-Report.Print(summary, results);
+var summary = Report.Build(results, playlists.Count, audioScores);
+Report.Print(summary, results, audioScores);
 if (opts.Worst > 0)
 {
     Console.WriteLine();
@@ -291,7 +300,8 @@ static class Grid
 
 static class Report
 {
-    public static Dictionary<string, double> Build(List<PairResult> r, int playlistCount)
+    public static Dictionary<string, double> Build(List<PairResult> r, int playlistCount,
+        List<MixBenchmark.AudioMixEvaluator.AudioPairScore>? audio = null)
     {
         var s = new Dictionary<string, double>
         {
@@ -333,14 +343,40 @@ static class Report
         }
         foreach (var t in r.GroupBy(x => x.Tempo)) s[$"tempo.{t.Key.Replace(' ', '_').Replace('/', '_')}.pct"] = Pct(r, x => x.Tempo == t.Key);
         foreach (var k in r.GroupBy(x => x.Key)) s[$"key.{k.Key}.pct"] = Pct(r, x => x.Key == k.Key);
+
+        if (audio is { Count: > 0 })
+        {
+            var offsets = audio.Select(x => x.KickOffsetMs).OrderBy(x => x).ToList();
+            var dips = audio.Select(x => x.MaxDipDb).OrderBy(x => x).ToList();
+            var bumps = audio.Select(x => x.MaxBumpDb).OrderBy(x => x).ToList();
+            s["audio.pairs_rendered"] = audio.Count;
+            s["audio.kick_offset.median_ms"] = Quantile(offsets, 0.5);
+            s["audio.kick_offset.p95_ms"] = Quantile(offsets, 0.95);
+            s["audio.lufs_dip.median_db"] = Quantile(dips, 0.5);
+            s["audio.lufs_dip.worst_db"] = dips[0];
+            s["audio.lufs_bump.median_db"] = Quantile(bumps, 0.5);
+            s["audio.lufs_bump.worst_db"] = bumps[^1];
+            s["audio.clipping.pairs_pct"] = Pct(audio, x => x.ClippedSamples > 0);
+            s["audio.clipping.total_samples"] = audio.Sum(x => (double)x.ClippedSamples);
+            s["audio.peak.max_dbfs"] = audio.Max(x => x.PeakDbfs);
+        }
         return s;
     }
 
-    public static void Print(Dictionary<string, double> s, List<PairResult> r)
+    public static void Print(Dictionary<string, double> s, List<PairResult> r,
+        List<MixBenchmark.AudioMixEvaluator.AudioPairScore>? audio = null)
     {
         Console.WriteLine($"MixBenchmark Part A — {s["pairs"]} pairs in {s["playlists"]} playlists ({s.GetValueOrDefault("graded.pairs")} beat-matched with both grids)\n");
-        foreach (var (key, value) in s.Where(kv => kv.Key is not ("pairs" or "playlists" or "graded.pairs")))
+        foreach (var (key, value) in s.Where(kv => kv.Key is not ("pairs" or "playlists" or "graded.pairs") && !kv.Key.StartsWith("audio.", StringComparison.Ordinal)))
             Console.WriteLine($"  {key,-44} {value,8:0.0}");
+
+        if (audio is { Count: > 0 })
+        {
+            Console.WriteLine($"\nMixBenchmark Part B (offline audio render) — {audio.Count} beat-matched pairs\n");
+            foreach (var (key, value) in s.Where(kv => kv.Key.StartsWith("audio.", StringComparison.Ordinal)))
+                Console.WriteLine($"  {key,-44} {value,8:0.0}");
+            Console.WriteLine("\n  Note: offline render cannot measure hardware buffer jitter or two-device latency (eliminated by MX1 single-bus scheduling).");
+        }
     }
 
     public static void Compare(Dictionary<string, double> before, Dictionary<string, double> after)
@@ -360,12 +396,13 @@ static class Report
         sorted.Count == 0 ? 0 : sorted[Math.Clamp((int)Math.Ceiling(q * sorted.Count) - 1, 0, sorted.Count - 1)];
 }
 
-sealed record Options(string DbPath, string? SummaryPath, string? ComparePath, string? Trace, int MaxPlaylists, int Worst)
+sealed record Options(string DbPath, string? SummaryPath, string? ComparePath, string? Trace, int MaxPlaylists, int Worst, bool Audio, int AudioPairs)
 {
     public static Options? Parse(string[] args)
     {
         string? db = null, summary = null, compare = null, trace = null;
-        int max = int.MaxValue, worst = 0;
+        int max = int.MaxValue, worst = 0, audioPairs = 25;
+        bool audio = false;
         for (int i = 0; i < args.Length; i++)
         {
             string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"{args[i]} needs a value");
@@ -377,10 +414,12 @@ sealed record Options(string DbPath, string? SummaryPath, string? ComparePath, s
                 case "--trace": trace = Next(); break;
                 case "--max-playlists": max = int.Parse(Next(), CultureInfo.InvariantCulture); break;
                 case "--worst": worst = int.Parse(Next(), CultureInfo.InvariantCulture); break;
+                case "--audio": audio = true; break;
+                case "--audio-pairs": audio = true; audioPairs = int.Parse(Next(), CultureInfo.InvariantCulture); break;
                 default: Console.Error.WriteLine($"Unknown option {args[i]}"); return null;
             }
         }
-        return db is null ? null : new Options(db, summary, compare, trace, max, worst);
+        return db is null ? null : new Options(db, summary, compare, trace, max, worst, audio, audioPairs);
     }
 
     public static void PrintUsage() => Console.Error.WriteLine("""
@@ -390,5 +429,7 @@ sealed record Options(string DbPath, string? SummaryPath, string? ComparePath, s
           --trace "<text>"        print each pair whose outgoing artist/title contains the text
           --max-playlists <n>     only the n largest playlists
           --worst <n>             list the n beat-matched pairs with the largest phase error
+          --audio                 also run Part B offline audio-level scoring (kick offset, LUFS, clipping)
+          --audio-pairs <n>       number of beat-matched pairs to render for Part B (default 25)
         """);
 }

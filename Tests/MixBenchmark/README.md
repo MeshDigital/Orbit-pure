@@ -10,7 +10,7 @@ your playlists. It uses the same code playback uses:
 The benchmark isn't part of the app build or the unit tests. It runs against a **copy** of the
 library database and refuses to open the live `library.db`.
 
-This is Part A: the plan level, with no audio rendered. Part B (rendered audio) comes with MX1 (#600).
+This tool covers both **Part A** (plan level, fast, no audio rendered) and **Part B** (`--audio`, offline audio render through the MX1 gain/varispeed/resampling/equal-power crossfade path).
 
 ## Run
 
@@ -19,9 +19,13 @@ This is Part A: the plan level, with no audio rendered. Part B (rendered audio) 
    ```
    python -c "import sqlite3; s=sqlite3.connect('file:C:/Users/<you>/AppData/Roaming/ORBIT/library.db?mode=ro', uri=True); d=sqlite3.connect('library_copy.db'); s.backup(d)"
    ```
-2. Run it:
+2. Run Part A (plan level):
    ```
    dotnet run --project Tests/MixBenchmark -- --db library_copy.db --summary baseline.json
+   ```
+   Or include Part B (offline audio render for the first N beat-matched pairs):
+   ```
+   dotnet run --project Tests/MixBenchmark -- --db library_copy.db --audio --audio-pairs 25
    ```
 3. After changing planning or playback code, run it again on the **same** copy with
    `--compare baseline.json` to see the deltas.
