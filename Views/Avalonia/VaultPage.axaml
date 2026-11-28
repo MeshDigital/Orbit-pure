@@ -67,7 +67,15 @@
                     </Grid>
                     <TextBlock Classes="body-sm mono" Text="{Binding VaultPathText}" TextTrimming="PrefixCharacterEllipsis"
                                ToolTip.Tip="{Binding VaultPathText}"/>
-                    <TextBlock Classes="caption mono" Text="{Binding VaultContentsText}" IsVisible="{Binding IsVaultConnected}"/>
+                    <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding IsVaultConnected}">
+                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Classes="caption mono" Text="{Binding VaultContentsText}"/>
+                            <TextBlock Classes="caption" Text="{Binding LastVerifiedText}"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Classes="secondary small" Content="Verify vault" Command="{Binding VerifyCommand}"
+                                VerticalAlignment="Center"
+                                ToolTip.Tip="Re-read every copy on the drive and check it against the checksum taken when it was copied, to catch missing or damaged files. Changes nothing but the record of when it ran."/>
+                    </Grid>
                     <Border Classes="fact warning" HorizontalAlignment="Left" IsVisible="{Binding IsVaultDisconnected}">
                         <TextBlock Text="Drive not connected"/>
                     </Border>
@@ -76,7 +84,7 @@
                         <TextBlock Text="The drive is too small for this backup"/>
                     </Border>
                     <TextBlock Classes="caption" TextWrapping="Wrap" Margin="0,4,0,0"
-                               Text="Not backed up: ORBIT's settings and Soulseek login, and the stem and waveform caches (ORBIT rebuilds those)."/>
+                               Text="Not backed up: ORBIT's settings and Soulseek login, separated stems and the artwork cache (ORBIT rebuilds those). Waveforms, cues and grids are in the library snapshot."/>
                 </StackPanel>
             </Border>
 
@@ -92,9 +100,35 @@
                     <TextBlock Classes="caption" TextWrapping="Wrap"
                                Text="See the difference first. Copying back missing music never overwrites a file; restoring the library replaces it at the next start, after saving the current one."/>
                     <TextBlock Classes="body-sm" Text="{Binding PlanText}" TextWrapping="Wrap" IsVisible="{Binding HasPlan}"/>
+
+                    <!-- Music folders: where each goes on THIS computer (another drive letter, a Mac) -->
+                    <StackPanel Spacing="4" IsVisible="{Binding HasRootRows}" Margin="0,4,0,0">
+                        <TextBlock Classes="section" Text="MUSIC FOLDERS"/>
+                        <ItemsControl ItemsSource="{Binding RootRows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vmVault:VaultRootRowViewModel">
+                                    <Grid ColumnDefinitions="*,Auto" MinHeight="40" Margin="0,0,0,4">
+                                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Classes="body-sm" FontWeight="Medium" Text="{Binding Name}"/>
+                                                <TextBlock Classes="caption mono" Text="{Binding FilesText}" VerticalAlignment="Center"/>
+                                                <Border Classes="fact warning" IsVisible="{Binding NeedsFolder}" VerticalAlignment="Center">
+                                                    <TextBlock Text="Needs a folder"/>
+                                                </Border>
+                                            </StackPanel>
+                                            <TextBlock Classes="caption mono" Text="{Binding FolderText}" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Classes="secondary small" Content="Choose folder…" VerticalAlignment="Center"
+                                                Command="{Binding ChooseFolderCommand}" CommandParameter="{Binding}"
+                                                ToolTip.Tip="Restore this folder somewhere else on this computer. ORBIT remembers it, and points your library's tracks at it."/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasPlan}">
                         <Button Classes="secondary" Content="Copy back missing music" Command="{Binding RestoreFilesCommand}"
-                                ToolTip.Tip="Copies files that are gone from this computer back to where they were."/>
+                                ToolTip.Tip="Copies files that are gone from this computer into each music folder above (never overwriting), checks them against their checksum, and points your library at them."/>
                         <Button Classes="danger" Content="Restore library at next start…" Command="{Binding RestoreDatabaseCommand}"
                                 ToolTip.Tip="Replaces your library database (tracks, cues, grids, playlists) with the Vault's snapshot when ORBIT next starts."/>
                     </StackPanel>

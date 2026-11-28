@@ -147,7 +147,7 @@ public sealed class VaultServiceTests : IDisposable
 
         var restored = await _service.RestoreMissingFilesAsync(Vault);
 
-        Assert.Equal(1, restored);
+        Assert.Equal(1, restored.Restored);
         Assert.Equal(lostBytes, File.ReadAllBytes(lost));
         Assert.Equal(new byte[] { 9 }, File.ReadAllBytes(kept));
     }
@@ -217,6 +217,154 @@ public sealed class VaultServiceTests : IDisposable
         Directory.CreateDirectory(Path.Combine(_drive, "Mine"));
         File.WriteAllText(Path.Combine(_drive, "Mine", VaultService.ManifestFile), "{}");
         Assert.Equal(Path.GetFullPath(Path.Combine(_drive, "Mine")), VaultService.ResolveVaultRoot(Path.Combine(_drive, "Mine")));
+    }
+
+    // ── checksums, tag edits, verify (feedback 2026-11-28) ─────────────────────
+
+    private async Task<System.Collections.Generic.List<VaultFileEntry>> IndexAsync()
+    {
+        await using var s = File.OpenRead(Path.Combine(Vault, VaultService.IndexFile));
+        return (await System.Text.Json.JsonSerializer.DeserializeAsync<System.Collections.Generic.List<VaultFileEntry>>(s))!;
+    }
+
+    private string CopyOf(string relative) => Path.Combine(Vault, "Music", "music", relative.Replace('/', Path.DirectorySeparatorChar));
+
+    [Fact]
+    public async Task Backup_StoresTheChecksumOfEachCopy()
+    {
+        var one = Track("One.flac");
+        await _service.BackupAsync(Vault);
+
+        var entry = Assert.Single(await IndexAsync());
+        var expected = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(one)));
+        Assert.Equal(expected, entry.FileSha256);
+        Assert.Equal(File.GetLastWriteTimeUtc(one), entry.SourceModifiedUtc);
+    }
+
+    [Fact]
+    public async Task TagOnlyEdit_SameSizeSameAudio_IsCopiedAgain()
+    {
+        var one = Track("One.flac");
+        await _service.BackupAsync(Vault);
+
+        // A tag edit: same length, same audio hash in the library, different bytes and a newer time.
+        var bytes = File.ReadAllBytes(one);
+        bytes[0] ^= 0xFF;
+        File.WriteAllBytes(one, bytes);
+        File.SetLastWriteTimeUtc(one, DateTime.UtcNow.AddMinutes(5));
+
+        var again = await _service.BackupAsync(Vault);
+
+        Assert.Equal(1, again.Copied);
+        Assert.Equal(bytes, File.ReadAllBytes(CopyOf("One.flac")));
+    }
+
+    [Fact]
+    public async Task OlderIndexWithoutTimes_IsNotRecopied_AndGetsTheTimeFilledIn()
+    {
+        Track("One.flac");
+        await _service.BackupAsync(Vault);
+        var index = await IndexAsync();
+        index[0].SourceModifiedUtc = null; // as written by 0.5.2
+        await File.WriteAllTextAsync(Path.Combine(Vault, VaultService.IndexFile), System.Text.Json.JsonSerializer.Serialize(index));
+
+        var again = await _service.BackupAsync(Vault);
+
+        Assert.Equal((0, 1), (again.Copied, again.Unchanged));
+        Assert.NotNull((await IndexAsync())[0].SourceModifiedUtc);
+    }
+
+    [Fact]
+    public async Task VerifyVault_FindsDamagedAndMissingCopies()
+    {
+        Track("Good.flac");
+        Track("Rot.flac");
+        Track("Gone.flac");
+        await _service.BackupAsync(Vault);
+        var rot = File.ReadAllBytes(CopyOf("Rot.flac"));
+        rot[3] ^= 0x01; // one flipped bit on the backup drive
+        File.WriteAllBytes(CopyOf("Rot.flac"), rot);
+        File.Delete(CopyOf("Gone.flac"));
+
+        var result = await _service.VerifyVaultAsync(Vault);
+
+        Assert.False(result.IsHealthy);
+        Assert.Equal((3, 1, 1, 1), (result.Checked, result.Ok, result.Damaged, result.Missing));
+        Assert.Contains(result.Problems, p => p.Contains("Rot.flac"));
+        Assert.NotNull((await _service.GetStatusAsync(Vault))!.LastVerifiedUtc);
+    }
+
+    [Fact]
+    public async Task VerifyVault_GivesOlderCopiesAChecksum_WhenTheOriginalIsUnchanged()
+    {
+        Track("Old.flac");
+        await _service.BackupAsync(Vault);
+        var index = await IndexAsync();
+        index[0].FileSha256 = null; // copied before checksums existed
+        await File.WriteAllTextAsync(Path.Combine(Vault, VaultService.IndexFile), System.Text.Json.JsonSerializer.Serialize(index));
+
+        var result = await _service.VerifyVaultAsync(Vault);
+
+        Assert.True(result.IsHealthy, result.Summary);
+        Assert.Equal(1, result.ChecksumsAdded);
+        Assert.NotNull((await IndexAsync())[0].FileSha256);
+    }
+
+    // ── restore to another folder / another computer ────────────────────────
+
+    [Fact]
+    public void ResolveLocalRoot_AnotherComputersPathOrAGoneDrive_IsNotUsable()
+    {
+        var root = new VaultRoot { Id = "r" };
+        root.LocalPaths["this"] = OperatingSystem.IsWindows() ? @"Q:\Nowhere\Music" : "/Volumes/GoneDrive/Music";
+        root.LocalPaths["mac"] = "/Users/dj/Music";
+
+        Assert.False(VaultService.ResolveLocalRoot(root, "this", null).Usable);  // its drive isn't here
+        Assert.False(VaultService.ResolveLocalRoot(root, "other-pc", null).Usable); // nothing recorded for this computer
+        var chosen = VaultService.ResolveLocalRoot(root, "this", new System.Collections.Generic.Dictionary<string, string> { ["r"] = _music });
+        Assert.True(chosen.Usable);
+        Assert.Equal(_music, chosen.Path);
+
+        if (!OperatingSystem.IsWindows())
+        {
+            root.LocalPaths["this"] = @"D:\Music"; // a Windows path is meaningless on a Mac
+            Assert.False(VaultService.ResolveLocalRoot(root, "this", null).Usable);
+        }
+    }
+
+    [Fact]
+    public async Task RestoreToAChosenFolder_PutsTheFilesThere_AndRemembersItForThisComputer()
+    {
+        var one = Track("Artist/One.flac");
+        await _service.BackupAsync(Vault);
+        var bytes = File.ReadAllBytes(one);
+        var newHome = Path.Combine(_root, "NewDrive", "Music");
+        Directory.CreateDirectory(newHome);
+        var rootId = (await _service.PlanRootsAsync(Vault, null)).Single().RootId;
+
+        var result = await _service.RestoreMissingFilesAsync(Vault, new System.Collections.Generic.Dictionary<string, string> { [rootId] = newHome });
+
+        Assert.Equal(1, result.Restored);
+        Assert.Equal(bytes, File.ReadAllBytes(Path.Combine(newHome, "Artist", "One.flac")));
+        var plan = Assert.Single(await _service.PlanRootsAsync(Vault, null));
+        Assert.Equal(newHome, plan.LocalPath); // remembered: the next restore or backup from here uses it
+        Assert.Equal(0, plan.MissingHere);
+    }
+
+    [Fact]
+    public async Task RestoredCopy_ThatDoesntMatchItsChecksum_IsRefused()
+    {
+        var lost = Track("Lost.flac");
+        await _service.BackupAsync(Vault);
+        File.Delete(lost);
+        var copy = File.ReadAllBytes(CopyOf("Lost.flac"));
+        copy[1] ^= 0x10;
+        File.WriteAllBytes(CopyOf("Lost.flac"), copy);
+
+        var result = await _service.RestoreMissingFilesAsync(Vault);
+
+        Assert.Equal((0, 1), (result.Restored, result.Failed));
+        Assert.False(File.Exists(lost)); // never leave a damaged file where the library expects a good one
     }
 
     public void Dispose()
