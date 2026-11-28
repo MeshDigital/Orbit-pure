@@ -242,6 +242,8 @@ public class ConfigManager
                 DropCountdownMode = string.IsNullOrWhiteSpace(config["Cues:DropCountdownMode"]) ? "Auto" : config["Cues:DropCountdownMode"]!,
                 CustomCountdownBars = string.IsNullOrWhiteSpace(config["Cues:CustomCountdownBars"]) ? "32,16,8" : config["Cues:CustomCountdownBars"]!,
                 CountdownsAsMemoryCues = bool.TryParse(config["Cues:CountdownsAsMemoryCues"], out var camc) && camc,
+                DropOutBarsAfterLastDrop = int.TryParse(config["Cues:DropOutBarsAfterLastDrop"], out var dobald) && dobald is >= 4 and <= 128 ? dobald : 32,
+                DropPostBars = config["Cues:DropPostBars"]?.Trim() ?? "",
 
                 // [CueForge] — the track Cue Forge reopens when the player isn't on anything.
                 CueForgeLastTrackHash = string.IsNullOrWhiteSpace(config["CueForge:LastTrackHash"]) ? null : config["CueForge:LastTrackHash"],
@@ -497,6 +499,8 @@ public class ConfigManager
         iniContent.AppendLine($"DropCountdownMode = {config.DropCountdownMode}");
         iniContent.AppendLine($"CustomCountdownBars = {config.CustomCountdownBars}");
         iniContent.AppendLine($"CountdownsAsMemoryCues = {config.CountdownsAsMemoryCues}");
+        iniContent.AppendLine($"DropOutBarsAfterLastDrop = {config.DropOutBarsAfterLastDrop}");
+        iniContent.AppendLine($"DropPostBars = {config.DropPostBars}");
 
         // Cue Forge's "reopen the last edited track" — was written only by the view model, never by
         // this Save, so it never survived a restart.

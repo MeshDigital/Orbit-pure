@@ -101,6 +101,12 @@ public sealed class CueGenerationService
     /// <summary>Countdowns as memory cues (the editors' app-wide setting, read at generation time).</summary>
     public Func<bool> CountdownsAsMemoryCues { get; set; } = () => false;
 
+    /// <summary>Bars after the last drop where [OUT] is placed (read at generation time, default 32).</summary>
+    public Func<int> OutBarsAfterLastDrop { get; set; } = () => DropCountdownCues.OutBarsAfterLastDrop;
+
+    /// <summary>Optional bar offsets after each drop placed as memory cues (read at generation time).</summary>
+    public Func<IReadOnlyList<int>> PostDropBars { get; set; } = () => Array.Empty<int>();
+
     /// <param name="skipIfManualDrops">Background analysis passes true: once the DJ has placed drops
     /// by hand, their cues own the track and no auto cues are added back on re-analysis. The explicit
     /// "Regenerate Cues" passes false.</param>
@@ -516,16 +522,19 @@ public sealed class CueGenerationService
         double beat = 60.0 / bpm, bar = 4 * beat;
         var bars = CountdownBars(genre, bpm);
         bool memoryCountdowns = CountdownsAsMemoryCues();
+        int outBars = OutBarsAfterLastDrop();
+        var postBars = PostDropBars();
         var cues = new List<CuePointEntity>(10);
 
         cues.Add(Make(trackHash, introTime, CuePointType.Intro, "Intro", 1.0f));
 
         void AddGroup(int number, double dropTime, float confidence, double notBefore)
         {
-            foreach (var spec in DropCountdownCues.Layout(number, dropTime, bars, bpm, memoryCountdowns))
+            foreach (var spec in DropCountdownCues.Layout(number, dropTime, bars, bpm, memoryCountdowns, postBars, duration))
             {
-                if (!spec.IsDrop && spec.Timestamp <= notBefore) continue; // build-in would fall before the previous drop/intro
-                var cue = Make(trackHash, spec.Timestamp, spec.IsDrop ? CuePointType.Drop : CuePointType.Build, spec.Name, confidence);
+                if (spec.BarsBefore > 0 && spec.Timestamp <= notBefore) continue; // build-in would fall before the previous drop/intro
+                var type = spec.IsDrop ? CuePointType.Drop : spec.BarsBefore > 0 ? CuePointType.Build : CuePointType.PhraseBoundary;
+                var cue = Make(trackHash, spec.Timestamp, type, spec.Name, confidence);
                 cue.SlotIndex = spec.SlotIndex;
                 cue.Color = spec.Color;
                 cues.Add(cue);
@@ -545,7 +554,7 @@ public sealed class CueGenerationService
         bool detectedFits = outroDetected && outroTime > lastDrop + 8 * bar && (duration <= 0 || outroTime <= duration - 16 * bar);
         double? outTime = detectedFits
             ? outroTime
-            : DropCountdownCues.OutTime(lastDrop, bpm, downbeatAnchor, duration)
+            : DropCountdownCues.OutTime(lastDrop, bpm, downbeatAnchor, duration, outBars)
               ?? (outroTime > lastDrop + 4 * bar ? outroTime : null); // never an [OUT] glued to the drop
         if (outTime is { } outAt)
         {

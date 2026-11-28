@@ -81,7 +81,8 @@ public static class SectionMarkers
     /// Everything lands on the bar grid. Without phrases or drops there is no suggestion.
     /// </summary>
     public static SectionSuggestion Suggest(IReadOnlyList<PhraseSegment>? phrases, IEnumerable<OrbitCue> cues,
-        double bpm, double downbeat, double duration)
+        double bpm, double downbeat, double duration,
+        int outBarsAfterLastDrop = DropCountdownCues.OutBarsAfterLastDrop)
     {
         var segments = (phrases ?? Array.Empty<PhraseSegment>())
             .Where(p => p.Duration > 0 && p.Start >= 0 && (duration <= 0 || p.Start < duration))
@@ -147,10 +148,10 @@ public static class SectionMarkers
             }
         }
         if (outroStart == null && drops.Count > 0 &&
-            DropCountdownCues.OutTime(drops[^1], bpm, downbeat, duration) is { } outAt)
+            DropCountdownCues.OutTime(drops[^1], bpm, downbeat, duration, outBarsAfterLastDrop) is { } outAt)
         {
             outroStart = outAt;
-            outroReason = $"{DropCountdownCues.OutBarsAfterLastDrop} bars after the last drop";
+            outroReason = $"{Math.Clamp(outBarsAfterLastDrop, 4, 128)} bars after the last drop";
         }
 
         introEnd = introEnd is { } ie ? Snap(ie, bar, downbeat, duration) : null;

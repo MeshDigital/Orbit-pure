@@ -560,6 +560,8 @@ public partial class App
                 return bars.Count > 0 ? bars : new[] { 16, 8 }; // "Off" only affects manual editing
             };
             generator.CountdownsAsMemoryCues = () => configManager.GetCurrent().CountdownsAsMemoryCues;
+            generator.OutBarsAfterLastDrop = () => configManager.GetCurrent().DropOutBarsAfterLastDrop;
+            generator.PostDropBars = () => SLSKDONET.Engine.Cueing.DropCountdownCues.ParsePostDropBars(configManager.GetCurrent().DropPostBars);
             return generator;
         });
         services.AddSingleton<Services.AnalysisQueueService>();
