@@ -84,7 +84,7 @@ internal sealed class AutoMixBusSampleProvider : ISampleProvider
     public AutoMixBusSampleProvider(int sampleRate = DefaultSampleRate)
     {
         WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, Channels);
-        _limiter = new Limiter(thresholdDb: LimiterCeilingDb, lookAheadMs: 0f, sampleRate: sampleRate, releaseMs: 60f);
+        _limiter = new Limiter(thresholdDb: LimiterCeilingDb, sampleRate: sampleRate);
     }
 
     public bool IsPaused
