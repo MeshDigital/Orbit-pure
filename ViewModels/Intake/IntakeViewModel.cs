@@ -12,6 +12,7 @@ using ReactiveUI;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Services;
+using SLSKDONET.Utils;
 using SLSKDONET.Services.Intake;
 using SLSKDONET.Views;
 
@@ -50,7 +51,7 @@ public sealed class IntakeLaneFilter : ReactiveObject
     public System.Windows.Input.ICommand? SelectCommand { get; internal set; }
     public string Label { get; }
     public int Count { get => _count; set { this.RaiseAndSetIfChanged(ref _count, value); this.RaisePropertyChanged(nameof(Text)); } }
-    public string Text => $"{Label} {Count.ToString("N0", CultureInfo.CurrentCulture)}";
+    public string Text => $"{Label} {CountFormat.N(Count)}";
     public bool IsSelected { get => _isSelected; set => this.RaiseAndSetIfChanged(ref _isSelected, value); }
 }
 
@@ -239,11 +240,11 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
     public string SessionTitle => _session == null ? "Intake" : $"Intake · {_session.Label}";
     public string SessionSubtitle => _session == null
         ? "Check music from a drive or folder before any of it joins your library."
-        : $"{_session.SourceRoot} · {_allRows.Count.ToString("N0", CultureInfo.CurrentCulture)} audio files"
-          + (_session.JunkCount > 0 ? $" · {_session.JunkCount.ToString("N0", CultureInfo.CurrentCulture)} other files skipped" : string.Empty);
+        : $"{_session.SourceRoot} · {CountFormat.N(_allRows.Count)} audio files"
+          + (_session.JunkCount > 0 ? $" · {CountFormat.N(_session.JunkCount)} other files skipped" : string.Empty);
 
     public int DecisionsCount => _allRows.Count(r => r.CanChoose);
-    public string ApplyText => $"Apply {DecisionsCount.ToString("N0", CultureInfo.CurrentCulture)} decisions";
+    public string ApplyText => $"Apply {CountFormat.N(DecisionsCount)} decisions";
     public string DecisionsSummary
     {
         get
@@ -256,7 +257,7 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
                 (Count(IntakeAction.Replace), "to replace"),
                 (Count(IntakeAction.Upgrade), "to search for"),
                 (Count(IntakeAction.Skip), "to leave"),
-            }.Where(p => p.Item1 > 0).Select(p => $"{p.Item1.ToString("N0", CultureInfo.CurrentCulture)} {p.Item2}");
+            }.Where(p => p.Item1 > 0).Select(p => $"{CountFormat.N(p.Item1)} {p.Item2}");
             return string.Join(" · ", parts);
         }
     }
@@ -326,7 +327,7 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
         var progress = new Progress<IntakeScanProgress>(p =>
         {
             Progress = p.Total == 0 ? 0 : (double)p.Done / p.Total;
-            ProgressText = $"Checked {p.Done.ToString("N0", CultureInfo.CurrentCulture)} of {p.Total.ToString("N0", CultureInfo.CurrentCulture)}"
+            ProgressText = $"Checked {CountFormat.N(p.Done)} of {CountFormat.N(p.Total)}"
                 + (p.Failed > 0 ? $" · {p.Failed} couldn't be checked" : string.Empty);
             CurrentFile = p.CurrentFile ?? string.Empty;
         });
@@ -365,7 +366,7 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
         var progress = new Progress<IntakeApplyProgress>(p =>
         {
             Progress = p.Total == 0 ? 0 : (double)p.Done / p.Total;
-            ProgressText = $"Applying {p.Done.ToString("N0", CultureInfo.CurrentCulture)} of {p.Total.ToString("N0", CultureInfo.CurrentCulture)}";
+            ProgressText = $"Applying {CountFormat.N(p.Done)} of {CountFormat.N(p.Total)}";
             CurrentFile = p.CurrentFile ?? string.Empty;
         });
         var sessionId = _session.Id;
