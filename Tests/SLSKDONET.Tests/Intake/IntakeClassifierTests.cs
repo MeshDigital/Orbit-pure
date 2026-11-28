@@ -109,6 +109,15 @@ public sealed class IntakeClassifierTests
     }
 
     [Fact]
+    public void UntaggedLowBitrate_IsSuspicious_ButLeftOnTheDrive_SinceThereIsNothingToSearchFor()
+    {
+        var v = IntakeClassifier.Classify(Facts(ext: ".mp3", bitrate: 128, artist: null, title: null, spectral: null), null);
+        Assert.Equal(IntakeLane.Suspicious, v.Lane);
+        Assert.Equal(IntakeAction.Skip, v.Action);
+        Assert.Contains("no artist or title", v.Reason);
+    }
+
+    [Fact]
     public void MissingTags_StaysGood_ButSaysSo()
     {
         var v = IntakeClassifier.Classify(Facts(artist: null), null);

@@ -26,8 +26,7 @@ public sealed class IntakeViewModelTests
         var factory = new Factory(_options);
         var scan = new IntakeScanService(factory, Mock.Of<IIntakeFileInspector>(), NullLogger<IntakeScanService>.Instance);
         var apply = new IntakeApplyService(factory, Mock.Of<IIntakeLibraryWriter>(), NullLogger<IntakeApplyService>.Instance);
-        return new IntakeViewModel(scan, apply, factory, Mock.Of<IDialogService>(), NullLogger<IntakeViewModel>.Instance,
-            postToUi: a => a());
+        return new IntakeViewModel(scan, apply, factory, Mock.Of<IDialogService>(), NullLogger<IntakeViewModel>.Instance);
     }
 
     private void Seed(IntakeSessionStatus status, params (string Name, IntakeLane Lane, IntakeAction Action, IntakeItemStatus Status)[] items)
@@ -81,6 +80,53 @@ public sealed class IntakeViewModelTests
     }
 
     [Fact]
+    public void OpenSession_LoadsItsRows_UnderAQueuedUiContext()
+    {
+        // Regression: the session used to be set through a posted callback, so on the real UI
+        // thread the rows were reloaded before the session existed and the review showed 0 files.
+        Seed(IntakeSessionStatus.Ready, ("a.flac", IntakeLane.Good, IntakeAction.Keep, IntakeItemStatus.Scanned),
+            ("b.flac", IntakeLane.Reject, IntakeAction.Skip, IntakeItemStatus.Scanned));
+        var context = new QueueContext();
+        var previous = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(context);
+        try
+        {
+            var vm = Create();
+            var load = vm.LoadAsync();
+            context.RunUntil(() => load.IsCompleted);
+            load.GetAwaiter().GetResult();
+            Assert.Equal(2, vm.Rows.Count);
+            Assert.Equal(1, vm.LaneFilters.Single(f => f.Lane == IntakeLane.Reject).Count);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
+    }
+
+    [Fact]
+    public async Task SetAllShown_ChangesEveryFileInTheLane()
+    {
+        Seed(IntakeSessionStatus.Ready,
+            ("a.mp3", IntakeLane.Suspicious, IntakeAction.Upgrade, IntakeItemStatus.Scanned),
+            ("b.mp3", IntakeLane.Suspicious, IntakeAction.Upgrade, IntakeItemStatus.Scanned),
+            ("c.flac", IntakeLane.Good, IntakeAction.Keep, IntakeItemStatus.Scanned));
+        var vm = Create();
+        await vm.LoadAsync();
+        vm.LaneFilters.Single(f => f.Lane == IntakeLane.Suspicious).SelectCommand!.Execute(null);
+        Assert.Equal("Set all 2 shown to", vm.SetShownText);
+
+        await vm.SetShownSkipCommand.ExecuteAsync(null);
+
+        await using var db = new AppDbContext(_options);
+        var actions = await db.IntakeItems.ToDictionaryAsync(i => i.RelativePath, i => i.Action);
+        Assert.Equal(IntakeAction.Skip, actions["a.mp3"]);
+        Assert.Equal(IntakeAction.Skip, actions["b.mp3"]);
+        Assert.Equal(IntakeAction.Keep, actions["c.flac"]);
+        Assert.All(vm.Rows, r => Assert.Equal(IntakeAction.Skip, r.SelectedAction!.Action));
+    }
+
+    [Fact]
     public async Task ChangingARowsAction_IsSaved()
     {
         Seed(IntakeSessionStatus.Ready, ("a.flac", IntakeLane.Good, IntakeAction.Keep, IntakeItemStatus.Scanned));
@@ -106,6 +152,18 @@ public sealed class IntakeViewModelTests
         Assert.True(vm.HasUnfinishedScan);
         Assert.True(vm.ResumeScanCommand.CanExecute(null));
         Assert.False(vm.IsReviewing);
+    }
+
+    private sealed class QueueContext : SynchronizationContext
+    {
+        private readonly System.Collections.Concurrent.BlockingCollection<(SendOrPostCallback, object?)> _queue = new();
+        public override void Post(SendOrPostCallback d, object? state) => _queue.Add((d, state));
+        public void RunUntil(Func<bool> done)
+        {
+            var until = DateTime.UtcNow.AddSeconds(10);
+            while (!done() && DateTime.UtcNow < until)
+                if (_queue.TryTake(out var work, 20)) work.Item1(work.Item2);
+        }
     }
 
     private sealed class Factory : IDbContextFactory<AppDbContext>

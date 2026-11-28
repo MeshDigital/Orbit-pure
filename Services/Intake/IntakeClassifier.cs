@@ -83,6 +83,15 @@ public static class IntakeClassifier
             return new(IntakeLane.Duplicate, IntakeAction.Skip, $"You already have it ({Describe(match)})");
         }
 
+        // A search needs a name: an untagged weak file stays on the drive unless the user adds it.
+        bool searchable = !string.IsNullOrWhiteSpace(facts.Artist) && !string.IsNullOrWhiteSpace(facts.Title);
+        if (suspicious && !searchable)
+            return new(IntakeLane.Suspicious, IntakeAction.Skip,
+                (fakeLossless ? $"Labelled {format.ToUpperInvariant()} but sounds like a lossy file{CutoffText(facts)}"
+                    : upscaledLossy ? $"{facts.BitrateKbps} kbps label, but encoded from a lower bitrate{CutoffText(facts)}"
+                    : $"Low bitrate ({facts.BitrateKbps} kbps)")
+                + "; no artist or title to search for a better copy");
+
         if (fakeLossless)
             return new(IntakeLane.Suspicious, IntakeAction.Upgrade,
                 $"Labelled {format.ToUpperInvariant()} but sounds like a lossy file{CutoffText(facts)}");

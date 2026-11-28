@@ -68,6 +68,57 @@ public sealed class IntakeApplyService
         return changed;
     }
 
+    /// <summary>Where kept files go (the library's download folder, filed by the naming template).</summary>
+    public string LibraryRoot => _writer.LibraryRoot;
+
+    /// <summary>Bytes Apply will copy (Add + Replace) and the free space where they go (null when unknown).</summary>
+    public async Task<(long Needed, long? Free)> CheckSpaceAsync(string sessionId, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var needed = await db.IntakeItems
+            .Where(i => i.SessionId == sessionId && i.Status == IntakeItemStatus.Scanned
+                && (i.Action == IntakeAction.Keep || i.Action == IntakeAction.Replace))
+            .SumAsync(i => (long?)i.SizeBytes, ct).ConfigureAwait(false) ?? 0;
+        return (needed, FreeBytes(_writer.LibraryRoot));
+    }
+
+    internal static long? FreeBytes(string path)
+    {
+        try
+        {
+            var root = Path.GetPathRoot(Path.GetFullPath(path));
+            return string.IsNullOrEmpty(root) ? null : new DriveInfo(root).AvailableFreeSpace;
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Puts failed files back in line: a file whose check failed is checked again (Pending), a file
+    /// whose apply step failed keeps its lane and action and is applied again. Returns both counts.
+    /// </summary>
+    public async Task<(int Recheck, int Reapply)> RetryFailedAsync(string sessionId, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var failed = await db.IntakeItems.Where(i => i.SessionId == sessionId && i.Status == IntakeItemStatus.Failed).ToListAsync(ct).ConfigureAwait(false);
+        int recheck = 0, reapply = 0;
+        foreach (var i in failed)
+        {
+            i.Error = null;
+            if (i.Lane == IntakeLane.Pending) { i.Status = IntakeItemStatus.Pending; recheck++; }
+            else { i.Status = IntakeItemStatus.Scanned; reapply++; }
+        }
+        if (recheck > 0)
+        {
+            var s = await db.IntakeSessions.FirstAsync(x => x.Id == sessionId, ct).ConfigureAwait(false);
+            s.Status = IntakeSessionStatus.Scanning;
+        }
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        return (recheck, reapply);
+    }
+
     /// <summary>The actions that make sense for a file: Replace needs a matched library track.</summary>
     public static IReadOnlyList<IntakeAction> AllowedActions(IntakeItemEntity item)
     {
@@ -101,6 +152,10 @@ public sealed class IntakeApplyService
         bool needsSource = items.Any(i => i.Action is IntakeAction.Keep or IntakeAction.Replace);
         if (needsSource && !Directory.Exists(session.SourceRoot))
             throw new DirectoryNotFoundException($"{session.Label} isn't connected. Plug it in to apply.");
+        long needed = items.Where(i => i.Action is IntakeAction.Keep or IntakeAction.Replace).Sum(i => i.SizeBytes);
+        if (FreeBytes(_writer.LibraryRoot) is long free && needed > free)
+            throw new IOException($"Not enough space in {_writer.LibraryRoot}: these files need {SLSKDONET.Utils.NumFormat.Size(needed)}, "
+                + $"{SLSKDONET.Utils.NumFormat.Size(free)} is free. Free up space or leave some files on the drive.");
 
         foreach (var item in items)
         {

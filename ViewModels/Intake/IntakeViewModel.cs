@@ -143,12 +143,17 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
     private readonly IDialogService _dialogs;
     private readonly INotificationService? _notifications;
     private readonly ILogger<IntakeViewModel> _logger;
-    private readonly Action<Action> _post;
+    private readonly INavigationService? _navigation;
     private readonly AsyncRelayCommand _chooseSourceCommand;
     private readonly AsyncRelayCommand _resumeScanCommand;
     private readonly RelayCommand _cancelCommand;
     private readonly AsyncRelayCommand _applyCommand;
     private readonly AsyncRelayCommand _closeSessionCommand;
+    private readonly AsyncRelayCommand _retryFailedCommand;
+    private readonly RelayCommand _openBackupCommand;
+    private string _spaceText = string.Empty;
+    private bool _hasSpaceProblem;
+    private bool _showBackupLink;
     private CancellationTokenSource? _workCts;
     private List<IntakeRowViewModel> _allRows = new();
     private IntakeSessionEntity? _session;
@@ -173,7 +178,7 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
         IDialogService dialogs,
         ILogger<IntakeViewModel> logger,
         INotificationService? notifications = null,
-        Action<Action>? postToUi = null)
+        INavigationService? navigation = null)
     {
         _scan = scan;
         _apply = apply;
@@ -181,13 +186,19 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
         _dialogs = dialogs;
         _logger = logger;
         _notifications = notifications;
-        _post = postToUi ?? (a => Dispatcher.UIThread.Post(a));
+        _navigation = navigation;
 
         _chooseSourceCommand = new AsyncRelayCommand(ChooseSourceAsync, () => !IsBusy);
         _resumeScanCommand = new AsyncRelayCommand(() => RunScanAsync(_session!.Id), () => !IsBusy && HasUnfinishedScan);
         _cancelCommand = new RelayCommand(() => _workCts?.Cancel(), () => IsBusy);
         _applyCommand = new AsyncRelayCommand(ApplyAsync, () => !IsBusy && IsReviewing && DecisionsCount > 0);
         _closeSessionCommand = new AsyncRelayCommand(CloseSessionAsync, () => !IsBusy && HasSession);
+        _retryFailedCommand = new AsyncRelayCommand(RetryFailedAsync, () => !IsBusy && FailedCount > 0);
+        _openBackupCommand = new RelayCommand(() => _navigation?.NavigateTo("Vault"), () => _navigation != null);
+        SetShownKeepCommand = new AsyncRelayCommand(() => SetShownAsync(IntakeAction.Keep), () => !IsBusy && ShownChoosableCount > 0);
+        SetShownSkipCommand = new AsyncRelayCommand(() => SetShownAsync(IntakeAction.Skip), () => !IsBusy && ShownChoosableCount > 0);
+        SetShownUpgradeCommand = new AsyncRelayCommand(() => SetShownAsync(IntakeAction.Upgrade), () => !IsBusy && ShownChoosableCount > 0);
+        SetShownReplaceCommand = new AsyncRelayCommand(() => SetShownAsync(IntakeAction.Replace), () => !IsBusy && ShownChoosableCount > 0);
 
         LaneFilters = new ObservableCollection<IntakeLaneFilter>
         {
@@ -212,10 +223,41 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
     public RelayCommand CancelCommand => _cancelCommand;
     public AsyncRelayCommand ApplyCommand => _applyCommand;
     public AsyncRelayCommand CloseSessionCommand => _closeSessionCommand;
+    public AsyncRelayCommand RetryFailedCommand => _retryFailedCommand;
+    public RelayCommand OpenBackupCommand => _openBackupCommand;
+    public AsyncRelayCommand SetShownKeepCommand { get; }
+    public AsyncRelayCommand SetShownSkipCommand { get; }
+    public AsyncRelayCommand SetShownUpgradeCommand { get; }
+    public AsyncRelayCommand SetShownReplaceCommand { get; }
+
+    /// <summary>Files in the current lane whose action can still be changed.</summary>
+    public int ShownChoosableCount => _rows.Count(r => r.CanChoose);
+    public string SetShownText => $"Set all {CountFormat.N(ShownChoosableCount)} shown to";
+    public int FailedCount => _allRows.Count(r => r.Item.Status == IntakeItemStatus.Failed);
+    public bool HasFailed => FailedCount > 0;
+    public string RetryFailedText => $"Retry {CountFormat.N(FailedCount)} failed";
+
+    /// <summary>Where Apply puts added files.</summary>
+    public string DestinationText => $"Added tracks go to {_apply.LibraryRoot}, filed by your naming template.";
+    public string SpaceText { get => _spaceText; private set => this.RaiseAndSetIfChanged(ref _spaceText, value); }
+    public bool HasSpaceProblem { get => _hasSpaceProblem; private set => this.RaiseAndSetIfChanged(ref _hasSpaceProblem, value); }
+
+    /// <summary>Shown after an Apply that added or replaced files: the natural next step is a backup.</summary>
+    public bool ShowBackupLink { get => _showBackupLink; private set => this.RaiseAndSetIfChanged(ref _showBackupLink, value); }
+
+    /// <summary>For a paused check: how far it got.</summary>
+    public string PausedText
+    {
+        get
+        {
+            int done = _allRows.Count(r => r.Item.Status != IntakeItemStatus.Pending);
+            return $"The check of this drive stopped at {CountFormat.N(done)} of {CountFormat.N(_allRows.Count)} files. Files already checked are kept.";
+        }
+    }
 
     public ObservableCollection<IntakeLaneFilter> LaneFilters { get; }
 
-    public IReadOnlyList<IntakeRowViewModel> Rows { get => _rows; private set { this.RaiseAndSetIfChanged(ref _rows, value); this.RaisePropertyChanged(nameof(HasRows)); this.RaisePropertyChanged(nameof(IsFilterEmpty)); } }
+    public IReadOnlyList<IntakeRowViewModel> Rows { get => _rows; private set { this.RaiseAndSetIfChanged(ref _rows, value); this.RaisePropertyChanged(nameof(HasRows)); RaiseAll(); } }
     public bool HasRows => _rows.Count > 0;
     public bool IsFilterEmpty => IsReviewing && _allRows.Count > 0 && _rows.Count == 0;
 
@@ -244,7 +286,7 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
           + (_session.JunkCount > 0 ? $" · {CountFormat.N(_session.JunkCount)} other files skipped" : string.Empty);
 
     public int DecisionsCount => _allRows.Count(r => r.CanChoose);
-    public string ApplyText => $"Apply {CountFormat.N(DecisionsCount)} decisions";
+    public string ApplyText => DecisionsCount > 0 ? $"Apply {CountFormat.N(DecisionsCount)} decisions" : "Nothing left to apply";
     public string DecisionsSummary
     {
         get
@@ -275,17 +317,18 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
                 .Where(s => s.Status != IntakeSessionStatus.Done)
                 .OrderByDescending(s => s.CreatedAt)
                 .FirstOrDefaultAsync();
-            _post(() => _session = open);
+            _session = open;
             if (open != null) await ReloadRowsAsync();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Intake: loading the open session failed");
-            _post(() => ErrorText = "Couldn't load your Intake session: " + ex.Message);
+            ErrorText = "Couldn't load your Intake session: " + ex.Message;
         }
         finally
         {
-            _post(() => { IsLoading = false; RaiseAll(); });
+            IsLoading = false;
+            RaiseAll();
         }
     }
 
@@ -360,6 +403,7 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
         if (_session == null) return;
         ErrorText = null;
         ResultText = null;
+        ShowBackupLink = false;
         _workCts = new CancellationTokenSource();
         IsBusy = true;
         IsApplying = true;
@@ -374,6 +418,7 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
         {
             var result = await Task.Run(() => _apply.ApplyAsync(sessionId, progress, _workCts.Token));
             ResultText = result.Summary + ".";
+            ShowBackupLink = result.Kept + result.Replaced > 0;
             _notifications?.Show("Intake applied", result.Summary,
                 result.Failed > 0 ? NotificationType.Warning : NotificationType.Success);
         }
@@ -459,6 +504,59 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
                 : _allRows;
     }
 
+    private async Task SetShownAsync(IntakeAction action)
+    {
+        var rows = _rows.Where(r => r.CanChoose && r.ActionOptions.Any(o => o.Action == action)).ToList();
+        if (rows.Count == 0) return;
+        try
+        {
+            await _apply.SetActionAsync(rows.Select(r => r.Id).ToList(), action);
+            foreach (var r in rows) r.ShowAction(action);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Intake: setting {Count} files to {Action} failed", rows.Count, action);
+            ErrorText = "Couldn't save that choice: " + ex.Message;
+        }
+        await RefreshSpaceAsync();
+        RaiseAll();
+    }
+
+    private async Task RetryFailedAsync()
+    {
+        if (_session == null) return;
+        try
+        {
+            var (recheck, _) = await _apply.RetryFailedAsync(_session.Id);
+            await RefreshSessionAsync(_session.Id);
+            await ReloadRowsAsync();
+            if (recheck > 0) await RunScanAsync(_session.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Intake: retrying failed files failed");
+            ErrorText = "Couldn't retry: " + ex.Message;
+        }
+    }
+
+    private async Task RefreshSpaceAsync()
+    {
+        if (_session == null) { SpaceText = string.Empty; HasSpaceProblem = false; return; }
+        try
+        {
+            var (needed, free) = await _apply.CheckSpaceAsync(_session.Id);
+            HasSpaceProblem = free is long f && needed > f;
+            SpaceText = needed == 0 ? string.Empty
+                : $"Needs {NumFormat.Size(needed)}" + (free is long fr ? $" · {NumFormat.Size(fr)} free" : string.Empty)
+                  + (HasSpaceProblem ? " · not enough space" : string.Empty);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Intake: checking free space failed");
+            SpaceText = string.Empty;
+        }
+    }
+
     private async Task RefreshSessionAsync(string sessionId)
     {
         try
@@ -488,20 +586,18 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Intake: loading files for session {Id} failed", session.Id);
-            _post(() => ErrorText = "Couldn't load the files: " + ex.Message);
+            ErrorText = "Couldn't load the files: " + ex.Message;
             return;
         }
         var rows = items.Select(i => new IntakeRowViewModel(i, SetActionAsync)).ToList();
-        _post(() =>
-        {
-            _allRows = rows;
-            foreach (var f in LaneFilters)
-                f.Count = f.IsFailedFilter
-                    ? rows.Count(r => r.Item.Status == IntakeItemStatus.Failed)
-                    : f.Lane is { } lane ? rows.Count(r => r.Item.Status != IntakeItemStatus.Failed && r.Lane == lane) : rows.Count;
-            ApplyFilter();
-            RaiseAll();
-        });
+        _allRows = rows;
+        foreach (var f in LaneFilters)
+            f.Count = f.IsFailedFilter
+                ? rows.Count(r => r.Item.Status == IntakeItemStatus.Failed)
+                : f.Lane is { } lane ? rows.Count(r => r.Item.Status != IntakeItemStatus.Failed && r.Lane == lane) : rows.Count;
+        ApplyFilter();
+        await RefreshSpaceAsync();
+        RaiseAll();
     }
 
     private void RaiseAll()
@@ -516,6 +612,19 @@ public sealed class IntakeViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(ApplyText));
         this.RaisePropertyChanged(nameof(DecisionsSummary));
         this.RaisePropertyChanged(nameof(IsFilterEmpty));
+        this.RaisePropertyChanged(nameof(ShownChoosableCount));
+        this.RaisePropertyChanged(nameof(SetShownText));
+        this.RaisePropertyChanged(nameof(FailedCount));
+        this.RaisePropertyChanged(nameof(HasFailed));
+        this.RaisePropertyChanged(nameof(RetryFailedText));
+        this.RaisePropertyChanged(nameof(PausedText));
+        this.RaisePropertyChanged(nameof(DestinationText));
+        _retryFailedCommand.RaiseCanExecuteChanged();
+        _openBackupCommand.RaiseCanExecuteChanged();
+        SetShownKeepCommand.RaiseCanExecuteChanged();
+        SetShownSkipCommand.RaiseCanExecuteChanged();
+        SetShownUpgradeCommand.RaiseCanExecuteChanged();
+        SetShownReplaceCommand.RaiseCanExecuteChanged();
         _chooseSourceCommand.RaiseCanExecuteChanged();
         _resumeScanCommand.RaiseCanExecuteChanged();
         _cancelCommand.RaiseCanExecuteChanged();

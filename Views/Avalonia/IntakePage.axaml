@@ -23,6 +23,10 @@
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}"/>
         </Style>
+        <Style Selector="ListBox.intake-list ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="MinHeight" Value="0"/>
+        </Style>
         <Style Selector="Border.intake-row:pointerover">
             <Setter Property="Background" Value="{StaticResource BrushHover}"/>
         </Style>
@@ -69,7 +73,7 @@
             <Border Classes="callout warning" IsVisible="{Binding HasUnfinishedScan}" Margin="0,0,0,12">
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Classes="body-sm" VerticalAlignment="Center" TextWrapping="Wrap"
-                               Text="This drive's check stopped before it finished. Files already checked are kept."/>
+                               Text="{Binding PausedText}"/>
                     <Button Grid.Column="1" Classes="secondary small" Content="Resume check" Command="{Binding ResumeScanCommand}"/>
                 </Grid>
             </Border>
@@ -77,7 +81,12 @@
                 <TextBlock Classes="body-sm" Text="{Binding ErrorText}" TextWrapping="Wrap"/>
             </Border>
             <Border Classes="callout" IsVisible="{Binding HasResult}" Margin="0,0,0,12">
-                <TextBlock Classes="body-sm" Text="{Binding ResultText}" TextWrapping="Wrap"/>
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="body-sm" Text="{Binding ResultText}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Classes="secondary small" Content="Back up now" Command="{Binding OpenBackupCommand}"
+                            IsVisible="{Binding ShowBackupLink}"
+                            ToolTip.Tip="Open Backup to copy the new tracks to your backup drive"/>
+                </Grid>
             </Border>
         </StackPanel>
 
@@ -101,6 +110,37 @@
             </Border>
             <TextBlock Grid.Column="1" Classes="caption mono" Text="{Binding DecisionsSummary}"
                        HorizontalAlignment="Right" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+        </Grid>
+
+        <!-- Where added files go, the space they need, and bulk actions for the shown lane -->
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,8" IsVisible="{Binding IsReviewing}">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Classes="caption" Text="{Binding DestinationText}" TextTrimming="CharacterEllipsis"
+                           ToolTip.Tip="{Binding DestinationText}" VerticalAlignment="Center"/>
+                <TextBlock Classes="caption mono" Text="{Binding SpaceText}" VerticalAlignment="Center"
+                           IsVisible="{Binding !HasSpaceProblem}"/>
+                <Border Classes="fact warning" IsVisible="{Binding HasSpaceProblem}" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding SpaceText}"/>
+                </Border>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                <Button Classes="secondary small" Content="{Binding RetryFailedText}" Command="{Binding RetryFailedCommand}"
+                        IsVisible="{Binding HasFailed}"
+                        ToolTip.Tip="Check failed files again, or apply them again if the apply step failed"/>
+                <Button Classes="secondary small" Content="{Binding SetShownText}"
+                        ToolTip.Tip="Change the action of every file in the lane shown below">
+                    <Button.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                            <MenuItem Header="Add to library" Command="{Binding SetShownKeepCommand}"/>
+                            <MenuItem Header="Leave on drive" Command="{Binding SetShownSkipCommand}"/>
+                            <MenuItem Header="Find a better copy" Command="{Binding SetShownUpgradeCommand}"
+                                      ToolTip.Tip="Files without artist and title can't be searched and keep their action"/>
+                            <MenuItem Header="Replace my copy" Command="{Binding SetShownReplaceCommand}"
+                                      ToolTip.Tip="Only files matched to a track in your library"/>
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+            </StackPanel>
         </Grid>
 
         <!-- Column captions -->
@@ -139,7 +179,7 @@
                 <TextBlock Classes="caption" Text="Pick another lane above to see its files."/>
             </StackPanel>
 
-            <ListBox IsVisible="{Binding HasRows}" ItemsSource="{Binding Rows}"
+            <ListBox Classes="intake-list" IsVisible="{Binding HasRows}" ItemsSource="{Binding Rows}"
                      Background="Transparent" SelectionMode="Single"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                 <ListBox.ItemsPanel>
@@ -166,6 +206,7 @@
                                            TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ReasonText}" Margin="0,0,8,0"/>
                                 <ComboBox Grid.Column="5" ItemsSource="{Binding ActionOptions}" SelectedItem="{Binding SelectedAction}"
                                           IsVisible="{Binding CanChoose}" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                                          MinHeight="28" Height="32" Padding="8,0" FontSize="{StaticResource TextSizeBodySm}"
                                           ToolTip.Tip="What Apply does with this file">
                                     <ComboBox.ItemTemplate>
                                         <DataTemplate x:DataType="vmIntake:IntakeActionOption">
