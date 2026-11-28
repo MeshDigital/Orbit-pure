@@ -321,6 +321,8 @@ public sealed class VaultServiceTests : IDisposable
 
         Assert.False(VaultService.ResolveLocalRoot(root, "this", null).Usable);  // its drive isn't here
         Assert.False(VaultService.ResolveLocalRoot(root, "other-pc", null).Usable); // nothing recorded for this computer
+        root.LocalPaths["this"] = Path.Combine(_root, "DeletedMusic"); // the folder is gone, the drive isn't
+        Assert.True(VaultService.ResolveLocalRoot(root, "this", null).Usable);
         var chosen = VaultService.ResolveLocalRoot(root, "this", new System.Collections.Generic.Dictionary<string, string> { ["r"] = _music });
         Assert.True(chosen.Usable);
         Assert.Equal(_music, chosen.Path);

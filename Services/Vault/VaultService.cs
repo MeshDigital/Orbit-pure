@@ -315,8 +315,10 @@ public sealed class VaultService
 
     /// <summary>
     /// Where a root lives on this device: a folder chosen for it now, else the folder this device
-    /// recorded for it. Usable when it's an absolute path for this OS whose drive or volume is there
-    /// (a Windows "D:\Music" on a Mac, or a drive letter that's gone, is not).
+    /// recorded for it. Usable when it's an absolute path for this OS and the folder, or the folder that
+    /// holds it, exists: a deleted Music folder can be recreated, but a Windows "D:\Music" on a Mac, a
+    /// drive letter that's gone, or an unplugged /Volumes/Drive is not (on macOS/Linux every path's
+    /// "volume" is "/", so checking the volume alone would accept a drive that isn't mounted).
     /// </summary>
     internal static (string? Path, bool Usable) ResolveLocalRoot(VaultRoot root, string deviceId, IReadOnlyDictionary<string, string>? remap)
     {
@@ -324,8 +326,9 @@ public sealed class VaultService
             ? chosen
             : root.LocalPaths.TryGetValue(deviceId, out var mine) ? mine : null;
         if (string.IsNullOrWhiteSpace(path) || !System.IO.Path.IsPathFullyQualified(path)) return (path, false);
-        var volume = System.IO.Path.GetPathRoot(path);
-        return (path, !string.IsNullOrEmpty(volume) && Directory.Exists(volume));
+        var trimmed = System.IO.Path.TrimEndingDirectorySeparator(path);
+        var parent = System.IO.Path.GetDirectoryName(trimmed);
+        return (path, Directory.Exists(trimmed) || (!string.IsNullOrEmpty(parent) && Directory.Exists(parent)));
     }
 
     /// <summary>
