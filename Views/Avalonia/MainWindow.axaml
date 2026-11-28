@@ -50,6 +50,8 @@
         <KeyBinding Gesture="F12" Command="{Binding TogglePerformanceOverlayCommand}"/>
         <!-- Also reachable while the top bar is hidden (F11) or disabled by the import sheet -->
         <KeyBinding Gesture="Ctrl+Shift+F" Command="{Binding SendFeedbackCommand}"/>
+        <KeyBinding Gesture="Alt+Left" Command="{Binding GoBackCommand}"/>
+        <KeyBinding Gesture="Alt+Right" Command="{Binding GoForwardCommand}"/>
     </Window.KeyBindings>
 
     <Window.Styles>
@@ -171,6 +173,38 @@
                             ToolTip.Tip="Toggle navigation (Ctrl+N)">
                         <PathIcon Data="{StaticResource icon_menu}"/>
                     </Button>
+
+                    <!-- Browser-style page history: click = one step, right-click = recent pages. -->
+                    <StackPanel Orientation="Horizontal" Spacing="0" VerticalAlignment="Center">
+                        <Button x:Name="NavBackButton" Classes="icon small" Command="{Binding GoBackCommand}"
+                                ToolTip.Tip="{Binding BackTooltip}">
+                            <PathIcon Data="{StaticResource icon_chevron_left}"/>
+                            <Button.ContextFlyout>
+                                <MenuFlyout ItemsSource="{Binding BackItems}">
+                                    <MenuFlyout.ItemContainerTheme>
+                                        <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:PageHistoryItem">
+                                            <Setter Property="Header" Value="{Binding Label}"/>
+                                            <Setter Property="Command" Value="{Binding Command}"/>
+                                        </ControlTheme>
+                                    </MenuFlyout.ItemContainerTheme>
+                                </MenuFlyout>
+                            </Button.ContextFlyout>
+                        </Button>
+                        <Button x:Name="NavForwardButton" Classes="icon small" Command="{Binding GoForwardCommand}"
+                                ToolTip.Tip="{Binding ForwardTooltip}">
+                            <PathIcon Data="{StaticResource icon_chevron_right}"/>
+                            <Button.ContextFlyout>
+                                <MenuFlyout ItemsSource="{Binding ForwardItems}">
+                                    <MenuFlyout.ItemContainerTheme>
+                                        <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:PageHistoryItem">
+                                            <Setter Property="Header" Value="{Binding Label}"/>
+                                            <Setter Property="Command" Value="{Binding Command}"/>
+                                        </ControlTheme>
+                                    </MenuFlyout.ItemContainerTheme>
+                                </MenuFlyout>
+                            </Button.ContextFlyout>
+                        </Button>
+                    </StackPanel>
 
                     <!-- Connection status dots: Soulseek, Spotify, share health -->
                     <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">

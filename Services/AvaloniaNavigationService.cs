@@ -20,6 +20,28 @@ public interface INavigationService
     void NavigateTo(string pageKey);
     void NavigateTo(PageType pageKey); // Added Overload
     void GoBack();
+
+    /// <summary>Re-opens the page left with <see cref="GoBack"/> (browser-style forward).</summary>
+    void GoForward() { }
+
+    /// <summary>Goes back <paramref name="steps"/> pages at once (the recent-pages menu).</summary>
+    void GoBack(int steps) { for (int i = 0; i < steps; i++) GoBack(); }
+
+    /// <summary>Goes forward <paramref name="steps"/> pages at once.</summary>
+    void GoForward(int steps) { for (int i = 0; i < steps; i++) GoForward(); }
+
+    bool CanGoBack => false;
+    bool CanGoForward => false;
+
+    /// <summary>Pages Back would return to, most recent first.</summary>
+    IReadOnlyList<object> BackHistory => Array.Empty<object>();
+
+    /// <summary>Pages Forward would re-open, nearest first.</summary>
+    IReadOnlyList<object> ForwardHistory => Array.Empty<object>();
+
+    /// <summary>Raised whenever the back or forward history changes.</summary>
+    event EventHandler? HistoryChanged { add { } remove { } }
+
     object? CurrentPage { get; }
     event EventHandler<UserControl>? Navigated;
 
@@ -36,7 +58,11 @@ public class NavigationService : INavigationService
     private readonly IServiceProvider _serviceProvider;
     private readonly PerformanceTracker _perfTracker;
     private readonly Dictionary<string, Type> _pages = new();
-    private readonly Stack<object?> _pageHistory = new();
+    /// <summary>Back history, oldest first (the end is the page Back returns to).</summary>
+    private readonly List<object> _back = new();
+    /// <summary>Forward history, farthest first (the end is the page Forward re-opens).</summary>
+    private readonly List<object> _forward = new();
+    internal const int MaxHistory = 30;
     private object? _currentPage;
 
     // Phase 1A: ViewCache pattern - prevents state loss during navigation
@@ -90,10 +116,7 @@ public class NavigationService : INavigationService
 
             // Save current page in history (if exists). Re-navigating to the page already shown
             // (e.g. the import preview's Retry) must not push it, or Back/Cancel lands on itself.
-            if (_currentPage != null && _currentPage.GetType() != pageType)
-            {
-                _pageHistory.Push(_currentPage);
-            }
+            bool leavingPage = _currentPage != null && _currentPage.GetType() != pageType;
 
             // Phase 1A: Check view cache first
             if (!_viewCache.TryGetValue(pageType, out var page))
@@ -121,6 +144,13 @@ public class NavigationService : INavigationService
 
             if (page != null)
             {
+                // A new visit starts a new branch: Forward only makes sense right after Back.
+                if (leavingPage)
+                {
+                    PushBounded(_back, _currentPage!);
+                    _forward.Clear();
+                    HistoryChanged?.Invoke(this, EventArgs.Empty);
+                }
                 _currentPage = page;
                 OnPageChanged();
                 Navigated?.Invoke(this, page);
@@ -136,18 +166,49 @@ public class NavigationService : INavigationService
         }
     }
 
-    public void GoBack()
+    public bool CanGoBack => _back.Count > 0;
+    public bool CanGoForward => _forward.Count > 0;
+    public IReadOnlyList<object> BackHistory => Reversed(_back);
+    public IReadOnlyList<object> ForwardHistory => Reversed(_forward);
+    public event EventHandler? HistoryChanged;
+
+    public void GoBack() => GoBack(1);
+    public void GoForward() => GoForward(1);
+
+    public void GoBack(int steps) => Step(_back, _forward, steps);
+    public void GoForward(int steps) => Step(_forward, _back, steps);
+
+    /// <summary>Moves <paramref name="steps"/> pages along <paramref name="from"/>, pushing every page
+    /// passed (and the current one) onto <paramref name="to"/>, so the opposite direction retraces it.</summary>
+    private void Step(List<object> from, List<object> to, int steps)
     {
-        if (_pageHistory.Count > 0)
+        if (steps <= 0 || from.Count == 0) return;
+        steps = Math.Min(steps, from.Count);
+        object? target = null;
+        for (int i = 0; i < steps; i++)
         {
-            var previousPage = _pageHistory.Pop();
-            _currentPage = previousPage;
-            OnPageChanged();
-            if (previousPage is UserControl control)
-            {
-                Navigated?.Invoke(this, control);
-            }
+            if (_currentPage != null) PushBounded(to, _currentPage);
+            target = from[^1];
+            from.RemoveAt(from.Count - 1);
+            _currentPage = target;
         }
+        HistoryChanged?.Invoke(this, EventArgs.Empty);
+        OnPageChanged();
+        if (target is UserControl control)
+            Navigated?.Invoke(this, control);
+    }
+
+    private static void PushBounded(List<object> list, object page)
+    {
+        list.Add(page);
+        if (list.Count > MaxHistory) list.RemoveAt(0);
+    }
+
+    private static IReadOnlyList<object> Reversed(List<object> list)
+    {
+        var copy = new List<object>(list);
+        copy.Reverse();
+        return copy;
     }
 
     private void OnPageChanged()
