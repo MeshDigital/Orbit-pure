@@ -16,6 +16,7 @@ using SLSKDONET.Data.Entities;
 using SLSKDONET.Engine.Cueing;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
+using SLSKDONET.Services.AudioAnalysis;
 
 namespace SLSKDONET.ViewModels;
 
@@ -1156,12 +1157,20 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         if (outroStart != null) parts.Add((parts.Count == 0 ? "Outro from " : "outro from ") + SectionMarkers.Describe(outroStart.Timestamp, Bpm, GridOffset));
         SectionSummary = string.Join(" · ", parts);
 
+        // Suppress suggestions whenever the track already has a cue Auto-Mix uses for that
+        // boundary: TrackMixReadinessEvaluator defines the entry/exit cue roles, and
+        // TransitionPlanner.ComputeSections also uses Drop 1 directly as the intro end.
+        bool hasMixIn = introEnd != null || Cues.Any(c =>
+            !c.IsLoop && (TrackMixReadinessEvaluator.IsEntryCue(OrbitCue.TypeFromRole(c.Role)) || c.Role == CueRole.Drop));
+        bool hasMixOut = outroStart != null || Cues.Any(c =>
+            !c.IsLoop && TrackMixReadinessEvaluator.IsExitCue(OrbitCue.TypeFromRole(c.Role)));
+
         SectionSuggestion suggestion = default;
-        if (TrackHash != null && (introEnd == null || outroStart == null))
+        if (TrackHash != null && (!hasMixIn || !hasMixOut))
         {
             var all = SectionMarkers.Suggest(_structurePhrases, Cues, Bpm, GridOffset, Duration);
-            double? ie = introEnd == null ? all.IntroEnd : null;
-            double? os = outroStart == null ? all.OutroStart : null;
+            double? ie = !hasMixIn ? all.IntroEnd : null;
+            double? os = !hasMixOut ? all.OutroStart : null;
             // A suggestion must still fit around the marker that is set.
             if (ie is { } a && outroStart != null && a >= outroStart.Timestamp) ie = null;
             if (os is { } b && introEnd != null && b <= introEnd.Timestamp) os = null;
@@ -1179,7 +1188,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         var hint = new List<string>();
         if (suggestion.IntroEnd is { } si) hint.Add($"intro ends {SectionMarkers.Describe(si, Bpm, GridOffset)} ({suggestion.IntroEndReason})");
         if (suggestion.OutroStart is { } so) hint.Add($"outro from {SectionMarkers.Describe(so, Bpm, GridOffset)} ({suggestion.OutroStartReason})");
-        SectionSuggestionText = hint.Count == 0 ? "" : "Suggested: " + string.Join(" · ", hint);
+        SectionSuggestionText = hint.Count == 0 ? "" : "Optional: " + string.Join(" · ", hint);
     }
 
     /// <summary>Section markers land on the bar (or the coarser snap resolution) when Snap is on.</summary>
