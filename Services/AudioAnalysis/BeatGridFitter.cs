@@ -428,41 +428,43 @@ public static class BeatGridFitter
         return mean > 0 ? 60.0 / mean : 0;
     }
 
-    /// <summary>Sub-bass structure events used to decide the downbeat (see <see cref="EstimateBarPhase"/>).</summary>
-    public sealed record StructuralEvents(IReadOnlyList<double> BassReturns, IReadOnlyList<double> BassDropouts);
+    /// <summary>Sub-bass and structural-stripping events used to decide the downbeat (see <see cref="EstimateBarPhase"/>).</summary>
+    public sealed record StructuralEvents(
+        IReadOnlyList<double> BassReturns,
+        IReadOnlyList<double> BassDropouts,
+        IReadOnlyList<double>? StrippingReturns = null);
 
     /// <summary>
-    /// Dropout timestamps land one beat after the bar line they belong to (the detector needs the
-    /// bass to have been gone for a moment) — measured with Tests/CueBenchmark: unshifted they voted
-    /// "+3 beats" far more than any other phase; shifted back one beat they agree with the returns.
+    /// <see cref="SLSKDONET.Engine.Analysis.SubBassDropoutEngine.DetectDropoutEvents"/> interpolates
+    /// return crossings as <c>(i - 1 + frac) * 0.25s</c>, which places the timestamp one 250 ms
+    /// window early (≈ 0.5–0.7 beats early at 125–174 BPM). Measured on 120 on-beat tracks against
+    /// Rekordbox's beat grid (CF3 #605): unshifted returns landed on Bar 1 only 30.4% of the time
+    /// (48.9% at -1 beat); shifted by +0.25 s, on-beat count jumps 184 → 307 and Bar 1 agreement
+    /// jumps to 62.9% (58.5% Breakbeat, 67.1% FourOnTheFloor).
     /// </summary>
-    private const double DropoutLagBeats = 1.0;
+    private const double ReturnWindowCompensationSeconds = 0.25;
 
     /// <summary>
-    /// Picks the bar phase (which of 4 beats is the downbeat) that best lines up the sub-bass
-    /// returns (the bass coming back in at a drop) and dropouts (going out at a breakdown) with bar
+    /// Picks the bar phase (which of 4 beats is the downbeat) that best lines up arrangement
+    /// transitions (sub-bass returns, structural-stripping returns, and sub-bass dropouts) with bar
     /// lines. Arrangement changes land on the "1" of a bar, which a generic beat tracker's first tick
-    /// or a kick-energy test over the first few ticks can't tell apart (measured: bar-line agreement
-    /// with a DJ's Rekordbox cues 23% → 55%). Novelty/structural-stripping events were tried too and
-    /// didn't help. Events are weighted by how close they sit to a beat at all, so an imprecise one
-    /// can't outvote precise ones. Returns null when there are too few events to decide.
+    /// or a kick-energy test over the first few ticks can't tell apart. Events are weighted by source
+    /// reliability (measured on CF3 #605: compensated bass returns 62.9% Bar 1, stripping returns
+    /// 50.5% Bar 1, unshifted bass dropouts 35.3% Bar 1) and by how close they sit to a beat.
+    /// Returns null when there are too few events to decide.
     /// </summary>
     public static int? EstimateBarPhase(Fit fit, StructuralEvents events)
     {
-        var positions = events.BassReturns
-            .Concat(events.BassDropouts.Select(t => t - DropoutLagBeats * fit.PeriodSeconds))
-            .Where(t => t > fit.PhaseSeconds)
-            .Select(t => (t - fit.PhaseSeconds) / fit.PeriodSeconds)
-            .ToList();
-        if (positions.Count < 3) return null;
+        var weightedPositions = EnumerateBarPhaseEvents(events, fit.PhaseSeconds, fit.PeriodSeconds);
+        if (weightedPositions.Count < 3) return null;
 
         var scores = new double[4];
-        foreach (var pos in positions)
+        foreach (var (pos, sourceWeight) in weightedPositions)
         {
             long nearestBeat = (long)Math.Round(pos);
             double beatDistance = Math.Abs(pos - nearestBeat);
             if (beatDistance > 0.35) continue; // not on a beat at all — no bar information
-            double weight = 1.0 - beatDistance / 0.35;
+            double weight = sourceWeight * (1.0 - beatDistance / 0.35);
             scores[(int)(((nearestBeat % 4) + 4) % 4)] += weight;
         }
 
@@ -475,28 +477,23 @@ public static class BeatGridFitter
 
     /// <summary>
     /// How well the stored grid's bar phase is supported by the music (issue #221): the weighted share
-    /// of sub-bass returns / dropouts (arrangement changes land on the "1" of a bar) that fall on a
-    /// bar line of the grid anchored at <paramref name="downbeatSeconds"/>, 0–1. Uses the same event
-    /// weighting as <see cref="EstimateBarPhase"/>. Null when there are too few on-beat events to say —
-    /// bar phase is ORBIT's weakest grid decision (right ~55% of the time on the cue benchmark), so
-    /// this is the part of the confidence that actually separates good grids from bad ones.
+    /// of arrangement events (sub-bass returns, stripping returns, dropouts) that fall on a bar line
+    /// of the grid anchored at <paramref name="downbeatSeconds"/>, 0–1. Uses the same event weighting
+    /// as <see cref="EstimateBarPhase"/>. Null when there are too few on-beat events to say.
     /// </summary>
     public static double? BarPhaseAgreement(double periodSeconds, double downbeatSeconds, StructuralEvents events)
     {
         if (periodSeconds <= 0) return null;
-        var positions = events.BassReturns
-            .Concat(events.BassDropouts.Select(t => t - DropoutLagBeats * periodSeconds))
-            .Where(t => t > 0)
-            .Select(t => (t - downbeatSeconds) / periodSeconds);
+        var weightedPositions = EnumerateBarPhaseEvents(events, downbeatSeconds, periodSeconds, minTimestamp: 0);
 
         double onBar = 0, total = 0;
         int counted = 0;
-        foreach (var pos in positions)
+        foreach (var (pos, sourceWeight) in weightedPositions)
         {
             long nearestBeat = (long)Math.Round(pos);
             double beatDistance = Math.Abs(pos - nearestBeat);
             if (beatDistance > 0.35) continue;
-            double weight = 1.0 - beatDistance / 0.35;
+            double weight = sourceWeight * (1.0 - beatDistance / 0.35);
             total += weight;
             counted++;
             if (((nearestBeat % 4) + 4) % 4 == 0) onBar += weight;
@@ -504,11 +501,35 @@ public static class BeatGridFitter
         return counted >= 3 && total > 0 ? onBar / total : null;
     }
 
+    private static List<(double BeatPosition, double Weight)> EnumerateBarPhaseEvents(
+        StructuralEvents events, double anchorSeconds, double periodSeconds, double? minTimestamp = null)
+    {
+        double floor = minTimestamp ?? anchorSeconds;
+        var list = new List<(double, double)>(
+            events.BassReturns.Count + events.BassDropouts.Count + (events.StrippingReturns?.Count ?? 0));
+
+        foreach (var t in events.BassReturns)
+        {
+            double adjusted = t + ReturnWindowCompensationSeconds;
+            if (adjusted > floor) list.Add(((adjusted - anchorSeconds) / periodSeconds, 2.0));
+        }
+        if (events.StrippingReturns != null)
+        {
+            foreach (var t in events.StrippingReturns)
+                if (t > floor) list.Add(((t - anchorSeconds) / periodSeconds, 1.5));
+        }
+        foreach (var t in events.BassDropouts)
+        {
+            if (t > floor) list.Add(((t - anchorSeconds) / periodSeconds, 1.0));
+        }
+        return list;
+    }
+
     /// <summary>Structural events already stored on <paramref name="features"/> (see <see cref="EstimateBarPhase"/>).</summary>
     public static StructuralEvents StructuralEventsFrom(AudioFeaturesEntity features)
     {
         var a = SLSKDONET.Engine.Analysis.AnalysisPipelineResultBuilder.Build(features);
-        return new StructuralEvents(a.SubBassReturnTimestamps, a.SubBassDropoutTimestamps);
+        return new StructuralEvents(a.SubBassReturnTimestamps, a.SubBassDropoutTimestamps, a.StructuralStrippingReturnTimestamps);
     }
 
     /// <summary>Parses stored <see cref="AudioFeaturesEntity.BeatGridJson"/>; empty on any failure.</summary>

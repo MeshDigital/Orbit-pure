@@ -71,15 +71,18 @@ public class BeatGridFitterTests
     }
 
     [Fact]
-    public void BarPhase_FollowsBassReturns_AndLagCorrectedDropouts()
+    public void BarPhase_FollowsCompensatedBassReturns_UnshiftedDropouts_AndStrippingReturns()
     {
         var fit = new BeatGridFitter.Fit(PeriodSeconds: 0.5, PhaseSeconds: 0.25, Bpm: 120, TicksUsed: 100, ResidualRmsBeats: 0.01);
         double Beat(int k) => 0.25 + k * 0.5;
 
-        // Real bar lines on beats 2, 6, 10, ... : returns land on them; dropouts one beat later.
+        // Real bar lines on beats 2, 6, 10, ... :
+        // SubBassDropoutEngine reports returns 0.25 s early (one 250 ms window); dropouts and
+        // structural-stripping returns land directly on the bar line.
         var events = new BeatGridFitter.StructuralEvents(
-            BassReturns: new[] { Beat(34), Beat(66) },
-            BassDropouts: new[] { Beat(51), Beat(99) });
+            BassReturns: new[] { Beat(34) - 0.25, Beat(66) - 0.25 },
+            BassDropouts: new[] { Beat(50), Beat(98) },
+            StrippingReturns: new[] { Beat(82) });
 
         Assert.Equal(2, BeatGridFitter.EstimateBarPhase(fit, events));
     }

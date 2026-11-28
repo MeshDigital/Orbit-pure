@@ -55,7 +55,8 @@ public class GridConfidenceTests
     public void BarPhaseAgreement_EventsOnBarLines_IsHigh_AndOnBeatThree_IsLow()
     {
         const double period = 0.5, downbeat = 1.0; // 120 BPM, bars every 2 s from 1.0 s
-        var onBars = Enumerable.Range(1, 8).Select(k => downbeat + k * 4 * period).ToList();
+        // SubBassDropoutEngine reports bass returns 0.25 s early (one 250 ms window).
+        var onBars = Enumerable.Range(1, 8).Select(k => downbeat + k * 4 * period - 0.25).ToList();
         var events = new BeatGridFitter.StructuralEvents(onBars, System.Array.Empty<double>());
 
         Assert.Equal(1.0, BeatGridFitter.BarPhaseAgreement(period, downbeat, events)!.Value, 3);
