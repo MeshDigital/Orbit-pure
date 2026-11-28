@@ -368,24 +368,38 @@ public sealed class IntakeScanService
     /// <summary>Audio files to check, and how many other files were skipped.</summary>
     internal static (List<(string Path, long Size)> Files, int Junk) ListAudioFiles(string root, CancellationToken ct)
     {
-        var options = new EnumerationOptions
+        // Hidden / system FOLDERS are never entered (Recycle Bin, .Trashes, .Spotlight-V100, System
+        // Volume Information). Hidden FILES are looked at and counted as junk, so the count is the same
+        // on every OS: macOS and Linux treat every dot-file (the "._" forks a Mac leaves on a drive) as
+        // hidden, and skipping them by attribute made them vanish there but count as junk on Windows.
+        var folderOptions = new EnumerationOptions
         {
-            RecurseSubdirectories = true,
             IgnoreInaccessible = true,
             ReturnSpecialDirectories = false,
             AttributesToSkip = FileAttributes.System | FileAttributes.Hidden,
         };
+        var fileOptions = new EnumerationOptions { IgnoreInaccessible = true, AttributesToSkip = 0 };
         var files = new List<(string, long)>();
         int junk = 0;
-        foreach (var info in new DirectoryInfo(root).EnumerateFiles("*", options))
+        var folders = new Stack<DirectoryInfo>();
+        folders.Push(new DirectoryInfo(root));
+        while (folders.Count > 0)
         {
             ct.ThrowIfCancellationRequested();
-            if (IsJunk(info.Name) || !AudioFormats.ImportableExtensions.Contains(info.Extension.ToLowerInvariant()))
+            var folder = folders.Pop();
+            foreach (var info in folder.EnumerateFiles("*", fileOptions))
             {
-                junk++;
-                continue;
+                ct.ThrowIfCancellationRequested();
+                bool hidden = (info.Attributes & (FileAttributes.Hidden | FileAttributes.System)) != 0;
+                if (hidden || IsJunk(info.Name) || !AudioFormats.ImportableExtensions.Contains(info.Extension.ToLowerInvariant()))
+                {
+                    junk++;
+                    continue;
+                }
+                files.Add((info.FullName, info.Length));
             }
-            files.Add((info.FullName, info.Length));
+            foreach (var sub in folder.EnumerateDirectories("*", folderOptions))
+                folders.Push(sub);
         }
         files.Sort((a, b) => string.Compare(a.Item1, b.Item1, StringComparison.OrdinalIgnoreCase));
         return (files, junk);

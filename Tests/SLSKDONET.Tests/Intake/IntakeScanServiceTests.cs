@@ -60,6 +60,19 @@ public sealed class IntakeScanServiceTests : IDisposable
     }
 
     [Fact]
+    public void ListAudioFiles_NeverEntersAHiddenTrashFolder()
+    {
+        File("keep.flac");
+        var trash = Directory.CreateDirectory(Path.Combine(_source, ".Trashes"));
+        if (OperatingSystem.IsWindows()) trash.Attributes |= FileAttributes.Hidden; // dot-folders are hidden on macOS/Linux already
+        System.IO.File.WriteAllText(Path.Combine(trash.FullName, "deleted.flac"), "x");
+
+        var (files, _) = IntakeScanService.ListAudioFiles(_source, CancellationToken.None);
+
+        Assert.Equal(new[] { "keep.flac" }, files.Select(f => Path.GetFileName(f.Path)));
+    }
+
+    [Fact]
     public async Task Scan_PutsEachFileInItsLane_AndNeverTouchesTheSource()
     {
         var good = File("good.flac", "New Artist", "New Track");
