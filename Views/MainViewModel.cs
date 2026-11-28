@@ -1920,13 +1920,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void ShowToast(SLSKDONET.Services.ToastRequestedEvent evt, string? openPage = null)
     {
         var toast = new ToastNotificationViewModel(evt.Title, evt.Message, evt.Type, openPage, evt.OpenUrl);
-        Toasts.Add(toast);
-
-        // Cap how many stack up on screen at once — oldest drops off first.
-        while (Toasts.Count > MaxVisibleToasts)
-        {
-            Toasts.RemoveAt(0);
-        }
+        // Same title + type replaces the visible toast (progress updates); oldest drops off past the cap.
+        ToastStack.Show(Toasts, toast, MaxVisibleToasts);
 
         var lifetime = evt.Duration ?? TimeSpan.FromSeconds(4);
         _ = Task.Delay(lifetime).ContinueWith(_ =>

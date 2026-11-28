@@ -41,3 +41,27 @@ public class ToastNotificationViewModel
         OpenUrl = openUrl;
     }
 }
+
+/// <summary>The on-screen toast stack's rules, kept out of MainViewModel so they can be tested.</summary>
+public static class ToastStack
+{
+    /// <summary>
+    /// Shows <paramref name="toast"/>. A visible toast with the same title and type is replaced in
+    /// place instead of stacking a new one, so progress reports ("Exporting… [12/200]") update one
+    /// toast rather than pushing every other message off screen. Oldest drop off past
+    /// <paramref name="maxVisible"/>.
+    /// </summary>
+    public static void Show(System.Collections.Generic.IList<ToastNotificationViewModel> toasts, ToastNotificationViewModel toast, int maxVisible)
+    {
+        for (int i = 0; i < toasts.Count; i++)
+        {
+            if (toasts[i].Type == toast.Type && string.Equals(toasts[i].Title, toast.Title, StringComparison.Ordinal))
+            {
+                toasts[i] = toast;
+                return;
+            }
+        }
+        toasts.Add(toast);
+        while (toasts.Count > maxVisible) toasts.RemoveAt(0);
+    }
+}

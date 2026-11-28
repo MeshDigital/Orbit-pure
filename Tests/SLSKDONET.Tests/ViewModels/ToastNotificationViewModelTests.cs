@@ -41,4 +41,31 @@ public class ToastNotificationViewModelTests
 
         Assert.False(toast.IsClickable);
     }
+
+    [Fact]
+    public void ToastStack_ProgressWithTheSameTitle_UpdatesOneToast_InsteadOfFloodingTheStack()
+    {
+        var toasts = new System.Collections.Generic.List<ToastNotificationViewModel>
+        {
+            new("Library scan finished", "Done.", NotificationType.Success),
+        };
+
+        for (int i = 1; i <= 200; i++)
+            ToastStack.Show(toasts, new ToastNotificationViewModel("Exporting…", $"[{i}/200] track{i}.flac", NotificationType.Information), 4);
+
+        Assert.Equal(2, toasts.Count);
+        Assert.Equal("Library scan finished", toasts[0].Title); // the earlier message is not pushed off
+        Assert.Equal("[200/200] track200.flac", toasts[1].Message);
+    }
+
+    [Fact]
+    public void ToastStack_DifferentTitlesOrTypes_Stack_AndTheOldestDropsOffPastTheCap()
+    {
+        var toasts = new System.Collections.Generic.List<ToastNotificationViewModel>();
+        ToastStack.Show(toasts, new("Export", "a", NotificationType.Information), 2);
+        ToastStack.Show(toasts, new("Export", "b", NotificationType.Error), 2);
+        ToastStack.Show(toasts, new("Saved", "c", NotificationType.Success), 2);
+
+        Assert.Equal(new[] { "b", "c" }, toasts.ConvertAll(t => t.Message));
+    }
 }
