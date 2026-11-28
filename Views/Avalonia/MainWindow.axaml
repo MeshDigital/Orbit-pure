@@ -486,6 +486,15 @@
                                         <TextBlock Text="Intake" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
+
+                                <Button x:Name="NavVault" Classes="nav" Command="{Binding NavigateVaultCommand}"
+                                        ToolTip.Tip="Backup — Back up your music and library to a drive you own"
+                                        Classes.selected="{Binding IsVaultOverlayActive}">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <PathIcon Data="{StaticResource icon_history}"/>
+                                        <TextBlock Text="Backup" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
                             </StackPanel>
                         </StackPanel>
 

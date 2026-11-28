@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Renders ORBIT pages headless to PNG with sample data, so a page can be looked at without
+    launching the app or touching the user's library (it runs on a temp ORBIT_DB_PATH).
+    Not part of the app build (Tests\** is excluded from SLSKDONET.csproj) or the unit test run.
+    Usage: dotnet run -c Release (project Tests/UiSnapshot), then the output folder as the argument.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\SLSKDONET.csproj" />
+    <PackageReference Include="Avalonia.Headless" Version="11.2.2" />
+    <PackageReference Include="Avalonia.Skia" Version="11.2.2" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.0" />
+    <PackageReference Include="Moq" Version="4.20.70" />
+  </ItemGroup>
+
+</Project>

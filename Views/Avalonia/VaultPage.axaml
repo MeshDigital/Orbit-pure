@@ -1,0 +1,122 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vmVault="clr-namespace:SLSKDONET.ViewModels.Vault"
+             mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="760"
+             x:Class="SLSKDONET.Views.Avalonia.VaultPage"
+             x:DataType="vmVault:VaultViewModel"
+             x:CompileBindings="True"
+             Background="{StaticResource BrushBg1}"
+             Foreground="{StaticResource BrushText0}">
+
+    <!-- Backup / Vault phase 1 (#632). Layout contract (DOCS/UI_DESIGN_SYSTEM.md):
+         header (title + last backup left; Back up now right) → status callouts
+         → Vault card (location, contents, change) → Restore card (preview first, then act). -->
+
+    <Panel>
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="{StaticResource PaddingPage}" Spacing="16" MaxWidth="880" HorizontalAlignment="Left">
+
+            <!-- Header: title left, one primary action right -->
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Spacing="4">
+                    <TextBlock Classes="h1" Text="Backup"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Classes="subtitle" Text="{Binding LastBackupText}" VerticalAlignment="Center" IsVisible="{Binding HasVault}"/>
+                        <Border Classes="fact warning" IsVisible="{Binding IsBackupOverdue}" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding OverdueText}"/>
+                        </Border>
+                    </StackPanel>
+                    <TextBlock Classes="subtitle" IsVisible="{Binding HasNoVault}"
+                               Text="Back up your music, cues, grids and playlists to a drive you own."/>
+                </StackPanel>
+                <Button Grid.Column="1" Classes="primary" Content="Back up now" Command="{Binding BackupCommand}"
+                        IsVisible="{Binding HasVault}" VerticalAlignment="Top"
+                        ToolTip.Tip="Copy new and changed music plus a snapshot of your library database to the Vault, then check the copies."/>
+            </Grid>
+
+            <!-- Status -->
+            <Border Classes="callout info" IsVisible="{Binding IsBusy}">
+                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto">
+                    <TextBlock Classes="body-sm mono" Text="{Binding ProgressText}" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Classes="secondary small" Content="Pause" Command="{Binding PauseCommand}"
+                            ToolTip.Tip="Stop for now. Everything already copied is kept."/>
+                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Classes="caption mono" Text="{Binding CurrentFile}"
+                               TextTrimming="PrefixCharacterEllipsis" Margin="0,4,0,0"/>
+                    <ProgressBar Grid.Row="2" Grid.ColumnSpan="2" Margin="0,8,0,0" Minimum="0" Maximum="1" Value="{Binding Progress}"/>
+                </Grid>
+            </Border>
+            <Border Classes="callout error" IsVisible="{Binding HasError}">
+                <TextBlock Classes="body-sm" Text="{Binding ErrorText}" TextWrapping="Wrap"/>
+            </Border>
+            <Border Classes="callout" IsVisible="{Binding HasHealthyResult}">
+                <TextBlock Classes="body-sm" Text="{Binding ResultText}" TextWrapping="Wrap"/>
+            </Border>
+            <Border Classes="callout warning" IsVisible="{Binding HasWarningResult}">
+                <TextBlock Classes="body-sm" Text="{Binding ResultText}" TextWrapping="Wrap"/>
+            </Border>
+
+            <!-- Vault -->
+            <Border Classes="card" Padding="16" IsVisible="{Binding HasVault}">
+                <StackPanel Spacing="8">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Classes="h3" Text="Vault"/>
+                        <Button Grid.Column="1" Classes="secondary small" Content="Change…" Command="{Binding ChooseVaultCommand}"
+                                ToolTip.Tip="Back up to another drive or folder"/>
+                    </Grid>
+                    <TextBlock Classes="body-sm mono" Text="{Binding VaultPathText}" TextTrimming="PrefixCharacterEllipsis"
+                               ToolTip.Tip="{Binding VaultPathText}"/>
+                    <TextBlock Classes="caption mono" Text="{Binding VaultContentsText}" IsVisible="{Binding IsVaultConnected}"/>
+                    <Border Classes="fact warning" HorizontalAlignment="Left" IsVisible="{Binding IsVaultDisconnected}">
+                        <TextBlock Text="Drive not connected"/>
+                    </Border>
+                    <TextBlock Classes="caption mono" Text="{Binding EstimateText}" IsVisible="{Binding HasEstimate}"/>
+                    <Border Classes="fact warning" HorizontalAlignment="Left" IsVisible="{Binding EstimateTooBig}">
+                        <TextBlock Text="The drive is too small for this backup"/>
+                    </Border>
+                    <TextBlock Classes="caption" TextWrapping="Wrap" Margin="0,4,0,0"
+                               Text="Not backed up: ORBIT's settings and Soulseek login, and the stem and waveform caches (ORBIT rebuilds those)."/>
+                </StackPanel>
+            </Border>
+
+            <!-- Restore -->
+            <Border Classes="card" Padding="16" IsVisible="{Binding HasSnapshot}">
+                <StackPanel Spacing="8">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Classes="h3" Text="Restore"/>
+                        <Button Grid.Column="1" Classes="secondary small" Content="Check what a restore would do"
+                                Command="{Binding PlanRestoreCommand}"
+                                ToolTip.Tip="Reads the Vault and your library; changes nothing."/>
+                    </Grid>
+                    <TextBlock Classes="caption" TextWrapping="Wrap"
+                               Text="See the difference first. Copying back missing music never overwrites a file; restoring the library replaces it at the next start, after saving the current one."/>
+                    <TextBlock Classes="body-sm" Text="{Binding PlanText}" TextWrapping="Wrap" IsVisible="{Binding HasPlan}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasPlan}">
+                        <Button Classes="secondary" Content="Copy back missing music" Command="{Binding RestoreFilesCommand}"
+                                ToolTip.Tip="Copies files that are gone from this computer back to where they were."/>
+                        <Button Classes="danger" Content="Restore library at next start…" Command="{Binding RestoreDatabaseCommand}"
+                                ToolTip.Tip="Replaces your library database (tracks, cues, grids, playlists) with the Vault's snapshot when ORBIT next starts."/>
+                    </StackPanel>
+                    <Border Classes="callout warning" IsVisible="{Binding IsRestoreScheduled}">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Classes="body-sm" VerticalAlignment="Center" TextWrapping="Wrap"
+                                       Text="A library restore is staged. Restart ORBIT with the backup drive connected to apply it."/>
+                            <Button Grid.Column="1" Classes="secondary small" Content="Cancel restore" Command="{Binding CancelScheduledRestoreCommand}"/>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+
+    <!-- No Vault yet: centred on the page, like Intake's start -->
+    <StackPanel Classes="empty-state" IsVisible="{Binding HasNoVault}" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="560">
+        <PathIcon Data="{StaticResource icon_history}"/>
+        <TextBlock Classes="h3" Text="Choose a backup drive"/>
+        <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center"
+                   Text="ORBIT makes an &quot;ORBIT Vault&quot; folder on it: your music laid out by library folder, plus a snapshot of your library database with every cue, grid, tag and playlist. Plain files you can open without ORBIT. A backup never deletes anything in the Vault."/>
+        <Button Classes="primary" Content="Choose drive or folder…" Command="{Binding ChooseVaultCommand}" HorizontalAlignment="Center"/>
+    </StackPanel>
+    </Panel>
+</UserControl>

@@ -88,6 +88,11 @@ public partial class App
         MainViewModel? mainVm = null;
         using var initCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
 
+        // Vault (#632): a library restore staged on the Backup page is applied before anything
+        // opens the database. Never throws; the outcome is logged and shown on the Backup page.
+        if (SLSKDONET.Services.Vault.VaultPendingRestore.ApplyIfScheduled(SLSKDONET.Data.OrbitPaths.LibraryDbPath) is { } restore)
+            Serilog.Log.Warning("Vault restore at startup: {Message}", restore.Message);
+
         try
         {
             var databaseService = Services.GetRequiredService<DatabaseService>();
