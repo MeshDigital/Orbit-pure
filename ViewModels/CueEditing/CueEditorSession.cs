@@ -1030,9 +1030,12 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
     {
         if (TrackHash is null) return;
         PushSnapshot();
+        // Follow the Snap setting like every other placement. Forcing the nearest bar used to move
+        // the drop up to half a bar (0.7 s at 174 BPM) away from the cursor, onto the wrong side of
+        // the bass hit whenever the grid's bar phase was off.
         double bar = Bpm > 0 ? 240.0 / Bpm : 0;
-        double t = bar > 0 ? GridOffset + Math.Round((seconds - GridOffset) / bar) * bar : seconds;
-        t = Math.Clamp(t, 0, Duration);
+        double t = SnapTime(seconds);
+        bool offBar = bar > 0 && Math.Abs(t - (GridOffset + Math.Round((t - GridOffset) / bar) * bar)) > 0.02;
         int autoBefore = Cues.Count(c => c.Source == CueSource.Auto);
         bool hadTwoDropsBefore = Cues.Count(c => c.Role == CueRole.Drop && !c.IsLoop) >= 2;
         var list = DropCountdownCues.PlaceDrop(Cues, t, number, CountdownBars, Bpm, GridOffset, Duration, out var drop,
@@ -1058,7 +1061,8 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         string secondNote = autoSecondDrop != null
             ? $" · detected {autoSecondDrop.Name} at {CueForgeGrid.FormatTime(autoSecondDrop.Timestamp)}"
             : "";
-        Changed($"{drop.Name} at {CueForgeGrid.FormatTime(drop.Timestamp)}{secondNote}" + AutoClearedNote(cleared));
+        string offBarNote = offBar ? " · not on a bar line: press B here to line the grid up with this drop" : "";
+        Changed($"{drop.Name} at {CueForgeGrid.FormatTime(drop.Timestamp)}{secondNote}{offBarNote}" + AutoClearedNote(cleared));
         // While listening, keep playing; otherwise (when the host plays by ear) let the drop be heard.
         if (AuditionAfterEdits && !_audition.IsPlaying) AuditionAt(drop.Timestamp);
     }
