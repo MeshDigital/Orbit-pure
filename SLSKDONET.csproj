@@ -43,6 +43,7 @@
   <ItemGroup>
     <Compile Remove="External\**" />
     <InternalsVisibleTo Include="SLSKDONET.Tests" />
+    <InternalsVisibleTo Include="MixBenchmark" />
     <Compile Remove="Tests\**" />
     <Compile Remove="Companions\**" />
     <Compile Remove="Tools\**" />
