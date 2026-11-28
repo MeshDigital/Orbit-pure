@@ -709,25 +709,38 @@ public class CueForgeViewModelEditingTests
     }
 
     [Fact]
-    public async Task BarOneHere_MovesThePhaseByWholeBeats_AndSavesIt()
+    public async Task BarOneHere_AnchorsTheGridExactlyOnThePlayhead_AndSavesIt()
     {
         var (vm, library) = CreateWithGrid();
         await vm.LoadTrackAsync(Hash, "Emotional", "Flux Pavilion");
-        await vm.SeekPlayheadCommand.Execute(4.0);       // near beat 3 of bar 2 (4.0076)
+        await vm.SeekPlayheadCommand.Execute(4.0);       // the bass hit, 7.6 ms before the grid's beat at 4.0076
 
         await vm.SetDownbeatAtPlayheadCommand.Execute();
 
-        // Beat 3 becomes the 1; bar 1 moves to the in-phase downbeat nearest the analysed one
-        // (4.0076 − 1 bar = 2.4076), so it stays where the music starts.
-        Assert.Equal(2.4076, vm.GridOffset, 4);
-        Assert.Equal(2.4076, vm.Session.GridOffset, 4);
+        // The playhead itself becomes a bar line (not the nearest existing beat), and Bar 1 moves
+        // by whole bars to stay near where the analysis started the grid: 4.0 − 1 bar = 2.4.
+        Assert.Equal(2.4, vm.GridOffset, 4);
+        Assert.Equal(2.4, vm.Session.GridOffset, 4);
         Assert.True(vm.IsGridEdited);
-        Assert.Equal("Bar 2.1", CueForgeGrid.FormatBarBeat(4.0076, 150, vm.GridOffset));
-        library.Verify(l => l.UpdateAudioFeaturesAsync(Moq.It.Is<AudioFeaturesEntity>(f => Math.Abs(f.DownbeatOffsetSeconds - 2.4076) < 1e-4)));
+        Assert.Equal("Bar 2.1", CueForgeGrid.FormatBarBeat(4.0, 150, vm.GridOffset));
+        Assert.Contains("exactly at", vm.Session.StatusText);
+        library.Verify(l => l.UpdateAudioFeaturesAsync(Moq.It.Is<AudioFeaturesEntity>(f => Math.Abs(f.DownbeatOffsetSeconds - 2.4) < 1e-4)));
 
         await vm.ResetGridCommand.Execute();
         Assert.Equal(2.0076, vm.GridOffset, 4);
         Assert.False(vm.IsGridEdited);
+    }
+
+    [Fact]
+    public async Task PlaceCursor_PausesAndPutsThePlayheadExactlyThere()
+    {
+        var (vm, _) = CreateWithGrid();
+        await vm.LoadTrackAsync(Hash, "Emotional", "Flux Pavilion");
+
+        await vm.PlaceCursorCommand.Execute(61.234);
+
+        Assert.Equal(61.234, vm.CurrentPlayPosition, 3);
+        Assert.False(vm.IsPlaying);
     }
 
     [Fact]

@@ -939,6 +939,9 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> PreviousCueCommand { get; }
     public ReactiveCommand<Unit, Unit> NextCueCommand { get; }
     public ReactiveCommand<double, Unit> SeekPlayheadCommand { get; }
+
+    /// <summary>The bar ruler's precise cursor: pauses, then puts the playhead exactly there.</summary>
+    public ReactiveCommand<double, Unit> PlaceCursorCommand { get; }
     public ReactiveCommand<OrbitCue, Unit> AuditionCueCommand { get; }
 
     /// <summary>CF1 (#603): Auto cues lacking CUE-DETR ±1 beat agreement, sorted with Drops first.</summary>
@@ -1136,6 +1139,7 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
         NextCueCommand     = ReactiveCommand.Create(NavigateToNextCue, canAct);
         BackToMixTransitionCommand = ReactiveCommand.Create(ReturnToOrigin, this.WhenAnyValue(x => x.HasReturnPoint));
         SeekPlayheadCommand = ReactiveCommand.Create<double>(SetPlayhead);
+        PlaceCursorCommand = ReactiveCommand.Create<double>(PlaceCursor);
         AuditionCueCommand = ReactiveCommand.Create<OrbitCue>(AuditionCue);
         JumpToCheckCueCommand = ReactiveCommand.Create<OrbitCue>(cue =>
         {
@@ -2071,18 +2075,40 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
     }
 
     /// <summary>
-    /// The grid beat nearest the playhead becomes a downbeat: the grid's phase moves by whole beats,
-    /// its tempo and beat positions stay. Bar 1 stays where the analysis put it (where the music
-    /// starts, which the generator anchors the Intro cue on), moved by less than a bar to the new phase.
+    /// "Bar 1 here" (B): anchors the grid exactly on the playhead — put it on the bass hit of the drop,
+    /// the most reliable bar line in a dance track. The whole grid shifts (by less than half a beat) so
+    /// a beat lands exactly there, and that beat becomes the 1 of its bar; tempo and beat spacing stay.
+    /// Earlier this only picked which existing beat was the 1, so a grid a few ms off the kick stayed off.
     /// </summary>
     internal async Task SetDownbeatAtPlayheadAsync()
     {
-        if (GridBpm <= 0) return;
-        double beat = 60.0 / GridBpm, bar = beat * 4;
-        double nearestBeat = _downbeat + Math.Round((CurrentPlayPosition - _downbeat) / beat) * beat;
-        double barOne = nearestBeat + Math.Round((_analysedDownbeat - nearestBeat) / bar) * bar;
+        if (GridBpm <= 0 || TrackHash is not { } hash) return;
+        double anchor = Math.Clamp(CurrentPlayPosition, 0, TrackDuration);
+        double bar = 240.0 / GridBpm;
+        double beat = bar / 4;
+        double oldNearest = _downbeat + Math.Round((anchor - _downbeat) / beat) * beat;
+        double shiftMs = (anchor - oldNearest) * 1000;
+        string moved = Math.Abs(shiftMs) < 0.5 ? "" : $" (grid moved {Math.Abs(shiftMs):0} ms {(shiftMs < 0 ? "earlier" : "later")})";
+        string status = $"A bar now starts exactly at {CueForgeGrid.FormatTime(anchor)}{moved}. Re-run Auto-generate to re-place the auto cues.";
+
+        if (_gridEditService is not null)
+        {
+            var result = await EditGridAsync(hash, "Bar 1 here", g => g.AnchorBarAsync(hash, anchor, CancellationToken.None));
+            if (!result.Success)
+            {
+                Session.SetStatus(result.Reason ?? "Couldn't move the grid; nothing was changed.", isError: true);
+                return;
+            }
+            await ReloadGridFromStoreAsync(hash);
+            await _ui(() => { Session.UpdateGrid(_downbeat); Session.SetStatus(status); });
+            return;
+        }
+
+        // Legacy path (no grid service): only Bar 1 is stored, so put it exactly on the anchor,
+        // moved by whole bars to stay near where the analysis started the grid.
+        double barOne = anchor + Math.Round((_analysedDownbeat - anchor) / bar) * bar;
         if (barOne < 0) barOne += bar;
-        await ApplyGridAsync(barOne, $"The beat at {CueForgeGrid.FormatTime(nearestBeat)} is now the 1 of its bar. Re-run Auto-generate to re-place the auto cues.");
+        await ApplyGridAsync(barOne, status);
     }
 
     private async Task SlipGridByAsync(double delta)
@@ -2198,6 +2224,16 @@ public sealed partial class CueForgeViewModel : ReactiveObject, IDisposable
             _logger.LogError(ex, "CueForge: saving the beat grid failed for {Hash}", hash);
             Session.SetStatus("Couldn't save the beat grid change; nothing was changed. See the log for details.", isError: true);
         }
+    }
+
+    private void PlaceCursor(double seconds)
+    {
+        if (IsPlaying)
+        {
+            _transport.Pause();
+            this.RaisePropertyChanged(nameof(IsPlaying));
+        }
+        SetPlayhead(seconds);
     }
 
     private void SetPlayhead(double seconds)

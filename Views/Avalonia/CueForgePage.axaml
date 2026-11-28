@@ -609,6 +609,7 @@
                         ZoomLevel="{Binding WaveformZoom, Mode=TwoWay}"
                         ScrollOffset="{Binding WaveformScroll, Mode=TwoWay}"
                         SeekCommand="{Binding SeekPlayheadCommand}"
+                        PlaceCursorCommand="{Binding PlaceCursorCommand}"
                         SelectedCue="{Binding Session.SelectedCue}"
                         SelectCueCommand="{Binding Session.SelectCueCommand}"
                         CueDragStartedCommand="{Binding Session.CueDragStartedCommand}"
@@ -1061,7 +1062,7 @@
                 <TextBlock Classes="caption" Classes.error="{Binding Session.IsStatusError}" Text="{Binding Session.StatusText}"
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                 <TextBlock Grid.Column="1" Classes="caption muted" VerticalAlignment="Center" IsVisible="{Binding HasTrackLoaded}"
-                           Text="Click waveform: playhead · click marker: play from it · drag marker: move · wheel: zoom · Shift+wheel: scroll · Preparation lists all shortcuts"/>
+                           Text="Click or drag the bar ruler: place the cursor (pauses) · click waveform: playhead · click marker: play from it · drag marker: move · wheel: zoom · Shift+wheel: scroll · Preparation lists all shortcuts"/>
             </Grid>
         </Border>
     </Grid>

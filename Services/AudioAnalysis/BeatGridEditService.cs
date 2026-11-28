@@ -40,6 +40,14 @@ public interface IBeatGridEditService
     /// <summary>Moves Bar 1 to the nearest beat; tempo and the beat list are unchanged.</summary>
     Task<GridEditResult> SetDownbeatAsync(string hash, double barOneSeconds, CancellationToken ct);
 
+    /// <summary>
+    /// Anchors the grid on a moment the DJ chose, typically the bass hit of a drop: the whole grid
+    /// shifts (by less than half a beat) so a beat lands exactly on <paramref name="seconds"/>, and
+    /// that beat becomes the 1 of its bar. Tempo and beat spacing stay. One edit, one undo step.
+    /// </summary>
+    Task<GridEditResult> AnchorBarAsync(string hash, double seconds, CancellationToken ct) =>
+        SetDownbeatAsync(hash, seconds, ct);
+
     /// <summary>Restores the analysed BPM and downbeat, regenerating the constant grid.</summary>
     Task<GridEditResult> ResetToAnalysedAsync(string hash, double analysedBpm, double analysedDownbeat, CancellationToken ct);
 
@@ -171,6 +179,40 @@ public sealed class BeatGridEditService : IBeatGridEditService
         double snapped = SnapToBeat(beats, barOneSeconds);
 
         return await WriteGridAsync(hash, features, bpm, beats, snapped, ct).ConfigureAwait(false);
+    }
+
+    public async Task<GridEditResult> AnchorBarAsync(string hash, double seconds, CancellationToken ct)
+    {
+        var features = await _database.GetAudioFeaturesByHashAsync(hash).ConfigureAwait(false);
+        if (features is null)
+            return GridEditResult.Failed("This track has no analysis to store a beat grid in. Analyse it first.");
+
+        double[] beats = BeatGridFitter.ParseTicks(features.BeatGridJson);
+        double bpm = features.Bpm > 0 ? features.Bpm : (beats.Length >= 2 ? MedianIntervalBpm(beats) : 0);
+        if (bpm <= 0)
+            return GridEditResult.Failed("This track has no tempo yet, so there is no grid to anchor. Set the BPM first.");
+
+        double[] shifted = AnchorBeats(beats, bpm, seconds, features.TrackDuration);
+        double bar = 240.0 / bpm;
+        // Bar 1 is the earliest bar line of the new phase; the anchor itself is one of its bar lines.
+        double barOne = seconds - Math.Floor(seconds / bar) * bar;
+        double downbeat = shifted.Length > 0 ? SnapToBeat(shifted, barOne) : Math.Round(barOne, 4);
+        return await WriteGridAsync(hash, features, bpm, shifted, downbeat, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>The beat list moved so its beat nearest <paramref name="seconds"/> sits exactly there.
+    /// A track without a beat list gets a constant grid through that point.</summary>
+    internal static double[] AnchorBeats(double[] beats, double bpm, double seconds, double duration)
+    {
+        if (beats.Length == 0)
+        {
+            double beat = 60.0 / bpm;
+            double first = seconds - Math.Floor(seconds / beat) * beat;
+            return ConstantGrid(first, bpm, duration);
+        }
+        int idx = NearestBeatIndex(beats, seconds);
+        double shift = seconds - beats[idx];
+        return beats.Select(b => Math.Round(b + shift, 4)).Where(b => b >= 0).ToArray();
     }
 
     public async Task<GridEditResult> ResetToAnalysedAsync(string hash, double analysedBpm, double analysedDownbeat, CancellationToken ct)

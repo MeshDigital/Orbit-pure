@@ -185,6 +185,15 @@ public class CueForgeWaveformControl : Control
         AvaloniaProperty.Register<CueForgeWaveformControl, System.Windows.Input.ICommand?>(nameof(SeekCommand));
     public System.Windows.Input.ICommand? SeekCommand { get => GetValue(SeekCommandProperty); set => SetValue(SeekCommandProperty, value); }
 
+    /// <summary>
+    /// Pressing or dragging in the bar ruler places the cursor there (parameter: seconds) without
+    /// playing: the host pauses, so the cursor stays exactly where it was put — for "Bar 1 here" (B)
+    /// on a bass hit or placing a drop (D). Null keeps the ruler a plain seek area.
+    /// </summary>
+    public static readonly StyledProperty<System.Windows.Input.ICommand?> PlaceCursorCommandProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, System.Windows.Input.ICommand?>(nameof(PlaceCursorCommand));
+    public System.Windows.Input.ICommand? PlaceCursorCommand { get => GetValue(PlaceCursorCommandProperty); set => SetValue(PlaceCursorCommandProperty, value); }
+
     /// <summary>Fired when a cue or loop is pressed, so it opens in the inspector.</summary>
     public static readonly StyledProperty<System.Windows.Input.ICommand?> SelectCueCommandProperty =
         AvaloniaProperty.Register<CueForgeWaveformControl, System.Windows.Input.ICommand?>(nameof(SelectCueCommand));
@@ -309,7 +318,7 @@ public class CueForgeWaveformControl : Control
 
     // ── Drag state ─────────────────────────────────────────────────────────
 
-    private enum DragKind { None, Scrub, Cue, LoopStart, LoopEnd, PhraseBoundary }
+    private enum DragKind { None, Scrub, Cue, LoopStart, LoopEnd, PhraseBoundary, Cursor }
     private int _dragPhraseIndex = -1;
     private double _dragPhraseTime;
     private DragKind _drag;
@@ -368,7 +377,7 @@ public class CueForgeWaveformControl : Control
 
         DrawPlayhead(ctx, size);
 
-        if (_readout != null && _drag is DragKind.Cue or DragKind.LoopStart or DragKind.LoopEnd or DragKind.PhraseBoundary)
+        if (_readout != null && _drag is DragKind.Cue or DragKind.LoopStart or DragKind.LoopEnd or DragKind.PhraseBoundary or DragKind.Cursor)
         {
             double w = _readout.Width + 12, h = _readout.Height + 6;
             double x = Math.Clamp(_readoutX + 8, 0, Math.Max(0, size.Width - w));
@@ -990,6 +999,16 @@ public class CueForgeWaveformControl : Control
         _pressPoint = pt;
         _dragMoved = false;
 
+        // The bar ruler is the precise cursor: no cue grabbing, no playback.
+        if (pt.Y < RulerHeight && PlaceCursorCommand is not null)
+        {
+            _drag = DragKind.Cursor;
+            e.Pointer.Capture(this);
+            PlaceCursor(TimeAt(pt), Bounds.Width);
+            e.Handled = true;
+            return;
+        }
+
         if (ShowPhraseSections && IsInPhraseStrip(pt) && PhraseSegments is { Count: > 0 } phrases)
         {
             int boundary = PhraseBoundaryAt(pt.X, phrases);
@@ -1024,6 +1043,17 @@ public class CueForgeWaveformControl : Control
         Seek(TimeAt(pt), force: true);
     }
 
+    private void PlaceCursor(double seconds, double width)
+    {
+        seconds = Math.Clamp(seconds, 0, TrackDuration);
+        _readoutX = TimeToX(seconds, width);
+        var barBeat = CueForgeGrid.FormatBarBeat(seconds, EffectiveBpm, GridOffset);
+        _readout = new FormattedText(barBeat.Length > 0 ? $"{CueForgeGrid.FormatTime(seconds)}  {barBeat}" : CueForgeGrid.FormatTime(seconds),
+            CultureInfo.InvariantCulture, FlowDirection.LeftToRight, MonoTypeface, 11, LabelTextBrush);
+        if (PlaceCursorCommand?.CanExecute(seconds) == true) PlaceCursorCommand.Execute(seconds);
+        InvalidateVisual();
+    }
+
     private void Seek(double seconds, bool force)
     {
         var now = DateTime.UtcNow;
@@ -1048,6 +1078,12 @@ public class CueForgeWaveformControl : Control
                     return;
                 }
                 SetPhraseTip(false);
+                if (pt.Y < RulerHeight && PlaceCursorCommand is not null)
+                {
+                    Cursor = HandleCursor;
+                    ToolTip.SetTip(this, "Click or drag in the bar ruler to place the cursor without playing");
+                    return;
+                }
                 var (kind, _) = HitTest(pt);
                 Cursor = kind == DragKind.None ? ScrubCursor : HandleCursor;
                 SetHoverTip(kind != DragKind.None);
@@ -1055,6 +1091,10 @@ public class CueForgeWaveformControl : Control
 
             case DragKind.Scrub:
                 Seek(TimeAt(pt), force: false);
+                return;
+
+            case DragKind.Cursor:
+                PlaceCursor(TimeAt(pt), w);
                 return;
 
             case DragKind.PhraseBoundary:
@@ -1199,6 +1239,10 @@ public class CueForgeWaveformControl : Control
         {
             if (at is { } p) Seek(TimeAt(p), force: true);
             ScrubbingChanged?.Invoke(this, false);
+        }
+        else if (kind == DragKind.Cursor)
+        {
+            if (at is { } p && PlaceCursorCommand?.CanExecute(TimeAt(p)) == true) PlaceCursorCommand.Execute(TimeAt(p));
         }
         else if (commit && moved && cue != null)
         {
