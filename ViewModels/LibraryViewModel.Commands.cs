@@ -75,6 +75,7 @@ public partial class LibraryViewModel
     public ICommand SyncProjectCommand { get; set; } = null!;
     public ICommand OpenSourceUrlCommand { get; set; } = null!;
     public ICommand ExportPlaylistCommand { get; set; } = null!;
+    public ICommand ExportPlaylistToUsbCommand { get; set; } = null!;
     public ICommand ExportPlaylistM3uCommand { get; set; } = null!;
     public ICommand ExportPlaylistTraktorCommand { get; set; } = null!;
     public ICommand ExportPlaylistVirtualDjCommand { get; set; } = null!;
@@ -182,6 +183,7 @@ public partial class LibraryViewModel
         FindExactDuplicatesCommand = new RelayCommand(() => _eventBus.Publish(new OpenExactDuplicatesRequestedEvent()));
         CloseImportHistoryCommand = new RelayCommand(() => IsImportHistoryVisible = false);
         ExportPlaylistCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistAsync);
+        ExportPlaylistToUsbCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistToUsbAsync);
         InitiateMp3SearchCommand = new AsyncRelayCommand<object>(ExecuteInitiateMp3SearchAsync);
         ExportPlaylistM3uCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistM3uAsync);
         ExportPlaylistTraktorCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistTraktorAsync);

@@ -72,45 +72,7 @@ public partial class LibraryViewModel
 
             if (options.Choice == Views.Avalonia.Dialogs.ExportPlaylistChoice.CopyFilesAndXml)
             {
-                var folder = await _dialogService.OpenFolderDialogAsync("Choose export folder or USB drive root");
-                if (string.IsNullOrEmpty(folder)) return;
-
-                int total = tracks.Count;
-                Services.Export.ExportProgress? lastProgress = null;
-                var progressHandler = new Progress<Services.Export.ExportProgress>(p =>
-                {
-                    lastProgress = p;
-                    if (!p.IsComplete)
-                        _notificationService.Show("Exporting…",
-                            $"[{p.Copied}/{total}] {p.CurrentFile}" +
-                            (p.Skipped > 0 ? $" · {p.Skipped} skipped" : ""),
-                            NotificationType.Information);
-                });
-
-                await _exportOrchestrator.ExportAsync(
-                    project.SourceTitle, tracks, folder,
-                    Services.Export.ExportMode.FilesAndXml,
-                    progressHandler, folderId: project.FolderId, confirmOverwrite: ConfirmRekordboxOverwriteAsync,
-                    layoutMode: options.LayoutMode);
-
-                // Use the orchestrator's own final tally rather than re-deriving "skipped" by
-                // re-checking File.Exists here — that only ever caught missing-file skips, silently
-                // missing every other reason a track can end up left out (copy verification
-                // failure, exceeding FAT32's 4GB single-file limit, disk-full mid-export). Those
-                // are exactly the failure modes a USB export needs to surface, not hide.
-                int skipped = lastProgress?.Skipped ?? 0;
-                var xmlPath = System.IO.Path.Combine(folder, "PIONEER", "rekordbox.xml");
-                // A drive with only files + rekordbox.xml is not yet CDJ-ready — CDJs read
-                // Rekordbox's own native device database (PDB+ANLZ), not this XML directly. The
-                // XML has to go through Rekordbox desktop first (Preferences → Advanced →
-                // rekordbox xml → import), and only Rekordbox's own device-export from there
-                // actually prepares the drive for CDJ hardware. Spelling this out here so it isn't
-                // discovered the hard way at a gig.
-                _notificationService.Show("Export Complete",
-                    $"{xmlPath}" +
-                    (skipped > 0 ? $" · {skipped} track(s) skipped — see logs for why" : "") +
-                    " · Next: import this XML into Rekordbox desktop, then use Rekordbox's own USB export to make this drive CDJ-ready.",
-                    skipped > 0 ? NotificationType.Warning : NotificationType.Success);
+                await ExportPlaylistToUsbFolderAsync(project, tracks, options.LayoutMode);
             }
             else
             {
@@ -139,6 +101,83 @@ public partial class LibraryViewModel
         {
             IsLoading = false;
         }
+    }
+
+    private async Task ExecuteExportPlaylistToUsbAsync(object? param)
+    {
+        if (param is not PlaylistJob project) return;
+
+        try
+        {
+            var tracks = (await _libraryService.LoadPlaylistTracksAsync(project.Id)).ToList();
+            if (tracks.Count == 0)
+            {
+                _notificationService.Show("Nothing to export", $"'{project.SourceTitle}' has no tracks.", NotificationType.Information);
+                return;
+            }
+
+            IsLoading = true;
+            await ExportPlaylistToUsbFolderAsync(project, tracks, layoutMode: null);
+        }
+        catch (OperationCanceledException)
+        {
+            _notificationService.Show("Export Cancelled", "Export was cancelled.", NotificationType.Warning);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "USB export failed");
+            _notificationService.Show("Export Failed", ex.Message, NotificationType.Error);
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task ExportPlaylistToUsbFolderAsync(
+        PlaylistJob project,
+        List<PlaylistTrack> tracks,
+        Services.Export.UsbLayoutMode? layoutMode)
+    {
+        var folder = await _dialogService.OpenFolderDialogAsync("Choose export folder or USB drive root");
+        if (string.IsNullOrEmpty(folder)) return;
+
+        int total = tracks.Count;
+        Services.Export.ExportProgress? lastProgress = null;
+        var progressHandler = new Progress<Services.Export.ExportProgress>(p =>
+        {
+            lastProgress = p;
+            if (!p.IsComplete)
+                _notificationService.Show("Exporting…",
+                    $"[{p.Copied}/{total}] {p.CurrentFile}" +
+                    (p.Skipped > 0 ? $" · {p.Skipped} skipped" : ""),
+                    NotificationType.Information);
+        });
+
+        await _exportOrchestrator.ExportAsync(
+            project.SourceTitle, tracks, folder,
+            Services.Export.ExportMode.FilesAndXml,
+            progressHandler, folderId: project.FolderId, confirmOverwrite: ConfirmRekordboxOverwriteAsync,
+            layoutMode: layoutMode);
+
+        // Use the orchestrator's own final tally rather than re-deriving "skipped" by
+        // re-checking File.Exists here — that only ever caught missing-file skips, silently
+        // missing every other reason a track can end up left out (copy verification
+        // failure, exceeding FAT32's 4GB single-file limit, disk-full mid-export). Those
+        // are exactly the failure modes a USB export needs to surface, not hide.
+        int skipped = lastProgress?.Skipped ?? 0;
+        var xmlPath = System.IO.Path.Combine(folder, "PIONEER", "rekordbox.xml");
+        // A drive with only files + rekordbox.xml is not yet CDJ-ready — CDJs read
+        // Rekordbox's own native device database (PDB+ANLZ), not this XML directly. The
+        // XML has to go through Rekordbox desktop first (Preferences → Advanced →
+        // rekordbox xml → import), and only Rekordbox's own device-export from there
+        // actually prepares the drive for CDJ hardware. Spelling this out here so it isn't
+        // discovered the hard way at a gig.
+        _notificationService.Show("Export Complete",
+            $"{xmlPath}" +
+            (skipped > 0 ? $" · {skipped} track(s) skipped — see logs for why" : "") +
+            " · Next: import this XML into Rekordbox desktop, then use Rekordbox's own USB export to make this drive CDJ-ready.",
+            skipped > 0 ? NotificationType.Warning : NotificationType.Success);
     }
 
     private async Task ExecuteExportPlaylistM3uAsync(object? param)

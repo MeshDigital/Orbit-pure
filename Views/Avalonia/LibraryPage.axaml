@@ -347,6 +347,10 @@
                                                                       IsEnabled="{ReflectionBinding $parent[UserControl].DataContext.Projects.HasMultiplePlaylistsSelected}"
                                                                       ToolTip.Tip="Select 2+ playlists (Ctrl/Shift-click) to combine their tracks into a new, auto-arranged playlist"/>
                                                             <MenuItem Header="Export">
+                                                                <MenuItem Header="Export to USB / folder…"
+                                                                          Command="{ReflectionBinding $parent[UserControl].DataContext.ExportPlaylistToUsbCommand}"
+                                                                          CommandParameter="{Binding Card.Model}"
+                                                                          ToolTip.Tip="Copy audio files and PIONEER/rekordbox.xml to a USB drive, external SSD, or folder"/>
                                                                 <MenuItem Header="Rekordbox XML…"
                                                                           Command="{ReflectionBinding $parent[UserControl].DataContext.ExportPlaylistCommand}"
                                                                           CommandParameter="{Binding Card.Model}"/>
