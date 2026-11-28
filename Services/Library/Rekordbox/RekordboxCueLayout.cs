@@ -87,13 +87,14 @@ public static class RekordboxCueLayout
         var pointCues = allCues.Where(c => !c.IsLoop).ToList();
         var loopCues  = allCues.Where(c => c.IsLoop).ToList();
 
-        static bool IsCountdownCue(OrbitCue c) =>
-            Engine.Cueing.DropCountdownCues.CountdownBars(c.Name) != null;
+        static bool IsMemoryStripCue(OrbitCue c) =>
+            Engine.Cueing.DropCountdownCues.CountdownBars(c.Name) != null
+            || Engine.Cueing.DropCountdownCues.PostDropBars(c.Name) != null;
 
         // Reserve every pad explicitly claimed by a loop OR a non-countdown point cue first, so
         // auto-assignment can never clobber a pad another cue/loop deliberately set via SlotIndex.
         var reservedPads = new HashSet<int>(allCues
-            .Where(c => (c.IsLoop || !IsCountdownCue(c)) && c.SlotIndex is >= 0 and <= 7)
+            .Where(c => (c.IsLoop || !IsMemoryStripCue(c)) && c.SlotIndex is >= 0 and <= 7)
             .Select(c => c.SlotIndex));
         int nextFreePad = 0;
         int NextAvailablePad()
@@ -111,9 +112,9 @@ public static class RekordboxCueLayout
 
         foreach (var cue in pointCues)
         {
-            // Countdowns ([IN -16], [IN2 -8], ...) belong on the memory strip so hot-cue pads stay
-            // clean for points you actually jump to (Intro, Drop 1, Drop 2, Out).
-            if (IsCountdownCue(cue))
+            // Countdowns ([IN -16], [IN2 -8], ...) and post-drop phrase cues ([D1 +16], ...) belong
+            // on the memory strip so hot-cue pads stay clean for jump points (Intro, Drop 1, Drop 2, Out).
+            if (IsMemoryStripCue(cue))
             {
                 marks.Add(new RekordboxMark(cue.Name, false, cue.Timestamp, 0, -1, cue.Color));
                 continue;

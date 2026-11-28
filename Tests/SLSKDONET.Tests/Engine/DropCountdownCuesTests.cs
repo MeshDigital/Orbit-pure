@@ -212,4 +212,68 @@ public class DropCountdownCuesTests
         Assert.Equal(2, left.Count(c => c.Role == CueRole.Build));
         Assert.All(left.Where(c => c.Role == CueRole.Build), c => Assert.True(c.Timestamp > AtBar(32)));
     }
+
+    [Fact]
+    public void OutTime_RespectsCustomOutBarsAfterLastDrop()
+    {
+        Assert.Equal(AtBar(112), DropCountdownCues.OutTime(AtBar(96), Bpm, Downbeat, Duration, outBarsAfterLastDrop: 16)!.Value, 6);
+        Assert.Equal(AtBar(144), DropCountdownCues.OutTime(AtBar(96), Bpm, Downbeat, Duration, outBarsAfterLastDrop: 48)!.Value, 6);
+        Assert.Equal(AtBar(160), DropCountdownCues.OutTime(AtBar(96), Bpm, Downbeat, Duration, outBarsAfterLastDrop: 64)!.Value, 6);
+    }
+
+    [Fact]
+    public void Refresh_UpdatesOutPosition_WhenOutRuleChanges_ButLeavesHandMovedOutAlone()
+    {
+        var list = DropCountdownCues.PlaceDrop(new List<OrbitCue>(), AtBar(32), null, DnB, Bpm, Downbeat, Duration, out _,
+            outBarsAfterLastDrop: 32);
+        Assert.Equal(AtBar(64), list.Single(c => c.Name == "[OUT]").Timestamp, 6);
+
+        // Changing [OUT] rule from 32 → 48 moves an untouched [OUT].
+        double? outBefore = DropCountdownCues.CurrentOutTime(list, Bpm, Downbeat, Duration, outBarsAfterLastDrop: 32);
+        list = DropCountdownCues.Refresh(list, DnB, Bpm, Downbeat, Duration, outBefore, outBarsAfterLastDrop: 48);
+        Assert.Equal(AtBar(80), list.Single(c => c.Name == "[OUT]").Timestamp, 6);
+
+        // If the user moves [OUT] by hand, changing the rule again leaves it alone.
+        var handOut = list.Single(c => c.Name == "[OUT]");
+        handOut.Timestamp = AtBar(90);
+        double? outBefore2 = DropCountdownCues.CurrentOutTime(list, Bpm, Downbeat, Duration, outBarsAfterLastDrop: 48);
+        list = DropCountdownCues.Refresh(list, DnB, Bpm, Downbeat, Duration, outBefore2, outBarsAfterLastDrop: 16);
+        Assert.Equal(AtBar(90), list.Single(c => c.Name == "[OUT]").Timestamp, 6);
+    }
+
+    [Fact]
+    public void PostDropBars_PlaceMemoryCuesOnly_AndFollowDropOrClearCleanly()
+    {
+        var post = DropCountdownCues.ParsePostDropBars("32, 16");
+        Assert.Equal(new[] { 16, 32 }, post);
+
+        var list = DropCountdownCues.PlaceDrop(new List<OrbitCue>(), AtBar(32), null, DnB, Bpm, Downbeat, Duration, out _,
+            postDropBars: post);
+        var d16 = list.Single(c => c.Name == "[D1 +16]");
+        var d32 = list.Single(c => c.Name == "[D1 +32]");
+        Assert.Equal(-1, d16.SlotIndex);
+        Assert.Equal(-1, d32.SlotIndex);
+        Assert.Equal(AtBar(48), d16.Timestamp, 6);
+        Assert.Equal(AtBar(64), d32.Timestamp, 6);
+
+        // Rekordbox layout keeps post-drop cues on the memory strip (Num == -1), never on hot-cue pads.
+        var marks = SLSKDONET.Services.Library.Rekordbox.RekordboxCueLayout.Build(list, Bpm);
+        Assert.Equal(-1, marks.Single(m => m.Name == "[D1 +16]").Num);
+        Assert.Equal(-1, marks.Single(m => m.Name == "[D1 +32]").Num);
+
+        // Clearing post-drop bars removes the auto-placed post-drop markers.
+        double? outBefore = DropCountdownCues.CurrentOutTime(list, Bpm, Downbeat, Duration);
+        list = DropCountdownCues.Refresh(list, DnB, Bpm, Downbeat, Duration, outBefore, postDropBars: System.Array.Empty<int>());
+        Assert.DoesNotContain(list, c => c.Name.StartsWith("[D1 +"));
+    }
+
+    [Fact]
+    public void PostDropBars_PastTrackEnd_AreSkipped()
+    {
+        var group = DropCountdownCues.Layout(1, Duration - 10 * Bar, DnB, Bpm,
+            postDropBars: new[] { 8, 16, 32 }, duration: Duration);
+        Assert.Contains(group, c => c.Name == "[D1 +8]");
+        Assert.DoesNotContain(group, c => c.Name == "[D1 +16]");
+        Assert.DoesNotContain(group, c => c.Name == "[D1 +32]");
+    }
 }

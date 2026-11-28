@@ -217,6 +217,13 @@ public class AppConfig
     /// free; the drops keep C and F. [Cues] CountdownsAsMemoryCues.</summary>
     public bool CountdownsAsMemoryCues { get; set; }
 
+    /// <summary>Bars after the last drop where [OUT] is placed (default 32). [Cues] DropOutBarsAfterLastDrop.</summary>
+    public int DropOutBarsAfterLastDrop { get; set; } = 32;
+
+    /// <summary>Optional comma-separated bar offsets after each drop placed as memory cues
+    /// (e.g. "16,32" → [D1 +16], [D1 +32]). Empty = off. [Cues] DropPostBars.</summary>
+    public string DropPostBars { get; set; } = "";
+
     /// <summary>Playlist Discover panel sources (public Beatport pages / Deezer API).</summary>
     public bool DiscoverUseBeatport { get; set; } = true;
 

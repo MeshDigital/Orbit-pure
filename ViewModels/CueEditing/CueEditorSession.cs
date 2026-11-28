@@ -660,6 +660,117 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
 
     private bool MemoryCountdowns => _registry.Templates.CountdownsAsMemoryCues;
 
+    public const string CustomOutPreset = "Custom";
+    public static IReadOnlyList<string> OutBarsPresets { get; } = new[] { "+16 bars", "+32 bars", "+48 bars", "+64 bars", CustomOutPreset };
+
+    private bool _customOutSelected;
+
+    /// <summary>Bars after the last drop where [OUT] is placed (default 32).</summary>
+    public int OutBarsAfterLastDrop => _registry.Templates.OutBarsAfterLastDrop;
+
+    /// <summary>Selected [OUT] offset preset in the DROP RULES bar.</summary>
+    public string SelectedOutBarsPreset
+    {
+        get
+        {
+            if (_customOutSelected) return CustomOutPreset;
+            return OutBarsAfterLastDrop switch
+            {
+                16 => "+16 bars",
+                32 => "+32 bars",
+                48 => "+48 bars",
+                64 => "+64 bars",
+                _ => CustomOutPreset,
+            };
+        }
+        set
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+            if (value == CustomOutPreset)
+            {
+                if (_customOutSelected) return;
+                _customOutSelected = true;
+                this.RaisePropertyChanged(nameof(SelectedOutBarsPreset));
+                this.RaisePropertyChanged(nameof(IsCustomOutBars));
+                return;
+            }
+            int? parsed = value switch
+            {
+                "+16 bars" => 16,
+                "+32 bars" => 32,
+                "+48 bars" => 48,
+                "+64 bars" => 64,
+                _ => null,
+            };
+            if (parsed is not { } bars) return;
+            _customOutSelected = false;
+            ApplyOutBarsChange(bars);
+        }
+    }
+
+    public bool IsCustomOutBars => _customOutSelected || !DropCountdownCues.OutBarsPresets.Contains(OutBarsAfterLastDrop);
+
+    /// <summary>Text backing the Custom [OUT] offset box (bars after the last drop).</summary>
+    public string CustomOutBars
+    {
+        get => OutBarsAfterLastDrop.ToString(CultureInfo.InvariantCulture);
+        set
+        {
+            if (int.TryParse((value ?? "").Trim().TrimStart('+'), NumberStyles.Integer, CultureInfo.InvariantCulture, out int bars)
+                && bars is >= 4 and <= 128)
+            {
+                _customOutSelected = !DropCountdownCues.OutBarsPresets.Contains(bars);
+                ApplyOutBarsChange(bars);
+            }
+        }
+    }
+
+    /// <summary>Optional comma-separated bar offsets after each drop placed as memory cues (e.g. "16,32").</summary>
+    public string PostDropBars
+    {
+        get => _registry.Templates.PostDropBars;
+        set
+        {
+            string normalized = (value ?? "").Trim();
+            if (normalized == _registry.Templates.PostDropBars) return;
+            double? outBefore = OutBefore();
+            _registry.Templates.SetPostDropBars(normalized);
+            RefreshOpenDropsForRuleChange(outBefore);
+        }
+    }
+
+    private IReadOnlyList<int> PostDropBarsList => _registry.Templates.ResolvePostDropBars();
+
+    private void ApplyOutBarsChange(int bars)
+    {
+        double? outBefore = OutBefore();
+        bool changed = bars != OutBarsAfterLastDrop;
+        if (changed)
+            _registry.Templates.SetOutBarsAfterLastDrop(bars);
+        this.RaisePropertyChanged(nameof(OutBarsAfterLastDrop));
+        this.RaisePropertyChanged(nameof(SelectedOutBarsPreset));
+        this.RaisePropertyChanged(nameof(IsCustomOutBars));
+        this.RaisePropertyChanged(nameof(CustomOutBars));
+        this.RaisePropertyChanged(nameof(DropRulesSummary));
+        if (changed)
+            RefreshOpenDropsForRuleChange(outBefore);
+    }
+
+    private void RefreshOpenDropsForRuleChange(double? outBefore)
+    {
+        if (TrackHash != null && Cues.Any(c => !c.IsLoop && c.Role == CueRole.Drop))
+        {
+            PushSnapshot();
+            ReplaceCues(DropCountdownCues.Refresh(Cues, CountdownBars, Bpm, GridOffset, Duration, outBefore,
+                MemoryCountdowns, OutBarsAfterLastDrop, PostDropBarsList));
+            Changed($"Updated drop rules ({DropRulesSummary})");
+        }
+        else if (TrackHash != null)
+        {
+            RefreshSections();
+        }
+    }
+
     /// <summary>What the template does for this track, e.g. "Auto → DnB / Bass".</summary>
     public string TemplateHint
     {
@@ -688,9 +799,14 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         get
         {
             var bars = CountdownBars;
+            var post = PostDropBarsList;
             string where = CountdownsAsMemoryCues ? "memory" : "pads";
-            if (bars.Count == 0) return "On D: [DROP] only";
-            return $"On D: {string.Join(" ", bars.Select(b => $"−{b}"))} ({where}) → [DROP]";
+            string core = bars.Count == 0
+                ? "On D: [DROP]"
+                : $"On D: {string.Join(" ", bars.Select(b => $"−{b}"))} ({where}) → [DROP]";
+            if (post.Count > 0)
+                core += $" → {string.Join(" ", post.Select(b => $"+{b}"))} (memory)";
+            return $"{core} · [OUT] +{OutBarsAfterLastDrop}";
         }
     }
 
@@ -717,7 +833,8 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         if (TrackHash != null && Cues.Any(c => !c.IsLoop && c.Role == CueRole.Drop))
         {
             PushSnapshot();
-            ReplaceCues(DropCountdownCues.Refresh(Cues, CountdownBars, Bpm, GridOffset, Duration, OutBefore(), MemoryCountdowns));
+            ReplaceCues(DropCountdownCues.Refresh(Cues, CountdownBars, Bpm, GridOffset, Duration, OutBefore(),
+                MemoryCountdowns, OutBarsAfterLastDrop, PostDropBarsList));
             Changed($"Updated drop countdowns ({DropRulesSummary})");
         }
     }
@@ -728,6 +845,11 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(CustomCountdownBars));
         this.RaisePropertyChanged(nameof(IsCustomTemplate));
         this.RaisePropertyChanged(nameof(CountdownsAsMemoryCues));
+        this.RaisePropertyChanged(nameof(OutBarsAfterLastDrop));
+        this.RaisePropertyChanged(nameof(SelectedOutBarsPreset));
+        this.RaisePropertyChanged(nameof(IsCustomOutBars));
+        this.RaisePropertyChanged(nameof(CustomOutBars));
+        this.RaisePropertyChanged(nameof(PostDropBars));
         this.RaisePropertyChanged(nameof(TemplateHint));
         this.RaisePropertyChanged(nameof(HasBar64));
         this.RaisePropertyChanged(nameof(HasBar32));
@@ -825,7 +947,8 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         if (cue.Role == CueRole.Drop)
         {
             var left = DropCountdownCues.RemoveFor(Cues, cue.Timestamp, Bpm);
-            ReplaceCues(DropCountdownCues.Refresh(left, CountdownBars, Bpm, GridOffset, Duration, outBefore, MemoryCountdowns));
+            ReplaceCues(DropCountdownCues.Refresh(left, CountdownBars, Bpm, GridOffset, Duration, outBefore,
+                MemoryCountdowns, OutBarsAfterLastDrop, PostDropBarsList));
         }
         Changed($"Deleted \"{cue.Name}\". Ctrl+Z to undo.");
         if (wasActiveLoop) ActiveLoopRemoved?.Invoke(this, EventArgs.Empty);
@@ -911,7 +1034,8 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         t = Math.Clamp(t, 0, Duration);
         int autoBefore = Cues.Count(c => c.Source == CueSource.Auto);
         bool hadTwoDropsBefore = Cues.Count(c => c.Role == CueRole.Drop && !c.IsLoop) >= 2;
-        var list = DropCountdownCues.PlaceDrop(Cues, t, number, CountdownBars, Bpm, GridOffset, Duration, out var drop, MemoryCountdowns);
+        var list = DropCountdownCues.PlaceDrop(Cues, t, number, CountdownBars, Bpm, GridOffset, Duration, out var drop,
+            MemoryCountdowns, OutBarsAfterLastDrop, PostDropBarsList);
 
         // When placing Drop 1 manually on a track without a 2nd drop yet, auto-detect a clear
         // 2nd drop from the phrase structure (e.g. DnB Drop 1 -> Breakdown -> Drop 2) so [DROP 2],
@@ -922,7 +1046,8 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
             double? secondDropTime = DropCountdownCues.DetectSecondDrop(drop.Timestamp, _structurePhrases, Bpm, GridOffset, Duration);
             if (secondDropTime is { } d2)
             {
-                list = DropCountdownCues.PlaceDrop(list, d2, number: 2, CountdownBars, Bpm, GridOffset, Duration, out autoSecondDrop, MemoryCountdowns);
+                list = DropCountdownCues.PlaceDrop(list, d2, number: 2, CountdownBars, Bpm, GridOffset, Duration,
+                    out autoSecondDrop, MemoryCountdowns, OutBarsAfterLastDrop, PostDropBarsList);
             }
         }
 
@@ -945,8 +1070,10 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         int cleared = wasAuto ? ClearAutoCues(cue) : 0;
         if (cue.Role != CueRole.Drop) return cleared;
         double? outBefore = OutBefore(cue, from);
-        var list = DropCountdownCues.Rebuild(Cues, cue, CountdownBars, Bpm, previousDropTime: from, countdownsAsMemoryCues: MemoryCountdowns);
-        ReplaceCues(DropCountdownCues.Refresh(list, CountdownBars, Bpm, GridOffset, Duration, outBefore, MemoryCountdowns));
+        var list = DropCountdownCues.Rebuild(Cues, cue, CountdownBars, Bpm, previousDropTime: from,
+            countdownsAsMemoryCues: MemoryCountdowns, postDropBars: PostDropBarsList, duration: Duration);
+        ReplaceCues(DropCountdownCues.Refresh(list, CountdownBars, Bpm, GridOffset, Duration, outBefore,
+            MemoryCountdowns, OutBarsAfterLastDrop, PostDropBarsList));
         return cleared;
     }
 
@@ -969,7 +1096,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
     {
         var drops = Cues.Where(c => c.Role == CueRole.Drop && !c.IsLoop)
             .Select(c => c == moved ? movedFrom : c.Timestamp).ToList();
-        return drops.Count == 0 ? null : DropCountdownCues.OutTime(drops.Max(), Bpm, GridOffset, Duration);
+        return drops.Count == 0 ? null : DropCountdownCues.OutTime(drops.Max(), Bpm, GridOffset, Duration, OutBarsAfterLastDrop);
     }
 
     private void SetSelectedCueRole(CueRole role)
@@ -994,7 +1121,8 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         {
             // A drop that stopped being a drop leaves no orphaned countdowns behind.
             var left = DropCountdownCues.RemoveFor(Cues, cue.Timestamp, Bpm);
-            ReplaceCues(DropCountdownCues.Refresh(left, CountdownBars, Bpm, GridOffset, Duration, outBefore, MemoryCountdowns));
+            ReplaceCues(DropCountdownCues.Refresh(left, CountdownBars, Bpm, GridOffset, Duration, outBefore,
+                MemoryCountdowns, OutBarsAfterLastDrop, PostDropBarsList));
         }
         FieldEdited(cue, $"{cue.Name} is now {role}");
     }
@@ -1168,7 +1296,7 @@ public sealed class CueEditorSession : ReactiveObject, IDisposable
         SectionSuggestion suggestion = default;
         if (TrackHash != null && (!hasMixIn || !hasMixOut))
         {
-            var all = SectionMarkers.Suggest(_structurePhrases, Cues, Bpm, GridOffset, Duration);
+            var all = SectionMarkers.Suggest(_structurePhrases, Cues, Bpm, GridOffset, Duration, OutBarsAfterLastDrop);
             double? ie = !hasMixIn ? all.IntroEnd : null;
             double? os = !hasMixOut ? all.OutroStart : null;
             // A suggestion must still fit around the marker that is set.

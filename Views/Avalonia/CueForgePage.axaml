@@ -682,6 +682,21 @@
                                       Content="Memory cues"
                                       ToolTip.Tip="Place drop countdowns as memory cues so hot-cue pads stay free; drops stay on pads C and F."/>
                             <Border Classes="divider vertical" Height="16" Margin="4,0,8,0"/>
+                            <TextBlock Classes="section" Text="AFTER DROP" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <ComboBox Classes="small" MinWidth="92" Margin="0,0,4,0"
+                                      ItemsSource="{x:Static vm:CueEditorSession.OutBarsPresets}"
+                                      SelectedItem="{Binding Session.SelectedOutBarsPreset}"
+                                      ToolTip.Tip="Bars after the last drop where [OUT] is placed (default +32 bars)."/>
+                            <TextBox Classes="small" Width="56" Margin="0,0,4,0"
+                                     Text="{Binding Session.CustomOutBars}"
+                                     IsVisible="{Binding Session.IsCustomOutBars}"
+                                     Watermark="bars"
+                                     ToolTip.Tip="Custom number of bars after the last drop for [OUT] (4–128)."/>
+                            <TextBox Classes="small" Width="96" Margin="0,0,8,0"
+                                     Text="{Binding Session.PostDropBars}"
+                                     Watermark="+bars (e.g. 16)"
+                                     ToolTip.Tip="Optional comma-separated bar offsets after each drop placed as memory cues (e.g. 16,32 → [D1 +16], [D1 +32]). Leave empty for none."/>
+                            <Border Classes="divider vertical" Height="16" Margin="4,0,8,0"/>
                             <TextBlock Classes="section" Text="AUTO-CUE" VerticalAlignment="Center" Margin="0,0,8,0"/>
                             <ComboBox Classes="small" MinWidth="126" Margin="0,0,8,0"
                                       ItemsSource="{Binding AvailableCueGenerationProfiles}"

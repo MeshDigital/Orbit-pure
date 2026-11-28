@@ -84,6 +84,31 @@ public sealed class CueTemplateSettings
         Persist("countdown cue routing");
     }
 
+    /// <summary>Bars after the last drop where [OUT] is placed (default 32).</summary>
+    public int OutBarsAfterLastDrop => Math.Clamp(_config.DropOutBarsAfterLastDrop, 4, 128);
+
+    public void SetOutBarsAfterLastDrop(int bars)
+    {
+        int clamped = Math.Clamp(bars, 4, 128);
+        if (clamped == OutBarsAfterLastDrop) return;
+        _config.DropOutBarsAfterLastDrop = clamped;
+        Persist("outro offset rule");
+    }
+
+    /// <summary>Optional comma-separated bar offsets after each drop (e.g. "16,32"). Empty = off.</summary>
+    public string PostDropBars => _config.DropPostBars ?? "";
+
+    public void SetPostDropBars(string? bars)
+    {
+        string normalized = (bars ?? "").Trim();
+        if (normalized == PostDropBars) return;
+        _config.DropPostBars = normalized;
+        Persist("post-drop cue rules");
+    }
+
+    public IReadOnlyList<int> ResolvePostDropBars() =>
+        DropCountdownCues.ParsePostDropBars(PostDropBars);
+
     public IReadOnlyList<int> ResolveBars(string? genre, double bpm) =>
         DropCountdownCues.ResolveBars(Mode, genre, bpm, CustomBars);
 
