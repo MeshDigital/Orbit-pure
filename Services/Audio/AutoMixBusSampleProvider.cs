@@ -65,6 +65,7 @@ internal sealed class AutoMixBusSampleProvider : ISampleProvider
 
     private readonly object _gate = new();
     private readonly TransitionEngine _transitionEngine = new();
+    private readonly Limiter _limiter;
 
     private MixBusDeck? _active;
     private ScheduledMixTransition? _scheduled;
@@ -75,11 +76,15 @@ internal sealed class AutoMixBusSampleProvider : ISampleProvider
     private volatile bool _isPaused;
     private float[] _mixScratch = new float[MaxBlockFrames * Channels];
 
+    /// <summary>Safety ceiling at the end of the live Auto-Mix bus (−1.0 dBFS).</summary>
+    internal const float LimiterCeilingDb = -1.0f;
+
     public WaveFormat WaveFormat { get; }
 
     public AutoMixBusSampleProvider(int sampleRate = DefaultSampleRate)
     {
         WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, Channels);
+        _limiter = new Limiter(thresholdDb: LimiterCeilingDb, lookAheadMs: 0f, sampleRate: sampleRate, releaseMs: 60f);
     }
 
     public bool IsPaused
@@ -153,7 +158,11 @@ internal sealed class AutoMixBusSampleProvider : ISampleProvider
             _scheduled = null;
             _transitionActive = false;
             _activeRenderedFrames = Math.Max(0, initialRenderedFrames);
-            if (_active != null)
+            if (_active == null)
+            {
+                _limiter.Reset();
+            }
+            else
             {
                 _active.Gain.Volume = _masterVolume * _active.LoudnessGain;
                 if (_active.Eq != null)
@@ -188,7 +197,11 @@ internal sealed class AutoMixBusSampleProvider : ISampleProvider
         {
             _scheduled = null;
             _transitionActive = false;
-            if (_active != null)
+            if (_active == null)
+            {
+                _limiter.Reset();
+            }
+            else
             {
                 _active.Gain.Volume = _masterVolume * _active.LoudnessGain;
                 if (_active.Eq != null) _active.Eq.Active = false;
@@ -326,7 +339,10 @@ internal sealed class AutoMixBusSampleProvider : ISampleProvider
             if (endedEvent != null) ActiveDeckEnded?.Invoke(endedEvent);
         }
 
-        return framesWritten * Channels;
+        int samplesWritten = framesWritten * Channels;
+        if (samplesWritten > 0)
+            _limiter.Process(buffer, offset, samplesWritten);
+        return samplesWritten;
     }
 
     private (MixBusDeck Outgoing, MixBusDeck Incoming) FinishTransitionLocked()
@@ -376,8 +392,10 @@ internal sealed class AutoMixBusSampleProvider : ISampleProvider
         }
         else
         {
-            outgoing.Gain.Volume = (float)(_masterVolume * outgoing.LoudnessGain * Math.Cos(t * Math.PI / 2.0));
-            incoming.Gain.Volume = (float)(_masterVolume * incoming.LoudnessGain * Math.Sin(t * Math.PI / 2.0));
+            // Constant-sum linear crossfade (matching TransitionEngine.CalculateCrossfade) so two
+            // overlapping full-scale tracks stay at unity sum instead of peaking at +3.01 dB.
+            outgoing.Gain.Volume = (float)(_masterVolume * outgoing.LoudnessGain * (1.0 - t));
+            incoming.Gain.Volume = (float)(_masterVolume * incoming.LoudnessGain * t);
         }
     }
 
